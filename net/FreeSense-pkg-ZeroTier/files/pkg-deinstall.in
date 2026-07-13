@@ -1,0 +1,5 @@
+#!/bin/sh
+[ "$2" = "DEINSTALL" ] || exit 0
+/usr/sbin/service zerotier onestop >/dev/null 2>&1 || true
+/usr/sbin/sysrc -x zerotier_enable >/dev/null 2>&1 || true
+/usr/local/bin/php -f /etc/rc.packages %%PORTNAME%% "$2"

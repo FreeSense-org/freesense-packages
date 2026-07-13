@@ -1,0 +1,5 @@
+Optional local malware scanning companion for FreeSense Web Gateway.
+
+Installs ClamAV, c-icap, c-icap-modules and squidclamav. Web Gateway keeps the
+scanner disabled until an administrator explicitly enables local scanning and
+chooses fail-open or fail-closed behavior under Threat Protection.

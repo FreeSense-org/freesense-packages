@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<freesensepkgs>
+	<package>
+		<name>nut</name>
+		<pkginfolink>https://docs.freesense.org/en/latest/packages/nut.html</pkginfolink>
+		<website>http://networkupstools.org/</website>
+		<descr><![CDATA[Network UPS Tools]]></descr>
+		<version>%%PKGVERSION%%</version>
+		<configurationfile>nut.xml</configurationfile>
+	</package>
+</freesensepkgs>

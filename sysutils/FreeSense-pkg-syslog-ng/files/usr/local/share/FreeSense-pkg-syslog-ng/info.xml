@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<freesensepkgs>
+	<package>
+		<name>syslog-ng</name>
+		<website>http://www.balabit.com/network-security/syslog-ng/</website>
+		<descr><![CDATA[Syslog-ng syslog server. This service is not intended to replace the default FreeSense syslog server but rather acts as an independent syslog server.]]></descr>
+		<version>%%PKGVERSION%%</version>
+		<configurationfile>syslogng.xml</configurationfile>
+		<plugins>
+			<item>
+				<type>plugin_certificates</type>
+			</item>
+		</plugins>
+	</package>
+</freesensepkgs>

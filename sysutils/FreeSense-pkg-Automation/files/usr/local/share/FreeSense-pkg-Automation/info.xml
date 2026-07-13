@@ -1,0 +1,2 @@
+<?xml version="1.0"?>
+<freesensepkgs><package><name>Automation</name><website>https://www.freesense.org/</website><descr><![CDATA[Scheduled tasks and service watchdog.]]></descr><version>1.0.0</version><configurationfile>automation.xml</configurationfile></package></freesensepkgs>

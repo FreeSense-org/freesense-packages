@@ -1,0 +1,188 @@
+<?php
+/*
+ * suricata_filecheck.php
+ *
+ * part of FreeSense (https://www.freesense.org)
+ * Copyright (c) 2004-2026 The FreeSense Project
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+require('guiconfig.inc');
+require_once("/usr/local/pkg/suricata/suricata.inc");
+
+$file_hash = $_REQUEST['filehash'];
+$uuid = $_REQUEST['uuid'];
+$file_name = urldecode($_REQUEST['filename']);
+$file_size = urldecode($_REQUEST['filesize']);
+$a_instance = config_get_path('installedpackages/suricata/rule', []);
+
+foreach ($a_instance as $instance) {
+	if (($instance['uuid'] == $uuid) &&
+	    ($instance['enable_file_store'] == 'on') &&
+	    !empty($instance['file_store_logdir'])) {
+		foreach (suricata_listfiles(base64_decode($instance['file_store_logdir'])) as $path) {
+			if (basename($path) == $file_hash) {
+				$filepath = $path;
+				$filetype = exec('/usr/bin/file -b ' . escapeshellarg($path) . ' 2>/dev/null');
+				break 2;
+			}
+		}
+	}
+}
+
+if (!empty($filepath) &&
+    file_exists($filepath)) {
+	if ($_POST['download']) {
+		if (isset($_SERVER['HTTPS'])) {
+			header('Pragma: ');
+			header('Cache-Control: ');
+		} else {
+			header("Pragma: private");
+			header("Cache-Control: private, must-revalidate");
+		}
+		header("Content-Type: application/octet-stream");
+		header("Content-length: " . filesize($filepath));
+		header("Content-disposition: attachment; filename = {$file_hash}.file");
+		readfile($filepath);
+	}
+} else {
+	$input_errors[] = gettext("The requested file does not exist.");
+}
+
+$pglinks = array("", "/suricata/suricata_interfaces.php", "@self");
+$pgtitle = array("Services", "Suricata", "File Check");
+include_once("head.inc");
+suricata_display_primary_navigation('maintenance');
+
+if ($input_errors) {
+	print_input_errors($input_errors);
+	die;
+}
+
+if ($savemsg) {
+	print_info_box($savemsg);
+}
+
+?>
+
+<div class="card mb-3">
+	<div class="card-header">
+		<h4 class="h5 mb-0"><?=gettext("Online Malware File Hash Check")?></h4>
+	</div>
+	<div>
+		<p class="text-center"><br/>NOTE:&emsp;The following links are to external services, so their reliability cannot be guaranteed.
+			It is also recommended to open these links in a different Browser</p>
+	</div>
+	<div>
+		<table class="table table-striped table-hover table-compact">
+			<thead>
+				<tr>
+					<th width="20%"><!-- Icon field --></th>
+					<th><!-- Threat Source Link --></th>
+				</tr>
+			</thead>
+			<tbody>
+				<!-- IP threat source links -->
+				<tr>
+					<td><span style="color: blue;">Hash Lookups</span><i class="fa-solid fa-globe float-end"></i></td>
+					<td><a target="_blank" href="https://www.virustotal.com/gui/file/<?=urlencode($file_hash);?>/detection/">
+						<?=gettext("VirusTotal");?></a></td>
+				</tr>
+				<tr>
+					<td><i class="fa-solid fa-globe float-end"></i></td>
+					<td><a target="_blank" href="https://www.hybrid-analysis.com/sample/<?=urlencode($file_hash);?>">
+						<?=gettext("Hybrid Analysis");?></a></td>
+				</tr>
+				<tr>
+					<td><i class="fa-solid fa-globe float-end"></i></td>	
+					<td><a target="_blank" href="https://virusscan.jotti.org/en-US/search/hash/<?=urlencode($file_hash);?>">
+						<?=gettext("Jotti's malware scan");?></a></td>
+				</tr>
+				<tr>
+					<td><i class="fa-solid fa-globe float-end"></i></td>	
+					<td><a target="_blank" href="https://metadefender.opswat.com/results/file/<?=urlencode($file_hash);?>/hash/overview?lang=en">
+						<?=gettext("OPSWAT MetaDefender Cloud");?></a></td>
+				</tr>
+				<tr>
+					<td><i class="fa-solid fa-globe float-end"></i></td>	
+					<td><a target="_blank" href="https://www.joesandbox.com/search?q=<?=urlencode($file_hash);?>">
+						<?=gettext("JOESandbox Cloud");?></a></td>
+				</tr>
+				<tr>
+					<td><i class="fa-solid fa-globe float-end"></i></td>	
+					<td><a target="_blank" href="https://opentip.kaspersky.com/<?=urlencode($file_hash);?>/">
+						<?=gettext("Kaspersky Threat Intelligence Portal");?></a></td>
+				</tr>
+				<tr>
+					<td><i class="fa-solid fa-globe float-end"></i></td>	
+					<td><a target="_blank" href="https://beta.virusbay.io/sample/browse?q=<?=urlencode($file_hash);?>">
+						<?=gettext("VirusBay");?></a></td>
+				</tr>
+			</tbody>
+		</table>
+	</div>
+</div>
+
+<?php 
+$form = new Form(false);
+$form->setAttribute('name', 'formalert')->setAttribute('id', 'formalert');
+
+$section = new Form_Section('File Info');
+
+$section->addInput(new Form_StaticText(
+	'Name',
+	'<br\>' . htmlspecialchars($file_name) . '&nbsp;',
+));
+
+$section->addInput(new Form_StaticText(
+	'Size',
+	'<br\>' . htmlspecialchars($file_size) . '&nbsp;',
+));
+
+if (strlen($file_hash) == 64) {
+	$hash_type = "SHA256";
+} elseif (strlen($file_hash) == 40) {
+	$hash_type = "SHA1";
+} elseif (strlen($file_hash) == 32) {
+	$hash_type = "MD5";
+} else {
+	$hash_type = "unknown";
+}
+
+$section->addInput(new Form_StaticText(
+	'Hash (' . $hash_type . ')',
+	'<br\>' . htmlspecialchars($file_hash) . '&nbsp;',
+));
+
+if ($filepath) {
+	$section->addInput(new Form_StaticText(
+		'Type',
+		$filetype
+	));
+	$section->addInput(new Form_Button(
+		'download',
+		'Download',
+		null,
+		'fa-solid fa-download'
+	))->removeClass('btn-secondary')->addClass('btn-info btn-sm');
+}
+
+$form->add($section);
+
+print $form;
+
+include('foot.inc'); 
+
+?>

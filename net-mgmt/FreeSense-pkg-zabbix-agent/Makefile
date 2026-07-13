@@ -1,0 +1,59 @@
+# $FreeBSD$
+
+PORTNAME?=	FreeSense-pkg-zabbix-agent
+PORTVERSION=	1.1
+PORTREVISION?=	1
+CATEGORIES=	net-mgmt
+MASTER_SITES=	# empty
+DISTFILES=	# empty
+EXTRACT_ONLY=	# empty
+
+MAINTAINER=	dev@freesense.org
+COMMENT=	FreeSense package zabbix-agent
+
+LICENSE=	APACHE20
+
+CONFLICTS?=	FreeSense-pkg-zabbix-agent7
+
+RUN_DEPENDS?=	zabbix_agentd:net-mgmt/zabbix7-agent
+
+NO_BUILD=	yes
+NO_MTREE=	yes
+
+SUB_FILES=	pkg-install pkg-deinstall
+SUB_LIST=	PORTNAME=${PORTNAME}
+
+ZABBIXINTERNALNAME?=	zabbix-agent
+ZABBIXTITLE?=	Zabbix Agent 7.0 LTS
+
+# Same for all Zabbix Agent ports to share their configs
+# zabbixagentlts for keep compatibility with current configs
+ZABBIXUNIQNAME?=	zabbixagentlts
+
+ZABBIXVERSION?=	7
+
+do-extract:
+	${MKDIR} ${WRKSRC}
+
+do-install:
+	${MKDIR} ${STAGEDIR}${PREFIX}/pkg
+	${MKDIR} ${STAGEDIR}/etc/inc/priv
+	${MKDIR} ${STAGEDIR}${DATADIR}
+	${INSTALL_DATA} -m 0644 ${FILESDIR}${PREFIX}/pkg/zabbixagent.xml \
+		${STAGEDIR}${PREFIX}/pkg
+	${INSTALL_DATA} ${FILESDIR}${PREFIX}/pkg/zabbix-agent.inc \
+		${STAGEDIR}${PREFIX}/pkg
+	${INSTALL_DATA} ${FILESDIR}/etc/inc/priv/zabbix-agent.priv.inc \
+		${STAGEDIR}/etc/inc/priv
+	${INSTALL_DATA} ${FILESDIR}/usr/local/share/FreeSense-pkg-zabbix-agent/info.xml \
+		${STAGEDIR}${DATADIR}
+	${REINPLACE_CMD} -i '' -e "s|%%PKGVERSION%%|${PKGVERSION}|" \
+		-e "s|%%ZABBIXVERSION%%|${ZABBIXVERSION}|" \
+		-e "s|%%ZABBIXUNIQNAME%%|${ZABBIXUNIQNAME}|" \
+		-e "s|%%ZABBIXTITLE%%|${ZABBIXTITLE}|" \
+		-e "s|%%ZABBIXINTERNALNAME%%|${ZABBIXINTERNALNAME}|" \
+		${STAGEDIR}${DATADIR}/info.xml \
+		${STAGEDIR}${PREFIX}/pkg/zabbix-agent.inc \
+		${STAGEDIR}${PREFIX}/pkg/zabbixagent.xml
+
+.include <bsd.port.mk>

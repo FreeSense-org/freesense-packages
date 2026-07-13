@@ -1,0 +1,17 @@
+#!/bin/sh
+
+# PROVIDE: freesense_webgateway_watchdog
+# REQUIRE: freesense_webgateway
+# KEYWORD: shutdown
+
+. /etc/rc.subr
+
+name="freesense_webgateway_watchdog"
+rcvar="freesense_webgateway_watchdog_enable"
+command="/usr/sbin/daemon"
+pidfile="/var/run/freesense-webgateway-watchdog.pid"
+command_args="-f -p ${pidfile} /usr/local/sbin/freesense-webgateway-watchdog"
+
+load_rc_config ${name}
+: ${freesense_webgateway_watchdog_enable:="NO"}
+run_rc_command "$1"

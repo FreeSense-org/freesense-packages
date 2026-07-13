@@ -1,0 +1,347 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!DOCTYPE packagegui SYSTEM "../schema/packages.dtd">
+<?xml-stylesheet type="text/xsl" href="../xsl/package.xsl"?>
+<packagegui>
+	<copyright>
+	<![CDATA[
+/*
+ * frr_bgp.xml
+ *
+ * part of FreeSense (https://www.freesense.org)
+ * Copyright (c) 2004-2026 The FreeSense Project
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+	]]>
+	</copyright>
+	<name>frr_bgp</name>
+	<title>Services/FRR/BGP</title>
+	<include_file>/usr/local/pkg/frr.inc</include_file>
+	<aftersaveredirect>pkg_edit.php?xml=frr/frr_bgp.xml</aftersaveredirect>
+	<addedit_string>FRR: changed BGP</addedit_string>
+	<tabs>
+		<tab>
+			<text>BGP</text>
+			<url>pkg_edit.php?xml=frr/frr_bgp.xml</url>
+			<active/>
+		</tab>
+		<tab>
+			<text>Advanced</text>
+			<url>pkg_edit.php?xml=frr/frr_bgp_advanced.xml</url>
+		</tab>
+		<tab>
+			<text>Neighbors</text>
+			<url>pkg.php?xml=frr/frr_bgp_neighbors.xml</url>
+		</tab>
+		<tab>
+			<text>AS Paths</text>
+			<url>pkg.php?xml=frr/frr_bgp_aspaths.xml</url>
+		</tab>
+		<tab>
+			<text>Communities</text>
+			<url>pkg.php?xml=frr/frr_bgp_communities.xml</url>
+		</tab>
+		<tab>
+			<text>RPKI Cache Servers</text>
+			<url>pkg.php?xml=frr/frr_bgp_rpki_cache_servers.xml</url>
+		</tab>
+		<tab>
+			<text>[Global Settings]</text>
+			<url>pkg_edit.php?xml=frr.xml</url>
+		</tab>
+		<tab>
+			<text>[BFD]</text>
+			<url>pkg_edit.php?xml=frr/frr_bfd.xml</url>
+		</tab>
+		<tab>
+			<text>[OSPF]</text>
+			<url>pkg_edit.php?xml=frr/frr_ospf.xml</url>
+		</tab>
+		<tab>
+			<text>[OSPF6]</text>
+			<url>pkg_edit.php?xml=frr/frr_ospf6.xml</url>
+		</tab>
+		<tab>
+			<text>[RIP]</text>
+			<url>pkg_edit.php?xml=frr/frr_rip.xml</url>
+		</tab>
+		<tab>
+			<text>Status</text>
+			<url>/status_frr.php?protocol=bgp</url>
+		</tab>
+	</tabs>
+	<fields>
+		<field>
+			<name>BGP Router Options</name>
+			<type>listtopic</type>
+		</field>
+		<field>
+			<fielddescr>Enable</fielddescr>
+			<fieldname>enable</fieldname>
+			<description>Enable BGP Routing</description>
+			<type>checkbox</type>
+		</field>
+		<field>
+			<fielddescr>Log Adjacency Changes</fielddescr>
+			<fieldname>adjacencylog</fieldname>
+			<description>If set to yes, adjacency changes will be written via syslog.</description>
+			<type>checkbox</type>
+		</field>
+		<field>
+			<fielddescr>Local AS</fielddescr>
+			<fieldname>asnum</fieldname>
+			<description>
+				<![CDATA[
+				Autonomous System (AS) Number for this router. May be an integer from 1-4294967295.
+				]]>
+			</description>
+			<type>input</type>
+		</field>
+		<field>
+			<fielddescr>Router ID</fielddescr>
+			<fieldname>routerid</fieldname>
+			<description>
+				<![CDATA[
+				Specify the Router ID, if it is not the default.
+				]]>
+			</description>
+			<type>input</type>
+		</field>
+		<field>
+			<fielddescr>Timers</fielddescr>
+			<fieldname>timers_keepalive</fieldname>
+			<description>Keep Alive Interval (0-65535)</description>
+			<type>input</type>
+			<combinefields>begin</combinefields>
+		</field>
+		<field>
+			<fielddescr>Hold Time</fielddescr>
+			<fieldname>timers_holdtime</fieldname>
+			<description>Hold Time (0-65535)</description>
+			<type>input</type>
+		</field>
+		<field>
+			<fielddescr>Update Delay</fielddescr>
+			<fieldname>timers_updatedelay</fieldname>
+			<description>Update Delay (0-3600, s)</description>
+			<type>input</type>
+		</field>
+		<field>
+			<fielddescr>Peer Wait</fielddescr>
+			<fieldname>timers_peerwait</fieldname>
+			<description>Peer Wait (1-3600, s)</description>
+			<type>input</type>
+			<combinefields>end</combinefields>
+		</field>
+		<field>
+			<fielddescr>Disable Default IPv4 Unicast</fielddescr>
+			<fieldname>nodefipv4unicast</fieldname>
+			<description>If checked, BGP will not assume IPv4 unicast by default.</description>
+			<type>checkbox</type>
+		</field>
+		<field>
+			<name>Modules</name>
+			<type>listtopic</type>
+		</field>
+		<field>
+			<fielddescr>Enable SNMP AgentX</fielddescr>
+			<fieldname>enablesnmpagentx</fieldname>
+			<description>Enable agentx support for accessing FRR Zebra data via SNMP with the net-snmp package.</description>
+			<type>checkbox</type>
+		</field>
+		<field>
+			<fielddescr>Enable BGP RPKI</fielddescr>
+			<fieldname>enablerpki</fieldname>
+			<description>Enable BGP Resource Public Key Infrastructure.</description>
+			<type>checkbox</type>
+		</field>
+		<field>
+			<name>Global Neighbor Shutdown</name>
+			<type>listtopic</type>
+		</field>
+		<field>
+			<fielddescr>Global Neighbor Shutdown</fielddescr>
+			<fieldname>shutdown</fieldname>
+			<description>Administratively shutdown ALL neighbors</description>
+			<type>checkbox</type>
+		</field>
+		<field>
+			<fielddescr>Message</fielddescr>
+			<fieldname>shutdownmessage</fieldname>
+			<description>Shutdown message (optional)</description>
+			<type>input</type>
+		</field>
+		<field>
+			<name>Graceful Restart/Shutdown</name>
+			<type>listtopic</type>
+		</field>
+		<field>
+			<fielddescr>Disable BGP Graceful Restart</fielddescr>
+			<fieldname>grglobaldisable</fieldname>
+			<description>Globally disable graceful restart functionality in both restart and helper mode.</description>
+			<type>checkbox</type>
+		</field>
+		<field>
+			<fielddescr>Preserve FW State</fielddescr>
+			<fieldname>disablepreservefwstate</fieldname>
+			<description>If checked, sets F-bit indication that fib is preserved while doing Graceful Restart.</description>
+			<type>checkbox</type>
+		</field>
+		<field>
+			<fielddescr>Timers</fielddescr>
+			<fieldname>grstalepathtime</fieldname>
+			<description>Stale Path Time (1-4095, s)</description>
+			<type>input</type>
+			<combinefields>begin</combinefields>
+		</field>
+		<field>
+			<fielddescr>Restart Time</fielddescr>
+			<fieldname>grrestarttimetime</fieldname>
+			<description>Restart Time (1-4095, s)</description>
+			<type>input</type>
+		</field>
+		<field>
+			<fielddescr>Select Defer Time</fielddescr>
+			<fieldname>grselectdefertime</fieldname>
+			<description>Select Defer Time (0-3600, s)</description>
+			<type>input</type>
+		</field>
+		<field>
+			<fielddescr>RIB Stale Time</fielddescr>
+			<fieldname>grribstaletime</fieldname>
+			<description>RIB Stale Time (1-3600, s)</description>
+			<type>input</type>
+			<combinefields>end</combinefields>
+		</field>
+		<field>
+			<fielddescr>Enable BGP Graceful Shutdown</fielddescr>
+			<fieldname>gsenable</fieldname>
+			<description>If checked, enable BGP graceful shutdown.</description>
+			<type>checkbox</type>
+		</field>
+		<field>
+			<name>RPKI Timers</name>
+			<type>listtopic</type>
+		</field>
+		<field>
+			<fielddescr>Timers</fielddescr>
+			<fieldname>rpkipollingperiod</fieldname>
+			<description>Polling Period (1-86400, s)</description>
+			<type>input</type>
+			<combinefields>begin</combinefields>
+		</field>
+		<field>
+			<fielddescr>Expire Interval</fielddescr>
+			<fieldname>rpkiexpireinterval</fieldname>
+			<description>Expire Interval (600-172800, s)</description>
+			<type>input</type>
+		</field>
+		<field>
+			<fielddescr>Retry Interval</fielddescr>
+			<fieldname>rpkiretryinterval</fieldname>
+			<description>Retry Interval (1-7200, s)</description>
+			<type>input</type>
+			<combinefields>end</combinefields>
+		</field>
+		<field>
+			<name>Network Distribution</name>
+			<type>listtopic</type>
+		</field>
+		<field>
+			<fielddescr>Redistribute Local</fielddescr>
+			<fieldname>redistributeconnected</fieldname>
+			<description>Redistribute connected networks</description>
+			<type>select_source</type>
+			<source><![CDATA[frr_get_routemap_list(false, true)]]></source>
+			<source_name>name</source_name>
+			<source_value>value</source_value>
+			<combinefields>begin</combinefields>
+		</field>
+		<field>
+			<fielddescr>Redistribute Static</fielddescr>
+			<fieldname>redistributestatic</fieldname>
+			<description>Redistribute FRR static routes</description>
+			<type>select_source</type>
+			<source><![CDATA[frr_get_routemap_list(false, true)]]></source>
+			<source_name>name</source_name>
+			<source_value>value</source_value>
+		</field>
+		<field>
+			<fielddescr>Redistribute Kernel</fielddescr>
+			<fieldname>redistributekernel</fieldname>
+			<description>Redistribute Kernel routing table/FreeSense static routes</description>
+			<type>select_source</type>
+			<source><![CDATA[frr_get_routemap_list(false, true)]]></source>
+			<source_name>name</source_name>
+			<source_value>value</source_value>
+			<combinefields>end</combinefields>
+		</field>
+		<field>
+			<fielddescr>Redistribute OSPF</fielddescr>
+			<fieldname>redistributeospf</fieldname>
+			<description>Redistribute OSPF routes to BGP Neighbors</description>
+			<type>select_source</type>
+			<source><![CDATA[frr_get_routemap_list(false, true)]]></source>
+			<source_name>name</source_name>
+			<source_value>value</source_value>
+			<combinefields>begin</combinefields>
+		</field>
+		<field>
+			<fielddescr>Redistribute OSPFv3</fielddescr>
+			<fieldname>redistributeospf6</fieldname>
+			<description>Redistribute OSPFv3 routes to BGP Neighbors</description>
+			<type>select_source</type>
+			<source><![CDATA[frr_get_routemap_list(false, true)]]></source>
+			<source_name>name</source_name>
+			<source_value>value</source_value>
+			<combinefields>end</combinefields>
+		</field>
+		<field>
+			<fielddescr>Redistribute RIP</fielddescr>
+			<fieldname>redistributerip</fieldname>
+			<description>Redistribute RIP routes to BGP Neighbors</description>
+			<type>select_source</type>
+			<source><![CDATA[frr_get_routemap_list(false, true)]]></source>
+			<source_name>name</source_name>
+			<source_value>value</source_value>
+		</field>
+		<field>
+			<fielddescr>Networks to Distribute</fielddescr>
+			<fieldname>none</fieldname>
+			<type>rowhelper</type>
+			<rowhelper>
+				<rowhelperfield>
+					<fielddescr>Subnet to Route</fielddescr>
+					<fieldname>distributeroutevalue</fieldname>
+					<type>input</type>
+					<size>25</size>
+				</rowhelperfield>
+				<rowhelperfield>
+					<fielddescr>Route Map</fielddescr>
+					<fieldname>distributeroutemap</fieldname>
+					<type>select_source</type>
+					<source><![CDATA[frr_get_routemap_list()]]></source>
+					<source_name>name</source_name>
+					<source_value>value</source_value>
+				</rowhelperfield>
+			</rowhelper>
+		</field>
+	</fields>
+	<custom_php_resync_config_command>
+		frr_generate_config();
+	</custom_php_resync_config_command>
+	<custom_php_validation_command>
+		frr_bgp_validate_input();
+	</custom_php_validation_command>
+</packagegui>

@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<freesensepkgs>
+	<package>
+		<name>lldpd</name>
+		<pkginfolink>https://docs.freesense.org/en/latest/packages/lldp.html</pkginfolink>
+		<website>http://vincentbernat.github.io/lldpd/</website>
+		<descr><![CDATA[802.1ab Link Layer Discovery Protocol (LLDP) daemon]]></descr>
+		<version>%%PKGVERSION%%</version>
+		<configurationfile>lldpd.xml</configurationfile>
+	</package>
+</freesensepkgs>

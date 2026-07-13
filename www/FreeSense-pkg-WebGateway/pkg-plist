@@ -1,0 +1,21 @@
+pkg/webgateway.xml
+pkg/webgateway.inc
+etc/rc.d/freesense_webgateway
+etc/rc.d/freesense_webgateway_watchdog
+sbin/freesense-webgateway-feed-update
+sbin/freesense-webgateway-watchdog
+/etc/inc/priv/webgateway.priv.inc
+www/webgateway/webgateway.php
+www/webgateway/webgateway_listeners.php
+www/webgateway/webgateway_tls.php
+www/webgateway/webgateway_policies.php
+www/webgateway/webgateway_identity.php
+www/webgateway/webgateway_threat.php
+www/webgateway/webgateway_feeds.php
+www/webgateway/webgateway_cache.php
+www/webgateway/webgateway_status.php
+www/webgateway/webgateway_diagnostics.php
+www/webgateway/webgateway_pac.php
+www/shortcuts/pkg_webgateway.inc
+%%DATADIR%%/info.xml
+@dir /etc/inc/priv

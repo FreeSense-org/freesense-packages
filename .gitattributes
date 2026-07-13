@@ -1,0 +1,6 @@
+# FreeSense ports overlay is consumed on FreeBSD; force LF for all text.
+* text=auto eol=lf
+*.png binary
+*.gz binary
+*.xz binary
+*.bz2 binary

@@ -1,0 +1,4 @@
+A free implementation of the RADIUS protocol.
+Supports MySQL, PostgreSQL, LDAP, Kerberos.
+
+WWW: https://docs.freesense.org/packages/

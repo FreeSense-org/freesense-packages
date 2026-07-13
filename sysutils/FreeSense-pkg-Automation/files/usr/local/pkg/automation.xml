@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE packagegui SYSTEM "../schema/packages.dtd">
+<packagegui><name>automation</name><title>Services/Automation</title><menu><name>Automation</name><section>Services</section><url>/automation/automation.php</url></menu></packagegui>

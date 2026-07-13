@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<freesensepkgs>
+	<package>
+		<name>suricata</name>
+		<website>https://suricata.io/</website>
+		<descr><![CDATA[Suricata 8 IDS/IPS with FreeSense-native policy, event, rule, and interface management.]]></descr>
+		<version>%%PKGVERSION%%</version>
+		<configurationfile>suricata.xml</configurationfile>
+	</package>
+</freesensepkgs>

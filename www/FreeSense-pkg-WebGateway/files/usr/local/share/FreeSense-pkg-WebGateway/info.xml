@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<freesensepkgs>
+	<package>
+		<name>WebGateway</name>
+		<website>https://freesense.org/</website>
+		<descr><![CDATA[Complete Squid 7 outbound web security gateway with explicit and transparent IPv4/IPv6 listeners, tunnel/selective/full TLS modes, native policies and feeds, identity providers, caching and shaping, parent proxies, ICAP, optional local antivirus, PF safety controls, transactional rollback, live status, and diagnostics. HTTPS remains tunnel-only by default.]]></descr>
+		<version>%%PKGVERSION%%</version>
+		<configurationfile>webgateway.xml</configurationfile>
+	</package>
+</freesensepkgs>

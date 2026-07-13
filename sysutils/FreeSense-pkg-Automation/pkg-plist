@@ -1,0 +1,6 @@
+/etc/inc/priv/automation.priv.inc
+pkg/automation/automation.inc
+pkg/automation/automation_watchdog.php
+pkg/automation.xml
+share/FreeSense-pkg-Automation/info.xml
+www/automation/automation.php

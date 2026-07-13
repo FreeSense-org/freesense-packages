@@ -1,0 +1,2 @@
+<?xml version="1.0"?>
+<freesensepkgs><package><name>ZeroTier</name><website>https://www.zerotier.com/</website><descr><![CDATA[ZeroTier virtual networking with explicit FreeSense route consent.]]></descr><version>1.0.0</version><configurationfile>zerotier.xml</configurationfile></package></freesensepkgs>

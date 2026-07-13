@@ -1,0 +1,2 @@
+CrowdSec detection and decision integration using a FreeSense-managed firewall
+alias and rule rather than independent ruleset ownership.

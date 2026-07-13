@@ -1,0 +1,32 @@
+#!/bin/sh
+
+# PROVIDE: freesense_webgateway
+# REQUIRE: NETWORKING FILESYSTEMS
+# BEFORE:  filter
+# KEYWORD: shutdown
+
+. /etc/rc.subr
+
+name="freesense_webgateway"
+rcvar="freesense_webgateway_enable"
+command="/usr/local/sbin/squid"
+command_args="-f /usr/local/etc/squid/freesense.conf"
+pidfile="/var/run/squid/squid.pid"
+required_files="/usr/local/etc/squid/freesense.conf"
+extra_commands="configtest reload"
+configtest_cmd="freesense_webgateway_configtest"
+reload_cmd="freesense_webgateway_reload"
+
+freesense_webgateway_configtest()
+{
+	${command} -k parse -f /usr/local/etc/squid/freesense.conf
+}
+
+freesense_webgateway_reload()
+{
+	${command} -k reconfigure -f /usr/local/etc/squid/freesense.conf
+}
+
+load_rc_config ${name}
+: ${freesense_webgateway_enable:="NO"}
+run_rc_command "$1"

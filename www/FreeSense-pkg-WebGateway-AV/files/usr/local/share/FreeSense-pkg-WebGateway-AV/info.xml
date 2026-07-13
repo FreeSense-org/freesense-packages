@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<freesensepkgs><package>
+	<name>WebGateway-AV</name>
+	<website>https://freesense.org/</website>
+	<descr><![CDATA[Optional local ClamAV and c-icap malware scanning for HTTP and inspected HTTPS traffic handled by FreeSense Web Gateway. Includes definition monitoring, explicit scan limits, and fail-open or fail-closed policy.]]></descr>
+	<version>%%PKGVERSION%%</version>
+	<configurationfile>webgateway_av.xml</configurationfile>
+</package></freesensepkgs>

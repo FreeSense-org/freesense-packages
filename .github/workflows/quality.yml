@@ -1,0 +1,56 @@
+name: Optional packages quality
+
+on:
+  pull_request:
+  push:
+    branches: [main, "RELENG_*"]
+
+permissions:
+  contents: read
+
+jobs:
+  catalog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Resolve matching source branch
+        id: source
+        env:
+          CANDIDATE_REF: ${{ github.head_ref || github.ref_name }}
+        run: |
+          if git ls-remote --exit-code --heads https://github.com/FreeSense-org/freesense.git "${CANDIDATE_REF}" >/dev/null; then
+            echo "ref=${CANDIDATE_REF}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "ref=main" >> "${GITHUB_OUTPUT}"
+          fi
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: FreeSense-org/freesense
+          path: freesense-src
+          ref: ${{ steps.source.outputs.ref }}
+      - name: Enforce repository boundary and catalog policy
+        run: |
+          case "${GITHUB_REF_NAME}" in RELENG_*) MODE=--release ;; *) MODE= ;; esac
+          python3 tools/boundary_audit.py
+          python3 tools/catalog_audit.py --source freesense-src $MODE
+          python3 tools/webgateway_smoke.py
+      - name: Reject credentials
+        run: |
+          if git grep -IEn '(^[[:space:]]*-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----[[:space:]]*$|R2_SECRET_ACCESS_KEY[=:][[:space:]]*[^$<{])'; then
+            echo 'Potential credential material found' >&2
+            exit 1
+          fi
+      - name: Reject vendor infrastructure dependencies
+        run: |
+          if git grep -IEn '(https?://[^[:space:]]*netgate\.com|(?:files|packages(-beta)?|gitlab|codesigner)\.netgate\.com|\.nyi\.netgate\.com)' -- . ':!NOTICE' ':!*.md'; then
+            echo 'Active Netgate infrastructure reference found' >&2
+            exit 1
+          fi
+      - name: PHP and shell syntax
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq php-cli
+          find . -type f \( -name '*.php' -o -name '*.inc' \) \
+            ! -path './freesense-src/*' -print0 | xargs -0 -r -n1 php -l
+          find . -type f \( -name 'pkg-install.in' -o -name 'pkg-deinstall.in' \) \
+            ! -path './freesense-src/*' -print0 | xargs -0 -r -n1 sh -n

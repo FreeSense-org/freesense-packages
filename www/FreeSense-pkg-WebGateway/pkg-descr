@@ -1,0 +1,8 @@
+FreeSense Web Gateway 2.0 is a complete outbound web security gateway powered
+by a pinned Squid 7 build. It supports explicit and transparent IPv4/IPv6
+listeners, tunnel/selective/full TLS modes, native policy and feed compilation,
+local/LDAP/RADIUS/Kerberos identity, caching, shaping, parent proxies, ICAP,
+optional ClamAV scanning, PF safety controls, live status and diagnostics.
+
+The package is disabled after installation and defaults to HTTPS tunnelling.
+TLS inspection requires an explicit acknowledgement and an internal CA.

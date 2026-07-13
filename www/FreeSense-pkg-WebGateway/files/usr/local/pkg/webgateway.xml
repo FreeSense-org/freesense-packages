@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!DOCTYPE packagegui SYSTEM "../schema/packages.dtd">
+<?xml-stylesheet type="text/xsl" href="../xsl/package.xsl"?>
+<packagegui>
+	<name>webgateway</name>
+	<title>Services: Web Gateway</title>
+	<donotsave>true</donotsave>
+	<include_file>/usr/local/pkg/webgateway.inc</include_file>
+	<menu>
+		<name>Web Gateway</name>
+		<tooltiptext>Secure forward proxy and web access policies</tooltiptext>
+		<section>Services</section>
+		<url>/webgateway/webgateway.php</url>
+	</menu>
+	<menu>
+		<name>Web Gateway</name>
+		<tooltiptext>Web Gateway service status and access log</tooltiptext>
+		<section>Status</section>
+		<url>/webgateway/webgateway_status.php</url>
+	</menu>
+	<service>
+		<name>freesense_webgateway</name>
+		<rcfile>freesense_webgateway</rcfile>
+		<executable>squid</executable>
+		<description>FreeSense Secure Web Gateway</description>
+		<starts_on_sync></starts_on_sync>
+	</service>
+	<plugins>
+		<item>
+			<type>plugin_certificates</type>
+		</item>
+		<item><type>plugin_xmlrpc_send</type></item>
+		<item><type>plugin_xmlrpc_recv</type></item>
+		<item><type>plugin_xmlrpc_recv_done</type></item>
+	</plugins>
+	<filter_rules_needed>webgateway_generate_rules</filter_rules_needed>
+	<custom_php_resync_config_command>webgateway_sync_config();</custom_php_resync_config_command>
+	<custom_php_pre_deinstall_command>webgateway_deinstall();</custom_php_pre_deinstall_command>
+</packagegui>

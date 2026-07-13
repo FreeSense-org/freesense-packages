@@ -1,0 +1,25 @@
+#!/bin/sh
+
+if [ "${2}" != "POST-INSTALL" ]; then
+	exit 0
+fi
+
+root="${PKG_ROOTDIR}"
+conf="${root}%%PREFIX%%/etc/c-icap/c-icap.conf"
+sample="${conf}.sample"
+squidclamav="${root}%%PREFIX%%/etc/c-icap/squidclamav.conf"
+
+[ -f "${conf}" ] || cp "${sample}" "${conf}"
+[ -f "${squidclamav}" ] || cp "${squidclamav}.sample" "${squidclamav}"
+
+if ! grep -q '^Service squidclamav squidclamav\.so' "${conf}"; then
+	{
+		echo ''
+		echo '# FreeSense Web Gateway AV companion'
+		echo 'Service squidclamav squidclamav.so'
+	} >> "${conf}"
+fi
+
+"${root}/usr/local/bin/php" -f "${root}/etc/rc.packages" %%PORTNAME%% POST-INSTALL
+
+exit 0

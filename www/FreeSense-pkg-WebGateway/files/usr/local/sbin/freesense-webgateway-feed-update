@@ -1,0 +1,21 @@
+#!/usr/local/bin/php -f
+<?php
+/* Periodic/manual Web Gateway feed updater. */
+require_once('/etc/inc/config.inc');
+require_once('/etc/inc/config.lib.inc');
+require_once('/usr/local/pkg/webgateway.inc');
+
+$config = webgateway_config();
+$force = in_array('--force', $argv, true);
+$status_file = WEBGATEWAY_STATE_DIR . '/feeds/status.json';
+$status = is_readable($status_file) ? (json_decode(file_get_contents($status_file), true) ?: []) : [];
+$due = empty($status['updated']) || (time() - (int)$status['updated']) >= ((int)$config['feed_interval'] * 3600);
+if (!$force && !$due) {
+	exit(0);
+}
+$message = '';
+if (!webgateway_update_feeds($message)) {
+	fwrite(STDERR, $message . "\n");
+	exit(1);
+}
+echo $message . "\n";

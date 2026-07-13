@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<freesensepkgs>
+	<package>
+		<name>Diagnostics</name>
+		<website>https://www.freesense.org/</website>
+		<descr><![CDATA[FreeSense network diagnostics with safe, purpose-built controls.]]></descr>
+		<version>1.0.0</version>
+		<configurationfile>diagnostics.xml</configurationfile>
+	</package>
+</freesensepkgs>

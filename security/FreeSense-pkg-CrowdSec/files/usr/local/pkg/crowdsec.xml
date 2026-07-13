@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE packagegui SYSTEM "../schema/packages.dtd">
+<packagegui><name>crowdsec</name><title>Services/CrowdSec</title><service><name>crowdsec</name><rcfile>crowdsec</rcfile><executable>crowdsec</executable><description>CrowdSec Engine</description></service><menu><name>CrowdSec</name><section>Services</section><url>/crowdsec/crowdsec.php</url></menu><menu><name>CrowdSec Decisions</name><section>Status</section><url>/crowdsec/crowdsec_decisions.php</url></menu></packagegui>

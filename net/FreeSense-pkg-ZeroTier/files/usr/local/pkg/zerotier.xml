@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE packagegui SYSTEM "../schema/packages.dtd">
+<packagegui><name>zerotier</name><title>VPN/ZeroTier</title><service><name>zerotier</name><rcfile>zerotier</rcfile><executable>zerotier-one</executable><description>ZeroTier Service</description></service><menu><name>ZeroTier</name><section>VPN</section><url>/zerotier/zerotier.php</url></menu><menu><name>ZeroTier Peers</name><section>Status</section><url>/zerotier/zerotier_peers.php</url></menu></packagegui>

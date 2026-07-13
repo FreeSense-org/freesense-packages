@@ -1,0 +1,5 @@
+#!/bin/sh
+[ "$2" = "POST-INSTALL" ] || exit 0
+${PKG_ROOTDIR}/usr/local/bin/php -f ${PKG_ROOTDIR}/etc/rc.packages %%PORTNAME%% "$2"
+/usr/sbin/sysrc zerotier_enable=YES >/dev/null
+/usr/sbin/service zerotier onestart >/dev/null 2>&1 || true

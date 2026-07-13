@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!DOCTYPE packagegui SYSTEM "../schema/packages.dtd">
+<?xml-stylesheet type="text/xsl" href="../xsl/package.xsl"?>
+<packagegui>
+	<name>webgatewayav</name>
+	<title>Services: Web Gateway: Threat Protection</title>
+	<donotsave>true</donotsave>
+	<include_file>/usr/local/pkg/webgateway.inc</include_file>
+	<menu>
+		<name>Web Gateway Threat Protection</name>
+		<tooltiptext>Configure local ClamAV and ICAP scanning</tooltiptext>
+		<section>Services</section>
+		<url>/webgateway/webgateway_threat.php</url>
+	</menu>
+	<custom_php_resync_config_command>webgateway_sync_av();</custom_php_resync_config_command>
+	<custom_php_pre_deinstall_command>webgateway_av_deinstall();</custom_php_pre_deinstall_command>
+</packagegui>

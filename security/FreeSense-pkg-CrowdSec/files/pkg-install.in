@@ -1,0 +1,4 @@
+#!/bin/sh
+[ "$2" = "POST-INSTALL" ] || exit 0
+${PKG_ROOTDIR}/usr/local/bin/php -f ${PKG_ROOTDIR}/etc/rc.packages %%PORTNAME%% "$2"
+/usr/local/bin/php -r "require_once('/usr/local/pkg/crowdsec/crowdsec.inc'); crowdsec_sync_config();" || true

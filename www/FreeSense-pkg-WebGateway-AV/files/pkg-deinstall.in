@@ -1,0 +1,13 @@
+#!/bin/sh
+
+root="${PKG_ROOTDIR}"
+"${root}/usr/local/bin/php" -f "${root}/etc/rc.packages" %%PORTNAME%% "${2}"
+
+conf="${root}%%PREFIX%%/etc/c-icap/c-icap.conf"
+if [ -f "${conf}" ]; then
+	"${root}/usr/bin/sed" -i '' \
+		-e '/^# FreeSense Web Gateway AV companion$/d' \
+		-e '/^Service squidclamav squidclamav\.so$/d' "${conf}"
+fi
+
+exit 0

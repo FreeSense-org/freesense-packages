@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!DOCTYPE packagegui SYSTEM "../schema/packages.dtd">
+<?xml-stylesheet type="text/xsl" href="../xsl/package.xsl"?>
+<packagegui>
+	<copyright>
+	<![CDATA[
+/*
+ * traffic_totals.xml
+ *
+ * part of FreeSense (https://www.freesense.org)
+ * Copyright (c) 2004-2026 The FreeSense Project
+ * All rights reserved.
+ *
+ * Originally based upon pfBlocker by
+ * Copyright (c) 2011 Marcello Coutinho
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+	]]>
+	</copyright>
+	<description>Traffic Totals Page</description>
+	<name>Traffic Totals</name>
+	<title>Status: Traffic Totals</title>
+	<donotsave>true</donotsave>
+	<include_file>/usr/local/pkg/status_traffic_totals.inc</include_file>
+	<ramdisk_dir_names>vnstat</ramdisk_dir_names>
+	<menu>
+		<name>Traffic Totals</name>
+		<tooltiptext>Traffic totals per interface for different periods of time.</tooltiptext>
+		<section>Status</section>
+		<url>/status_traffic_totals.php</url>
+	</menu>
+	<service>
+		<name>vnstatd</name>
+		<rcfile>vnstatd.sh</rcfile>
+		<executable>vnstatd</executable>
+		<description>Status Traffic Totals data collection daemon</description>
+	</service>
+	<custom_php_resync_config_command>
+		vnstat_sync();
+	</custom_php_resync_config_command>
+	<custom_php_install_command>
+		vnstat_install();
+	</custom_php_install_command>
+	<custom_php_deinstall_command>
+		vnstat_deinstall();
+	</custom_php_deinstall_command>
+</packagegui>

@@ -1,0 +1,17 @@
+#!/bin/sh
+
+state="unknown"
+while :; do
+	pid="$(cat /var/run/squid/squid.pid 2>/dev/null)"
+	if [ -n "${pid}" ] && kill -0 "${pid}" >/dev/null 2>&1; then
+		newstate="up"
+	else
+		newstate="down"
+	fi
+	if [ "${newstate}" != "${state}" ]; then
+		logger -t freesense-webgateway "proxy health changed: ${state} -> ${newstate}; refreshing PF package rules"
+		/usr/local/bin/php -r 'require_once("/etc/inc/config.inc"); require_once("/etc/inc/config.lib.inc"); require_once("/etc/inc/filter.inc"); require_once("/usr/local/pkg/webgateway.inc"); filter_configure();'
+		state="${newstate}"
+	fi
+	sleep 15
+done

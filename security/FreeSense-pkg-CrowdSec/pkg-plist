@@ -1,0 +1,7 @@
+/etc/inc/priv/crowdsec.priv.inc
+pkg/crowdsec/crowdsec.inc
+pkg/crowdsec/crowdsec_sync.php
+pkg/crowdsec.xml
+share/FreeSense-pkg-CrowdSec/info.xml
+www/crowdsec/crowdsec.php
+www/crowdsec/crowdsec_decisions.php

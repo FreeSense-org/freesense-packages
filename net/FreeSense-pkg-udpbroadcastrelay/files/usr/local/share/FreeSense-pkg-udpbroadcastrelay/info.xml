@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<freesensepkgs>
+	<package>
+		<name>UDP Broadcast Relay</name>
+		<internal_name>udpbroadcastrelay</internal_name>
+		<descr><![CDATA[A GUI for UDP Broadcast Relay. This program listens for UDP broadcast packets and retransmits on additional interfaces.]]></descr>
+		<pkginfolink>https://www.freshports.org/net/udpbroadcastrelay/</pkginfolink>
+		<version>%%PKGVERSION%%</version>
+		<configurationfile>udpbroadcastrelay.xml</configurationfile>
+		<logging>
+			<facilityname>udpbroadcastrelay</facilityname>
+			<logfilename>udpbroadcastrelay.log</logfilename>
+			<rotateflags>BEN</rotateflags>
+		</logging>
+	</package>
+</freesensepkgs>

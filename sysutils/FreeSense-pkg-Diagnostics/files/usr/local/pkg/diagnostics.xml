@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE packagegui SYSTEM "../schema/packages.dtd">
+<packagegui><name>diagnostics</name><title>Diagnostics/Network Tools</title><menu><name>Network Tools</name><section>Diagnostics</section><url>/diagnostics/network_tools.php</url></menu></packagegui>

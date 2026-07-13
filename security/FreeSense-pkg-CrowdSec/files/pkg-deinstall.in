@@ -1,0 +1,4 @@
+#!/bin/sh
+[ "$2" = "DEINSTALL" ] || exit 0
+/usr/local/bin/php -r "require_once('/usr/local/pkg/crowdsec/crowdsec.inc'); crowdsec_remove_config();" || true
+/usr/local/bin/php -f /etc/rc.packages %%PORTNAME%% "$2"

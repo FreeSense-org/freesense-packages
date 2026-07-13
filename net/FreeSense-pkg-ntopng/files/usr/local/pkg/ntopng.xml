@@ -1,0 +1,302 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!DOCTYPE packagegui SYSTEM "../schema/packages.dtd">
+<?xml-stylesheet type="text/xsl" href="../xsl/package.xsl"?>
+<packagegui>
+	<copyright>
+	<![CDATA[
+/*
+ * ntopng.xml
+ *
+ * part of FreeSense (https://www.freesense.org)
+ * Copyright (c) 2004-2026 The FreeSense Project
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+	]]>
+	</copyright>
+	<name>ntopng</name>
+	<title>Diagnostics: ntopng Settings</title>
+	<addedit_string>ntopng: changed settings</addedit_string>
+	<include_file>/usr/local/pkg/ntopng.inc</include_file>
+	<ramdisk_dir_names>ntopng</ramdisk_dir_names>
+	<aftersaveredirect>pkg_edit.php?xml=ntopng.xml</aftersaveredirect>
+	<menu>
+		<name>ntopng Settings</name>
+		<tooltiptext>Set ntopng settings such as password and port.</tooltiptext>
+		<section>Diagnostics</section>
+		<url>/pkg_edit.php?xml=ntopng.xml</url>
+	</menu>
+	<menu>
+		<name>ntopng</name>
+		<tooltiptext>Access ntopng</tooltiptext>
+		<section>Diagnostics</section>
+		<url>/ntopng_redirect.php</url>
+	</menu>
+	<service>
+		<name>ntopng</name>
+		<rcfile>ntopng.sh</rcfile>
+		<executable>ntopng</executable>
+		<description>ntopng Network Traffic Monitor</description>
+	</service>
+	<tabs>
+		<tab>
+			<text>ntopng Settings</text>
+			<url>/pkg_edit.php?xml=ntopng.xml</url>
+			<active/>
+		</tab>
+		<tab>
+			<text>Access ntopng</text>
+			<url>/ntopng_redirect.php</url>
+		</tab>
+	</tabs>
+	<fields>
+		<field>
+			<fielddescr>Enable ntopng</fielddescr>
+			<fieldname>enable</fieldname>
+			<type>checkbox</type>
+			<description>Check this to enable ntopng.</description>
+		</field>
+		<field>
+			<fielddescr>Keep Data/Settings</fielddescr>
+			<fieldname>keepdata</fieldname>
+			<type>checkbox</type>
+			<default_value>on</default_value>
+			<description>Keep ntopng settings, graphs and traffic data.</description>
+			<sethelp>
+				<![CDATA[
+				<strong><span class="text-danger">Note:</span> If disabled, all settings and data will be wiped
+				on package uninstall/reinstall/upgrade!</strong>
+				]]>
+			</sethelp>
+		</field>
+		<field>
+			<fielddescr>ntopng Admin Password</fielddescr>
+			<fieldname>redis_password</fieldname>
+			<type>password</type>
+			<required>true</required>
+			<size>20</size>
+			<description>Enter the password for the ntopng admin user. Minimum 5 characters.</description>
+		</field>
+		<field>
+			<fielddescr>Confirm ntopng Admin Password</fielddescr>
+			<fieldname>redis_passwordagain</fieldname>
+			<type>password</type>
+			<required>true</required>
+			<size>20</size>
+		</field>
+		<field>
+			<name>HTTP(S) Server Options</name>
+			<type>listtopic</type>
+		</field>
+		<field>
+			<fielddescr>Note:</fielddescr>
+			<type>info</type>
+			<description>
+				<![CDATA[
+				The HTTP or HTTPS (SSL/TLS) protocol is automatically selected based<br>
+				upon the webConfigurator setting in System / Advanced / Admin Access.<br>
+				]]>
+			</description>
+		</field>
+		<field>
+			<fielddescr>Server Interface</fielddescr>
+			<fieldname>server_interface</fieldname>
+			<type>interfaces_selection</type>
+			<showlistenall>true</showlistenall>
+			<hideinterfaceregex>loopback|wan</hideinterfaceregex>
+			<default_value>All</default_value>
+			<description>
+				<![CDATA[
+				Interface for the ntopng http(s) server to listen on.
+				]]>
+			</description>
+		</field>
+		<field>
+			<fielddescr>Server IPv4</fielddescr>
+			<fieldname>server_ipv4</fieldname>
+			<type>checkbox</type>
+			<default_value>on</default_value>
+			<description>
+				<![CDATA[
+				Enable listening on IPv4. Note that ntopng currently allows IPv4 or IPv6, but not both.
+				]]>
+			</description>
+		</field>
+		<field>
+			<fielddescr>Server IPv6</fielddescr>
+			<fieldname>server_ipv6</fieldname>
+			<type>checkbox</type>
+			<description>
+				<![CDATA[
+				Enable listening on IPv6. This setting is currently ignored if IPv4 is enabled.
+				]]>
+			</description>
+		</field>
+		<field>
+			<name>Monitoring Options</name>
+			<type>listtopic</type>
+		</field>
+		<field>
+			<fielddescr>Monitored Interfaces</fielddescr>
+			<fieldname>interface_array</fieldname>
+			<type>interfaces_selection</type>
+			<default_value>lan</default_value>
+			<multiple>true</multiple>
+			<hideinterfaceregex>loopback</hideinterfaceregex>
+			<description>
+				<![CDATA[
+				Interfaces for ntopng to monitor. It is generally not recommended to monitor WAN interfaces.
+				]]>
+			</description>
+		</field>
+		<field>
+			<fielddescr>Promiscuous Mode</fielddescr>
+			<fieldname>promiscuous</fieldname>
+			<type>checkbox</type>
+			<description>
+				<![CDATA[
+				Enable promiscuous mode on all monitored interfaces.
+				]]>
+			</description>
+		</field>
+		<field>
+			<fielddescr>DNS Mode</fielddescr>
+			<fieldname>dns_mode</fieldname>
+			<type>select</type>
+			<default_value>0</default_value>
+			<options>
+				<option><value>0</value><name>Decode DNS responses and resolve local numeric IPs only (default)</name></option>
+				<option><value>1</value><name>Decode DNS responses and resolve all numeric IPs</name></option>
+				<option><value>2</value><name>Decode DNS responses and don't resolve numeric IPs</name></option>
+				<option><value>3</value><name>Don't decode DNS responses and don't resolve numeric IPs</name></option>
+			</options>
+			<description>
+				<![CDATA[
+				Configures how name resolution is handled.
+				]]>
+			</description>
+		</field>
+		<field>
+			<name>Additional Local Networks</name>
+			<type>listtopic</type>
+		</field>
+		<field>
+			<fielddescr>Note:</fielddescr>
+			<type>info</type>
+			<description>
+				<![CDATA[
+				ntopng determines the ip addresses and netmasks for each active interface, and<br>
+				any traffic on those networks is already considered local. If you have additional<br>
+				networks that should be considered as local, add them here.<br>
+				]]>
+			</description>
+		</field>
+		<field>
+			<fielddescr>Network List</fielddescr>
+			<fieldname>none</fieldname>
+			<type>rowhelper</type>
+			<rowhelper>
+				<rowhelperfield>
+					<fielddescr>Network in cidr format</fielddescr>
+					<fieldname>cidr</fieldname>
+					<type>input</type>
+				</rowhelperfield>
+				<rowhelperfield>
+					<fielddescr>Name (optional, word characters only)</fielddescr>
+					<fieldname>cidr_name</fieldname>
+					<type>input</type>
+				</rowhelperfield>
+			</rowhelper>
+		</field>
+		<field>
+			<name>Advanced configuration</name>
+			<type>listtopic</type>
+		</field>
+                <field>
+                        <fielddescr>Additional configuration for ntopng.conf</fielddescr>
+                        <fieldname>custom_config</fieldname>
+                        <type>textarea</type>
+                        <cols>78</cols>
+                        <rows>6</rows>
+                        <encoding>base64</encoding>
+                        <description>
+                                <![CDATA[
+                                Additional configuration lines to be added directly to the ntopng configuration file.<br>
+				Each option must be on a separate line and in the form of <i>--key=value</i>.<br>
+				See <a href="https://www.ntop.org/guides/ntopng/cli_options/cli_options_example.html" target="_blank">Configruation File Example</a> in the <a href="https://www.ntop.org/guides/ntopng" target="_blank">ntopng guide</a> for configuration file syntax.<br>
+				See <a href="https://www.ntop.org/guides/ntopng/cli_options/cli_options.html" target="_blank">Command Line Options</a> in the <a href="https://www.ntop.org/guides/ntopng" target="_blank">ntopng guide</a> for all available options.<br>
+                                ]]>
+                        </description>
+                </field>
+		<field>
+			<name>Geolocation support</name>
+			<type>listtopic</type>
+		</field>
+		<field>
+			<fielddescr>GeoLite2 Account ID</fielddescr>
+			<fieldname>maxmind_account</fieldname>
+			<type>input</type>
+		</field>
+		<field>
+			<fielddescr>GeoLite2 License Key</fielddescr>
+			<fieldname>maxmind_key</fieldname>
+			<type>input</type>
+			<description>
+				<![CDATA[
+				<b>GeoLite2</b> provides location information about IP addresses.<br />
+				To utilize the free MaxMind GeoLite2 GeoIP functionality, you must <a href="https://www.maxmind.com/en/geolite2/signup" target="_blank">register for a free MaxMind user account</a>.<br /></br />
+				<button class="btn btn-success btn-sm" name='Submit' id='update_geoip' type='submit' value='Update GeoLite2 DB'><i class="fa fa-refresh icon-embed-btn"></i>Update GeoLite2 DB</button>
+				]]>
+			</description>
+		</field>
+		<field>
+			<name>Utilities</name>
+			<type>listtopic</type>
+		</field>
+		<field>
+			<fielddescr>Delete ntopng Data</fielddescr>
+			<type>info</type>
+			<description>
+				<![CDATA[
+				Delete ntopng traffic data and alerts (useful if you are running out of disk space).<br/>
+				<strong><span class="text-danger">WARNING:</span> This will delete all ntopng traffic data and alerts!</strong><br/><br/>
+				<button class="btn btn-danger btn-sm" name='Delete' id='ntopng_delete_data' type='submit' value='Delete data'><i class="fa fa-trash icon-embed-btn"></i>Delete Data</button>
+				]]>
+			</description>
+		</field>
+		<field>
+			<fielddescr>Reset ntopng</fielddescr>
+			<type>info</type>
+			<description>
+				<![CDATA[
+				Delete all ntopng data and perform a complete reset of ntopng configuration.<br/>
+				<strong><span class="text-danger">WARNING:</span> In addition to deleting all ntopng traffic data and alerts, this will delete all ntopng preferences and customization!</strong><br/><br/>
+				<button class="btn btn-danger btn-sm" name='Reset' id='ntopng_reset' type='submit' value='Reset ntopng'><i class="fa fa-trash icon-embed-btn"></i>Reset ntopng</button>
+				]]>
+			</description>
+		</field>
+	</fields>
+	<custom_php_resync_config_command>
+		ntopng_sync_package();
+	</custom_php_resync_config_command>
+	<custom_php_install_command>
+		ntopng_php_install_command();
+	</custom_php_install_command>
+	<custom_php_deinstall_command>
+		ntopng_php_deinstall_command();
+	</custom_php_deinstall_command>
+	<custom_php_validation_command>
+		ntopng_validate_input($_POST, $input_errors);
+	</custom_php_validation_command>
+</packagegui>

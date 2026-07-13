@@ -1,0 +1,6 @@
+/etc/inc/priv/zerotier.priv.inc
+pkg/zerotier/zerotier.inc
+pkg/zerotier.xml
+share/FreeSense-pkg-ZeroTier/info.xml
+www/zerotier/zerotier.php
+www/zerotier/zerotier_peers.php

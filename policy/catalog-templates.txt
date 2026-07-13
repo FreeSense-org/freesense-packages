@@ -1,0 +1,3 @@
+# Non-published wrapper templates used to maintain versioned variants.
+net-mgmt/FreeSense-pkg-zabbix-agent
+net-mgmt/FreeSense-pkg-zabbix-proxy

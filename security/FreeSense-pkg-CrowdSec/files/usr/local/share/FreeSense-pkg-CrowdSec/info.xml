@@ -1,0 +1,2 @@
+<?xml version="1.0"?>
+<freesensepkgs><package><name>CrowdSec</name><website>https://www.crowdsec.net/</website><descr><![CDATA[Collaborative threat detection with FreeSense-managed pf enforcement.]]></descr><version>1.0.0</version><configurationfile>crowdsec.xml</configurationfile></package></freesensepkgs>

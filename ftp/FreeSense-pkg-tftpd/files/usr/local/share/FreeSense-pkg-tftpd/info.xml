@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<freesensepkgs>
+	<package>
+		<name>tftpd</name>
+		<descr><![CDATA[Installs a TFTP server, used for thin client booting and more.]]></descr>
+		<website>http://freecode.com/projects/tftp-hpa/</website>
+		<version>%%PKGVERSION%%</version>
+		<configurationfile>tftpd.xml</configurationfile>
+	</package>
+</freesensepkgs>

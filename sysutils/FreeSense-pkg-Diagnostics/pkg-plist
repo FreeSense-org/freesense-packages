@@ -1,0 +1,4 @@
+/etc/inc/priv/diagnostics.priv.inc
+pkg/diagnostics.xml
+share/FreeSense-pkg-Diagnostics/info.xml
+www/diagnostics/network_tools.php
