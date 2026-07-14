@@ -34,6 +34,9 @@ jobs:
           python3 tools/boundary_audit.py
           python3 tools/catalog_audit.py --source freesense-src $MODE
           python3 tools/webgateway_smoke.py
+          test ! -e security/openvpn-client-export/distinfo
+          grep -Fq '${COPYTREE_SHARE}' security/openvpn-client-export/Makefile
+          (cd security/openvpn-client-export/files && sha256sum -c SHA256SUMS)
       - name: Reject credentials
         run: |
           if git grep -IEn '(^[[:space:]]*-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----[[:space:]]*$|R2_SECRET_ACCESS_KEY[=:][[:space:]]*[^$<{])'; then
