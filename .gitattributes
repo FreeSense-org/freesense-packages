@@ -4,3 +4,7 @@
 *.gz binary
 *.xz binary
 *.bz2 binary
+
+# Vendored OpenVPN Client Export assets are verified byte-for-byte. Some of
+# the Windows SFX configuration fragments intentionally use CRLF.
+security/openvpn-client-export/files/client-export/template/** -text
