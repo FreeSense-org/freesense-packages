@@ -11,6 +11,8 @@ LICENSE=	APACHE20
 
 RUN_DEPENDS=	openvpn>=2.6.0:security/openvpn
 
+DISTFILES=
+NO_EXTRACT=	yes
 NO_BUILD=	yes
 NO_MTREE=	yes
 NO_ARCH=	yes

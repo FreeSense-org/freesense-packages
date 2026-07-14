@@ -36,6 +36,8 @@ jobs:
           python3 tools/webgateway_smoke.py
           test ! -e security/openvpn-client-export/distinfo
           grep -Fq '${COPYTREE_SHARE}' security/openvpn-client-export/Makefile
+          grep -Eq '^DISTFILES=[[:space:]]*$' security/openvpn-client-export/Makefile
+          grep -Eq '^NO_EXTRACT=[[:space:]]*yes$' security/openvpn-client-export/Makefile
           (cd security/openvpn-client-export/files && sha256sum -c SHA256SUMS)
       - name: Reject credentials
         run: |
