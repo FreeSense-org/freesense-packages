@@ -15,10 +15,12 @@ if ($_POST) {
 	$pconfig['listener_modes'] = array_values(array_filter((array)($_POST['listener_modes'] ?? [])));
 	$source_errors = [];
 	$dest_errors = [];
+	$client_errors = [];
 	$validation_errors = [];
+	$pconfig['additional_client_networks'] = webgateway_encode_list(webgateway_normalize_networks($_POST['additional_client_networks_text'] ?? '', $client_errors));
 	$pconfig['exempt_sources'] = webgateway_encode_list(webgateway_normalize_networks($_POST['exempt_sources_text'] ?? '', $source_errors));
 	$pconfig['exempt_destinations'] = webgateway_encode_list(webgateway_normalize_networks($_POST['exempt_destinations_text'] ?? '', $dest_errors));
-	$input_errors = array_merge($source_errors, $dest_errors);
+	$input_errors = array_merge($client_errors, $source_errors, $dest_errors);
 	if (empty($input_errors) && webgateway_save_candidate($pconfig, gettext('Web Gateway listeners changed'), $validation_errors)) {
 		$savemsg = gettext('Listeners and interception rules saved and applied transactionally.');
 		$wg_config = $pconfig = webgateway_config();
@@ -41,6 +43,7 @@ if ($savemsg) print_info_box($savemsg, 'success');
 <div class="card mb-3"><div class="card-header"><h2 class="h5 mb-0"><i class="fa-solid fa-network-wired me-2"></i><?=gettext('Client interfaces')?></h2></div><div class="card-body">
 	<?php if (!$available): ?><div class="alert alert-warning mb-0"><?=gettext('No eligible internal interfaces were detected. WAN and gateway-facing interfaces are never offered here.')?></div>
 	<?php else: ?><div class="row g-3"><?php foreach ($available as $id => $description): ?><div class="col-md-6 col-xl-4"><label class="card h-100"><div class="card-body d-flex gap-3"><input class="form-check-input" type="checkbox" name="interfaces[]" value="<?=htmlspecialchars($id)?>" <?=in_array($id,$pconfig['interfaces'],true)?'checked':''?>><div><strong><?=htmlspecialchars($description)?></strong><div class="text-muted font-monospace"><?=htmlspecialchars($id)?></div></div></div></label></div><?php endforeach; ?></div><?php endif; ?>
+	<div class="mt-3"><label class="form-label" for="additional_client_networks_text"><?=gettext('Additional allowed client networks')?></label><textarea class="form-control font-monospace" id="additional_client_networks_text" name="additional_client_networks_text" rows="4" placeholder="10.0.0.0/8&#10;172.16.0.0/12&#10;192.168.0.0/16"><?=htmlspecialchars(webgateway_decode_list($pconfig['additional_client_networks']))?></textarea><div class="form-text"><?=gettext('Add routed or VPN client networks that may use the explicit proxy. Directly connected networks are derived from the selected interfaces. Firewall pass rules are still required.')?></div></div>
 </div></div>
 <div class="card mb-3"><div class="card-header"><h2 class="h5 mb-0"><i class="fa-solid fa-arrows-turn-to-dots me-2"></i><?=gettext('Listener modes')?></h2></div><div class="card-body">
 	<div class="row g-3">
