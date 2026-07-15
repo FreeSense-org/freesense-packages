@@ -85,6 +85,7 @@ function webgateway_defaults() {
 		'feed_max_mb' => '50',
 		'feed_max_entries' => '1000000',
 		'ha_sync' => '',
+		'additional_client_networks' => '',
 		'exempt_sources' => '',
 		'exempt_destinations' => '',
 		'custom_options' => '',
@@ -101,6 +102,23 @@ function webgateway_config() {
 	foreach (['interfaces', 'listener_modes'] as $field) {
 		if (!is_array($config[$field])) {
 			$config[$field] = array_values(array_filter(explode(',', (string)$config[$field])));
+		}
+	}
+	return $config;
+}
+
+/*
+ * FreeSense's config.xml serializer only supports numeric PHP arrays for
+ * element names registered as XML list tags.  These package-specific fields
+ * are not global list tags, so persist them as CSV and expand them again in
+ * webgateway_config().  Otherwise values such as ["lan"] are emitted as the
+ * invalid XML element <0>lan</0> and config recovery restores the old file.
+ */
+function webgateway_config_for_storage($config) {
+	$config = array_intersect_key((array)$config, webgateway_defaults());
+	foreach (['interfaces', 'listener_modes'] as $field) {
+		if (is_array($config[$field] ?? null)) {
+			$config[$field] = implode(',', array_values(array_filter($config[$field], 'strlen')));
 		}
 	}
 	return $config;
@@ -305,6 +323,11 @@ function webgateway_validate_config($config, &$errors) {
 			if (!is_array($parts) || ($parts['scheme'] ?? '') !== 'https' || empty($parts['host']) || isset($parts['user'])) {
 				$errors[] = sprintf(gettext('Feed URLs must use HTTPS without embedded credentials: %s'), htmlspecialchars($url));
 			}
+		}
+	}
+	foreach (webgateway_lines($config['additional_client_networks'] ?? '') as $network) {
+		if (!is_ipaddr($network) && !is_subnet($network)) {
+			$errors[] = sprintf(gettext('Invalid additional client address or network: %s'), htmlspecialchars($network));
 		}
 	}
 	$protected = '(?:include|http_port|https_port|cache_effective_(?:user|group)|pid_filename|chroot|'
@@ -574,7 +597,10 @@ function webgateway_render_files($config, $directory) {
 		'.googleapis.com', '.gstatic.com', '.letsencrypt.org', '.digicert.com', '.globalsign.com',
 	], webgateway_lines($config['splice_domains']));
 	$files = [
-		'clients.acl' => implode("\n", webgateway_interface_networks($config['interfaces'])) . "\n",
+		'clients.acl' => implode("\n", array_unique(array_merge(
+			webgateway_interface_networks($config['interfaces']),
+			webgateway_lines($config['additional_client_networks'])
+		))) . "\n",
 		'exempt-destinations.acl' => implode("\n", webgateway_lines($config['exempt_destinations'])) . "\n",
 		'allow-domains.acl' => implode("\n", webgateway_lines($config['allowed_domains'])) . "\n",
 		'block-domains.acl' => implode("\n", array_merge(webgateway_lines($config['blocked_domains']), webgateway_feed_domains())) . "\n",
@@ -764,7 +790,7 @@ function webgateway_restore_previous() {
 }
 
 function webgateway_service_action($action) {
-	if (!in_array($action, ['onestart', 'onestop', 'onerestart', 'reload'], true)) {
+	if (!in_array($action, ['onestart', 'onestop', 'onerestart', 'onereload'], true)) {
 		return 1;
 	}
 	return mwexec(WEBGATEWAY_RC . ' ' . $action);
@@ -817,7 +843,7 @@ function webgateway_sync_config() {
 	}
 	webgateway_set_av_services($config['local_av_enable'] === 'on');
 	if (webgateway_is_running()) {
-		$result = webgateway_service_action('reload');
+		$result = webgateway_service_action('onereload');
 		if ($result === 0 && !webgateway_stays_running()) {
 			$result = 1;
 		}
@@ -1085,10 +1111,20 @@ function webgateway_save_candidate($candidate, $description, &$errors) {
 		return false;
 	}
 	$previous = webgateway_config();
-	config_set_path(WEBGATEWAY_CONFIG_PATH, $candidate);
-	write_config($description);
+	$stored_candidate = webgateway_config_for_storage($candidate);
+	config_set_path(WEBGATEWAY_CONFIG_PATH, $stored_candidate);
+	$write_result = write_config($description);
+	$persisted = config_get_path(WEBGATEWAY_CONFIG_PATH, null);
+	if (!is_array($write_result) || !is_array($persisted) ||
+	    webgateway_config_for_storage($persisted) !== $stored_candidate) {
+		config_set_path(WEBGATEWAY_CONFIG_PATH, webgateway_config_for_storage($previous));
+		write_config(gettext('Rolled back failed Web Gateway settings save'));
+		webgateway_sync_config();
+		$errors[] = gettext('The Web Gateway settings could not be saved to config.xml. The previous settings were restored.');
+		return false;
+	}
 	if (!webgateway_sync_config()) {
-		config_set_path(WEBGATEWAY_CONFIG_PATH, $previous);
+		config_set_path(WEBGATEWAY_CONFIG_PATH, webgateway_config_for_storage($previous));
 		write_config(gettext('Rolled back rejected Web Gateway settings'));
 		webgateway_sync_config();
 		$errors[] = gettext('Activation failed. FreeSense restored both the previous runtime files and the previous saved settings. Check Diagnostics.');

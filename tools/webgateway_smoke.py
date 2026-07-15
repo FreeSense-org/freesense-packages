@@ -55,6 +55,9 @@ def main() -> int:
         "atomic configuration write": "webgateway_write_file",
         "canonical WAN exclusion": "if ($interface === 'wan')",
         "import-safe LAN inclusion": "if ($interface === 'lan')",
+        "XML-safe list storage": "function webgateway_config_for_storage",
+        "post-write persistence verification": "webgateway_config_for_storage($persisted) !== $stored_candidate",
+        "routed client network ACL": "webgateway_lines($config['additional_client_networks'])",
     }
     for description, needle in invariants.items():
         if needle not in integration:
@@ -74,6 +77,7 @@ def main() -> int:
         "Squid-readable helper secrets": "webgateway_set_file_owner",
         "reload-readable TLS key and config": "['freesense.conf', 'inspection-ca.key', 'local-users'",
         "post-reload health gate": "webgateway_stays_running",
+        "forced runtime reload": "webgateway_service_action('onereload')",
         "persistent settings rollback": "Rolled back rejected Web Gateway settings",
         "terminal access control": "http_access deny all",
     }
