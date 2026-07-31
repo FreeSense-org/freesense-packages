@@ -44,6 +44,7 @@ def main() -> int:
     manifest = (PORT / "pkg-plist").read_text(encoding="utf-8")
     makefile = (PORT / "Makefile").read_text(encoding="utf-8")
     package_xml = (PORT / "files/usr/local/pkg/webgateway.xml").read_text(encoding="utf-8")
+    status_page = (PORT / "files/usr/local/www/webgateway/webgateway_status.php").read_text(encoding="utf-8")
 
     invariants = {
         "deny-all terminal ACL": "http_access deny all",
@@ -58,6 +59,17 @@ def main() -> int:
         "XML-safe list storage": "function webgateway_config_for_storage",
         "post-write persistence verification": "webgateway_config_for_storage($persisted) !== $stored_candidate",
         "routed client network ACL": "webgateway_lines($config['additional_client_networks'])",
+        "submit guard helper": "function webgateway_emit_submit_guard",
+        "submit guard installation from tabs": "webgateway_emit_submit_guard();",
+        "AV scan limit application": "function webgateway_apply_av_scan_limit",
+        "AV maxsize managed block": "maxsize {$bytes}",
+        "YouTube restrict header": "request_header_add YouTube-Restrict Strict all",
+        "upload limit directive": "request_body_max_size",
+        "download limit directive": "reply_body_max_size",
+        "delay pool bandwidth profile": "delay_pools 1",
+        "upstream cache_peer": "cache_peer ",
+        "ICAP service generation": "icap_service freesense_",
+        "feed empty-url validation": "Enable scheduled feed updates only after configuring at least one HTTPS feed URL",
     }
     for description, needle in invariants.items():
         if needle not in integration:
@@ -84,6 +96,49 @@ def main() -> int:
     for description, needle in required_v2.items():
         if needle not in integration:
             errors.append(f"missing Web Gateway 2.0 invariant: {description}")
+
+    # Persistence paths must never write raw PHP arrays for list fields.
+    if "config_set_path(WEBGATEWAY_CONFIG_PATH, $config);" in integration:
+        errors.append("raw config_set_path with $config remains; use webgateway_config_for_storage")
+    if "config_set_path(WEBGATEWAY_CONFIG_PATH, $wg_config);" in status_page:
+        errors.append("status emergency path writes raw $wg_config arrays")
+    if "webgateway_config_for_storage($wg_config)" not in status_page:
+        errors.append("status emergency path missing webgateway_config_for_storage")
+
+    save_pages = [
+        "webgateway_listeners.php",
+        "webgateway_tls.php",
+        "webgateway_policies.php",
+        "webgateway_identity.php",
+        "webgateway_threat.php",
+        "webgateway_feeds.php",
+        "webgateway_cache.php",
+    ]
+    for page in save_pages:
+        text = (PORT / "files/usr/local/www/webgateway" / page).read_text(encoding="utf-8")
+        if "webgateway_save_candidate" not in text:
+            errors.append(f"{page} does not call webgateway_save_candidate")
+        if "webgateway_display_tabs" not in text:
+            errors.append(f"{page} does not render tabs (submit guard is attached there)")
+        if "Save and apply" not in text and "gettext('Save and apply')" not in text:
+            # Allow either gettext-wrapped or already resolved pattern in source
+            if "Save and apply" not in text:
+                errors.append(f"{page} primary CTA is not standardized to Save and apply")
+
+    action_pages = {
+        "webgateway_status.php": ["service_action", "webgateway_display_tabs"],
+        "webgateway_diagnostics.php": ["regenerate", "webgateway_display_tabs"],
+    }
+    for page, needles in action_pages.items():
+        text = (PORT / "files/usr/local/www/webgateway" / page).read_text(encoding="utf-8")
+        for needle in needles:
+            if needle not in text:
+                errors.append(f"{page} missing required action wiring: {needle}")
+
+    if "PORTVERSION=\t2.0.5" not in makefile and "PORTVERSION=	2.0.5" not in makefile:
+        # Accept either tab style
+        if not re.search(r"PORTVERSION=\s*2\.0\.5", makefile):
+            errors.append("package version is not 2.0.5")
 
     if "<filter_rules_needed>webgateway_generate_rules</filter_rules_needed>" not in package_xml:
         errors.append("PF rule-generation hook is not registered")
@@ -122,6 +177,10 @@ def main() -> int:
         if dangerous not in integration:
             errors.append(f"expert-directive protection missing: {dangerous}")
 
+    # av_max_mb must drive runtime config, not be decorative.
+    if "'av_max_mb'" in integration and "webgateway_apply_av_scan_limit" not in integration:
+        errors.append("av_max_mb is present without runtime application")
+
     for relative in required:
         if not relative.startswith("files/usr/local/"):
             continue
@@ -136,7 +195,7 @@ def main() -> int:
         for error in errors:
             print(f"  - {error}", file=sys.stderr)
         return 1
-    print("Web Gateway smoke test passed: packaging and proxy safety invariants present")
+    print("Web Gateway smoke test passed: packaging, UX guards, and Squid safety invariants present")
     return 0
 
 

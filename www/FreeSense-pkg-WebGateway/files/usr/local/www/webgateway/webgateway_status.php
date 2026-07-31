@@ -12,17 +12,19 @@ if ($_POST && isset($_POST['service_action'])) {
 	$action = $_POST['service_action'];
 	if ($action === 'start') {
 		if ($wg_config['enable'] !== 'on') {
-			$input_errors[] = gettext('Enable the Web Gateway before starting it.');
+			$input_errors[] = gettext('Enable the Web Gateway on the Listeners page before starting it.');
 		} elseif (!webgateway_sync_config()) {
 			$input_errors[] = gettext('The Web Gateway failed to start. Check Diagnostics.');
 		} else {
-			$savemsg = gettext('Web Gateway started.');
+			$savemsg = gettext('Web Gateway started and applied to Squid.');
 		}
 	} elseif ($action === 'restart') {
-		if (!webgateway_sync_config()) {
+		if ($wg_config['enable'] !== 'on') {
+			$input_errors[] = gettext('Enable the Web Gateway on the Listeners page before restarting it.');
+		} elseif (!webgateway_sync_config()) {
 			$input_errors[] = gettext('The Web Gateway failed to restart. Check Diagnostics.');
 		} else {
-			$savemsg = gettext('Web Gateway restarted.');
+			$savemsg = gettext('Web Gateway restarted and configuration reloaded into Squid.');
 		}
 	} elseif ($action === 'stop') {
 		webgateway_watchdog_action('onestop');
@@ -31,11 +33,12 @@ if ($_POST && isset($_POST['service_action'])) {
 		$savemsg = gettext('Web Gateway stopped.');
 	} elseif ($action === 'emergency') {
 		$wg_config['enable'] = '';
-		config_set_path(WEBGATEWAY_CONFIG_PATH, $wg_config);
+		config_set_path(WEBGATEWAY_CONFIG_PATH, webgateway_config_for_storage($wg_config));
 		write_config(gettext('Web Gateway interception disabled by emergency action'));
 		webgateway_watchdog_action('onestop');
 		webgateway_service_action('onestop');
 		filter_configure();
+		$wg_config = webgateway_config();
 		$savemsg = gettext('Emergency disable complete: interception rules were removed and the proxy was stopped.');
 	}
 }
@@ -46,6 +49,7 @@ if (is_readable(WEBGATEWAY_LOG_FILE)) {
 	exec('/usr/bin/tail -n 100 ' . escapeshellarg(WEBGATEWAY_LOG_FILE), $log_lines);
 }
 $networks = webgateway_interface_networks($wg_config['interfaces']);
+$extra_networks = webgateway_lines($wg_config['additional_client_networks'] ?? '');
 $listeners = webgateway_interface_listeners($wg_config);
 
 $pgtitle = [gettext('Status'), gettext('Web Gateway')];
@@ -80,11 +84,14 @@ if ($savemsg !== null) {
 	<div class="card-header"><h2 class="h5 mb-0"><i class="fa-solid fa-sliders me-2"></i><?=gettext('Service Control')?></h2></div>
 	<div class="card-body">
 		<form method="post" class="d-flex flex-wrap gap-2">
-			<button class="btn btn-success" name="service_action" value="start" type="submit"><i class="fa-solid fa-play icon-embed-btn"></i><?=gettext('Start')?></button>
-			<button class="btn btn-primary" name="service_action" value="restart" type="submit"><i class="fa-solid fa-rotate icon-embed-btn"></i><?=gettext('Restart')?></button>
-			<button class="btn btn-danger" name="service_action" value="stop" type="submit"><i class="fa-solid fa-stop icon-embed-btn"></i><?=gettext('Stop')?></button>
+			<button class="btn btn-success" name="service_action" value="start" type="submit" <?=($running || $wg_config['enable'] !== 'on') ? 'disabled' : ''?>><i class="fa-solid fa-play icon-embed-btn"></i><?=gettext('Start')?></button>
+			<button class="btn btn-primary" name="service_action" value="restart" type="submit" <?=($wg_config['enable'] !== 'on') ? 'disabled' : ''?>><i class="fa-solid fa-rotate icon-embed-btn"></i><?=gettext('Restart')?></button>
+			<button class="btn btn-danger" name="service_action" value="stop" type="submit" <?=!$running ? 'disabled' : ''?>><i class="fa-solid fa-stop icon-embed-btn"></i><?=gettext('Stop')?></button>
 			<button class="btn btn-outline-danger ms-auto" name="service_action" value="emergency" type="submit" onclick="return confirm('Remove Web Gateway interception rules and stop the service?')"><i class="fa-solid fa-triangle-exclamation icon-embed-btn"></i><?=gettext('Emergency disable')?></button>
 		</form>
+		<?php if ($wg_config['enable'] !== 'on'): ?>
+		<div class="form-text mt-2"><?=gettext('The gateway is disabled. Enable it under Listeners, then Start or Restart to apply settings to Squid.')?></div>
+		<?php endif; ?>
 	</div>
 </div>
 
@@ -102,8 +109,8 @@ if ($savemsg !== null) {
 		<div class="card h-100">
 			<div class="card-header"><h2 class="h5 mb-0"><?=gettext('Permitted client networks')?></h2></div>
 			<ul class="list-group list-group-flush font-monospace">
-				<?php foreach ($networks as $network): ?><li class="list-group-item"><?=htmlspecialchars($network)?></li><?php endforeach; ?>
-				<?php if (empty($networks)): ?><li class="list-group-item text-muted"><?=gettext('No directly connected client networks detected.')?></li><?php endif; ?>
+				<?php foreach (array_merge($networks, $extra_networks) as $network): ?><li class="list-group-item"><?=htmlspecialchars($network)?></li><?php endforeach; ?>
+				<?php if (empty($networks) && empty($extra_networks)): ?><li class="list-group-item text-muted"><?=gettext('No client networks detected. Select interfaces or add routed networks under Listeners.')?></li><?php endif; ?>
 			</ul>
 		</div>
 	</div>

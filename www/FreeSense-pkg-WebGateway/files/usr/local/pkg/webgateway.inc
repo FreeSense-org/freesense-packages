@@ -318,7 +318,11 @@ function webgateway_validate_config($config, &$errors) {
 		$errors[] = gettext('The upstream proxy host must be a hostname or IP address.');
 	}
 	if (($config['feeds_enable'] ?? '') === 'on') {
-		foreach (webgateway_lines($config['feed_urls']) as $url) {
+		$feed_urls = webgateway_lines($config['feed_urls']);
+		if (empty($feed_urls)) {
+			$errors[] = gettext('Enable scheduled feed updates only after configuring at least one HTTPS feed URL.');
+		}
+		foreach ($feed_urls as $url) {
 			$parts = parse_url($url);
 			if (!is_array($parts) || ($parts['scheme'] ?? '') !== 'https' || empty($parts['host']) || isset($parts['user'])) {
 				$errors[] = sprintf(gettext('Feed URLs must use HTTPS without embedded credentials: %s'), htmlspecialchars($url));
@@ -841,7 +845,7 @@ function webgateway_sync_config() {
 	if ($config['cache_profile'] !== 'disabled') {
 		mwexec('/usr/local/sbin/squid -z -f ' . escapeshellarg(WEBGATEWAY_CONF_FILE));
 	}
-	webgateway_set_av_services($config['local_av_enable'] === 'on');
+	webgateway_set_av_services($config['local_av_enable'] === 'on', $config);
 	if (webgateway_is_running()) {
 		$result = webgateway_service_action('onereload');
 		if ($result === 0 && !webgateway_stays_running()) {
@@ -997,10 +1001,10 @@ function webgateway_plugin_certificates($pluginparams) {
 function webgateway_deinstall() {
 	$config = webgateway_config();
 	$config['enable'] = '';
-	config_set_path(WEBGATEWAY_CONFIG_PATH, $config);
+	config_set_path(WEBGATEWAY_CONFIG_PATH, webgateway_config_for_storage($config));
 	webgateway_watchdog_action('onestop');
 	webgateway_service_action('onestop');
-	webgateway_set_av_services(false);
+	webgateway_set_av_services(false, $config);
 	install_cron_job(WEBGATEWAY_FEED_COMMAND, false, '*', '*', '*', '*', '*', 'root', true);
 	filter_configure();
 	@unlink('/usr/local/www/wpad.dat');
@@ -1039,7 +1043,37 @@ function FindProxyForURL(url, host) {
 PAC;
 }
 
-function webgateway_set_av_services($enable) {
+function webgateway_apply_av_scan_limit($config) {
+	/*
+	 * squidclamav maxsize is bytes. FreeSense owns a managed block so operator
+	 * customizations outside the markers are preserved.
+	 */
+	$path = '/usr/local/etc/c-icap/squidclamav.conf';
+	if (!is_file($path) || !is_writable($path)) {
+		return false;
+	}
+	$bytes = max(1048576, (int)($config['av_max_mb'] ?? 100) * 1048576);
+	$managed = "# BEGIN FreeSense Web Gateway AV limits\n"
+		. "maxsize {$bytes}\n"
+		. "# END FreeSense Web Gateway AV limits\n";
+	$current = file_get_contents($path);
+	if ($current === false) {
+		return false;
+	}
+	$pattern = '/# BEGIN FreeSense Web Gateway AV limits\n.*?# END FreeSense Web Gateway AV limits\n/s';
+	if (preg_match($pattern, $current)) {
+		$updated = preg_replace($pattern, $managed, $current, 1);
+	} else {
+		$updated = rtrim($current) . "\n\n" . $managed;
+	}
+	if ($updated === null || $updated === $current) {
+		return $updated === $current;
+	}
+	return webgateway_write_file($path, $updated, 0644);
+}
+
+function webgateway_set_av_services($enable, $config = null) {
+	$config = $config ?? webgateway_config();
 	if (!$enable) {
 		mwexec('/usr/sbin/service c-icap onestop');
 		mwexec('/usr/sbin/service clamav_clamd onestop');
@@ -1050,24 +1084,29 @@ function webgateway_set_av_services($enable) {
 		log_error('Web Gateway AV companion is incomplete: c-icap or clamd is missing.');
 		return false;
 	}
+	webgateway_apply_av_scan_limit($config);
 	mwexec('/usr/sbin/service clamav_freshclam onestart');
 	mwexec('/usr/sbin/service clamav_clamd onestart');
-	mwexec('/usr/sbin/service c-icap onestart');
+	/* Restart so managed maxsize changes are loaded when already running. */
+	mwexec('/usr/sbin/service c-icap onerestart');
+	if (mwexec('/usr/sbin/service c-icap onestatus') !== 0) {
+		mwexec('/usr/sbin/service c-icap onestart');
+	}
 	return true;
 }
 
 function webgateway_sync_av() {
 	$config = webgateway_config();
-	webgateway_set_av_services($config['local_av_enable'] === 'on');
+	webgateway_set_av_services($config['local_av_enable'] === 'on', $config);
 	return webgateway_sync_config();
 }
 
 function webgateway_av_deinstall() {
 	$config = webgateway_config();
 	$config['local_av_enable'] = '';
-	config_set_path(WEBGATEWAY_CONFIG_PATH, $config);
+	config_set_path(WEBGATEWAY_CONFIG_PATH, webgateway_config_for_storage($config));
 	write_config(gettext('Disabled Web Gateway local antivirus before package removal'));
-	webgateway_set_av_services(false);
+	webgateway_set_av_services(false, $config);
 	return webgateway_sync_config();
 }
 
@@ -1103,6 +1142,65 @@ function webgateway_display_tabs($active) {
 		['Diagnostics', $active === 'diagnostics', '/webgateway/webgateway_diagnostics.php'],
 	];
 	display_top_tabs($tabs);
+	webgateway_emit_submit_guard();
+}
+
+/*
+ * Disable submit buttons on first click so long Squid stage/parse/reload work
+ * cannot be double-posted. Preserve named multi-button values via a hidden field
+ * because disabled controls are omitted from the form payload.
+ */
+function webgateway_emit_submit_guard() {
+	static $emitted = false;
+	if ($emitted) {
+		return;
+	}
+	$emitted = true;
+	$busy = json_encode(gettext('Working…'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE);
+	echo <<<HTML
+<script>
+(function () {
+	if (window.webgatewaySubmitGuardInstalled) {
+		return;
+	}
+	window.webgatewaySubmitGuardInstalled = true;
+	var busyLabel = {$busy};
+	document.addEventListener('submit', function (event) {
+		var form = event.target;
+		if (!form || form.tagName !== 'FORM' || form.getAttribute('data-webgateway-guard') === 'off') {
+			return;
+		}
+		if (form.getAttribute('data-webgateway-busy') === '1') {
+			event.preventDefault();
+			return;
+		}
+		form.setAttribute('data-webgateway-busy', '1');
+		var submitter = event.submitter || document.activeElement;
+		if (submitter && submitter.form === form && submitter.name) {
+			var keep = document.createElement('input');
+			keep.type = 'hidden';
+			keep.name = submitter.name;
+			keep.value = submitter.value;
+			form.appendChild(keep);
+		}
+		var buttons = form.querySelectorAll('button[type="submit"], input[type="submit"]');
+		for (var i = 0; i < buttons.length; i++) {
+			var button = buttons[i];
+			if (submitter && button === submitter) {
+				if (button.tagName === 'BUTTON') {
+					button.setAttribute('data-original-label', button.innerHTML);
+					button.innerHTML = '<i class="fa-solid fa-spinner fa-spin icon-embed-btn"></i>' + busyLabel;
+				} else if (button.tagName === 'INPUT') {
+					button.setAttribute('data-original-label', button.value);
+					button.value = busyLabel;
+				}
+			}
+			button.disabled = true;
+		}
+	}, true);
+})();
+</script>
+HTML;
 }
 
 function webgateway_save_candidate($candidate, $description, &$errors) {
