@@ -22,7 +22,7 @@ if ($_POST) {
 	$pconfig['exempt_destinations'] = webgateway_encode_list(webgateway_normalize_networks($_POST['exempt_destinations_text'] ?? '', $dest_errors));
 	$input_errors = array_merge($client_errors, $source_errors, $dest_errors);
 	if (empty($input_errors) && webgateway_save_candidate($pconfig, gettext('Web Gateway listeners changed'), $validation_errors)) {
-		$savemsg = gettext('Listeners and interception rules saved and applied transactionally.');
+		$savemsg = gettext('Listeners and interception rules saved and applied to Squid.');
 		$wg_config = $pconfig = webgateway_config();
 	} else {
 		$input_errors = array_merge($input_errors, $validation_errors);
@@ -61,6 +61,6 @@ if ($savemsg) print_info_box($savemsg, 'success');
 	<label class="form-label" for="failure_policy"><?=gettext('Proxy failure')?></label><select class="form-select" id="failure_policy" name="failure_policy"><option value="open" <?=$pconfig['failure_policy']==='open'?'selected':''?>><?=gettext('Fail open: remove redirects if proxy is unhealthy')?></option><option value="closed" <?=$pconfig['failure_policy']==='closed'?'selected':''?>><?=gettext('Fail closed: keep policy enforcement')?></option></select>
 	<a class="btn btn-outline-info mt-3" href="/webgateway/webgateway_pac.php"><i class="fa-solid fa-download icon-embed-btn"></i><?=gettext('Download explicit-proxy PAC file')?></a><div class="form-text"><?=gettext('Deploy this file with device management or host it on your organization’s real WPAD endpoint. FreeSense does not expose an unauthenticated discovery service on the management GUI.')?></div>
 </div></div></div><div class="col-lg-6"><div class="card h-100"><div class="card-header"><h2 class="h5 mb-0"><?=gettext('Explicit exemptions')?></h2></div><div class="card-body"><div class="row g-3"><div class="col-md-6"><label class="form-label"><?=gettext('Source addresses/networks')?></label><textarea class="form-control font-monospace" name="exempt_sources_text" rows="7"><?=htmlspecialchars(webgateway_decode_list($pconfig['exempt_sources']))?></textarea></div><div class="col-md-6"><label class="form-label"><?=gettext('Destination addresses/networks')?></label><textarea class="form-control font-monospace" name="exempt_destinations_text" rows="7"><?=htmlspecialchars(webgateway_decode_list($pconfig['exempt_destinations']))?></textarea></div></div><div class="form-text"><?=gettext('Management access, firewall-owned addresses and local control traffic are bypassed automatically; add application-specific exceptions here.')?></div></div></div></div></div>
-<button class="btn btn-primary" type="submit"><i class="fa-solid fa-floppy-disk icon-embed-btn"></i><?=gettext('Save and apply listeners')?></button>
+<button class="btn btn-primary" type="submit"><i class="fa-solid fa-floppy-disk icon-embed-btn"></i><?=gettext('Save and apply')?></button>
 </form>
 <?php include('foot.inc'); ?>

@@ -57,7 +57,7 @@ webgateway_display_tabs('diagnostics');
 			<div class="card-header"><h2 class="h5 mb-0"><i class="fa-solid fa-stethoscope me-2"></i><?=gettext('Configuration Test')?></h2></div>
 			<div class="card-body">
 				<pre class="bg-dark text-light rounded p-3 overflow-auto" style="min-height:12rem"><?=htmlspecialchars($test_output ?: gettext('No parser output.'))?></pre>
-				<form method="post"><button class="btn btn-primary" name="regenerate" value="1" type="submit"><i class="fa-solid fa-arrows-rotate icon-embed-btn"></i><?=gettext('Regenerate and test')?></button></form>
+				<form method="post"><button class="btn btn-primary" name="regenerate" value="1" type="submit"><i class="fa-solid fa-arrows-rotate icon-embed-btn"></i><?=gettext('Regenerate and test with Squid')?></button></form>
 			</div>
 		</div>
 	</div>
@@ -67,11 +67,12 @@ webgateway_display_tabs('diagnostics');
 			<div class="card-body">
 				<ul class="list-group list-group-flush">
 					<li class="list-group-item"><i class="fa-solid fa-check text-success me-2"></i><?=gettext('Listeners bind only to selected interface addresses.')?></li>
-					<li class="list-group-item"><i class="fa-solid fa-check text-success me-2"></i><?=gettext('Only directly connected client networks are permitted.')?></li>
+					<li class="list-group-item"><i class="fa-solid fa-check text-success me-2"></i><?=gettext('Client access is limited to selected interface networks plus any additional routed client networks.')?></li>
 					<li class="list-group-item"><i class="fa-solid fa-check text-success me-2"></i><?=gettext('Unsafe destination ports are rejected before policy evaluation.')?></li>
 					<li class="list-group-item"><i class="fa-solid fa-check text-success me-2"></i><?=gettext('TLS inspection requires explicit acknowledgement and an internal CA with a private key.')?></li>
 					<li class="list-group-item"><i class="fa-solid fa-check text-success me-2"></i><?=gettext('Transparent PF redirects are emitted only while the enabled proxy service is healthy.')?></li>
 					<li class="list-group-item"><i class="fa-solid fa-check text-success me-2"></i><?=gettext('A failed parser or service health check restores the previous working configuration.')?></li>
+					<li class="list-group-item"><i class="fa-solid fa-check text-success me-2"></i><?=gettext('Save and apply actions stage configuration, parse it with Squid, then reload transactionally.')?></li>
 				</ul>
 			</div>
 		</div>

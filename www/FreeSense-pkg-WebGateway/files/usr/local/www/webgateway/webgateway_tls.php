@@ -13,11 +13,12 @@ if ($_POST) {
 		$normalized = webgateway_normalize_domains($_POST[$field . '_text'] ?? '', $input_errors);
 		$pconfig[$field] = webgateway_encode_list($normalized);
 	}
+	$validation_errors = [];
 	if (!$input_errors && webgateway_save_candidate($pconfig, gettext('Web Gateway TLS policy changed'), $validation_errors)) {
-		$savemsg = gettext('TLS handling policy saved and applied.');
+		$savemsg = gettext('TLS handling policy saved and applied to Squid.');
 		$wg_config = $pconfig = webgateway_config();
 	} else {
-		$input_errors = array_merge($input_errors, $validation_errors ?? []);
+		$input_errors = array_merge($input_errors, $validation_errors);
 	}
 }
 $cas = webgateway_internal_cas();
@@ -43,6 +44,6 @@ if ($input_errors) print_input_errors($input_errors); if ($savemsg) print_info_b
 	<div class="form-check mt-4"><input class="form-check-input" type="checkbox" id="tls_ack" name="tls_ack" <?=$pconfig['tls_ack']==='on'?'checked':''?>><label class="form-check-label" for="tls_ack"><?=gettext('I understand the legal, privacy, client-trust and application-compatibility impact of decrypting TLS traffic.')?></label></div>
 </div></div></div><div class="col-lg-7"><div class="card h-100"><div class="card-header"><h2 class="h5 mb-0"><i class="fa-solid fa-code-branch me-2"></i><?=gettext('Bump and splice policy')?></h2></div><div class="card-body"><div class="row g-3"><div class="col-md-6"><label class="form-label"><?=gettext('Inspect in selective mode')?></label><textarea class="form-control font-monospace" name="inspect_domains_text" rows="10" placeholder=".example.com"><?=htmlspecialchars(webgateway_decode_list($pconfig['inspect_domains']))?></textarea><div class="form-text"><?=gettext('One destination domain per line.')?></div></div><div class="col-md-6"><label class="form-label"><?=gettext('Always splice / never inspect')?></label><textarea class="form-control font-monospace" name="splice_domains_text" rows="10" placeholder=".bank.example"><?=htmlspecialchars(webgateway_decode_list($pconfig['splice_domains']))?></textarea><div class="form-text"><?=gettext('Added to the built-in pinned, update, authentication and PKI bypass set.')?></div></div></div></div></div></div></div>
 <div class="alert alert-info"><i class="fa-solid fa-eye-slash me-2"></i><?=gettext('ECH or unknown-SNI traffic is spliced by default. Transparent HTTPS inspection can optionally block QUIC under Listeners so clients retry over TCP.')?></div>
-<button class="btn btn-primary" type="submit"><i class="fa-solid fa-floppy-disk icon-embed-btn"></i><?=gettext('Save TLS policy')?></button>
+<button class="btn btn-primary" type="submit"><i class="fa-solid fa-floppy-disk icon-embed-btn"></i><?=gettext('Save and apply')?></button>
 </form>
 <?php include('foot.inc'); ?>
