@@ -1,0 +1,7 @@
+{
+  "schema_version": "freesense.optional-package-architectures/v1",
+  "architectures": {
+    "amd64": {"exclude": []},
+    "aarch64": {"exclude": []}
+  }
+}
