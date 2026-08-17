@@ -827,11 +827,19 @@ if ($savemsg2) {
 	print_info_box($savemsg2);
 }
 
-// If using Inline IPS, check that CSO, TSO and LRO are all disabled
-if ($pconfig['enable'] == 'on' && (!config_path_enabled('system','disablechecksumoffloading') || !config_path_enabled('system', 'disablesegmentationoffloading') || !config_path_enabled('system', 'disablelargereceiveoffloading'))) {
+// Check that CSO, TSO and LRO are all disabled for proper operation
+$suricata_realif = get_real_interface($pconfig['interface'] ?? '');
+if (!empty($suricata_realif) && function_exists('nic_settings_effective')) {
+	$suricata_nic = nic_settings_effective($suricata_realif);
+	$suricata_offload_active = ($suricata_nic['checksum'] !== 'off' || $suricata_nic['tso'] !== 'off' || $suricata_nic['lro'] !== 'off');
+} else {
+	$suricata_offload_active = (!config_path_enabled('system', 'disablechecksumoffloading') || !config_path_enabled('system', 'disablesegmentationoffloading') || !config_path_enabled('system', 'disablelargereceiveoffloading'));
+}
+
+if ($pconfig['enable'] == 'on' && $suricata_offload_active) {
 	print_info_box(gettext('WARNING! Suricata now requires that Hardware Checksum Offloading, Hardware TCP Segmentation Offloading and Hardware Large Receive Offloading ' .
-				'all be disabled for proper operation. This firewall currently has one or more of these Offloading settings NOT disabled. Visit the ') . '<a href="/system_advanced_network.php">' . 
-			        gettext('System > Advanced > Networking') . '</a>' . gettext(' tab and ensure all three of these Offloading settings are disabled.'));
+				'all be disabled for proper operation. This firewall currently has one or more of these Offloading settings NOT disabled. Visit the ') . '<a href="/interfaces_nic_settings.php">' . 
+			        gettext('Interfaces > NIC Settings') . '</a>' . gettext(' page and ensure all three of these Offloading settings are disabled.'));
 }
 
 $tab_array = array();
