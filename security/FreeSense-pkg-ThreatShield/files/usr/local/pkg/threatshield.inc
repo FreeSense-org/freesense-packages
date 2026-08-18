@@ -35,9 +35,25 @@ function threatshield_default_config(): array {
 		'enable_dnssec' => 'on',
 		'enable_safesearch' => 'off',
 		'enable_parental' => 'off',
-		'blocking_mode' => 'default',
+		'safebrowsing_enabled' => 'on',
+		'blocking_mode' => 'default', // 'default', 'refused', 'nxdomain', 'null_ip', 'custom_ip'
+		'blocking_ipv4' => '',
+		'blocking_ipv6' => '',
+		'block_doh_canary' => 'on',
+		'block_icloud_private_relay' => 'on',
+		'cache_size' => '4', // In MB
+		'cache_ttl_min' => '0',
+		'cache_ttl_max' => '0',
+		'cache_optimistic' => 'on',
+		'edns_client_subnet' => 'off',
 		'ratelimit' => '0',
+		'rate_limit_subnet_len_ipv4' => '24',
+		'rate_limit_subnet_len_ipv6' => '56',
+		'rate_limit_whitelist' => '',
+		'querylog_enabled' => 'on',
 		'querylog_retention' => '90',
+		'anonymize_client_ip' => 'off',
+		'ignored_domains' => '',
 		'catch_rogue_dns' => 'on',
 		'feed_update_interval' => 'daily',
 		'feeds' => [
@@ -165,13 +181,25 @@ function threatshield_generate_yaml(array $cfg): string {
 		}
 	}
 
-	$user_rules_yaml = '';
+	$user_rules_list = [];
+	if (!empty($cfg['block_doh_canary']) && $cfg['block_doh_canary'] === 'on') {
+		$user_rules_list[] = '||use-application-dns.net^';
+	}
+	if (!empty($cfg['block_icloud_private_relay']) && $cfg['block_icloud_private_relay'] === 'on') {
+		$user_rules_list[] = '||mask.icloud.com^';
+		$user_rules_list[] = '||mask-h2.icloud.com^';
+	}
 	if (!empty($cfg['custom_rules'])) {
 		$rules = array_filter(array_map('trim', explode("\n", (string)$cfg['custom_rules'])));
 		foreach ($rules as $r) {
-			$r_esc = addslashes($r);
-			$user_rules_yaml .= "    - \"{$r_esc}\"\n";
+			$user_rules_list[] = $r;
 		}
+	}
+
+	$user_rules_yaml = '';
+	foreach ($user_rules_list as $r) {
+		$r_esc = addslashes($r);
+		$user_rules_yaml .= "    - \"{$r_esc}\"\n";
 	}
 
 	$blocked_services_yaml = '';
@@ -194,10 +222,31 @@ function threatshield_generate_yaml(array $cfg): string {
 		}
 	}
 
+	$ignored_domains_yaml = '';
+	if (!empty($cfg['ignored_domains'])) {
+		$ign = array_filter(array_map('trim', explode("\n", (string)$cfg['ignored_domains'])));
+		foreach ($ign as $ig) {
+			$ig_esc = addslashes($ig);
+			$ignored_domains_yaml .= "\n    - \"{$ig_esc}\"";
+		}
+	}
+
 	$upstream_mode = $cfg['upstream_mode'] ?? 'parallel';
 	$dnssec_bool = ($cfg['enable_dnssec'] === 'on') ? 'true' : 'false';
 	$safesearch_bool = ($cfg['enable_safesearch'] === 'on') ? 'true' : 'false';
 	$parental_bool = ($cfg['enable_parental'] === 'on') ? 'true' : 'false';
+	$safebrowsing_bool = (($cfg['safebrowsing_enabled'] ?? 'on') === 'on') ? 'true' : 'false';
+	$optimistic_bool = (($cfg['cache_optimistic'] ?? 'on') === 'on') ? 'true' : 'false';
+	$ecs_bool = (($cfg['edns_client_subnet'] ?? 'off') === 'on') ? 'true' : 'false';
+	$querylog_bool = (($cfg['querylog_enabled'] ?? 'on') === 'on') ? 'true' : 'false';
+	$anonymize_bool = (($cfg['anonymize_client_ip'] ?? 'off') === 'on') ? 'true' : 'false';
+
+	$cache_bytes = max(1, (int)($cfg['cache_size'] ?? 4)) * 1048576;
+	$ttl_min = (int)($cfg['cache_ttl_min'] ?? 0);
+	$ttl_max = (int)($cfg['cache_ttl_max'] ?? 0);
+	$blocking_mode = $cfg['blocking_mode'] ?? 'default';
+	$blocking_ipv4 = $cfg['blocking_ipv4'] ?? '';
+	$blocking_ipv6 = $cfg['blocking_ipv6'] ?? '';
 
 	$yaml = <<<YAML
 # FreeSense Threat Shield Generated Configuration
@@ -244,7 +293,7 @@ YAML;
   rate_limit_whitelist: []
   edns_client_subnet:
     custom_ip: ""
-    enabled: false
+    enabled: {$ecs_bool}
     use_custom: false
   max_goroutines: 300
   handle_ddr: true
@@ -252,20 +301,23 @@ YAML;
   use_http3_upstreams: false
   use_dns64: false
   dnssec_enabled: {$dnssec_bool}
-  cache_size: 4194304
-  cache_ttl_min: 0
-  cache_ttl_max: 0
-  cache_optimistic: true
+  cache_size: {$cache_bytes}
+  cache_ttl_min: {$ttl_min}
+  cache_ttl_max: {$ttl_max}
+  cache_optimistic: {$optimistic_bool}
   bogus_nxdomain: []
   filtering_enabled: true
   filters_update_interval: 24
   parental_enabled: {$parental_bool}
   safesearch_enabled: {$safesearch_bool}
-  safebrowsing_enabled: true
+  safebrowsing_enabled: {$safebrowsing_bool}
   safebrowsing_cache_size: 1048576
   safesearch_cache_size: 1048576
   parental_cache_size: 1048576
   cache_time: 30
+  blocking_mode: "{$blocking_mode}"
+  blocking_ipv4: "{$blocking_ipv4}"
+  blocking_ipv6: "{$blocking_ipv6}"
   rewrites:
 {$rewrites_yaml}
   blocked_services:
@@ -298,11 +350,13 @@ dhcp:
   enabled: false
 
 querylog:
-  enabled: true
-  file_enabled: true
+  enabled: {$querylog_bool}
+  file_enabled: {$querylog_bool}
   interval: {$cfg['querylog_retention']}h
   size_memory: 1000
-  ignored: []
+  anonymize_client_ip: {$anonymize_bool}
+  ignored: [{$ignored_domains_yaml}
+  ]
 
 stats:
   enabled: true
