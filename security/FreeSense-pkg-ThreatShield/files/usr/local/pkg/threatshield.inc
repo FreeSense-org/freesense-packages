@@ -26,7 +26,7 @@ function threatshield_default_config(): array {
 		'enable' => 'off',
 		'listen_port' => '53',
 		'http_port' => '3000',
-		'dns_coordination_mode' => 'primary', // 'primary' (Unbound to 5353), 'proxy' (ThreatShield on 5354), 'standalone'
+		'dns_coordination_mode' => 'primary', // 'primary' (Unbound to 5335), 'proxy' (ThreatShield on 5354), 'standalone'
 		'interfaces' => ['all'],
 		'upstreams' => "https://dns.quad9.net/dns-query\nhttps://cloudflare-dns.com/dns-query",
 		'fallback_dns' => "9.9.9.9\n1.1.1.1",
@@ -137,12 +137,12 @@ function threatshield_generate_yaml(array $cfg): string {
 		$upstreams = ['https://dns.quad9.net/dns-query', 'https://cloudflare-dns.com/dns-query'];
 	}
 	
-	// If primary mode, add local Unbound on 5353 for local domain & reverse PTR
+	// If primary mode, add local Unbound on 5335 for local domain & reverse PTR
 	if ($cfg['dns_coordination_mode'] === 'primary') {
 		$domain = config_get_path('system/domain', 'localdomain');
-		$upstreams[] = "[/{$domain}/]127.0.0.1:5353";
-		$upstreams[] = "[/in-addr.arpa/]127.0.0.1:5353";
-		$upstreams[] = "[/ip6.arpa/]127.0.0.1:5353";
+		$upstreams[] = "[/{$domain}/]127.0.0.1:5335";
+		$upstreams[] = "[/in-addr.arpa/]127.0.0.1:5335";
+		$upstreams[] = "[/ip6.arpa/]127.0.0.1:5335";
 	}
 
 	$bootstrap = array_filter(array_map('trim', explode("\n", (string)$cfg['bootstrap_dns'])));
@@ -273,7 +273,7 @@ YAML;
   upstream_mode: "{$upstream_mode}"
   use_private_ptr_resolvers: true
   local_ptr_upstreams:
-    - 127.0.0.1:5353
+    - 127.0.0.1:5335
 
 tls:
   enabled: false
@@ -325,9 +325,9 @@ function threatshield_sync_config(): bool {
 	if ($cfg['enable'] === 'on' && $cfg['dns_coordination_mode'] === 'primary') {
 		$unbound_port = (int)config_get_path('unbound/port', 53);
 		if ($unbound_port === 53) {
-			config_set_path('unbound/port', '5353');
+			config_set_path('unbound/port', '5335');
 			config_set_path('unbound/active_interface', 'lo0');
-			write_config(gettext('Threat Shield: coordinated Unbound port to 127.0.0.1:5353'));
+			write_config(gettext('Threat Shield: coordinated Unbound port to 127.0.0.1:5335'));
 			services_unbound_configure();
 		}
 	}
@@ -364,7 +364,7 @@ function threatshield_remove_config(): void {
 
 	// Restore Unbound if shifted
 	$unbound_port = (int)config_get_path('unbound/port', 53);
-	if ($unbound_port === 5353) {
+	if ($unbound_port === 5335) {
 		config_set_path('unbound/port', '53');
 		config_set_path('unbound/active_interface', 'all');
 		write_config(gettext('Threat Shield: restored Unbound port to 53'));

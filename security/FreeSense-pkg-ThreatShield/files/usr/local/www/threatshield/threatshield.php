@@ -91,7 +91,7 @@ threatshield_display_tabs('general');
 				<label for="dns_coordination_mode" class="form-label fw-semibold"><?=gettext('DNS Port Coordination Mode')?></label>
 				<select class="form-select" name="dns_coordination_mode" id="dns_coordination_mode">
 					<option value="primary" <?=$ts_config['dns_coordination_mode'] === 'primary' ? 'selected' : ''?>>
-						<?=gettext('Primary DNS (Recommended): Threat Shield on Port 53, Unbound shifted to 127.0.0.1:5353 for local DHCP PTR')?>
+						<?=gettext('Primary DNS (Recommended): Threat Shield on Port 53, Unbound shifted to 127.0.0.1:5335 for local DHCP PTR')?>
 					</option>
 					<option value="proxy" <?=$ts_config['dns_coordination_mode'] === 'proxy' ? 'selected' : ''?>>
 						<?=gettext('Proxy Mode: Unbound remains on Port 53, forwards to Threat Shield on 127.0.0.1:5354')?>
