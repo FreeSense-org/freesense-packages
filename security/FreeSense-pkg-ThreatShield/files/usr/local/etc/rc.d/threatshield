@@ -1,0 +1,40 @@
+#!/bin/sh
+#
+# PROVIDE: threatshield
+# REQUIRE: NETWORKING SERVERS DAEMON
+# BEFORE: LOGIN
+# KEYWORD: shutdown
+
+. /etc/rc.subr
+
+name="threatshield"
+rcvar="threatshield_enable"
+
+load_rc_config $name
+
+: ${threatshield_enable:="NO"}
+: ${threatshield_config:="/usr/local/etc/threatshield/AdGuardHome.yaml"}
+: ${threatshield_workdir:="/var/db/threatshield"}
+: ${threatshield_pidfile:="/var/run/threatshield.pid"}
+
+command="/usr/local/bin/AdGuardHome"
+command_args="-c ${threatshield_config} -w ${threatshield_workdir} --pidfile ${threatshield_pidfile} -s run &"
+pidfile="${threatshield_pidfile}"
+
+start_precmd="threatshield_prestart"
+stop_postcmd="threatshield_poststop"
+
+threatshield_prestart()
+{
+	mkdir -p "${threatshield_workdir}" "/usr/local/etc/threatshield"
+	if [ ! -f "${threatshield_config}" ]; then
+		/usr/local/bin/php -r "require_once('/usr/local/pkg/threatshield.inc'); threatshield_sync_config();"
+	fi
+}
+
+threatshield_poststop()
+{
+	rm -f "${threatshield_pidfile}"
+}
+
+run_rc_command "$1"

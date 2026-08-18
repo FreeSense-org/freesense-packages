@@ -21,7 +21,7 @@ RETIRED_WRAPPERS = {
     "FreeSense-pkg-iperf", "FreeSense-pkg-mtr-nox11", "FreeSense-pkg-nmap",
     "FreeSense-pkg-Notes", "FreeSense-pkg-Service_Watchdog", "FreeSense-pkg-Shellcmd",
     "FreeSense-pkg-haproxy-devel", "FreeSense-pkg-LADVD",
-    "FreeSense-pkg-pfBlockerNG-devel", "FreeSense-pkg-pimd", "FreeSense-pkg-RRD_Summary",
+    "FreeSense-pkg-pfBlockerNG", "FreeSense-pkg-pfBlockerNG-devel", "FreeSense-pkg-pimd", "FreeSense-pkg-RRD_Summary",
     "FreeSense-pkg-snort", "FreeSense-pkg-squid", "FreeSense-pkg-stunnel",
     "FreeSense-pkg-sudo", "FreeSense-pkg-zabbix-agent6", "FreeSense-pkg-zabbix-agent74",
     "FreeSense-pkg-zabbix-proxy6", "FreeSense-pkg-zabbix-proxy74", "FreeSense-pkg-zeek",
