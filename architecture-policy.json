@@ -1,7 +1,55 @@
 {
   "schema_version": "freesense.optional-package-architectures/v1",
   "architectures": {
-    "amd64": {"exclude": []},
-    "aarch64": {"exclude": []}
+    "amd64": {
+      "exclude": []
+    },
+    "aarch64": {
+      "exclude": [
+        {
+          "origin": "net-mgmt/FreeSense-pkg-Telegraf",
+          "reason": "Requires lang/go which cannot cross-compile under qemu-user emulation.",
+          "issue": "https://github.com/FreeSense-org/freesense/issues/53",
+          "review_date": "2026-08-21"
+        },
+        {
+          "origin": "security/FreeSense-pkg-CrowdSec",
+          "reason": "Requires lang/go which cannot cross-compile under qemu-user emulation.",
+          "issue": "https://github.com/FreeSense-org/freesense/issues/53",
+          "review_date": "2026-08-21"
+        },
+        {
+          "origin": "security/FreeSense-pkg-suricata",
+          "reason": "Requires lang/rust which cannot cross-compile under qemu-user emulation.",
+          "issue": "https://github.com/FreeSense-org/freesense/issues/53",
+          "review_date": "2026-08-21"
+        },
+        {
+          "origin": "security/FreeSense-pkg-Tailscale",
+          "reason": "Requires lang/go which cannot cross-compile under qemu-user emulation.",
+          "issue": "https://github.com/FreeSense-org/freesense/issues/53",
+          "review_date": "2026-08-21"
+        },
+        {
+          "origin": "sysutils/FreeSense-pkg-node_exporter",
+          "reason": "Requires lang/go which cannot cross-compile under qemu-user emulation.",
+          "issue": "https://github.com/FreeSense-org/freesense/issues/53",
+          "review_date": "2026-08-21"
+        },
+        {
+          "origin": "sysutils/FreeSense-pkg-nut",
+          "reason": "Build dependency textproc/go-md2man requires lang/go under qemu-user emulation.",
+          "issue": "https://github.com/FreeSense-org/freesense/issues/53",
+          "review_date": "2026-08-21"
+        },
+        {
+          "origin": "www/FreeSense-pkg-WebGateway-AV",
+          "reason": "Dependency security/clamav requires lang/rust under qemu-user emulation.",
+          "issue": "https://github.com/FreeSense-org/freesense/issues/53",
+          "review_date": "2026-08-21"
+        }
+      ]
+    }
   }
 }
+
