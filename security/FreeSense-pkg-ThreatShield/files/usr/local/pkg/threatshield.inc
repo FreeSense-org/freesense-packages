@@ -20,6 +20,7 @@ define('THREATSHIELD_PID_FILE', '/var/run/threatshield.pid');
 define('THREATSHIELD_API_BASE', 'http://127.0.0.1:3000/control');
 define('THREATSHIELD_GEOIP_INBOUND_TABLE', 'freesense_geoip_inbound');
 define('THREATSHIELD_GEOIP_OUTBOUND_TABLE', 'freesense_geoip_outbound');
+define('THREATSHIELD_SCHEMA_VERSION', 34);
 
 function threatshield_default_config(): array {
 	return [
@@ -114,6 +115,44 @@ function threatshield_config_for_storage(array $candidate): array {
 	return $clean;
 }
 
+function threatshield_yaml_quote(string $value): string {
+	return (string)json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+}
+
+function threatshield_validate_config(array $cfg): array {
+	$errors = [];
+	$port = (int)($cfg['listen_port'] ?? 53);
+	$mode = $cfg['dns_coordination_mode'] ?? 'primary';
+	if ($port < 1 || $port > 65535) {
+		$errors[] = gettext('A valid DNS listening port (1-65535) must be specified.');
+	}
+	if (($cfg['enable'] ?? 'off') === 'on' && $mode === 'primary' && $port !== 53) {
+		$errors[] = gettext('Primary DNS mode requires Threat Shield to listen on port 53.');
+	}
+	if (($cfg['blocking_mode'] ?? '') === 'custom_ip') {
+		if (!filter_var($cfg['blocking_ipv4'] ?? '', FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+			$errors[] = gettext('A valid custom IPv4 sinkhole address is required.');
+		}
+		if (($cfg['blocking_ipv6'] ?? '') !== '' && !filter_var($cfg['blocking_ipv6'], FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+			$errors[] = gettext('The custom IPv6 sinkhole address is invalid.');
+		}
+	}
+	return $errors;
+}
+
+function threatshield_restore_unbound(): bool {
+	$state = config_get_path(THREATSHIELD_CONFIG_PATH . '/_unbound_state', []);
+	if (!is_array($state) || ($state['managed'] ?? '') !== 'on') {
+		return false;
+	}
+	config_set_path('unbound/port', (string)($state['port'] ?? '53'));
+	config_set_path('unbound/active_interface', (string)($state['active_interface'] ?? 'all'));
+	config_del_path(THREATSHIELD_CONFIG_PATH . '/_unbound_state');
+	write_config(gettext('Threat Shield: restored the previous Unbound DNS settings'));
+	services_unbound_configure();
+	return true;
+}
+
 function threatshield_is_running(): bool {
 	if (!file_exists(THREATSHIELD_PID_FILE)) {
 		return false;
@@ -169,12 +208,12 @@ function threatshield_generate_yaml(array $cfg): string {
 		$idx = 1;
 		foreach ($cfg['feeds'] as $feed) {
 			$enabled_val = (!empty($feed['enabled']) && $feed['enabled'] === 'on') ? 'true' : 'false';
-			$name_esc = addslashes((string)($feed['name'] ?? "Feed #{$idx}"));
-			$url_esc = addslashes((string)($feed['url'] ?? ''));
-			if ($url_esc !== '') {
+			$name_esc = threatshield_yaml_quote((string)($feed['name'] ?? "Feed #{$idx}"));
+			$url_esc = threatshield_yaml_quote((string)($feed['url'] ?? ''));
+			if ($url_esc !== '""') {
 				$filters_yaml .= "    - enabled: {$enabled_val}\n";
-				$filters_yaml .= "      url: \"{$url_esc}\"\n";
-				$filters_yaml .= "      name: \"{$name_esc}\"\n";
+				$filters_yaml .= "      url: {$url_esc}\n";
+				$filters_yaml .= "      name: {$name_esc}\n";
 				$filters_yaml .= "      id: {$idx}\n";
 				$idx++;
 			}
@@ -198,36 +237,38 @@ function threatshield_generate_yaml(array $cfg): string {
 
 	$user_rules_yaml = '';
 	foreach ($user_rules_list as $r) {
-		$r_esc = addslashes($r);
-		$user_rules_yaml .= "    - \"{$r_esc}\"\n";
+		$user_rules_yaml .= '    - ' . threatshield_yaml_quote((string)$r) . "\n";
 	}
 
 	$blocked_services_yaml = '';
 	if (!empty($cfg['blocked_services']) && is_array($cfg['blocked_services'])) {
 		foreach ($cfg['blocked_services'] as $svc) {
-			$svc_esc = addslashes((string)$svc);
-			$blocked_services_yaml .= "    - \"{$svc_esc}\"\n";
+			$blocked_services_yaml .= '      - ' . threatshield_yaml_quote((string)$svc) . "\n";
 		}
+	}
+	if ($blocked_services_yaml === '') {
+		$blocked_services_yaml = "      []\n";
 	}
 
 	$rewrites_yaml = '';
 	if (!empty($cfg['rewrites']) && is_array($cfg['rewrites'])) {
 		foreach ($cfg['rewrites'] as $rw) {
 			if (!empty($rw['domain']) && !empty($rw['answer'])) {
-				$d_esc = addslashes($rw['domain']);
-				$a_esc = addslashes($rw['answer']);
-				$rewrites_yaml .= "  - domain: \"{$d_esc}\"\n";
-				$rewrites_yaml .= "    answer: \"{$a_esc}\"\n";
+				$rewrites_yaml .= '    - domain: ' . threatshield_yaml_quote((string)$rw['domain']) . "\n";
+				$rewrites_yaml .= '      answer: ' . threatshield_yaml_quote((string)$rw['answer']) . "\n";
+				$rewrites_yaml .= "      enabled: true\n";
 			}
 		}
+	}
+	if ($rewrites_yaml === '') {
+		$rewrites_yaml = "    []\n";
 	}
 
 	$ignored_domains_yaml = '';
 	if (!empty($cfg['ignored_domains'])) {
 		$ign = array_filter(array_map('trim', explode("\n", (string)$cfg['ignored_domains'])));
 		foreach ($ign as $ig) {
-			$ig_esc = addslashes($ig);
-			$ignored_domains_yaml .= "\n    - \"{$ig_esc}\"";
+			$ignored_domains_yaml .= '    - ' . threatshield_yaml_quote((string)$ig) . "\n";
 		}
 	}
 
@@ -244,22 +285,26 @@ function threatshield_generate_yaml(array $cfg): string {
 	$cache_bytes = max(1, (int)($cfg['cache_size'] ?? 4)) * 1048576;
 	$ttl_min = (int)($cfg['cache_ttl_min'] ?? 0);
 	$ttl_max = (int)($cfg['cache_ttl_max'] ?? 0);
-	$blocking_mode = $cfg['blocking_mode'] ?? 'default';
-	$blocking_ipv4 = $cfg['blocking_ipv4'] ?? '';
-	$blocking_ipv6 = $cfg['blocking_ipv6'] ?? '';
+	$blocking_mode = threatshield_yaml_quote((string)($cfg['blocking_mode'] ?? 'default'));
+	$blocking_ipv4 = threatshield_yaml_quote((string)($cfg['blocking_ipv4'] ?? ''));
+	$blocking_ipv6 = threatshield_yaml_quote((string)($cfg['blocking_ipv6'] ?? ''));
+	$local_ptr_yaml = ($cfg['dns_coordination_mode'] === 'primary') ? "\n    - 127.0.0.1:5335" : ' []';
 
 	$yaml = <<<YAML
 # FreeSense Threat Shield Generated Configuration
 # Do not edit manually - managed via FreeSense WebUI
-bind_host: 0.0.0.0
-bind_port: 3000
+http:
+  address: 127.0.0.1:3000
+  session_ttl: 720h
+  pprof:
+    port: 6060
+    enabled: false
 auth_attempts: 5
 block_auth_min: 15
 http_proxy: ""
 language: en
 theme: auto
-debug_pprof: false
-web_session_ttl: 720
+users: []
 
 dns:
   bind_hosts:
@@ -269,23 +314,21 @@ dns:
 YAML;
 
 	foreach ($upstreams as $u) {
-		$yaml .= "\n    - \"" . addslashes($u) . "\"";
+		$yaml .= "\n    - " . threatshield_yaml_quote((string)$u);
 	}
 
 	$yaml .= "\n  upstream_dns_file: \"\"\n  bootstrap_dns:";
 	foreach ($bootstrap as $b) {
-		$yaml .= "\n    - \"" . addslashes($b) . "\"";
+		$yaml .= "\n    - " . threatshield_yaml_quote((string)$b);
 	}
 
 	$yaml .= "\n  fallback_dns:";
 	foreach ($fallbacks as $f) {
-		$yaml .= "\n    - \"" . addslashes($f) . "\"";
+		$yaml .= "\n    - " . threatshield_yaml_quote((string)$f);
 	}
 
 	$yaml .= <<<YAML
 
-  all_servers: {$upstream_mode}
-  fastest_addr: false
   fastest_timeout: 1s
   rate_limit: {$cfg['ratelimit']}
   rate_limit_subnet_len_ipv4: 24
@@ -306,26 +349,10 @@ YAML;
   cache_ttl_max: {$ttl_max}
   cache_optimistic: {$optimistic_bool}
   bogus_nxdomain: []
-  filtering_enabled: true
-  filters_update_interval: 24
-  parental_enabled: {$parental_bool}
-  safesearch_enabled: {$safesearch_bool}
-  safebrowsing_enabled: {$safebrowsing_bool}
-  safebrowsing_cache_size: 1048576
-  safesearch_cache_size: 1048576
-  parental_cache_size: 1048576
-  cache_time: 30
-  blocking_mode: "{$blocking_mode}"
-  blocking_ipv4: "{$blocking_ipv4}"
-  blocking_ipv6: "{$blocking_ipv6}"
-  rewrites:
-{$rewrites_yaml}
-  blocked_services:
-{$blocked_services_yaml}
   upstream_mode: "{$upstream_mode}"
   use_private_ptr_resolvers: true
   local_ptr_upstreams:
-    - 127.0.0.1:5335
+{$local_ptr_yaml}
 
 tls:
   enabled: false
@@ -340,6 +367,24 @@ tls:
   certificate_chain: ""
   private_key: ""
 
+filtering:
+  filtering_enabled: true
+  protection_enabled: true
+  filters_update_interval: 24
+  parental_enabled: {$parental_bool}
+  safebrowsing_enabled: {$safebrowsing_bool}
+  safe_search:
+    enabled: {$safesearch_bool}
+  blocking_mode: {$blocking_mode}
+  blocking_ipv4: {$blocking_ipv4}
+  blocking_ipv6: {$blocking_ipv6}
+  rewrites:
+{$rewrites_yaml}
+  blocked_services:
+    schedule:
+      time_zone: Local
+    ids:
+{$blocked_services_yaml}
 filters:
 {$filters_yaml}
 whitelist_filters: []
@@ -355,13 +400,15 @@ querylog:
   interval: {$cfg['querylog_retention']}h
   size_memory: 1000
   anonymize_client_ip: {$anonymize_bool}
-  ignored: [{$ignored_domains_yaml}
-  ]
+  ignored:
+{$ignored_domains_yaml}
 
-stats:
+statistics:
   enabled: true
   interval: 24h
   ignored: []
+
+schema_version: 34
 
 YAML;
 
@@ -379,11 +426,18 @@ function threatshield_sync_config(): bool {
 	if ($cfg['enable'] === 'on' && $cfg['dns_coordination_mode'] === 'primary') {
 		$unbound_port = (int)config_get_path('unbound/port', 53);
 		if ($unbound_port === 53) {
+			config_set_path(THREATSHIELD_CONFIG_PATH . '/_unbound_state', [
+				'managed' => 'on',
+				'port' => (string)$unbound_port,
+				'active_interface' => (string)config_get_path('unbound/active_interface', 'all'),
+			]);
 			config_set_path('unbound/port', '5335');
 			config_set_path('unbound/active_interface', 'lo0');
 			write_config(gettext('Threat Shield: coordinated Unbound port to 127.0.0.1:5335'));
 			services_unbound_configure();
 		}
+	} else {
+		threatshield_restore_unbound();
 	}
 
 	$yaml = threatshield_generate_yaml($cfg);
@@ -416,14 +470,7 @@ function threatshield_remove_config(): void {
 	threatshield_service_control('stop');
 	threatshield_remove_cron();
 
-	// Restore Unbound if shifted
-	$unbound_port = (int)config_get_path('unbound/port', 53);
-	if ($unbound_port === 5335) {
-		config_set_path('unbound/port', '53');
-		config_set_path('unbound/active_interface', 'all');
-		write_config(gettext('Threat Shield: restored Unbound port to 53'));
-		services_unbound_configure();
-	}
+	threatshield_restore_unbound();
 
 	@unlink(THREATSHIELD_CONFIG_FILE);
 	filter_configure();
@@ -467,12 +514,9 @@ function threatshield_generate_rules(string $type): string {
 		}
 	}
 
-	// Rogue DNS Interception (Catch Port 53)
-	if ($cfg['catch_rogue_dns'] === 'on' && $type === 'nat') {
-		$listen_port = (int)($cfg['listen_port'] ?: 53);
-		$rules .= "# FreeSense Threat Shield: Rogue DNS Interception\n";
-		$rules .= "rdr on {lan} proto {udp tcp} from any to ! 127.0.0.1 port 53 -> 127.0.0.1 port {$listen_port}\n";
-	}
+	// Rogue-DNS interception needs per-interface PF anchors.  Do not emit an
+	// invalid literal "{lan}" rule; the WebUI keeps the option for a future
+	// implementation that can use FreeSense's generated interface aliases.
 
 	return $rules;
 }

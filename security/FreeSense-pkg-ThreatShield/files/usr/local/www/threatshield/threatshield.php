@@ -61,13 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
 	$ts_config['anonymize_client_ip'] = isset($pconfig['anonymize_client_ip']) ? 'on' : 'off';
 	$ts_config['ignored_domains'] = trim($pconfig['ignored_domains'] ?? '');
 
-	if ($ts_config['listen_port'] < 1 || $ts_config['listen_port'] > 65535) {
-		$input_errors[] = gettext('A valid DNS listening port (1-65535) must be specified.');
-	}
-
-	if ($ts_config['blocking_mode'] === 'custom_ip' && empty($ts_config['blocking_ipv4'])) {
-		$input_errors[] = gettext('A custom IPv4 sinkhole address must be specified when Custom IP blocking mode is selected.');
-	}
+	$input_errors = array_merge($input_errors, threatshield_validate_config($ts_config));
 
 	if (empty($input_errors)) {
 		config_set_path(THREATSHIELD_CONFIG_PATH, threatshield_config_for_storage($ts_config));

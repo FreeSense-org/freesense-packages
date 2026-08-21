@@ -17,8 +17,8 @@ load_rc_config $name
 : ${threatshield_workdir:="/var/db/threatshield"}
 : ${threatshield_pidfile:="/var/run/threatshield.pid"}
 
-command="/usr/local/bin/AdGuardHome"
-command_args="--no-check-update -c ${threatshield_config} -w ${threatshield_workdir} --pidfile ${threatshield_pidfile} -s run &"
+command="/usr/sbin/daemon"
+command_args="-f -P ${threatshield_pidfile} -t ${name} /usr/local/bin/AdGuardHome --no-check-update -c ${threatshield_config} -w ${threatshield_workdir}"
 pidfile="${threatshield_pidfile}"
 
 start_precmd="threatshield_prestart"

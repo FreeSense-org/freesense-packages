@@ -79,6 +79,17 @@ def main() -> int:
 
     if "--no-check-update" not in rc_script:
         errors.append("rc script must disable the upstream self-updater")
+    if "-s run" in rc_script:
+        errors.append("rc script uses unsupported AdGuard Home service action '-s run'")
+    if "schema_version: 34" not in integration:
+        errors.append("generated configuration is not pinned to AdGuard Home schema 34")
+    for removed_key in ("bind_host:", "bind_port:", "all_servers:", "fastest_addr:", "stats:"):
+        if removed_key in integration:
+            errors.append(f"generated configuration contains obsolete key: {removed_key}")
+    if 'rdr on {lan}' in integration:
+        errors.append("PF generator emits invalid literal LAN interface syntax")
+    if "function threatshield_restore_unbound" not in integration:
+        errors.append("Unbound coordination state is not restored safely")
 
     for relative in ("Makefile", "distinfo", "pkg-descr"):
         if not (BINARY_PORT / relative).is_file():
