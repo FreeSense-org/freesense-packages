@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!DOCTYPE packagegui SYSTEM "../schema/packages.dtd">
+<?xml-stylesheet type="text/xsl" href="../xsl/package.xsl"?>
+<packagegui>
+	<name>threatshield</name>
+	<title>Services: Threat Shield</title>
+	<donotsave>true</donotsave>
+	<include_file>/usr/local/pkg/threatshield.inc</include_file>
+	<menu>
+		<name>Threat Shield</name>
+		<tooltiptext>Unified DNS Filtering and GeoIP Country Protection</tooltiptext>
+		<section>Services</section>
+		<url>/threatshield/threatshield.php</url>
+	</menu>
+	<menu>
+		<name>Threat Shield Status</name>
+		<tooltiptext>Threat Shield live query logs and threat statistics</tooltiptext>
+		<section>Status</section>
+		<url>/threatshield/threatshield_status.php</url>
+	</menu>
+	<service>
+		<name>threatshield</name>
+		<rcfile>threatshield</rcfile>
+		<executable>AdGuardHome</executable>
+		<description>FreeSense Threat Shield DNS &amp; GeoIP Engine</description>
+		<starts_on_sync></starts_on_sync>
+	</service>
+	<plugins>
+		<item><type>plugin_xmlrpc_send</type></item>
+		<item><type>plugin_xmlrpc_recv</type></item>
+		<item><type>plugin_xmlrpc_recv_done</type></item>
+	</plugins>
+	<filter_rules_needed>threatshield_generate_rules</filter_rules_needed>
+	<custom_php_resync_config_command>threatshield_sync_config();</custom_php_resync_config_command>
+	<custom_php_pre_deinstall_command>threatshield_remove_config();</custom_php_pre_deinstall_command>
+</packagegui>

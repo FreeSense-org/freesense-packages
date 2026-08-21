@@ -1,0 +1,4 @@
+#!/bin/sh
+# FreeSense Threat Shield Feed & GeoIP update CLI tool
+
+exec /usr/local/bin/php -f /usr/local/pkg/threatshield_update.php "$@"

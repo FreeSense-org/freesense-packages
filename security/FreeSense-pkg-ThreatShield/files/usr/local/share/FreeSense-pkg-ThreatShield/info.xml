@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<freesensepkgs>
+	<package>
+		<name>ThreatShield</name>
+		<website>https://freesense.org/</website>
+		<descr><![CDATA[Unified DNS filtering, automated threat-intelligence feeds, and native GeoIP country blocking for FreeSense. Replaces legacy pfBlocker with high-performance DNS-over-HTTPS/TLS/QUIC, interactive threat inspectors, and wire-speed PF kernel table enforcement.]]></descr>
+		<version>%%PKGVERSION%%</version>
+		<configurationfile>threatshield.xml</configurationfile>
+	</package>
+</freesensepkgs>
