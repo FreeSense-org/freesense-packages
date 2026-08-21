@@ -26,6 +26,17 @@ function threatshield_sync_xmlrpc(): void {
 	$cli->send('threatshield_xmlrpc_receive', [threatshield_config_for_storage($cfg)]);
 }
 
+function threatshield_xmlrpc_receive(array $remote_config): bool {
+	$clean = threatshield_config_for_storage($remote_config);
+	$errors = threatshield_validate_config(array_replace_recursive(threatshield_default_config(), $clean));
+	if (!empty($errors)) {
+		return false;
+	}
+	config_set_path(THREATSHIELD_CONFIG_PATH, $clean);
+	write_config(gettext('Synchronized Threat Shield configuration from the HA primary.'));
+	return threatshield_sync_config();
+}
+
 if (php_sapi_name() === 'cli' && ($argv[1] ?? '') === 'sync') {
 	threatshield_sync_xmlrpc();
 }

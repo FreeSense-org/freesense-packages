@@ -13,8 +13,13 @@ safe_mkdir(THREATSHIELD_DB_DIR, 0750);
 safe_mkdir(THREATSHIELD_GEOIP_DIR, 0750);
 
 function threatshield_download_file(string $url, string $dest): bool {
+	$parts = parse_url($url);
+	if (!is_array($parts) || strtolower($parts['scheme'] ?? '') !== 'https' || empty($parts['host'])) {
+		return false;
+	}
+	$tmp = $dest . '.tmp.' . getmypid();
 	$ch = curl_init($url);
-	$fp = fopen($dest, 'w+');
+	$fp = fopen($tmp, 'x');
 	if (!$fp) return false;
 
 	curl_setopt($ch, CURLOPT_FILE, $fp);
@@ -22,6 +27,9 @@ function threatshield_download_file(string $url, string $dest): bool {
 	curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
 	curl_setopt($ch, CURLOPT_USERAGENT, 'FreeSense-ThreatShield/1.0');
 	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+	curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+	curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS);
+	curl_setopt($ch, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTPS);
 
 	$success = curl_exec($ch);
 	$code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -29,7 +37,11 @@ function threatshield_download_file(string $url, string $dest): bool {
 	fclose($fp);
 
 	if (!$success || $code < 200 || $code >= 300) {
-		@unlink($dest);
+		@unlink($tmp);
+		return false;
+	}
+	if (!@rename($tmp, $dest)) {
+		@unlink($tmp);
 		return false;
 	}
 	return true;
@@ -69,7 +81,7 @@ if ($mode === 'all' || $mode === 'geoip') {
 			$cc_clean = strtolower(preg_replace('/[^a-zA-Z]/', '', $cc));
 			if ($cc_clean === '') continue;
 
-			$url = "http://www.ipdeny.com/ipblocks/data/countries/{$cc_clean}.zone";
+			$url = "https://www.ipdeny.com/ipblocks/data/countries/{$cc_clean}.zone";
 			$dest = THREATSHIELD_GEOIP_DIR . '/' . strtoupper($cc_clean) . '.zone';
 
 			echo "  - Fetching country CIDRs for " . strtoupper($cc_clean) . "...\n";

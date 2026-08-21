@@ -15,12 +15,16 @@ require_once('guiconfig.inc');
 require_once('/usr/local/pkg/threatshield.inc');
 
 $savemsg = null;
+$input_errors = [];
 $ts_config = threatshield_config();
 
 // Handle instant block / whitelist actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 	if (isset($_POST['quick_block']) && !empty($_POST['domain'])) {
-		$dom = trim($_POST['domain']);
+		$dom = strtolower(rtrim(trim($_POST['domain']), '.'));
+		if (!filter_var($dom, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME)) {
+			$input_errors[] = gettext('The selected domain is invalid.');
+		} else {
 		$rule = "||{$dom}^";
 		$existing = $ts_config['custom_rules'] ?? '';
 		$ts_config['custom_rules'] = trim($existing . "\n" . $rule);
@@ -28,8 +32,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 		write_config(gettext("Threat Shield: Blocked domain {$dom}"));
 		threatshield_sync_config();
 		$savemsg = sprintf(gettext('Domain %s added to custom block rules.'), htmlspecialchars($dom));
+		}
 	} elseif (isset($_POST['quick_allow']) && !empty($_POST['domain'])) {
-		$dom = trim($_POST['domain']);
+		$dom = strtolower(rtrim(trim($_POST['domain']), '.'));
+		if (!filter_var($dom, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME)) {
+			$input_errors[] = gettext('The selected domain is invalid.');
+		} else {
 		$rule = "@@||{$dom}^";
 		$existing = $ts_config['custom_rules'] ?? '';
 		$ts_config['custom_rules'] = trim($existing . "\n" . $rule);
@@ -37,6 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 		write_config(gettext("Threat Shield: Whitelisted domain {$dom}"));
 		threatshield_sync_config();
 		$savemsg = sprintf(gettext('Domain %s added to custom whitelist rules.'), htmlspecialchars($dom));
+		}
 	}
 }
 

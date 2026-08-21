@@ -34,6 +34,7 @@ do-install:
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/shortcuts/pkg_threatshield.inc ${STAGEDIR}${PREFIX}/www/shortcuts/
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/widgets/widgets/threatshield.widget.php ${STAGEDIR}${PREFIX}/www/widgets/widgets/
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/share/${PORTNAME}/info.xml ${STAGEDIR}${PREFIX}/share/${PORTNAME}/
+	@${REINPLACE_CMD} -i '' -e "s|%%PKGVERSION%%|${PKGVERSION}|" ${STAGEDIR}${PREFIX}/share/${PORTNAME}/info.xml
 	${INSTALL_DATA} ${FILESDIR}/etc/inc/priv/threatshield.priv.inc ${STAGEDIR}/etc/inc/priv/
 
 .include <bsd.port.mk>
