@@ -9,7 +9,7 @@ MAINTAINER=	coreteam@freesense.org
 COMMENT=	FreeSense Threat Shield & DNS Protection integration
 LICENSE=	APACHE20
 
-RUN_DEPENDS=	adguardhome>=0.107.0:dns/adguardhome
+RUN_DEPENDS=	${LOCALBASE}/bin/AdGuardHome:www/adguardhome-bin
 
 NO_BUILD=	yes
 NO_MTREE=	yes

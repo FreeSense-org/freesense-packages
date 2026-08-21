@@ -1,0 +1,3 @@
+AdGuard Home is a network-wide DNS server that blocks advertisements and
+trackers.  This port packages the official, checksum-pinned FreeBSD binaries
+so aarch64 repositories do not need to execute the Go toolchain under QEMU.

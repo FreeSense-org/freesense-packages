@@ -9,6 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PORT = ROOT / "security/FreeSense-pkg-ThreatShield"
+BINARY_PORT = ROOT / "www/adguardhome-bin"
 
 
 def main() -> int:
@@ -51,6 +52,7 @@ def main() -> int:
     manifest = (PORT / "pkg-plist").read_text(encoding="utf-8")
     makefile = (PORT / "Makefile").read_text(encoding="utf-8")
     package_xml = (PORT / "files/usr/local/pkg/threatshield.xml").read_text(encoding="utf-8")
+    rc_script = (PORT / "files/usr/local/etc/rc.d/threatshield").read_text(encoding="utf-8")
 
     invariants = {
         "config path definition": "THREATSHIELD_CONFIG_PATH",
@@ -71,6 +73,22 @@ def main() -> int:
 
     if "@freesense.org" not in makefile:
         errors.append("Makefile missing official maintainer domain")
+
+    if "www/adguardhome-bin" not in makefile:
+        errors.append("Makefile must use the checksum-pinned AdGuard Home binary port")
+
+    if "--no-check-update" not in rc_script:
+        errors.append("rc script must disable the upstream self-updater")
+
+    for relative in ("Makefile", "distinfo", "pkg-descr"):
+        if not (BINARY_PORT / relative).is_file():
+            errors.append(f"missing AdGuard Home binary port file: {relative}")
+
+    if (BINARY_PORT / "distinfo").is_file():
+        distinfo = (BINARY_PORT / "distinfo").read_text(encoding="utf-8")
+        for architecture in ("amd64", "arm64"):
+            if f"AdGuardHome_freebsd_{architecture}.tar.gz" not in distinfo:
+                errors.append(f"distinfo missing FreeBSD {architecture} release")
 
     if "threatshield" not in package_xml:
         errors.append("package XML missing package declaration")

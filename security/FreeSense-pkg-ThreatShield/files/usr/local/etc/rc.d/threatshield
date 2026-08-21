@@ -18,7 +18,7 @@ load_rc_config $name
 : ${threatshield_pidfile:="/var/run/threatshield.pid"}
 
 command="/usr/local/bin/AdGuardHome"
-command_args="-c ${threatshield_config} -w ${threatshield_workdir} --pidfile ${threatshield_pidfile} -s run &"
+command_args="--no-check-update -c ${threatshield_config} -w ${threatshield_workdir} --pidfile ${threatshield_pidfile} -s run &"
 pidfile="${threatshield_pidfile}"
 
 start_precmd="threatshield_prestart"
