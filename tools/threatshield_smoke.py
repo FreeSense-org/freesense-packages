@@ -95,6 +95,15 @@ def main() -> int:
         if not (BINARY_PORT / relative).is_file():
             errors.append(f"missing AdGuard Home binary port file: {relative}")
 
+    if (BINARY_PORT / "Makefile").is_file():
+        binary_makefile = (BINARY_PORT / "Makefile").read_text(encoding="utf-8")
+        stage_bin = "${MKDIR} ${STAGEDIR}${PREFIX}/bin"
+        install_binary = "${INSTALL_PROGRAM} ${WRKSRC}/AdGuardHome ${STAGEDIR}${PREFIX}/bin/AdGuardHome"
+        if stage_bin not in binary_makefile:
+            errors.append("AdGuard Home binary port does not create its staged bin directory")
+        elif binary_makefile.index(stage_bin) > binary_makefile.index(install_binary):
+            errors.append("AdGuard Home binary port creates its staged bin directory too late")
+
     if (BINARY_PORT / "distinfo").is_file():
         distinfo = (BINARY_PORT / "distinfo").read_text(encoding="utf-8")
         for architecture in ("amd64", "arm64"):

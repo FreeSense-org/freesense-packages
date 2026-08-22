@@ -26,6 +26,7 @@ NO_MTREE=	yes
 PLIST_FILES=	bin/AdGuardHome
 
 do-install:
+	${MKDIR} ${STAGEDIR}${PREFIX}/bin
 	${INSTALL_PROGRAM} ${WRKSRC}/AdGuardHome ${STAGEDIR}${PREFIX}/bin/AdGuardHome
 
 .include <bsd.port.mk>
