@@ -53,6 +53,8 @@ def main() -> int:
     makefile = (PORT / "Makefile").read_text(encoding="utf-8")
     package_xml = (PORT / "files/usr/local/pkg/threatshield.xml").read_text(encoding="utf-8")
     rc_script = (PORT / "files/usr/local/etc/rc.d/threatshield").read_text(encoding="utf-8")
+    install_script = (PORT / "files/pkg-install.in").read_text(encoding="utf-8")
+    deinstall_script = (PORT / "files/pkg-deinstall.in").read_text(encoding="utf-8")
 
     invariants = {
         "config path definition": "THREATSHIELD_CONFIG_PATH",
@@ -90,6 +92,12 @@ def main() -> int:
         errors.append("PF generator emits invalid literal LAN interface syntax")
     if "function threatshield_restore_unbound" not in integration:
         errors.append("Unbound coordination state is not restored safely")
+    if "pfsense-utils.inc" in integration:
+        errors.append("ThreatShield references the removed pfSense utility include")
+    if "threatshield_sync_config" in install_script:
+        errors.append("package installer bypasses rc.packages and invokes ThreatShield sync twice")
+    if "threatshield_remove_config" in deinstall_script:
+        errors.append("package deinstaller bypasses rc.packages and invokes ThreatShield cleanup twice")
 
     for relative in ("Makefile", "distinfo", "pkg-descr"):
         if not (BINARY_PORT / relative).is_file():

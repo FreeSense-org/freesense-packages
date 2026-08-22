@@ -8,7 +8,6 @@
 require_once('config.inc');
 require_once('util.inc');
 require_once('services.inc');
-require_once('pfsense-utils.inc');
 require_once('filter.inc');
 
 define('THREATSHIELD_CONFIG_PATH', 'installedpackages/threatshield');
