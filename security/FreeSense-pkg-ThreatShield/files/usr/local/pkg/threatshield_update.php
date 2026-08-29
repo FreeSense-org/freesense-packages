@@ -83,11 +83,14 @@ if (($mode === 'all' || $mode === 'feeds') && ($force || threatshield_interval_d
 		}
 	}
 
+	$applied = $reload_needed;
 	if ($reload_needed && threatshield_is_running()) {
-		echo "[ThreatShield] Reloading DNS filtering engine...\n";
-		threatshield_api_request('filtering/refresh_filters', 'POST');
+		echo "[ThreatShield] Applying locally downloaded DNS blocklists...\n";
+		$refresh = threatshield_api_request('filtering/refresh', 'POST', []);
+		$applied = $refresh !== null;
+		if (!$applied) echo "    [FAIL] AdGuard Home rejected the filter reload; the updater will retry.\n";
 	}
-	if ($reload_needed) threatshield_mark_updated('feeds');
+	if ($applied) threatshield_mark_updated('feeds');
 }
 
 if (($mode === 'all' || $mode === 'geoip') && ($force || threatshield_interval_due('geoip', (string)($cfg['geoip_update_interval'] ?? 'weekly')))) {

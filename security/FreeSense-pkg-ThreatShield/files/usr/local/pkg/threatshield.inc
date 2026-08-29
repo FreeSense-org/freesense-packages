@@ -367,8 +367,9 @@ function threatshield_generate_yaml(array $cfg): string {
 		foreach ($cfg['feeds'] as $feed) {
 			$enabled_val = (!empty($feed['enabled']) && $feed['enabled'] === 'on') ? 'true' : 'false';
 			$name_esc = threatshield_yaml_quote((string)($feed['name'] ?? "Feed #{$idx}"));
-			$url_esc = threatshield_yaml_quote((string)($feed['url'] ?? ''));
-			if ($url_esc !== '""') {
+			$source_url = (string)($feed['url'] ?? '');
+			$url_esc = threatshield_yaml_quote(THREATSHIELD_DB_DIR . '/feed_' . md5($source_url) . '.txt');
+			if ($source_url !== '') {
 				$filters_yaml .= "    - enabled: {$enabled_val}\n";
 				$filters_yaml .= "      url: {$url_esc}\n";
 				$filters_yaml .= "      name: {$name_esc}\n";
@@ -599,6 +600,11 @@ function threatshield_sync_config(): bool {
 	safe_mkdir(THREATSHIELD_DB_DIR, 0750);
 	safe_mkdir(THREATSHIELD_GEOIP_DIR, 0750);
 
+	// Materialize filter subscriptions before AdGuard Home reads its generated
+	// configuration.  The YAML references these local, atomically-written files.
+	if (($cfg['enable'] ?? 'off') === 'on' && !threatshield_feed_cache_complete($cfg)) {
+		mwexec('/usr/local/sbin/freesense-threatshield-update feeds force');
+	}
 	$yaml = threatshield_generate_yaml($cfg);
 	$tmp = THREATSHIELD_CONFIG_FILE . '.tmp.' . getmypid();
 	if (file_put_contents($tmp, $yaml, LOCK_EX) === false || !@chmod($tmp, 0640) || !@rename($tmp, THREATSHIELD_CONFIG_FILE)) {
@@ -636,6 +642,15 @@ function threatshield_geoip_cache_complete(array $cfg): bool {
 			$cc = strtoupper(preg_replace('/[^A-Z]/', '', (string)$cc));
 			if ($cc === '' || !is_file(THREATSHIELD_GEOIP_DIR . '/' . $cc . '.zone')) return false;
 		}
+	}
+	return true;
+}
+
+function threatshield_feed_cache_complete(array $cfg): bool {
+	foreach (threatshield_normalize_list($cfg['feeds'] ?? []) as $feed) {
+		if (!is_array($feed) || ($feed['enabled'] ?? 'on') !== 'on') continue;
+		$url = (string)($feed['url'] ?? '');
+		if ($url === '' || !is_file(THREATSHIELD_DB_DIR . '/feed_' . md5($url) . '.txt')) return false;
 	}
 	return true;
 }

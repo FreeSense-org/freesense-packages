@@ -49,6 +49,7 @@ def main() -> int:
         return 1
 
     integration = (PORT / "files/usr/local/pkg/threatshield.inc").read_text(encoding="utf-8")
+    updater = (PORT / "files/usr/local/pkg/threatshield_update.php").read_text(encoding="utf-8")
     manifest = (PORT / "pkg-plist").read_text(encoding="utf-8")
     makefile = (PORT / "Makefile").read_text(encoding="utf-8")
     package_xml = (PORT / "files/usr/local/pkg/threatshield.xml").read_text(encoding="utf-8")
@@ -103,6 +104,12 @@ def main() -> int:
         errors.append("ThreatShield writes generated configuration non-atomically")
     if "rate_limit_subnet_len_ipv4: 24" in integration:
         errors.append("rate-limit IPv4 subnet setting is hard-coded")
+    if "THREATSHIELD_DB_DIR . '/feed_' . md5($source_url) . '.txt'" not in integration:
+        errors.append("generated filters do not reference the downloader's local files")
+    if "filtering/refresh', 'POST', []" not in updater:
+        errors.append("updater does not call AdGuard Home's supported local-filter refresh endpoint")
+    if "filtering/refresh_filters" in updater:
+        errors.append("updater calls a nonexistent AdGuard Home filter refresh endpoint")
     if "threatshield_sync_config" in install_script:
         errors.append("package installer bypasses rc.packages and invokes ThreatShield sync twice")
     if "threatshield_remove_config" in deinstall_script:
