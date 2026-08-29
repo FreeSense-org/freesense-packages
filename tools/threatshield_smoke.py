@@ -108,12 +108,20 @@ def main() -> int:
         errors.append("rate-limit IPv4 subnet setting is hard-coded")
     if "table <{$table}> persist file" not in integration:
         errors.append("GeoIP policies do not declare their PF table")
-    if "THREATSHIELD_DB_DIR . '/feed_' . md5($source_url) . '.txt'" not in integration:
+    if "define('THREATSHIELD_FILTER_DIR', '/var/db/threatshield/data/userfilters')" not in integration:
+        errors.append("downloaded filters are not stored in AdGuard Home's safe userfilters directory")
+    if "threatshield_feed_path($source_url)" not in integration or "function threatshield_feed_path" not in integration:
         errors.append("generated filters do not reference the downloader's local files")
-    if "filtering/refresh', 'POST', []" not in updater:
+    if "safe_fs_patterns:" not in integration:
+        errors.append("generated filters do not allowlist the package's local filter directory")
+    if "filtering/refresh', 'POST', ['whitelist' => false]" not in updater:
         errors.append("updater does not call AdGuard Home's supported local-filter refresh endpoint")
+    if "ltrim($endpoint, '/') === 'filtering/refresh'" not in integration:
+        errors.append("filter refresh does not have a dedicated long API timeout")
     if "filtering/refresh_filters" in updater:
         errors.append("updater calls a nonexistent AdGuard Home filter refresh endpoint")
+    if "service threatshield onestart" not in integration or "service threatshield onerestart" not in integration:
+        errors.append("service control does not use FreeBSD's explicit one* actions")
     if "threatshield_sync_config" in install_script:
         errors.append("package installer bypasses rc.packages and invokes ThreatShield sync twice")
     if "threatshield_remove_config" in deinstall_script:

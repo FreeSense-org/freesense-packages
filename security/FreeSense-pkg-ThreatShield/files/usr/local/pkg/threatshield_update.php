@@ -11,6 +11,7 @@ $force = ($argv[2] ?? '') === 'force';
 $cfg = threatshield_config();
 
 safe_mkdir(THREATSHIELD_DB_DIR, 0750);
+safe_mkdir(THREATSHIELD_FILTER_DIR, 0750);
 safe_mkdir(THREATSHIELD_GEOIP_DIR, 0750);
 
 function threatshield_download_file(string $url, string $dest): bool {
@@ -73,7 +74,7 @@ if (($mode === 'all' || $mode === 'feeds') && ($force || threatshield_interval_d
 			if ($url === '') continue;
 
 			echo "  - Fetching {$feed['name']} ({$url})...\n";
-			$dest = THREATSHIELD_DB_DIR . '/feed_' . md5($url) . '.txt';
+			$dest = threatshield_feed_path((string)$url);
 			if (threatshield_download_file($url, $dest)) {
 				echo "    [OK] " . filesize($dest) . " bytes downloaded.\n";
 				$reload_needed = true;
@@ -86,8 +87,8 @@ if (($mode === 'all' || $mode === 'feeds') && ($force || threatshield_interval_d
 	$applied = $reload_needed;
 	if ($reload_needed && threatshield_is_running()) {
 		echo "[ThreatShield] Applying locally downloaded DNS blocklists...\n";
-		$refresh = threatshield_api_request('filtering/refresh', 'POST', []);
-		$applied = $refresh !== null;
+		$refresh = threatshield_api_request('filtering/refresh', 'POST', ['whitelist' => false]);
+		$applied = is_array($refresh) && isset($refresh['updated']);
 		if (!$applied) echo "    [FAIL] AdGuard Home rejected the filter reload; the updater will retry.\n";
 	}
 	if ($applied) threatshield_mark_updated('feeds');

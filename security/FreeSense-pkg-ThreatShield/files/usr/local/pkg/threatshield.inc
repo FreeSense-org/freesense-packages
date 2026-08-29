@@ -14,6 +14,10 @@ define('THREATSHIELD_CONFIG_PATH', 'installedpackages/threatshield');
 define('THREATSHIELD_CONFIG_DIR', '/usr/local/etc/threatshield');
 define('THREATSHIELD_CONFIG_FILE', '/usr/local/etc/threatshield/AdGuardHome.yaml');
 define('THREATSHIELD_DB_DIR', '/var/db/threatshield');
+// AdGuard Home only loads local filter files from its working-directory
+// userfilters area unless a path is separately allowlisted.  Keep our fetched
+// copies there so they are both accepted and safely owned by this package.
+define('THREATSHIELD_FILTER_DIR', '/var/db/threatshield/data/userfilters');
 define('THREATSHIELD_GEOIP_DIR', '/var/db/threatshield/geoip');
 define('THREATSHIELD_PID_FILE', '/var/run/threatshield.pid');
 define('THREATSHIELD_API_BASE', 'http://127.0.0.1');
@@ -44,6 +48,10 @@ function threatshield_normalize_list($value): array {
 		$value = $value['item'];
 	}
 	return is_array($value) ? array_values($value) : [];
+}
+
+function threatshield_feed_path(string $url): string {
+	return THREATSHIELD_FILTER_DIR . '/feed_' . md5($url) . '.txt';
 }
 
 function threatshield_valid_port_spec(string $value): bool {
@@ -367,22 +375,39 @@ function threatshield_is_running(): bool {
 }
 
 function threatshield_service_control(string $action): bool {
+	$command = '';
+	$should_run = null;
 	switch ($action) {
 		case 'start':
-			return mwexec('/usr/sbin/service threatshield start') === 0;
+			// The package deliberately does not persist an rc.conf enable flag;
+			// configuration controls its lifecycle.  FreeBSD's normal actions are
+			// no-ops when that flag is unset, so use the explicit one* variants.
+			$command = '/usr/sbin/service threatshield onestart';
+			$should_run = true;
 			break;
 		case 'stop':
-			return mwexec('/usr/sbin/service threatshield stop') === 0;
+			$command = '/usr/sbin/service threatshield onestop';
+			$should_run = false;
 			break;
 		case 'restart':
-			return mwexec('/usr/sbin/service threatshield restart') === 0;
+			$command = '/usr/sbin/service threatshield onerestart';
+			$should_run = true;
 			break;
 		case 'reload':
-			return mwexec('/usr/sbin/service threatshield reload') === 0;
+			$command = '/usr/sbin/service threatshield onereload';
+			$should_run = true;
 			break;
 		default:
 			return false;
 	}
+	if (mwexec($command) !== 0) return false;
+	// The rc wrapper can return before the daemon has finished binding its
+	// sockets.  Do not report a successful Save & Apply until its pid is alive.
+	for ($check = 0; $check < 20; $check++) {
+		if (threatshield_is_running() === $should_run) return true;
+		usleep(250000);
+	}
+	return threatshield_is_running() === $should_run;
 }
 
 function threatshield_generate_yaml(array $cfg): string {
@@ -415,7 +440,7 @@ function threatshield_generate_yaml(array $cfg): string {
 			$enabled_val = (!empty($feed['enabled']) && $feed['enabled'] === 'on') ? 'true' : 'false';
 			$name_esc = threatshield_yaml_quote((string)($feed['name'] ?? "Feed #{$idx}"));
 			$source_url = (string)($feed['url'] ?? '');
-			$url_esc = threatshield_yaml_quote(THREATSHIELD_DB_DIR . '/feed_' . md5($source_url) . '.txt');
+			$url_esc = threatshield_yaml_quote(threatshield_feed_path($source_url));
 			if ($source_url !== '') {
 				$filters_yaml .= "    - enabled: {$enabled_val}\n";
 				$filters_yaml .= "      url: {$url_esc}\n";
@@ -496,6 +521,7 @@ function threatshield_generate_yaml(array $cfg): string {
 
 	$cache_bytes = max(1, (int)($cfg['cache_size'] ?? 4)) * 1048576;
 	$feed_hours = ['6hours' => 6, '12hours' => 12, 'daily' => 24, 'weekly' => 168][(string)($cfg['feed_update_interval'] ?? 'daily')] ?? 24;
+	$safe_filter_path = THREATSHIELD_FILTER_DIR . '/*';
 	$ttl_min = (int)($cfg['cache_ttl_min'] ?? 0);
 	$ttl_max = (int)($cfg['cache_ttl_max'] ?? 0);
 	$blocking_mode = threatshield_yaml_quote((string)($cfg['blocking_mode'] ?? 'default'));
@@ -588,6 +614,8 @@ filtering:
   filtering_enabled: true
   protection_enabled: true
   filters_update_interval: {$feed_hours}
+  safe_fs_patterns:
+    - "{$safe_filter_path}"
   parental_enabled: {$parental_bool}
   safebrowsing_enabled: {$safebrowsing_bool}
   safe_search:
@@ -644,6 +672,7 @@ function threatshield_sync_config(): bool {
 
 	safe_mkdir(THREATSHIELD_CONFIG_DIR, 0750);
 	safe_mkdir(THREATSHIELD_DB_DIR, 0750);
+	safe_mkdir(THREATSHIELD_FILTER_DIR, 0750);
 	safe_mkdir(THREATSHIELD_GEOIP_DIR, 0750);
 
 	// Materialize filter subscriptions before AdGuard Home reads its generated
@@ -696,7 +725,7 @@ function threatshield_feed_cache_complete(array $cfg): bool {
 	foreach (threatshield_normalize_list($cfg['feeds'] ?? []) as $feed) {
 		if (!is_array($feed) || ($feed['enabled'] ?? 'on') !== 'on') continue;
 		$url = (string)($feed['url'] ?? '');
-		if ($url === '' || !is_file(THREATSHIELD_DB_DIR . '/feed_' . md5($url) . '.txt')) return false;
+		if ($url === '' || !is_file(threatshield_feed_path($url))) return false;
 	}
 	return true;
 }
@@ -806,7 +835,10 @@ function threatshield_api_request(string $endpoint, string $method = 'GET', ?arr
 	$url = THREATSHIELD_API_BASE . ':' . $api_port . '/control/' . ltrim($endpoint, '/');
 	$ch = curl_init($url);
 	curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-	curl_setopt($ch, CURLOPT_TIMEOUT, 3);
+	// Refreshing several multi-megabyte local lists is synchronous in AdGuard
+	// Home and routinely exceeds the short timeout appropriate for UI queries.
+	$timeout = (ltrim($endpoint, '/') === 'filtering/refresh') ? 120 : 3;
+	curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
 	curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 1);
 
 	if ($method === 'POST') {
