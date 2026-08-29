@@ -16,7 +16,7 @@ define('THREATSHIELD_CONFIG_FILE', '/usr/local/etc/threatshield/AdGuardHome.yaml
 define('THREATSHIELD_DB_DIR', '/var/db/threatshield');
 define('THREATSHIELD_GEOIP_DIR', '/var/db/threatshield/geoip');
 define('THREATSHIELD_PID_FILE', '/var/run/threatshield.pid');
-define('THREATSHIELD_API_BASE', 'http://127.0.0.1:3000/control');
+define('THREATSHIELD_API_BASE', 'http://127.0.0.1');
 define('THREATSHIELD_GEOIP_INBOUND_TABLE', 'freesense_geoip_inbound');
 define('THREATSHIELD_GEOIP_OUTBOUND_TABLE', 'freesense_geoip_outbound');
 define('THREATSHIELD_SCHEMA_VERSION', 34);
@@ -44,6 +44,43 @@ function threatshield_normalize_list($value): array {
 		$value = $value['item'];
 	}
 	return is_array($value) ? array_values($value) : [];
+}
+
+function threatshield_valid_port_spec(string $value): bool {
+	$value = trim($value);
+	if ($value === '' || strtolower($value) === 'any') return true;
+	foreach (explode(',', $value) as $part) {
+		$part = trim($part);
+		if (!preg_match('/^(\d{1,5})(?:\s*-\s*(\d{1,5}))?$/', $part, $match)) return false;
+		$first = (int)$match[1];
+		$last = isset($match[2]) ? (int)$match[2] : $first;
+		if ($first < 1 || $last > 65535 || $first > $last) return false;
+	}
+	return true;
+}
+
+function threatshield_pf_port_spec(string $value): string {
+	$value = trim($value);
+	if ($value === '' || strtolower($value) === 'any') return '';
+	return preg_replace('/\s*-\s*/', ':', $value);
+}
+
+function threatshield_dns_bind_hosts(array $cfg): array {
+	if (($cfg['dns_coordination_mode'] ?? 'primary') === 'proxy') return ['127.0.0.1'];
+	$interfaces = threatshield_normalize_list($cfg['interfaces'] ?? ['all']);
+	if (empty($interfaces) || in_array('all', $interfaces, true)) return ['0.0.0.0'];
+	$hosts = [];
+	foreach ($interfaces as $interface) {
+		if (function_exists('get_interface_ip')) {
+			$ipv4 = get_interface_ip((string)$interface);
+			if (is_string($ipv4) && filter_var($ipv4, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) $hosts[] = $ipv4;
+		}
+		if (function_exists('get_interface_ipv6')) {
+			$ipv6 = get_interface_ipv6((string)$interface);
+			if (is_string($ipv6) && filter_var($ipv6, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) $hosts[] = $ipv6;
+		}
+	}
+	return array_values(array_unique($hosts));
 }
 
 function threatshield_default_config(): array {
@@ -206,6 +243,10 @@ function threatshield_validate_config(array $cfg): array {
 		}
 	}
 	$assigned = array_keys(threatshield_assigned_interfaces());
+	$listener_interfaces = threatshield_normalize_list($cfg['interfaces'] ?? ['all']);
+	if (!in_array('all', $listener_interfaces, true) && !empty(array_diff($listener_interfaces, $assigned))) {
+		$errors[] = gettext('A DNS listener references an unassigned interface.');
+	}
 	foreach (threatshield_normalize_list($cfg['geoip_policies'] ?? []) as $policy) {
 		if (!is_array($policy) || empty($policy['countries']) || empty($policy['interfaces']) ||
 			!in_array(($policy['action'] ?? ''), ['block_selected','allow_selected'], true) ||
@@ -215,6 +256,9 @@ function threatshield_validate_config(array $cfg): array {
 		}
 		if (!empty(array_diff(threatshield_normalize_list($policy['interfaces']), $assigned))) {
 			$errors[] = gettext('A GeoIP policy references an unassigned interface.'); break;
+		}
+		if (!threatshield_valid_port_spec((string)($policy['ports'] ?? 'any'))) {
+			$errors[] = gettext('A GeoIP policy has an invalid port or port range.'); break;
 		}
 	}
 	foreach (threatshield_normalize_list($cfg['rewrites'] ?? []) as $rewrite) {
@@ -343,7 +387,10 @@ function threatshield_service_control(string $action): bool {
 
 function threatshield_generate_yaml(array $cfg): string {
 	$listen_port = ($cfg['dns_coordination_mode'] === 'proxy') ? 5354 : (int)($cfg['listen_port'] ?: 53);
-	$dns_bind = ($cfg['dns_coordination_mode'] === 'proxy') ? '127.0.0.1' : '0.0.0.0';
+	$dns_binds = threatshield_dns_bind_hosts($cfg);
+	if (empty($dns_binds)) $dns_binds = ['0.0.0.0'];
+	$dns_binds_yaml = '';
+	foreach ($dns_binds as $dns_bind) $dns_binds_yaml .= "    - " . threatshield_yaml_quote($dns_bind) . "\n";
 	$http_port = (int)($cfg['http_port'] ?? 3000);
 	$upstreams = array_filter(array_map('trim', explode("\n", (string)$cfg['upstreams'])));
 	if (empty($upstreams)) {
@@ -479,8 +526,7 @@ users: []
 
 dns:
   bind_hosts:
-    - {$dns_bind}
-  port: {$listen_port}
+{$dns_binds_yaml}  port: {$listen_port}
   upstream_dns:
 YAML;
 
@@ -693,13 +739,13 @@ function threatshield_generate_rules(string $type): string {
 		$table = 'freesense_geoip_' . $id;
 		$file = THREATSHIELD_GEOIP_DIR . '/' . $id . '.cidrs';
 		$proto = in_array(($policy['protocol'] ?? 'any'), ['tcp','udp'], true) ? ' proto ' . $policy['protocol'] : '';
-		$ports = trim((string)($policy['ports'] ?? 'any'));
-		$port = ($ports === '' || $ports === 'any') ? '' : ' port { ' . preg_replace('/[^0-9,: -]/', '', $ports) . ' }';
+		$ports = threatshield_pf_port_spec((string)($policy['ports'] ?? 'any'));
+		$port = ($ports === '') ? '' : ' port { ' . $ports . ' }';
 		$interfaces = threatshield_normalize_list($policy['interfaces'] ?? []);
+		$rules .= "table <{$table}> persist file \"{$file}\"\n";
 		foreach ($interfaces as $friendly) {
 			$real = function_exists('get_real_interface') ? get_real_interface((string)$friendly) : (string)$friendly;
 			if ($real === '' || !preg_match('/^[A-Za-z0-9_.:-]+$/', $real)) continue;
-			$rules .= "table <{$table}> persist file \"{$file}\"\n";
 			if (in_array(($policy['direction'] ?? 'in'), ['in','both'], true)) {
 				$source = (($policy['action'] ?? 'block_selected') === 'allow_selected') ? '! <' . $table . '>' : '<' . $table . '>';
 				$rules .= "block in log quick on {$real}{$proto} from {$source} to any{$port} label \"ThreatShield GeoIP {$id} inbound\"\n";
@@ -756,7 +802,8 @@ function threatshield_update_geoip(): void {
 }
 
 function threatshield_api_request(string $endpoint, string $method = 'GET', ?array $payload = null): ?array {
-	$url = THREATSHIELD_API_BASE . '/' . ltrim($endpoint, '/');
+	$api_port = (int)(threatshield_config()['http_port'] ?? 3000);
+	$url = THREATSHIELD_API_BASE . ':' . $api_port . '/control/' . ltrim($endpoint, '/');
 	$ch = curl_init($url);
 	curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 	curl_setopt($ch, CURLOPT_TIMEOUT, 3);

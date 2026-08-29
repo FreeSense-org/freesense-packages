@@ -70,6 +70,8 @@ def main() -> int:
         "resolver mode manager": "function threatshield_manage_unbound",
         "policy-bound GeoIP rules": "geoip_policies",
         "rogue DNS interface binding": "dns_intercept_interfaces",
+        "configured management API port": "$api_port = (int)(threatshield_config()['http_port'] ?? 3000)",
+        "PF port-range normalization": "function threatshield_pf_port_spec",
     }
 
     for name, marker in invariants.items():
@@ -104,6 +106,8 @@ def main() -> int:
         errors.append("ThreatShield writes generated configuration non-atomically")
     if "rate_limit_subnet_len_ipv4: 24" in integration:
         errors.append("rate-limit IPv4 subnet setting is hard-coded")
+    if "table <{$table}> persist file" not in integration:
+        errors.append("GeoIP policies do not declare their PF table")
     if "THREATSHIELD_DB_DIR . '/feed_' . md5($source_url) . '.txt'" not in integration:
         errors.append("generated filters do not reference the downloader's local files")
     if "filtering/refresh', 'POST', []" not in updater:

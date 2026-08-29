@@ -14,6 +14,7 @@
 require_once('guiconfig.inc');
 require_once('/usr/local/pkg/threatshield.inc');
 
+$input_errors = [];
 $savemsg = null;
 $running = threatshield_is_running();
 $cfg = threatshield_config();
@@ -21,8 +22,8 @@ $cfg = threatshield_config();
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 	$act = $_POST['action'];
 	if ($act === 'restart') {
-		threatshield_service_control('restart');
-		$savemsg = gettext('Threat Shield daemon restarted.');
+		if (threatshield_service_control('restart')) $savemsg = gettext('Threat Shield daemon restarted.');
+		else $input_errors[] = gettext('Threat Shield could not be restarted. Check the service log and generated configuration.');
 	} elseif ($act === 'update_feeds') {
 		mwexec_bg('/usr/local/sbin/freesense-threatshield-update all force');
 		$savemsg = gettext('Threat feeds and GeoIP update started in the background.');
@@ -46,6 +47,7 @@ $pglinks = ['', '@self', '@self'];
 
 include('head.inc');
 
+if ($input_errors) print_input_errors($input_errors);
 if ($savemsg) {
 	print_info_box($savemsg, 'success');
 }
