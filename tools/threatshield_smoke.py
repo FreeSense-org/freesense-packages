@@ -64,6 +64,7 @@ def main() -> int:
         "GeoIP table generator": "function threatshield_update_geoip",
         "PF rule generation": "function threatshield_generate_rules",
         "API communication bridge": "function threatshield_api_request",
+        "XML-safe list storage": "'item' => threatshield_normalize_list($v)",
     }
 
     for name, marker in invariants.items():

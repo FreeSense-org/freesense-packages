@@ -21,6 +21,17 @@ define('THREATSHIELD_GEOIP_INBOUND_TABLE', 'freesense_geoip_inbound');
 define('THREATSHIELD_GEOIP_OUTBOUND_TABLE', 'freesense_geoip_outbound');
 define('THREATSHIELD_SCHEMA_VERSION', 34);
 
+function threatshield_list_fields(): array {
+	return ['interfaces', 'feeds', 'geoip_countries', 'blocked_services', 'rewrites', 'clients'];
+}
+
+function threatshield_normalize_list($value): array {
+	if (is_array($value) && array_key_exists('item', $value)) {
+		$value = $value['item'];
+	}
+	return is_array($value) ? array_values($value) : [];
+}
+
 function threatshield_default_config(): array {
 	return [
 		'enable' => 'off',
@@ -98,14 +109,31 @@ function threatshield_config(): array {
 	if (!is_array($raw)) {
 		$raw = [];
 	}
+	foreach (threatshield_list_fields() as $field) {
+		if (array_key_exists($field, $raw)) {
+			$raw[$field] = threatshield_normalize_list($raw[$field]);
+		}
+	}
 	$defaults = threatshield_default_config();
-	return array_replace_recursive($defaults, $raw);
+	$config = array_replace_recursive($defaults, $raw);
+	// Lists replace defaults as a unit. Recursive replacement would retain tail
+	// entries from a default list when the saved list is shorter.
+	foreach (threatshield_list_fields() as $field) {
+		if (array_key_exists($field, $raw)) {
+			$config[$field] = $raw[$field];
+		}
+	}
+	return $config;
 }
 
 function threatshield_config_for_storage(array $candidate): array {
 	$clean = [];
 	foreach ($candidate as $k => $v) {
-		if (is_array($v)) {
+		if (in_array($k, threatshield_list_fields(), true)) {
+			// config.xml list tags must use a valid element name. Writing a PHP
+			// numeric array directly would emit invalid tags such as <0>.
+			$clean[$k] = ['item' => threatshield_normalize_list($v)];
+		} elseif (is_array($v)) {
 			$clean[$k] = $v;
 		} elseif (is_scalar($v)) {
 			$clean[$k] = (string)$v;
@@ -239,28 +267,22 @@ function threatshield_generate_yaml(array $cfg): string {
 		$user_rules_yaml .= '    - ' . threatshield_yaml_quote((string)$r) . "\n";
 	}
 
-	$blocked_services_yaml = '';
+	$blocked_services_yaml = ' []';
 	if (!empty($cfg['blocked_services']) && is_array($cfg['blocked_services'])) {
 		foreach ($cfg['blocked_services'] as $svc) {
-			$blocked_services_yaml .= '      - ' . threatshield_yaml_quote((string)$svc) . "\n";
+			$blocked_services_yaml .= "\n      - " . threatshield_yaml_quote((string)$svc);
 		}
 	}
-	if ($blocked_services_yaml === '') {
-		$blocked_services_yaml = "      []\n";
-	}
 
-	$rewrites_yaml = '';
+	$rewrites_yaml = ' []';
 	if (!empty($cfg['rewrites']) && is_array($cfg['rewrites'])) {
 		foreach ($cfg['rewrites'] as $rw) {
 			if (!empty($rw['domain']) && !empty($rw['answer'])) {
-				$rewrites_yaml .= '    - domain: ' . threatshield_yaml_quote((string)$rw['domain']) . "\n";
-				$rewrites_yaml .= '      answer: ' . threatshield_yaml_quote((string)$rw['answer']) . "\n";
-				$rewrites_yaml .= "      enabled: true\n";
+				$rewrites_yaml .= "\n    - domain: " . threatshield_yaml_quote((string)$rw['domain']);
+				$rewrites_yaml .= "\n      answer: " . threatshield_yaml_quote((string)$rw['answer']);
+				$rewrites_yaml .= "\n      enabled: true";
 			}
 		}
-	}
-	if ($rewrites_yaml === '') {
-		$rewrites_yaml = "    []\n";
 	}
 
 	$ignored_domains_yaml = '';
@@ -377,13 +399,11 @@ filtering:
   blocking_mode: {$blocking_mode}
   blocking_ipv4: {$blocking_ipv4}
   blocking_ipv6: {$blocking_ipv6}
-  rewrites:
-{$rewrites_yaml}
+  rewrites:{$rewrites_yaml}
   blocked_services:
     schedule:
       time_zone: Local
-    ids:
-{$blocked_services_yaml}
+    ids:{$blocked_services_yaml}
 filters:
 {$filters_yaml}
 whitelist_filters: []
