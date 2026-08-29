@@ -30,10 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 			unset($feed);
 		}
 
-		config_set_path(THREATSHIELD_CONFIG_PATH, threatshield_config_for_storage($ts_config));
-		write_config(gettext('Updated Threat Shield feed settings.'));
-		threatshield_sync_config();
-		$savemsg = gettext('Feed settings saved successfully.');
+		if (threatshield_save_and_apply($ts_config, gettext('Updated Threat Shield feed settings.'), $input_errors)) $savemsg = gettext('Feed settings saved successfully.');
 	} elseif (isset($_POST['add_feed'])) {
 		$name = trim($_POST['new_name'] ?? '');
 		$url = trim($_POST['new_url'] ?? '');
@@ -41,8 +38,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 		if ($name === '' || $url === '') {
 			$input_errors[] = gettext('A feed name and valid URL must be provided.');
-		} elseif (!filter_var($url, FILTER_VALIDATE_URL)) {
-			$input_errors[] = gettext('The entered feed URL is not a valid HTTP/HTTPS URL.');
+		} elseif (!filter_var($url, FILTER_VALIDATE_URL) || strtolower((string)parse_url($url, PHP_URL_SCHEME)) !== 'https') {
+			$input_errors[] = gettext('The entered feed URL must be a valid HTTPS URL.');
 		} else {
 			$ts_config['feeds'][] = [
 				'name' => $name,
@@ -50,23 +47,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 				'enabled' => 'on',
 				'category' => $cat
 			];
-			config_set_path(THREATSHIELD_CONFIG_PATH, threatshield_config_for_storage($ts_config));
-			write_config(gettext("Added new Threat Shield feed: {$name}"));
-			threatshield_sync_config();
-			$savemsg = sprintf(gettext('Feed "%s" added and applied.'), htmlspecialchars($name));
+			if (threatshield_save_and_apply($ts_config, gettext('Added a Threat Shield feed.'), $input_errors)) $savemsg = sprintf(gettext('Feed "%s" added and applied.'), htmlspecialchars($name));
 		}
 	} elseif (isset($_POST['delete_feed'])) {
 		$del_idx = (int)$_POST['delete_feed'];
 		if (isset($ts_config['feeds'][$del_idx])) {
 			$name = $ts_config['feeds'][$del_idx]['name'];
 			array_splice($ts_config['feeds'], $del_idx, 1);
-			config_set_path(THREATSHIELD_CONFIG_PATH, threatshield_config_for_storage($ts_config));
-			write_config(gettext("Deleted Threat Shield feed: {$name}"));
-			threatshield_sync_config();
-			$savemsg = sprintf(gettext('Feed "%s" deleted.'), htmlspecialchars($name));
+			if (threatshield_save_and_apply($ts_config, gettext('Deleted a Threat Shield feed.'), $input_errors)) $savemsg = sprintf(gettext('Feed "%s" deleted.'), htmlspecialchars($name));
 		}
 	} elseif (isset($_POST['update_now'])) {
-		mwexec_bg('/usr/local/sbin/freesense-threatshield-update feeds');
+		mwexec_bg('/usr/local/sbin/freesense-threatshield-update feeds force');
 		$savemsg = gettext('Feed download started in background.');
 	}
 }
@@ -101,7 +92,7 @@ threatshield_display_tabs('feeds');
 
 <form method="post" action="threatshield_feeds.php">
 	<div class="card shadow-sm mb-3">
-		<div class="card-header bg-light">
+		<div class="card-header">
 			<h2 class="h5 mb-0"><i class="fa-solid fa-clock text-primary me-2"></i><?=gettext('Automated Feed Synchronization Schedule')?></h2>
 		</div>
 		<div class="card-body">
@@ -125,7 +116,7 @@ threatshield_display_tabs('feeds');
 	</div>
 
 	<div class="card shadow-sm mb-3">
-		<div class="card-header bg-light">
+		<div class="card-header">
 			<h2 class="h5 mb-0"><i class="fa-solid fa-shield-virus text-primary me-2"></i><?=gettext('Subscribed DNS Threat Feeds')?></h2>
 		</div>
 		<div class="card-body p-0">
@@ -164,14 +155,14 @@ threatshield_display_tabs('feeds');
 				</table>
 			</div>
 		</div>
-		<div class="card-footer bg-light">
+		<div class="card-footer">
 			<button type="submit" name="save_feeds" value="1" class="btn btn-primary"><i class="fa-solid fa-floppy-disk me-2"></i><?=gettext('Save Feed Settings')?></button>
 		</div>
 	</div>
 </form>
 
 <div class="card shadow-sm mb-4">
-	<div class="card-header bg-light">
+	<div class="card-header">
 		<h2 class="h5 mb-0"><i class="fa-solid fa-plus text-primary me-2"></i><?=gettext('Add Custom DNS Threat Feed')?></h2>
 	</div>
 	<div class="card-body">

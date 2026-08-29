@@ -30,20 +30,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 				'domain' => $domain,
 				'answer' => $answer
 			];
-			config_set_path(THREATSHIELD_CONFIG_PATH, threatshield_config_for_storage($ts_config));
-			write_config(gettext("Added Threat Shield DNS rewrite: {$domain} -> {$answer}"));
-			threatshield_sync_config();
-			$savemsg = sprintf(gettext('DNS rewrite for "%s" added.'), htmlspecialchars($domain));
+			if (threatshield_save_and_apply($ts_config, gettext('Added a Threat Shield DNS rewrite.'), $input_errors)) $savemsg = sprintf(gettext('DNS rewrite for "%s" added.'), htmlspecialchars($domain));
 		}
 	} elseif (isset($_POST['delete_rewrite'])) {
 		$del_idx = (int)$_POST['delete_rewrite'];
 		if (isset($ts_config['rewrites'][$del_idx])) {
 			$d = $ts_config['rewrites'][$del_idx]['domain'];
 			array_splice($ts_config['rewrites'], $del_idx, 1);
-			config_set_path(THREATSHIELD_CONFIG_PATH, threatshield_config_for_storage($ts_config));
-			write_config(gettext("Deleted Threat Shield DNS rewrite: {$d}"));
-			threatshield_sync_config();
-			$savemsg = sprintf(gettext('DNS rewrite for "%s" removed.'), htmlspecialchars($d));
+			if (threatshield_save_and_apply($ts_config, gettext('Deleted a Threat Shield DNS rewrite.'), $input_errors)) $savemsg = sprintf(gettext('DNS rewrite for "%s" removed.'), htmlspecialchars($d));
 		}
 	}
 }
@@ -71,7 +65,7 @@ threatshield_display_tabs('rewrites');
 </div>
 
 <div class="card shadow-sm mb-3">
-	<div class="card-header bg-light">
+	<div class="card-header">
 		<h2 class="h5 mb-0"><i class="fa-solid fa-table-list text-primary me-2"></i><?=gettext('Configured DNS Rewrites')?></h2>
 	</div>
 	<div class="card-body p-0">
@@ -109,7 +103,7 @@ threatshield_display_tabs('rewrites');
 </div>
 
 <div class="card shadow-sm mb-4">
-	<div class="card-header bg-light">
+	<div class="card-header">
 		<h2 class="h5 mb-0"><i class="fa-solid fa-plus text-primary me-2"></i><?=gettext('Add New DNS Rewrite')?></h2>
 	</div>
 	<div class="card-body">

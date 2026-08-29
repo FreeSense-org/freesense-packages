@@ -28,10 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 		$rule = "||{$dom}^";
 		$existing = $ts_config['custom_rules'] ?? '';
 		$ts_config['custom_rules'] = trim($existing . "\n" . $rule);
-		config_set_path(THREATSHIELD_CONFIG_PATH, threatshield_config_for_storage($ts_config));
-		write_config(gettext("Threat Shield: Blocked domain {$dom}"));
-		threatshield_sync_config();
-		$savemsg = sprintf(gettext('Domain %s added to custom block rules.'), htmlspecialchars($dom));
+		if (threatshield_save_and_apply($ts_config, gettext('Threat Shield: blocked a domain.'), $input_errors)) $savemsg = sprintf(gettext('Domain %s added to custom block rules.'), htmlspecialchars($dom));
 		}
 	} elseif (isset($_POST['quick_allow']) && !empty($_POST['domain'])) {
 		$dom = strtolower(rtrim(trim($_POST['domain']), '.'));
@@ -41,10 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 		$rule = "@@||{$dom}^";
 		$existing = $ts_config['custom_rules'] ?? '';
 		$ts_config['custom_rules'] = trim($existing . "\n" . $rule);
-		config_set_path(THREATSHIELD_CONFIG_PATH, threatshield_config_for_storage($ts_config));
-		write_config(gettext("Threat Shield: Whitelisted domain {$dom}"));
-		threatshield_sync_config();
-		$savemsg = sprintf(gettext('Domain %s added to custom whitelist rules.'), htmlspecialchars($dom));
+		if (threatshield_save_and_apply($ts_config, gettext('Threat Shield: whitelisted a domain.'), $input_errors)) $savemsg = sprintf(gettext('Domain %s added to custom whitelist rules.'), htmlspecialchars($dom));
 		}
 	}
 }
@@ -101,7 +95,7 @@ threatshield_display_tabs('querylog');
 </div>
 
 <div class="card shadow-sm mb-4">
-	<div class="card-header bg-light">
+	<div class="card-header">
 		<form method="get" class="row g-2 align-items-center">
 			<div class="col-md-6">
 				<div class="input-group">
@@ -155,22 +149,22 @@ threatshield_display_tabs('querylog');
 								$is_blocked = in_array($reason, ['FilteredBlocked', 'BlockedParental', 'BlockedSafeBrowsing'], true);
 							?>
 							<tr>
-								<td class="text-nowrap text-muted small"><?=$time?></td>
+								<td class="text-nowrap text-muted small"><?=htmlspecialchars((string)$time)?></td>
 								<td>
-									<div class="font-monospace fw-bold"><?=$client_ip?></div>
+									<div class="font-monospace fw-bold"><?=htmlspecialchars((string)$client_ip)?></div>
 									<?php if ($hostname !== ''): ?>
-										<span class="badge bg-secondary"><?=$hostname?></span>
+										<span class="badge bg-secondary"><?=htmlspecialchars((string)$hostname)?></span>
 									<?php endif; ?>
 								</td>
 								<td class="font-monospace text-break">
-									<strong class="<?=$is_blocked ? 'text-danger' : 'text-dark'?>"><?=htmlspecialchars((string)$domain)?></strong>
+									<strong class="<?=$is_blocked ? 'text-danger' : ''?>"><?=htmlspecialchars((string)$domain)?></strong>
 								</td>
-								<td><span class="badge bg-light text-dark border"><?=htmlspecialchars((string)$type)?></span></td>
+								<td><span class="badge border"><?=htmlspecialchars((string)$type)?></span></td>
 								<td>
 									<?php if ($is_blocked): ?>
 										<span class="badge bg-danger"><i class="fa-solid fa-ban me-1"></i><?=gettext('BLOCKED')?></span>
 									<?php elseif ($reason === 'Rewrite'): ?>
-										<span class="badge bg-info text-dark"><i class="fa-solid fa-arrow-right-arrow-left me-1"></i><?=gettext('REWRITTEN')?></span>
+										<span class="badge bg-info"><i class="fa-solid fa-arrow-right-arrow-left me-1"></i><?=gettext('REWRITTEN')?></span>
 									<?php else: ?>
 										<span class="badge bg-success"><i class="fa-solid fa-check me-1"></i><?=gettext('ALLOWED')?></span>
 									<?php endif; ?>

@@ -14,12 +14,82 @@ define('THREATSHIELD_CONFIG_PATH', 'installedpackages/threatshield');
 define('THREATSHIELD_CONFIG_DIR', '/usr/local/etc/threatshield');
 define('THREATSHIELD_CONFIG_FILE', '/usr/local/etc/threatshield/AdGuardHome.yaml');
 define('THREATSHIELD_DB_DIR', '/var/db/threatshield');
+// AdGuard Home only loads local filter files from its working-directory
+// userfilters area unless a path is separately allowlisted.  Keep our fetched
+// copies there so they are both accepted and safely owned by this package.
+define('THREATSHIELD_FILTER_DIR', '/var/db/threatshield/data/userfilters');
 define('THREATSHIELD_GEOIP_DIR', '/var/db/threatshield/geoip');
 define('THREATSHIELD_PID_FILE', '/var/run/threatshield.pid');
-define('THREATSHIELD_API_BASE', 'http://127.0.0.1:3000/control');
+define('THREATSHIELD_API_BASE', 'http://127.0.0.1');
 define('THREATSHIELD_GEOIP_INBOUND_TABLE', 'freesense_geoip_inbound');
 define('THREATSHIELD_GEOIP_OUTBOUND_TABLE', 'freesense_geoip_outbound');
 define('THREATSHIELD_SCHEMA_VERSION', 34);
+define('THREATSHIELD_MAX_FEED_BYTES', 32 * 1024 * 1024);
+
+function threatshield_list_fields(): array {
+	return ['interfaces', 'feeds', 'geoip_countries', 'blocked_services', 'rewrites', 'clients', 'geoip_policies', 'dns_intercept_interfaces'];
+}
+
+function threatshield_services_catalog(): array {
+	return ['tiktok','discord','youtube','facebook','instagram','roblox','steam','netflix','twitter','twitch','reddit','epic_games','snapchat','telegram'];
+}
+
+function threatshield_assigned_interfaces(): array {
+	$result = [];
+	foreach (config_get_path('interfaces', []) as $name => $entry) {
+		if (!is_array($entry) || empty($entry['if'])) continue;
+		$result[(string)$name] = (string)($entry['descr'] ?? strtoupper((string)$name));
+	}
+	return $result;
+}
+
+function threatshield_normalize_list($value): array {
+	if (is_array($value) && array_key_exists('item', $value)) {
+		$value = $value['item'];
+	}
+	return is_array($value) ? array_values($value) : [];
+}
+
+function threatshield_feed_path(string $url): string {
+	return THREATSHIELD_FILTER_DIR . '/feed_' . md5($url) . '.txt';
+}
+
+function threatshield_valid_port_spec(string $value): bool {
+	$value = trim($value);
+	if ($value === '' || strtolower($value) === 'any') return true;
+	foreach (explode(',', $value) as $part) {
+		$part = trim($part);
+		if (!preg_match('/^(\d{1,5})(?:\s*-\s*(\d{1,5}))?$/', $part, $match)) return false;
+		$first = (int)$match[1];
+		$last = isset($match[2]) ? (int)$match[2] : $first;
+		if ($first < 1 || $last > 65535 || $first > $last) return false;
+	}
+	return true;
+}
+
+function threatshield_pf_port_spec(string $value): string {
+	$value = trim($value);
+	if ($value === '' || strtolower($value) === 'any') return '';
+	return preg_replace('/\s*-\s*/', ':', $value);
+}
+
+function threatshield_dns_bind_hosts(array $cfg): array {
+	if (($cfg['dns_coordination_mode'] ?? 'primary') === 'proxy') return ['127.0.0.1'];
+	$interfaces = threatshield_normalize_list($cfg['interfaces'] ?? ['all']);
+	if (empty($interfaces) || in_array('all', $interfaces, true)) return ['0.0.0.0'];
+	$hosts = [];
+	foreach ($interfaces as $interface) {
+		if (function_exists('get_interface_ip')) {
+			$ipv4 = get_interface_ip((string)$interface);
+			if (is_string($ipv4) && filter_var($ipv4, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) $hosts[] = $ipv4;
+		}
+		if (function_exists('get_interface_ipv6')) {
+			$ipv6 = get_interface_ipv6((string)$interface);
+			if (is_string($ipv6) && filter_var($ipv6, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) $hosts[] = $ipv6;
+		}
+	}
+	return array_values(array_unique($hosts));
+}
 
 function threatshield_default_config(): array {
 	return [
@@ -51,10 +121,11 @@ function threatshield_default_config(): array {
 		'rate_limit_subnet_len_ipv6' => '56',
 		'rate_limit_whitelist' => '',
 		'querylog_enabled' => 'on',
-		'querylog_retention' => '90',
+		'querylog_retention' => '2160',
 		'anonymize_client_ip' => 'off',
 		'ignored_domains' => '',
-		'catch_rogue_dns' => 'on',
+		'catch_rogue_dns' => 'off',
+		'dns_intercept_interfaces' => [],
 		'feed_update_interval' => 'daily',
 		'feeds' => [
 			[
@@ -87,6 +158,7 @@ function threatshield_default_config(): array {
 		'geoip_mode' => 'block_inbound', // 'block_inbound', 'block_both', 'whitelist_inbound'
 		'geoip_countries' => ['RU', 'CN', 'KP', 'IR', 'BY'],
 		'geoip_update_interval' => 'weekly',
+		'geoip_policies' => [],
 		'blocked_services' => [],
 		'rewrites' => [],
 		'clients' => []
@@ -98,14 +170,42 @@ function threatshield_config(): array {
 	if (!is_array($raw)) {
 		$raw = [];
 	}
+	foreach (threatshield_list_fields() as $field) {
+		if (array_key_exists($field, $raw)) {
+			$raw[$field] = threatshield_normalize_list($raw[$field]);
+		}
+	}
+	// Upgrade the original single GeoIP selector without changing an existing
+	// administrator's effective country set.  New installs use policy records.
+	if (empty($raw['geoip_policies']) && !empty($raw['geoip_countries'])) {
+		$raw['geoip_policies'] = [[
+			'id' => 'default', 'enable' => ($raw['geoip_enable'] ?? 'on'),
+			'action' => (($raw['geoip_mode'] ?? 'block_inbound') === 'whitelist_inbound') ? 'allow_selected' : 'block_selected',
+			'direction' => (($raw['geoip_mode'] ?? '') === 'block_both') ? 'both' : 'in',
+			'interfaces' => ['wan'], 'protocol' => 'any', 'ports' => 'any',
+			'countries' => threatshield_normalize_list($raw['geoip_countries']),
+		]];
+	}
 	$defaults = threatshield_default_config();
-	return array_replace_recursive($defaults, $raw);
+	$config = array_replace_recursive($defaults, $raw);
+	// Lists replace defaults as a unit. Recursive replacement would retain tail
+	// entries from a default list when the saved list is shorter.
+	foreach (threatshield_list_fields() as $field) {
+		if (array_key_exists($field, $raw)) {
+			$config[$field] = $raw[$field];
+		}
+	}
+	return $config;
 }
 
 function threatshield_config_for_storage(array $candidate): array {
 	$clean = [];
 	foreach ($candidate as $k => $v) {
-		if (is_array($v)) {
+		if (in_array($k, threatshield_list_fields(), true)) {
+			// config.xml list tags must use a valid element name. Writing a PHP
+			// numeric array directly would emit invalid tags such as <0>.
+			$clean[$k] = ['item' => threatshield_normalize_list($v)];
+		} elseif (is_array($v)) {
 			$clean[$k] = $v;
 		} elseif (is_scalar($v)) {
 			$clean[$k] = (string)$v;
@@ -128,6 +228,55 @@ function threatshield_validate_config(array $cfg): array {
 	if (($cfg['enable'] ?? 'off') === 'on' && $mode === 'primary' && $port !== 53) {
 		$errors[] = gettext('Primary DNS mode requires Threat Shield to listen on port 53.');
 	}
+	if (!in_array($mode, ['primary', 'proxy', 'standalone'], true)) {
+		$errors[] = gettext('The DNS coordination mode is invalid.');
+	}
+	foreach (['http_port', 'listen_port'] as $field) {
+		$value = (int)($cfg[$field] ?? 0);
+		if ($value < 1 || $value > 65535) $errors[] = gettext('All listener ports must be between 1 and 65535.');
+	}
+	if (!in_array((string)($cfg['querylog_retention'] ?? ''), ['6','24','168','720','2160'], true)) {
+		$errors[] = gettext('The query-log retention period is invalid.');
+	}
+	foreach (threatshield_normalize_list($cfg['feeds'] ?? []) as $feed) {
+		$url = is_array($feed) ? (string)($feed['url'] ?? '') : '';
+		$p = parse_url($url);
+		if ($url === '' || !is_array($p) || strtolower($p['scheme'] ?? '') !== 'https' || empty($p['host'])) {
+			$errors[] = gettext('Every DNS feed must use a valid HTTPS URL.'); break;
+		}
+	}
+	foreach (threatshield_normalize_list($cfg['blocked_services'] ?? []) as $service) {
+		if (!in_array((string)$service, threatshield_services_catalog(), true)) {
+			$errors[] = gettext('An unsupported blocked-service identifier was submitted.'); break;
+		}
+	}
+	$assigned = array_keys(threatshield_assigned_interfaces());
+	$listener_interfaces = threatshield_normalize_list($cfg['interfaces'] ?? ['all']);
+	if (!in_array('all', $listener_interfaces, true) && !empty(array_diff($listener_interfaces, $assigned))) {
+		$errors[] = gettext('A DNS listener references an unassigned interface.');
+	}
+	foreach (threatshield_normalize_list($cfg['geoip_policies'] ?? []) as $policy) {
+		if (!is_array($policy) || empty($policy['countries']) || empty($policy['interfaces']) ||
+			!in_array(($policy['action'] ?? ''), ['block_selected','allow_selected'], true) ||
+			!in_array(($policy['direction'] ?? ''), ['in','out','both'], true) ||
+			!in_array(($policy['protocol'] ?? ''), ['any','tcp','udp'], true)) {
+			$errors[] = gettext('Every GeoIP policy needs countries, interfaces, a valid action, direction, and protocol.'); break;
+		}
+		if (!empty(array_diff(threatshield_normalize_list($policy['interfaces']), $assigned))) {
+			$errors[] = gettext('A GeoIP policy references an unassigned interface.'); break;
+		}
+		if (!threatshield_valid_port_spec((string)($policy['ports'] ?? 'any'))) {
+			$errors[] = gettext('A GeoIP policy has an invalid port or port range.'); break;
+		}
+	}
+	foreach (threatshield_normalize_list($cfg['rewrites'] ?? []) as $rewrite) {
+		$domain = is_array($rewrite) ? strtolower(trim((string)($rewrite['domain'] ?? ''))) : '';
+		$answer = is_array($rewrite) ? trim((string)($rewrite['answer'] ?? '')) : '';
+		if ($domain === '' || $answer === '' || !preg_match('/^(\\*\\.)?[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/', $domain) ||
+			(!filter_var($answer, FILTER_VALIDATE_IP) && !preg_match('/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i', $answer))) {
+			$errors[] = gettext('Each DNS rewrite needs a valid domain and an IP address or hostname answer.'); break;
+		}
+	}
 	if (($cfg['blocking_mode'] ?? '') === 'custom_ip') {
 		if (!filter_var($cfg['blocking_ipv4'] ?? '', FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
 			$errors[] = gettext('A valid custom IPv4 sinkhole address is required.');
@@ -139,6 +288,30 @@ function threatshield_validate_config(array $cfg): array {
 	return $errors;
 }
 
+function threatshield_save_and_apply(array $candidate, string $description, array &$errors = []): bool {
+	$errors = threatshield_validate_config($candidate);
+	if (!empty($errors)) return false;
+	$previous = threatshield_config();
+	$stored = threatshield_config_for_storage($candidate);
+	config_set_path(THREATSHIELD_CONFIG_PATH, $stored);
+	$result = write_config($description);
+	$persisted = config_get_path(THREATSHIELD_CONFIG_PATH, null);
+	if (!is_array($result) || !is_array($persisted) || threatshield_config_for_storage($persisted) !== $stored) {
+		config_set_path(THREATSHIELD_CONFIG_PATH, threatshield_config_for_storage($previous));
+		write_config(gettext('Rolled back failed Threat Shield settings save'));
+		$errors[] = gettext('Settings could not be saved to config.xml; the previous settings were restored.');
+		return false;
+	}
+	if (!threatshield_sync_config()) {
+		config_set_path(THREATSHIELD_CONFIG_PATH, threatshield_config_for_storage($previous));
+		write_config(gettext('Rolled back rejected Threat Shield settings'));
+		threatshield_sync_config();
+		$errors[] = gettext('Activation failed; the previous Threat Shield settings were restored.');
+		return false;
+	}
+	return true;
+}
+
 function threatshield_restore_unbound(): bool {
 	$state = config_get_path(THREATSHIELD_CONFIG_PATH . '/_unbound_state', []);
 	if (!is_array($state) || ($state['managed'] ?? '') !== 'on') {
@@ -146,8 +319,45 @@ function threatshield_restore_unbound(): bool {
 	}
 	config_set_path('unbound/port', (string)($state['port'] ?? '53'));
 	config_set_path('unbound/active_interface', (string)($state['active_interface'] ?? 'all'));
+	config_set_path('unbound/enable', (string)($state['enable'] ?? ''));
+	config_set_path('unbound/custom_options', (string)($state['custom_options'] ?? ''));
 	config_del_path(THREATSHIELD_CONFIG_PATH . '/_unbound_state');
 	write_config(gettext('Threat Shield: restored the previous Unbound DNS settings'));
+	services_unbound_configure();
+	return true;
+}
+
+function threatshield_manage_unbound(array $cfg): bool {
+	$mode = $cfg['dns_coordination_mode'] ?? 'primary';
+	if (($cfg['enable'] ?? 'off') !== 'on') return threatshield_restore_unbound() || true;
+	$state = config_get_path(THREATSHIELD_CONFIG_PATH . '/_unbound_state', []);
+	if (!is_array($state) || ($state['managed'] ?? '') !== 'on') {
+		$state = [
+			'managed' => 'on', 'port' => (string)config_get_path('unbound/port', '53'),
+			'active_interface' => (string)config_get_path('unbound/active_interface', 'all'),
+			'enable' => (string)config_get_path('unbound/enable', ''),
+			'custom_options' => (string)config_get_path('unbound/custom_options', ''),
+		];
+		config_set_path(THREATSHIELD_CONFIG_PATH . '/_unbound_state', $state);
+	}
+	if ($mode === 'primary') {
+		config_set_path('unbound/enable', $state['enable']);
+		config_set_path('unbound/port', '5335');
+		config_set_path('unbound/active_interface', 'lo0');
+		config_set_path('unbound/custom_options', $state['custom_options']);
+	} elseif ($mode === 'proxy') {
+		// Keep Unbound client-facing and send ordinary recursion to the local
+		// filtering listener. Existing local-zone settings remain managed by Unbound.
+		config_set_path('unbound/enable', $state['enable'] ?: 'on');
+		config_set_path('unbound/port', $state['port'] ?: '53');
+		config_set_path('unbound/active_interface', $state['active_interface'] ?: 'all');
+		$forward = "# FreeSense Threat Shield managed proxy forwarder\nforward-zone:\n  name: \".\"\n  forward-addr: 127.0.0.1@5354\n";
+		config_set_path('unbound/custom_options', trim($state['custom_options'] . "\n" . $forward));
+	} elseif ($mode === 'standalone') {
+		config_set_path('unbound/enable', '');
+		config_set_path('unbound/custom_options', $state['custom_options']);
+	} else return false;
+	if (!is_array(write_config(gettext('Threat Shield: coordinated Unbound DNS mode')))) return false;
 	services_unbound_configure();
 	return true;
 }
@@ -165,27 +375,48 @@ function threatshield_is_running(): bool {
 }
 
 function threatshield_service_control(string $action): bool {
+	$command = '';
+	$should_run = null;
 	switch ($action) {
 		case 'start':
-			mwexec('/usr/sbin/service threatshield start');
+			// The package deliberately does not persist an rc.conf enable flag;
+			// configuration controls its lifecycle.  FreeBSD's normal actions are
+			// no-ops when that flag is unset, so use the explicit one* variants.
+			$command = '/usr/sbin/service threatshield onestart';
+			$should_run = true;
 			break;
 		case 'stop':
-			mwexec('/usr/sbin/service threatshield stop');
+			$command = '/usr/sbin/service threatshield onestop';
+			$should_run = false;
 			break;
 		case 'restart':
-			mwexec('/usr/sbin/service threatshield restart');
+			$command = '/usr/sbin/service threatshield onerestart';
+			$should_run = true;
 			break;
 		case 'reload':
-			mwexec('/usr/sbin/service threatshield reload');
+			$command = '/usr/sbin/service threatshield onereload';
+			$should_run = true;
 			break;
 		default:
 			return false;
 	}
-	return true;
+	if (mwexec($command) !== 0) return false;
+	// The rc wrapper can return before the daemon has finished binding its
+	// sockets.  Do not report a successful Save & Apply until its pid is alive.
+	for ($check = 0; $check < 20; $check++) {
+		if (threatshield_is_running() === $should_run) return true;
+		usleep(250000);
+	}
+	return threatshield_is_running() === $should_run;
 }
 
 function threatshield_generate_yaml(array $cfg): string {
 	$listen_port = ($cfg['dns_coordination_mode'] === 'proxy') ? 5354 : (int)($cfg['listen_port'] ?: 53);
+	$dns_binds = threatshield_dns_bind_hosts($cfg);
+	if (empty($dns_binds)) $dns_binds = ['0.0.0.0'];
+	$dns_binds_yaml = '';
+	foreach ($dns_binds as $dns_bind) $dns_binds_yaml .= "    - " . threatshield_yaml_quote($dns_bind) . "\n";
+	$http_port = (int)($cfg['http_port'] ?? 3000);
 	$upstreams = array_filter(array_map('trim', explode("\n", (string)$cfg['upstreams'])));
 	if (empty($upstreams)) {
 		$upstreams = ['https://dns.quad9.net/dns-query', 'https://cloudflare-dns.com/dns-query'];
@@ -208,8 +439,9 @@ function threatshield_generate_yaml(array $cfg): string {
 		foreach ($cfg['feeds'] as $feed) {
 			$enabled_val = (!empty($feed['enabled']) && $feed['enabled'] === 'on') ? 'true' : 'false';
 			$name_esc = threatshield_yaml_quote((string)($feed['name'] ?? "Feed #{$idx}"));
-			$url_esc = threatshield_yaml_quote((string)($feed['url'] ?? ''));
-			if ($url_esc !== '""') {
+			$source_url = (string)($feed['url'] ?? '');
+			$url_esc = threatshield_yaml_quote(threatshield_feed_path($source_url));
+			if ($source_url !== '') {
 				$filters_yaml .= "    - enabled: {$enabled_val}\n";
 				$filters_yaml .= "      url: {$url_esc}\n";
 				$filters_yaml .= "      name: {$name_esc}\n";
@@ -239,28 +471,22 @@ function threatshield_generate_yaml(array $cfg): string {
 		$user_rules_yaml .= '    - ' . threatshield_yaml_quote((string)$r) . "\n";
 	}
 
-	$blocked_services_yaml = '';
+	$blocked_services_yaml = ' []';
 	if (!empty($cfg['blocked_services']) && is_array($cfg['blocked_services'])) {
 		foreach ($cfg['blocked_services'] as $svc) {
-			$blocked_services_yaml .= '      - ' . threatshield_yaml_quote((string)$svc) . "\n";
+			$blocked_services_yaml .= "\n      - " . threatshield_yaml_quote((string)$svc);
 		}
 	}
-	if ($blocked_services_yaml === '') {
-		$blocked_services_yaml = "      []\n";
-	}
 
-	$rewrites_yaml = '';
+	$rewrites_yaml = ' []';
 	if (!empty($cfg['rewrites']) && is_array($cfg['rewrites'])) {
 		foreach ($cfg['rewrites'] as $rw) {
 			if (!empty($rw['domain']) && !empty($rw['answer'])) {
-				$rewrites_yaml .= '    - domain: ' . threatshield_yaml_quote((string)$rw['domain']) . "\n";
-				$rewrites_yaml .= '      answer: ' . threatshield_yaml_quote((string)$rw['answer']) . "\n";
-				$rewrites_yaml .= "      enabled: true\n";
+				$rewrites_yaml .= "\n    - domain: " . threatshield_yaml_quote((string)$rw['domain']);
+				$rewrites_yaml .= "\n      answer: " . threatshield_yaml_quote((string)$rw['answer']);
+				$rewrites_yaml .= "\n      enabled: true";
 			}
 		}
-	}
-	if ($rewrites_yaml === '') {
-		$rewrites_yaml = "    []\n";
 	}
 
 	$ignored_domains_yaml = '';
@@ -269,6 +495,18 @@ function threatshield_generate_yaml(array $cfg): string {
 		foreach ($ign as $ig) {
 			$ignored_domains_yaml .= '    - ' . threatshield_yaml_quote((string)$ig) . "\n";
 		}
+	}
+	$clients_yaml = ' []';
+	foreach (threatshield_normalize_list($cfg['clients'] ?? []) as $client) {
+		if (!is_array($client) || empty($client['ids']) || !is_array($client['ids'])) continue;
+		$clients_yaml .= "\n    - ids:";
+		foreach ($client['ids'] as $id) $clients_yaml .= "\n        - " . threatshield_yaml_quote((string)$id);
+		$clients_yaml .= "\n      name: " . threatshield_yaml_quote((string)($client['name'] ?? 'Threat Shield client'));
+		$clients_yaml .= "\n      use_global_settings: " . (($client['filtering'] ?? 'inherit') === 'inherit' ? 'true' : 'false');
+		$clients_yaml .= "\n      filtering_enabled: " . (($client['filtering'] ?? 'inherit') === 'off' ? 'false' : 'true');
+		$clients_yaml .= "\n      use_global_blocked_services: " . (empty($client['blocked_services']) ? 'true' : 'false');
+		$clients_yaml .= "\n      blocked_services:";
+		foreach (threatshield_normalize_list($client['blocked_services'] ?? []) as $service) $clients_yaml .= "\n        - " . threatshield_yaml_quote((string)$service);
 	}
 
 	$upstream_mode = $cfg['upstream_mode'] ?? 'parallel';
@@ -282,9 +520,16 @@ function threatshield_generate_yaml(array $cfg): string {
 	$anonymize_bool = (($cfg['anonymize_client_ip'] ?? 'off') === 'on') ? 'true' : 'false';
 
 	$cache_bytes = max(1, (int)($cfg['cache_size'] ?? 4)) * 1048576;
+	$feed_hours = ['6hours' => 6, '12hours' => 12, 'daily' => 24, 'weekly' => 168][(string)($cfg['feed_update_interval'] ?? 'daily')] ?? 24;
+	$safe_filter_path = THREATSHIELD_FILTER_DIR . '/*';
 	$ttl_min = (int)($cfg['cache_ttl_min'] ?? 0);
 	$ttl_max = (int)($cfg['cache_ttl_max'] ?? 0);
 	$blocking_mode = threatshield_yaml_quote((string)($cfg['blocking_mode'] ?? 'default'));
+	$rate_whitelist_yaml = '';
+	foreach (array_filter(array_map('trim', preg_split('/[\r\n,]+/', (string)($cfg['rate_limit_whitelist'] ?? '')))) as $address) {
+		if (filter_var($address, FILTER_VALIDATE_IP)) $rate_whitelist_yaml .= "\n    - " . threatshield_yaml_quote($address);
+	}
+	if ($rate_whitelist_yaml === '') $rate_whitelist_yaml = ' []';
 	$blocking_ipv4 = threatshield_yaml_quote((string)($cfg['blocking_ipv4'] ?? ''));
 	$blocking_ipv6 = threatshield_yaml_quote((string)($cfg['blocking_ipv6'] ?? ''));
 	$local_ptr_yaml = ($cfg['dns_coordination_mode'] === 'primary') ? "\n    - 127.0.0.1:5335" : ' []';
@@ -293,7 +538,7 @@ function threatshield_generate_yaml(array $cfg): string {
 # FreeSense Threat Shield Generated Configuration
 # Do not edit manually - managed via FreeSense WebUI
 http:
-  address: 127.0.0.1:3000
+  address: 127.0.0.1:{$http_port}
   session_ttl: 720h
   pprof:
     port: 6060
@@ -307,8 +552,7 @@ users: []
 
 dns:
   bind_hosts:
-    - 0.0.0.0
-  port: {$listen_port}
+{$dns_binds_yaml}  port: {$listen_port}
   upstream_dns:
 YAML;
 
@@ -330,9 +574,9 @@ YAML;
 
   fastest_timeout: 1s
   rate_limit: {$cfg['ratelimit']}
-  rate_limit_subnet_len_ipv4: 24
-  rate_limit_subnet_len_ipv6: 56
-  rate_limit_whitelist: []
+  rate_limit_subnet_len_ipv4: {$cfg['rate_limit_subnet_len_ipv4']}
+  rate_limit_subnet_len_ipv6: {$cfg['rate_limit_subnet_len_ipv6']}
+  rate_limit_whitelist:{$rate_whitelist_yaml}
   edns_client_subnet:
     custom_ip: ""
     enabled: {$ecs_bool}
@@ -369,7 +613,9 @@ tls:
 filtering:
   filtering_enabled: true
   protection_enabled: true
-  filters_update_interval: 24
+  filters_update_interval: {$feed_hours}
+  safe_fs_patterns:
+    - "{$safe_filter_path}"
   parental_enabled: {$parental_bool}
   safebrowsing_enabled: {$safebrowsing_bool}
   safe_search:
@@ -377,13 +623,11 @@ filtering:
   blocking_mode: {$blocking_mode}
   blocking_ipv4: {$blocking_ipv4}
   blocking_ipv6: {$blocking_ipv6}
-  rewrites:
-{$rewrites_yaml}
+  rewrites:{$rewrites_yaml}
   blocked_services:
     schedule:
       time_zone: Local
-    ids:
-{$blocked_services_yaml}
+    ids:{$blocked_services_yaml}
 filters:
 {$filters_yaml}
 whitelist_filters: []
@@ -392,6 +636,15 @@ user_rules:
 
 dhcp:
   enabled: false
+
+clients:
+  runtime_sources:
+    whois: true
+    arp: true
+    rdns: true
+    dhcp: true
+    hosts: true
+  persistent:{$clients_yaml}
 
 querylog:
   enabled: {$querylog_bool}
@@ -419,49 +672,61 @@ function threatshield_sync_config(): bool {
 
 	safe_mkdir(THREATSHIELD_CONFIG_DIR, 0750);
 	safe_mkdir(THREATSHIELD_DB_DIR, 0750);
+	safe_mkdir(THREATSHIELD_FILTER_DIR, 0750);
 	safe_mkdir(THREATSHIELD_GEOIP_DIR, 0750);
 
-	// Handle Unbound DNS port coordination
-	if ($cfg['enable'] === 'on' && $cfg['dns_coordination_mode'] === 'primary') {
-		$unbound_port = (int)config_get_path('unbound/port', 53);
-		if ($unbound_port === 53) {
-			config_set_path(THREATSHIELD_CONFIG_PATH . '/_unbound_state', [
-				'managed' => 'on',
-				'port' => (string)$unbound_port,
-				'active_interface' => (string)config_get_path('unbound/active_interface', 'all'),
-			]);
-			config_set_path('unbound/port', '5335');
-			config_set_path('unbound/active_interface', 'lo0');
-			write_config(gettext('Threat Shield: coordinated Unbound port to 127.0.0.1:5335'));
-			services_unbound_configure();
-		}
-	} else {
-		threatshield_restore_unbound();
+	// Materialize filter subscriptions before AdGuard Home reads its generated
+	// configuration.  The YAML references these local, atomically-written files.
+	if (($cfg['enable'] ?? 'off') === 'on' && !threatshield_feed_cache_complete($cfg)) {
+		mwexec('/usr/local/sbin/freesense-threatshield-update feeds force');
 	}
-
 	$yaml = threatshield_generate_yaml($cfg);
-	file_put_contents(THREATSHIELD_CONFIG_FILE, $yaml);
-	chmod(THREATSHIELD_CONFIG_FILE, 0640);
+	$tmp = THREATSHIELD_CONFIG_FILE . '.tmp.' . getmypid();
+	if (file_put_contents($tmp, $yaml, LOCK_EX) === false || !@chmod($tmp, 0640) || !@rename($tmp, THREATSHIELD_CONFIG_FILE)) {
+		@unlink($tmp);
+		return false;
+	}
+	if (!threatshield_manage_unbound($cfg)) return false;
 
+	// Bootstrap country data on first application so an enabled policy never
+	// reports success with empty PF tables while waiting for a later cron run.
+	if (($cfg['geoip_enable'] ?? 'off') === 'on' && !threatshield_geoip_cache_complete($cfg)) {
+		mwexec('/usr/local/sbin/freesense-threatshield-update geoip force');
+	}
 	// Sync GeoIP Tables
 	threatshield_update_geoip();
 
 	// Service lifecycle
 	if ($cfg['enable'] === 'on') {
 		threatshield_install_cron();
-		if (threatshield_is_running()) {
-			threatshield_service_control('restart');
-		} else {
-			threatshield_service_control('start');
-		}
+		if (!threatshield_service_control(threatshield_is_running() ? 'restart' : 'start')) return false;
 	} else {
 		threatshield_remove_cron();
 		if (threatshield_is_running()) {
-			threatshield_service_control('stop');
+			if (!threatshield_service_control('stop')) return false;
 		}
 	}
 
 	filter_configure();
+	return true;
+}
+
+function threatshield_geoip_cache_complete(array $cfg): bool {
+	foreach (threatshield_normalize_list($cfg['geoip_policies'] ?? []) as $policy) {
+		foreach (threatshield_normalize_list(is_array($policy) ? ($policy['countries'] ?? []) : []) as $cc) {
+			$cc = strtoupper(preg_replace('/[^A-Z]/', '', (string)$cc));
+			if ($cc === '' || !is_file(THREATSHIELD_GEOIP_DIR . '/' . $cc . '.zone')) return false;
+		}
+	}
+	return true;
+}
+
+function threatshield_feed_cache_complete(array $cfg): bool {
+	foreach (threatshield_normalize_list($cfg['feeds'] ?? []) as $feed) {
+		if (!is_array($feed) || ($feed['enabled'] ?? 'on') !== 'on') continue;
+		$url = (string)($feed['url'] ?? '');
+		if ($url === '' || !is_file(threatshield_feed_path($url))) return false;
+	}
 	return true;
 }
 
@@ -476,11 +741,9 @@ function threatshield_remove_config(): void {
 }
 
 function threatshield_install_cron(): void {
-	$cfg = threatshield_config();
-	install_cron_job('/usr/local/sbin/freesense-threatshield-update feeds', true, '0', '3', '*', '*', '*', 'root');
-	if ($cfg['geoip_enable'] === 'on') {
-		install_cron_job('/usr/local/sbin/freesense-threatshield-update geoip', true, '0', '4', '*', '*', '0', 'root');
-	}
+	// The updater enforces the selected interval using persisted timestamps.
+	install_cron_job('/usr/local/sbin/freesense-threatshield-update feeds', true, '17', '*', '*', '*', '*', 'root');
+	install_cron_job('/usr/local/sbin/freesense-threatshield-update geoip', true, '43', '*', '*', '*', '*', 'root');
 }
 
 function threatshield_remove_cron(): void {
@@ -496,26 +759,41 @@ function threatshield_generate_rules(string $type): string {
 
 	$rules = '';
 
-	// GeoIP Packet Filter Drop Rules
-	if ($cfg['geoip_enable'] === 'on' && !empty($cfg['geoip_countries'])) {
-		$in_table = THREATSHIELD_GEOIP_INBOUND_TABLE;
-		$out_table = THREATSHIELD_GEOIP_OUTBOUND_TABLE;
-
-		if ($type === 'rules') {
-			$rules .= "# FreeSense Threat Shield: GeoIP Country Rules\n";
-			$rules .= "table <{$in_table}> persist file \"" . THREATSHIELD_GEOIP_DIR . "/inbound_cidrs.txt\"\n";
-			$rules .= "block in log quick from <{$in_table}> to any label \"ThreatShield: GeoIP Inbound Country Drop\"\n";
-
-			if (in_array($cfg['geoip_mode'], ['block_both', 'whitelist_inbound'], true)) {
-				$rules .= "table <{$out_table}> persist file \"" . THREATSHIELD_GEOIP_DIR . "/outbound_cidrs.txt\"\n";
-				$rules .= "block out log quick from any to <{$out_table}> label \"ThreatShield: GeoIP Outbound Country Drop\"\n";
+	if ($type !== 'rules') return '';
+	$rules .= "# FreeSense Threat Shield managed rules\n";
+	foreach (threatshield_normalize_list($cfg['geoip_policies'] ?? []) as $policy) {
+		if (!is_array($policy) || ($policy['enable'] ?? 'on') !== 'on' || empty($policy['countries'])) continue;
+		$id = preg_replace('/[^a-z0-9_]/', '', strtolower((string)($policy['id'] ?? 'default')));
+		if ($id === '') $id = 'default';
+		$table = 'freesense_geoip_' . $id;
+		$file = THREATSHIELD_GEOIP_DIR . '/' . $id . '.cidrs';
+		$proto = in_array(($policy['protocol'] ?? 'any'), ['tcp','udp'], true) ? ' proto ' . $policy['protocol'] : '';
+		$ports = threatshield_pf_port_spec((string)($policy['ports'] ?? 'any'));
+		$port = ($ports === '') ? '' : ' port { ' . $ports . ' }';
+		$interfaces = threatshield_normalize_list($policy['interfaces'] ?? []);
+		$rules .= "table <{$table}> persist file \"{$file}\"\n";
+		foreach ($interfaces as $friendly) {
+			$real = function_exists('get_real_interface') ? get_real_interface((string)$friendly) : (string)$friendly;
+			if ($real === '' || !preg_match('/^[A-Za-z0-9_.:-]+$/', $real)) continue;
+			if (in_array(($policy['direction'] ?? 'in'), ['in','both'], true)) {
+				$source = (($policy['action'] ?? 'block_selected') === 'allow_selected') ? '! <' . $table . '>' : '<' . $table . '>';
+				$rules .= "block in log quick on {$real}{$proto} from {$source} to any{$port} label \"ThreatShield GeoIP {$id} inbound\"\n";
+			}
+			if (in_array(($policy['direction'] ?? 'in'), ['out','both'], true)) {
+				$destination = '<' . $table . '>';
+				$rules .= "block out log quick on {$real}{$proto} from any to {$destination}{$port} label \"ThreatShield GeoIP {$id} outbound\"\n";
 			}
 		}
 	}
-
-	// Rogue-DNS interception needs per-interface PF anchors.  Do not emit an
-	// invalid literal "{lan}" rule; the WebUI keeps the option for a future
-	// implementation that can use FreeSense's generated interface aliases.
+	if (($cfg['catch_rogue_dns'] ?? 'off') === 'on') {
+		$target_port = (($cfg['dns_coordination_mode'] ?? 'primary') === 'proxy') ? 5354 : (int)($cfg['listen_port'] ?? 53);
+		foreach (threatshield_normalize_list($cfg['dns_intercept_interfaces'] ?? []) as $friendly) {
+			$real = function_exists('get_real_interface') ? get_real_interface((string)$friendly) : (string)$friendly;
+			if ($real !== '' && preg_match('/^[A-Za-z0-9_.:-]+$/', $real)) {
+				$rules .= "rdr on {$real} proto { tcp udp } from any to any port 53 -> 127.0.0.1 port {$target_port}\n";
+			}
+		}
+	}
 
 	return $rules;
 }
@@ -523,17 +801,12 @@ function threatshield_generate_rules(string $type): string {
 function threatshield_update_geoip(): void {
 	$cfg = threatshield_config();
 	safe_mkdir(THREATSHIELD_GEOIP_DIR, 0750);
-	$in_file = THREATSHIELD_GEOIP_DIR . '/inbound_cidrs.txt';
-	$out_file = THREATSHIELD_GEOIP_DIR . '/outbound_cidrs.txt';
-
-	if ($cfg['geoip_enable'] !== 'on' || empty($cfg['geoip_countries'])) {
-		@file_put_contents($in_file, '');
-		@file_put_contents($out_file, '');
-		return;
-	}
-
-	$cidrs = [];
-	foreach ($cfg['geoip_countries'] as $cc) {
+	$policies = threatshield_normalize_list($cfg['geoip_policies'] ?? []);
+	foreach ($policies as $policy) {
+		if (!is_array($policy) || ($policy['enable'] ?? 'on') !== 'on') continue;
+		$id = preg_replace('/[^a-z0-9_]/', '', strtolower((string)($policy['id'] ?? 'default'))) ?: 'default';
+		$cidrs = [];
+		foreach (threatshield_normalize_list($policy['countries'] ?? []) as $cc) {
 		$cc_clean = strtoupper(preg_replace('/[^A-Z]/', '', $cc));
 		if ($cc_clean === '') continue;
 		$cc_cache = THREATSHIELD_GEOIP_DIR . "/{$cc_clean}.zone";
@@ -546,23 +819,26 @@ function threatshield_update_geoip(): void {
 				}
 			}
 		}
-	}
-
-	$cidrs_unique = array_unique($cidrs);
-	file_put_contents($in_file, implode("\n", $cidrs_unique) . "\n");
-	file_put_contents($out_file, implode("\n", $cidrs_unique) . "\n");
-
-	// Update active pf tables in kernel
-	if (file_exists('/sbin/pfctl')) {
-		mwexec('/sbin/pfctl -t ' . escapeshellarg(THREATSHIELD_GEOIP_INBOUND_TABLE) . ' -T replace -f ' . escapeshellarg($in_file));
+		}
+		$file = THREATSHIELD_GEOIP_DIR . '/' . $id . '.cidrs';
+		$tmp = $file . '.tmp.' . getmypid();
+		file_put_contents($tmp, implode("\n", array_unique($cidrs)) . "\n", LOCK_EX);
+		@rename($tmp, $file);
+		if (file_exists('/sbin/pfctl')) {
+			mwexec('/sbin/pfctl -t ' . escapeshellarg('freesense_geoip_' . $id) . ' -T replace -f ' . escapeshellarg($file));
+		}
 	}
 }
 
 function threatshield_api_request(string $endpoint, string $method = 'GET', ?array $payload = null): ?array {
-	$url = THREATSHIELD_API_BASE . '/' . ltrim($endpoint, '/');
+	$api_port = (int)(threatshield_config()['http_port'] ?? 3000);
+	$url = THREATSHIELD_API_BASE . ':' . $api_port . '/control/' . ltrim($endpoint, '/');
 	$ch = curl_init($url);
 	curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-	curl_setopt($ch, CURLOPT_TIMEOUT, 3);
+	// Refreshing several multi-megabyte local lists is synchronous in AdGuard
+	// Home and routinely exceeds the short timeout appropriate for UI queries.
+	$timeout = (ltrim($endpoint, '/') === 'filtering/refresh') ? 120 : 3;
+	curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
 	curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 1);
 
 	if ($method === 'POST') {

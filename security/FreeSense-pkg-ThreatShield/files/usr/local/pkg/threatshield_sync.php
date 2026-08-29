@@ -27,14 +27,16 @@ function threatshield_sync_xmlrpc(): void {
 }
 
 function threatshield_xmlrpc_receive(array $remote_config): bool {
-	$clean = threatshield_config_for_storage($remote_config);
+	$clean = $remote_config;
+	foreach (threatshield_list_fields() as $field) {
+		if (array_key_exists($field, $clean)) $clean[$field] = threatshield_normalize_list($clean[$field]);
+	}
 	$errors = threatshield_validate_config(array_replace_recursive(threatshield_default_config(), $clean));
 	if (!empty($errors)) {
 		return false;
 	}
-	config_set_path(THREATSHIELD_CONFIG_PATH, $clean);
-	write_config(gettext('Synchronized Threat Shield configuration from the HA primary.'));
-	return threatshield_sync_config();
+	$errors = [];
+	return threatshield_save_and_apply(array_replace_recursive(threatshield_default_config(), $clean), gettext('Synchronized Threat Shield configuration from the HA primary.'), $errors);
 }
 
 if (php_sapi_name() === 'cli' && ($argv[1] ?? '') === 'sync') {

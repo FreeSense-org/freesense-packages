@@ -14,21 +14,23 @@
 require_once('guiconfig.inc');
 require_once('/usr/local/pkg/threatshield.inc');
 
+$input_errors = [];
 $savemsg = null;
 $ts_config = threatshield_config();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_rules'])) {
 	$ts_config['custom_rules'] = trim($_POST['custom_rules'] ?? '');
-	config_set_path(THREATSHIELD_CONFIG_PATH, threatshield_config_for_storage($ts_config));
-	write_config(gettext('Updated Threat Shield custom rules.'));
-	threatshield_sync_config();
-	$savemsg = gettext('Custom filtering rules saved and applied.');
+	if (threatshield_save_and_apply($ts_config, gettext('Updated Threat Shield custom rules.'), $input_errors)) {
+		$savemsg = gettext('Custom filtering rules saved and applied.');
+	}
 }
 
 $pgtitle = [gettext('Services'), gettext('Threat Shield'), gettext('Custom Rules')];
 $pglinks = ['', '@self', '@self'];
 
 include('head.inc');
+
+if ($input_errors) print_input_errors($input_errors);
 
 if ($savemsg) {
 	print_info_box($savemsg, 'success');
@@ -46,7 +48,7 @@ threatshield_display_tabs('rules');
 
 <form method="post" action="threatshield_rules.php">
 	<div class="card shadow-sm mb-3">
-		<div class="card-header bg-light">
+		<div class="card-header">
 			<h2 class="h5 mb-0"><i class="fa-solid fa-pen-to-square text-primary me-2"></i><?=gettext('User-Defined Filtering Rules')?></h2>
 		</div>
 		<div class="card-body">
@@ -56,14 +58,14 @@ threatshield_display_tabs('rules');
 				<div class="form-text"><?=gettext('Supports standard Adblock Plus and AdGuard filtering syntax, regular expressions, and hosts format.')?></div>
 			</div>
 		</div>
-		<div class="card-footer bg-light">
+		<div class="card-footer">
 			<button type="submit" name="save_rules" value="1" class="btn btn-primary"><i class="fa-solid fa-floppy-disk me-2"></i><?=gettext('Save Rules')?></button>
 		</div>
 	</div>
 </form>
 
 <div class="card shadow-sm mb-4">
-	<div class="card-header bg-light">
+	<div class="card-header">
 		<h2 class="h5 mb-0"><i class="fa-solid fa-circle-question text-primary me-2"></i><?=gettext('Rule Syntax Reference & Examples')?></h2>
 	</div>
 	<div class="card-body p-0">

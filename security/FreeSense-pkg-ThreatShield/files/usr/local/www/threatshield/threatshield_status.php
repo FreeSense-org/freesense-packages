@@ -14,6 +14,7 @@
 require_once('guiconfig.inc');
 require_once('/usr/local/pkg/threatshield.inc');
 
+$input_errors = [];
 $savemsg = null;
 $running = threatshield_is_running();
 $cfg = threatshield_config();
@@ -21,10 +22,10 @@ $cfg = threatshield_config();
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 	$act = $_POST['action'];
 	if ($act === 'restart') {
-		threatshield_service_control('restart');
-		$savemsg = gettext('Threat Shield daemon restarted.');
+		if (threatshield_service_control('restart')) $savemsg = gettext('Threat Shield daemon restarted.');
+		else $input_errors[] = gettext('Threat Shield could not be restarted. Check the service log and generated configuration.');
 	} elseif ($act === 'update_feeds') {
-		mwexec_bg('/usr/local/sbin/freesense-threatshield-update all');
+		mwexec_bg('/usr/local/sbin/freesense-threatshield-update all force');
 		$savemsg = gettext('Threat feeds and GeoIP update started in the background.');
 	}
 }
@@ -46,6 +47,7 @@ $pglinks = ['', '@self', '@self'];
 
 include('head.inc');
 
+if ($input_errors) print_input_errors($input_errors);
 if ($savemsg) {
 	print_info_box($savemsg, 'success');
 }
@@ -75,7 +77,7 @@ threatshield_display_tabs('status');
 		<div class="card h-100 shadow-sm">
 			<div class="card-body">
 				<div class="text-uppercase text-muted small fw-semibold mb-2"><?=gettext('Total Queries (24h)')?></div>
-				<div class="fs-4 text-dark fw-bold"><i class="fa-solid fa-server text-primary me-2"></i><?=number_format($total_queries)?></div>
+		<div class="fs-4 fw-bold"><i class="fa-solid fa-server text-primary me-2"></i><?=number_format($total_queries)?></div>
 			</div>
 		</div>
 	</div>
@@ -114,7 +116,7 @@ threatshield_display_tabs('status');
 <div class="row g-3 mb-3">
 	<div class="col-lg-6">
 		<div class="card h-100 shadow-sm">
-			<div class="card-header bg-light">
+			<div class="card-header">
 				<h2 class="h5 mb-0"><i class="fa-solid fa-globe text-primary me-2"></i><?=gettext('Top Queried Domains')?></h2>
 			</div>
 			<div class="card-body p-0">
@@ -150,7 +152,7 @@ threatshield_display_tabs('status');
 
 	<div class="col-lg-6">
 		<div class="card h-100 shadow-sm">
-			<div class="card-header bg-light">
+			<div class="card-header">
 				<h2 class="h5 mb-0"><i class="fa-solid fa-shield-virus text-danger me-2"></i><?=gettext('Top Blocked Threats & Domains')?></h2>
 			</div>
 			<div class="card-body p-0">
@@ -186,7 +188,7 @@ threatshield_display_tabs('status');
 </div>
 
 <div class="card shadow-sm mb-3">
-	<div class="card-header bg-light">
+	<div class="card-header">
 		<h2 class="h5 mb-0"><i class="fa-solid fa-laptop-code text-primary me-2"></i><?=gettext('Top Requesting LAN Clients')?></h2>
 	</div>
 	<div class="card-body p-0">
@@ -210,7 +212,7 @@ threatshield_display_tabs('status');
 								$hostname = $dhcp_hosts[$ip] ?? gettext('Unknown Host');
 							?>
 							<tr>
-								<td class="font-monospace fw-bold"><?=$ip?></td>
+								<td class="font-monospace fw-bold"><?=htmlspecialchars((string)$ip)?></td>
 								<td>
 									<span class="badge bg-secondary"><?=htmlspecialchars((string)$hostname)?></span>
 								</td>

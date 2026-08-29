@@ -49,6 +49,7 @@ def main() -> int:
         return 1
 
     integration = (PORT / "files/usr/local/pkg/threatshield.inc").read_text(encoding="utf-8")
+    updater = (PORT / "files/usr/local/pkg/threatshield_update.php").read_text(encoding="utf-8")
     manifest = (PORT / "pkg-plist").read_text(encoding="utf-8")
     makefile = (PORT / "Makefile").read_text(encoding="utf-8")
     package_xml = (PORT / "files/usr/local/pkg/threatshield.xml").read_text(encoding="utf-8")
@@ -64,6 +65,13 @@ def main() -> int:
         "GeoIP table generator": "function threatshield_update_geoip",
         "PF rule generation": "function threatshield_generate_rules",
         "API communication bridge": "function threatshield_api_request",
+        "XML-safe list storage": "'item' => threatshield_normalize_list($v)",
+        "transactional save": "function threatshield_save_and_apply",
+        "resolver mode manager": "function threatshield_manage_unbound",
+        "policy-bound GeoIP rules": "geoip_policies",
+        "rogue DNS interface binding": "dns_intercept_interfaces",
+        "configured management API port": "$api_port = (int)(threatshield_config()['http_port'] ?? 3000)",
+        "PF port-range normalization": "function threatshield_pf_port_spec",
     }
 
     for name, marker in invariants.items():
@@ -94,6 +102,26 @@ def main() -> int:
         errors.append("Unbound coordination state is not restored safely")
     if "pfsense-utils.inc" in integration:
         errors.append("ThreatShield references the removed pfSense utility include")
+    if "file_put_contents(THREATSHIELD_CONFIG_FILE, $yaml)" in integration:
+        errors.append("ThreatShield writes generated configuration non-atomically")
+    if "rate_limit_subnet_len_ipv4: 24" in integration:
+        errors.append("rate-limit IPv4 subnet setting is hard-coded")
+    if "table <{$table}> persist file" not in integration:
+        errors.append("GeoIP policies do not declare their PF table")
+    if "define('THREATSHIELD_FILTER_DIR', '/var/db/threatshield/data/userfilters')" not in integration:
+        errors.append("downloaded filters are not stored in AdGuard Home's safe userfilters directory")
+    if "threatshield_feed_path($source_url)" not in integration or "function threatshield_feed_path" not in integration:
+        errors.append("generated filters do not reference the downloader's local files")
+    if "safe_fs_patterns:" not in integration:
+        errors.append("generated filters do not allowlist the package's local filter directory")
+    if "filtering/refresh', 'POST', ['whitelist' => false]" not in updater:
+        errors.append("updater does not call AdGuard Home's supported local-filter refresh endpoint")
+    if "ltrim($endpoint, '/') === 'filtering/refresh'" not in integration:
+        errors.append("filter refresh does not have a dedicated long API timeout")
+    if "filtering/refresh_filters" in updater:
+        errors.append("updater calls a nonexistent AdGuard Home filter refresh endpoint")
+    if "service threatshield onestart" not in integration or "service threatshield onerestart" not in integration:
+        errors.append("service control does not use FreeBSD's explicit one* actions")
     if "threatshield_sync_config" in install_script:
         errors.append("package installer bypasses rc.packages and invokes ThreatShield sync twice")
     if "threatshield_remove_config" in deinstall_script:
@@ -125,6 +153,11 @@ def main() -> int:
         page_text = page.read_text(encoding="utf-8", errors="replace")
         if re.search(r"\$config\s*=\s*", page_text):
             errors.append(f"{page.relative_to(ROOT)}: package page shadows the firewall global $config")
+
+    querylog = (PORT / "files/usr/local/www/threatshield/threatshield_querylog.php").read_text(encoding="utf-8")
+    status = (PORT / "files/usr/local/www/threatshield/threatshield_status.php").read_text(encoding="utf-8")
+    if "<?=$client_ip?>" in querylog or "<?=$hostname?>" in querylog or "<?=$ip?>" in status:
+        errors.append("Threat Shield status pages render unescaped client-controlled values")
 
     if errors:
         print("Threat Shield smoke check failed:", file=sys.stderr)

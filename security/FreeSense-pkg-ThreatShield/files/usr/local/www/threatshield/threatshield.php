@@ -17,6 +17,7 @@ require_once('/usr/local/pkg/threatshield.inc');
 $input_errors = [];
 $savemsg = null;
 $ts_config = threatshield_config();
+$assigned_interfaces = threatshield_assigned_interfaces();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
 	$pconfig = $_POST;
@@ -24,7 +25,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
 	// Core & Network
 	$ts_config['enable'] = isset($pconfig['enable']) ? 'on' : 'off';
 	$ts_config['listen_port'] = (int)($pconfig['listen_port'] ?? 53);
+	$ts_config['http_port'] = (int)($pconfig['http_port'] ?? 3000);
 	$ts_config['dns_coordination_mode'] = in_array($pconfig['dns_coordination_mode'] ?? '', ['primary', 'proxy', 'standalone'], true) ? $pconfig['dns_coordination_mode'] : 'primary';
+	$ts_config['interfaces'] = array_values(array_intersect(array_map('strval', (array)($pconfig['interfaces'] ?? ['all'])), array_merge(['all'], array_keys($assigned_interfaces))));
+	if (in_array('all', $ts_config['interfaces'], true) || empty($ts_config['interfaces'])) $ts_config['interfaces'] = ['all'];
 	$ts_config['upstream_mode'] = in_array($pconfig['upstream_mode'] ?? '', ['parallel', 'fastest_addr', 'load_balance'], true) ? $pconfig['upstream_mode'] : 'parallel';
 	$ts_config['upstreams'] = trim($pconfig['upstreams'] ?? '');
 	$ts_config['bootstrap_dns'] = trim($pconfig['bootstrap_dns'] ?? '');
@@ -47,6 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
 	$ts_config['block_doh_canary'] = isset($pconfig['block_doh_canary']) ? 'on' : 'off';
 	$ts_config['block_icloud_private_relay'] = isset($pconfig['block_icloud_private_relay']) ? 'on' : 'off';
 	$ts_config['catch_rogue_dns'] = isset($pconfig['catch_rogue_dns']) ? 'on' : 'off';
+	$ts_config['dns_intercept_interfaces'] = array_values(array_intersect(array_map('strval', (array)($pconfig['dns_intercept_interfaces'] ?? [])), array_keys($assigned_interfaces)));
 
 	// ECS & Rate Limiting
 	$ts_config['edns_client_subnet'] = isset($pconfig['edns_client_subnet']) ? 'on' : 'off';
@@ -57,16 +62,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
 
 	// Query Log & Privacy
 	$ts_config['querylog_enabled'] = isset($pconfig['querylog_enabled']) ? 'on' : 'off';
-	$ts_config['querylog_retention'] = (int)($pconfig['querylog_retention'] ?? 90);
+	$ts_config['querylog_retention'] = (string)($pconfig['querylog_retention'] ?? '2160');
 	$ts_config['anonymize_client_ip'] = isset($pconfig['anonymize_client_ip']) ? 'on' : 'off';
 	$ts_config['ignored_domains'] = trim($pconfig['ignored_domains'] ?? '');
 
 	$input_errors = array_merge($input_errors, threatshield_validate_config($ts_config));
 
-	if (empty($input_errors)) {
-		config_set_path(THREATSHIELD_CONFIG_PATH, threatshield_config_for_storage($ts_config));
-		write_config(gettext('Updated FreeSense Threat Shield settings.'));
-		threatshield_sync_config();
+	if (empty($input_errors) && threatshield_save_and_apply($ts_config, gettext('Updated FreeSense Threat Shield settings.'), $input_errors)) {
 		$savemsg = gettext('Threat Shield settings saved and applied successfully.');
 	}
 }
@@ -100,7 +102,7 @@ threatshield_display_tabs('general');
 <form method="post" action="threatshield.php">
 	<!-- 1. Core DNS Configuration -->
 	<div class="card mb-3 shadow-sm">
-		<div class="card-header bg-light">
+		<div class="card-header">
 			<h2 class="h5 mb-0"><i class="fa-solid fa-power-off text-primary me-2"></i><?=gettext('1. Core Engine & Port Coordination')?></h2>
 		</div>
 		<div class="card-body">
@@ -111,6 +113,7 @@ threatshield_display_tabs('general');
 				</label>
 				<div class="form-text"><?=gettext('Activates the high-performance DNS filtering daemon, encrypted upstream resolution, and network-level threat defenses.')?></div>
 			</div>
+			<div class="mb-3"><label class="form-label fw-semibold"><?=gettext('Intercept only these LAN interfaces')?></label><?php foreach ($assigned_interfaces as $key => $label): ?><label class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="dns_intercept_interfaces[]" value="<?=$key?>" <?=in_array($key, threatshield_normalize_list($ts_config['dns_intercept_interfaces']), true) ? 'checked' : ''?>> <?=htmlspecialchars($label)?></label><?php endforeach; ?><div class="form-text"><?=gettext('DNS interception is never applied until at least one interface is explicitly selected.')?></div></div>
 
 			<div class="mb-3">
 				<label for="dns_coordination_mode" class="form-label fw-semibold"><?=gettext('DNS Port Coordination Mode')?></label>
@@ -135,6 +138,11 @@ threatshield_display_tabs('general');
 					<div class="form-text"><?=gettext('Standard DNS operates on port 53. Change this only if running custom proxy topologies.')?></div>
 				</div>
 				<div class="col-md-6">
+					<label for="http_port" class="form-label fw-semibold"><?=gettext('Local Management API Port')?></label>
+					<input type="number" min="1" max="65535" class="form-control" name="http_port" id="http_port" value="<?=htmlspecialchars((string)$ts_config['http_port'])?>">
+					<div class="form-text"><?=gettext('Bound to loopback only; used by the Threat Shield dashboard and updater.')?></div>
+				</div>
+				<div class="col-md-6">
 					<label for="upstream_mode" class="form-label fw-semibold"><?=gettext('Upstream Query Strategy')?></label>
 					<select class="form-select" name="upstream_mode" id="upstream_mode">
 						<option value="parallel" <?=$ts_config['upstream_mode'] === 'parallel' ? 'selected' : ''?>><?=gettext('Parallel Queries (Recommended: Sends query to all upstreams simultaneously, adopts the fastest response)')?></option>
@@ -144,12 +152,13 @@ threatshield_display_tabs('general');
 					<div class="form-text"><?=gettext('Parallel query mode eliminates ISP latency jitter and provides instantaneous failover if an upstream is slow.')?></div>
 				</div>
 			</div>
+			<div class="mt-3"><label class="form-label fw-semibold"><?=gettext('DNS listener interfaces')?></label><label class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="interfaces[]" value="all" <?=in_array('all', threatshield_normalize_list($ts_config['interfaces']), true) ? 'checked' : ''?>> <?=gettext('All assigned addresses')?></label><?php foreach ($assigned_interfaces as $key => $label): ?><label class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="interfaces[]" value="<?=$key?>" <?=in_array($key, threatshield_normalize_list($ts_config['interfaces']), true) ? 'checked' : ''?>> <?=htmlspecialchars($label)?></label><?php endforeach; ?><div class="form-text"><?=gettext('Choose specific interfaces to avoid exposing DNS on every address. Proxy mode always uses loopback only.')?></div></div>
 		</div>
 	</div>
 
 	<!-- 2. Upstream DNS Configuration -->
 	<div class="card mb-3 shadow-sm">
-		<div class="card-header bg-light">
+		<div class="card-header">
 			<h2 class="h5 mb-0"><i class="fa-solid fa-lock text-primary me-2"></i><?=gettext('2. Encrypted Upstream DNS Resolvers')?></h2>
 		</div>
 		<div class="card-body">
@@ -184,7 +193,7 @@ threatshield_display_tabs('general');
 
 	<!-- 3. Cache & Performance -->
 	<div class="card mb-3 shadow-sm">
-		<div class="card-header bg-light">
+		<div class="card-header">
 			<h2 class="h5 mb-0"><i class="fa-solid fa-gauge-high text-primary me-2"></i><?=gettext('3. DNS Cache & Query Performance')?></h2>
 		</div>
 		<div class="card-body">
@@ -205,6 +214,7 @@ threatshield_display_tabs('general');
 					<div class="form-text"><?=gettext('Caps maximum record cache lifetime to prevent stale DNS records when upstream servers change (0 = no cap).')?></div>
 				</div>
 			</div>
+			<div class="mb-3"><label for="rate_limit_whitelist" class="form-label fw-semibold"><?=gettext('Rate-limit whitelist')?></label><textarea class="form-control font-monospace" name="rate_limit_whitelist" id="rate_limit_whitelist" rows="2" placeholder="192.0.2.10&#10;2001:db8::10"><?=htmlspecialchars((string)$ts_config['rate_limit_whitelist'])?></textarea><div class="form-text"><?=gettext('One IPv4 or IPv6 address per line; listed clients bypass DNS rate limiting.')?></div></div>
 
 			<div class="form-check form-switch mb-0">
 				<input class="form-check-input" type="checkbox" name="cache_optimistic" id="cache_optimistic" <?=$ts_config['cache_optimistic'] === 'on' ? 'checked' : ''?>>
@@ -218,7 +228,7 @@ threatshield_display_tabs('general');
 
 	<!-- 4. Security & Anti-Evasion Controls -->
 	<div class="card mb-3 shadow-sm">
-		<div class="card-header bg-light">
+		<div class="card-header">
 			<h2 class="h5 mb-0"><i class="fa-solid fa-shield-virus text-primary me-2"></i><?=gettext('4. Threat Protection & Anti-Evasion Controls')?></h2>
 		</div>
 		<div class="card-body">
@@ -292,7 +302,7 @@ threatshield_display_tabs('general');
 
 	<!-- 5. EDNS Client Subnet & Rate Limiting -->
 	<div class="card mb-3 shadow-sm">
-		<div class="card-header bg-light">
+		<div class="card-header">
 			<h2 class="h5 mb-0"><i class="fa-solid fa-network-wired text-primary me-2"></i><?=gettext('5. EDNS Client Subnet (ECS) & Rate Limiting')?></h2>
 		</div>
 		<div class="card-body">
@@ -324,7 +334,7 @@ threatshield_display_tabs('general');
 
 	<!-- 6. Query Logging & Privacy Compliance -->
 	<div class="card mb-4 shadow-sm">
-		<div class="card-header bg-light">
+		<div class="card-header">
 			<h2 class="h5 mb-0"><i class="fa-solid fa-database text-primary me-2"></i><?=gettext('6. Query Logging & Privacy Compliance')?></h2>
 		</div>
 		<div class="card-body">
@@ -338,11 +348,11 @@ threatshield_display_tabs('general');
 				<div class="col-md-6">
 					<label for="querylog_retention" class="form-label fw-semibold"><?=gettext('Query Log Retention Period')?></label>
 					<select class="form-select" name="querylog_retention" id="querylog_retention">
-						<option value="6" <?=$ts_config['querylog_retention'] === 6 ? 'selected' : ''?>><?=gettext('6 Hours')?></option>
-						<option value="24" <?=$ts_config['querylog_retention'] === 24 ? 'selected' : ''?>><?=gettext('24 Hours (1 Day)')?></option>
-						<option value="168" <?=$ts_config['querylog_retention'] === 168 ? 'selected' : ''?>><?=gettext('7 Days (1 Week)')?></option>
-						<option value="720" <?=$ts_config['querylog_retention'] === 720 ? 'selected' : ''?>><?=gettext('30 Days (1 Month)')?></option>
-						<option value="2160" <?=$ts_config['querylog_retention'] === 2160 ? 'selected' : ''?>><?=gettext('90 Days (3 Months - Recommended)')?></option>
+						<option value="6" <?=((string)$ts_config['querylog_retention'] === '6') ? 'selected' : ''?>><?=gettext('6 Hours')?></option>
+						<option value="24" <?=((string)$ts_config['querylog_retention'] === '24') ? 'selected' : ''?>><?=gettext('24 Hours (1 Day)')?></option>
+						<option value="168" <?=((string)$ts_config['querylog_retention'] === '168') ? 'selected' : ''?>><?=gettext('7 Days (1 Week)')?></option>
+						<option value="720" <?=((string)$ts_config['querylog_retention'] === '720') ? 'selected' : ''?>><?=gettext('30 Days (1 Month)')?></option>
+						<option value="2160" <?=((string)$ts_config['querylog_retention'] === '2160') ? 'selected' : ''?>><?=gettext('90 Days (3 Months - Recommended)')?></option>
 					</select>
 				</div>
 				<div class="col-md-6">
