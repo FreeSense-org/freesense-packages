@@ -76,7 +76,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 		]];
 		if (threatshield_save_and_apply($ts_config, gettext('Updated Threat Shield GeoIP settings.'), $input_errors)) $savemsg = gettext('GeoIP country protection settings saved and applied to PF kernel tables.');
 	} elseif (isset($_POST['update_geoip_now'])) {
-		mwexec_bg('/usr/local/sbin/freesense-threatshield-update geoip');
+		mwexec_bg('/usr/local/sbin/freesense-threatshield-update geoip force');
 		$savemsg = gettext('GeoIP Country CIDR database download started in background.');
 	}
 }
@@ -111,7 +111,7 @@ threatshield_display_tabs('geoip');
 
 <form method="post" action="threatshield_geoip.php">
 	<div class="card shadow-sm mb-3">
-		<div class="card-header bg-light">
+		<div class="card-header">
 			<h2 class="h5 mb-0"><i class="fa-solid fa-shield-halved text-primary me-2"></i><?=gettext('GeoIP Enforcement Policy')?></h2>
 		</div>
 		<div class="card-body">
@@ -120,7 +120,7 @@ threatshield_display_tabs('geoip');
 				<label class="form-check-label fw-semibold" for="geoip_enable">
 					<?=gettext('Enable Native GeoIP Country Blocking')?>
 				</label>
-				<div class="form-text"><?=gettext('Enforces wire-speed kernel PF table blocking (<freesense_geoip_inbound>) on selected countries.')?></div>
+				<div class="form-text"><?=gettext('Enforces wire-speed PF country policies on the selected interface, protocol, and ports.')?></div>
 			</div>
 
 			<div class="row g-3"><div class="col-md-3"><label class="form-label"><?=gettext('Action')?></label><select class="form-select" name="geoip_action"><option value="block_selected" <?=($policy['action'] ?? '') === 'block_selected' ? 'selected' : ''?>><?=gettext('Block selected countries')?></option><option value="allow_selected" <?=($policy['action'] ?? '') === 'allow_selected' ? 'selected' : ''?>><?=gettext('Allow selected countries only')?></option></select></div><div class="col-md-3"><label class="form-label"><?=gettext('Direction')?></label><select class="form-select" name="geoip_direction"><option value="in" <?=($policy['direction'] ?? '') === 'in' ? 'selected' : ''?>><?=gettext('Inbound')?></option><option value="out" <?=($policy['direction'] ?? '') === 'out' ? 'selected' : ''?>><?=gettext('Outbound')?></option><option value="both" <?=($policy['direction'] ?? '') === 'both' ? 'selected' : ''?>><?=gettext('Both')?></option></select></div><div class="col-md-3"><label class="form-label"><?=gettext('Protocol')?></label><select class="form-select" name="geoip_protocol"><option value="any"><?=gettext('Any')?></option><option value="tcp" <?=($policy['protocol'] ?? '') === 'tcp' ? 'selected' : ''?>>TCP</option><option value="udp" <?=($policy['protocol'] ?? '') === 'udp' ? 'selected' : ''?>>UDP</option></select></div><div class="col-md-3"><label class="form-label"><?=gettext('Ports/ranges')?></label><input class="form-control" name="geoip_ports" value="<?=htmlspecialchars((string)($policy['ports'] ?? 'any'))?>" placeholder="any or 22,80,443"></div></div>
@@ -129,7 +129,7 @@ threatshield_display_tabs('geoip');
 	</div>
 
 	<div class="card shadow-sm mb-4">
-		<div class="card-header bg-light d-flex justify-content-between align-items-center">
+		<div class="card-header d-flex justify-content-between align-items-center">
 			<h2 class="h5 mb-0"><i class="fa-solid fa-flag text-primary me-2"></i><?=gettext('Country & Region Selection')?></h2>
 			<div class="btn-group">
 				<button type="button" class="btn btn-sm btn-outline-danger" onclick="selectHighRisk()"><i class="fa-solid fa-triangle-exclamation me-1"></i><?=gettext('High-Risk Preset')?></button>
@@ -170,7 +170,7 @@ threatshield_display_tabs('geoip');
 				<?php $first = false; endforeach; ?>
 			</div>
 		</div>
-		<div class="card-footer bg-light">
+		<div class="card-footer">
 			<button type="submit" name="save_geoip" value="1" class="btn btn-primary"><i class="fa-solid fa-floppy-disk me-2"></i><?=gettext('Save & Apply GeoIP Rules')?></button>
 		</div>
 	</div>

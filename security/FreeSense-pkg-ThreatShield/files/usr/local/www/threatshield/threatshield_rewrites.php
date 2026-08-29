@@ -65,7 +65,7 @@ threatshield_display_tabs('rewrites');
 </div>
 
 <div class="card shadow-sm mb-3">
-	<div class="card-header bg-light">
+	<div class="card-header">
 		<h2 class="h5 mb-0"><i class="fa-solid fa-table-list text-primary me-2"></i><?=gettext('Configured DNS Rewrites')?></h2>
 	</div>
 	<div class="card-body p-0">
@@ -103,7 +103,7 @@ threatshield_display_tabs('rewrites');
 </div>
 
 <div class="card shadow-sm mb-4">
-	<div class="card-header bg-light">
+	<div class="card-header">
 		<h2 class="h5 mb-0"><i class="fa-solid fa-plus text-primary me-2"></i><?=gettext('Add New DNS Rewrite')?></h2>
 	</div>
 	<div class="card-body">

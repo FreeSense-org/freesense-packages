@@ -81,7 +81,7 @@ threatshield_display_tabs('clients');
 
 <form method="post" action="threatshield_clients.php">
 	<div class="card shadow-sm mb-4">
-		<div class="card-header bg-light">
+		<div class="card-header">
 			<h2 class="h5 mb-0"><i class="fa-solid fa-ban text-danger me-2"></i><?=gettext('1-Click Application & Service Blocking (Network-Wide)')?></h2>
 		</div>
 		<div class="card-body">
@@ -104,14 +104,14 @@ threatshield_display_tabs('clients');
 				<?php endforeach; ?>
 			</div>
 		</div>
-		<div class="card-footer bg-light">
+		<div class="card-footer">
 			<button type="submit" name="save_services" value="1" class="btn btn-primary"><i class="fa-solid fa-floppy-disk me-2"></i><?=gettext('Save Blocked Services')?></button>
 		</div>
 	</div>
 </form>
 
 <div class="card shadow-sm mb-4">
-	<div class="card-header bg-light"><h2 class="h5 mb-0"><?=gettext('Per-Client Profiles')?></h2></div>
+	<div class="card-header"><h2 class="h5 mb-0"><?=gettext('Per-Client Profiles')?></h2></div>
 	<div class="card-body">
 		<p class="text-muted small"><?=gettext('Use stable client IP addresses or DHCP hostnames. Profiles override the global filtering and service settings for matching clients.')?></p>
 		<?php foreach (threatshield_normalize_list($ts_config['clients']) as $idx => $profile): ?>
@@ -128,7 +128,7 @@ threatshield_display_tabs('clients');
 </div>
 
 <div class="card shadow-sm mb-4">
-	<div class="card-header bg-light">
+	<div class="card-header">
 		<h2 class="h5 mb-0"><i class="fa-solid fa-laptop text-primary me-2"></i><?=gettext('Active LAN Clients & DHCP Hostnames')?></h2>
 	</div>
 	<div class="card-body p-0">

@@ -99,7 +99,7 @@ threatshield_display_tabs('general');
 <form method="post" action="threatshield.php">
 	<!-- 1. Core DNS Configuration -->
 	<div class="card mb-3 shadow-sm">
-		<div class="card-header bg-light">
+		<div class="card-header">
 			<h2 class="h5 mb-0"><i class="fa-solid fa-power-off text-primary me-2"></i><?=gettext('1. Core Engine & Port Coordination')?></h2>
 		</div>
 		<div class="card-body">
@@ -149,7 +149,7 @@ threatshield_display_tabs('general');
 
 	<!-- 2. Upstream DNS Configuration -->
 	<div class="card mb-3 shadow-sm">
-		<div class="card-header bg-light">
+		<div class="card-header">
 			<h2 class="h5 mb-0"><i class="fa-solid fa-lock text-primary me-2"></i><?=gettext('2. Encrypted Upstream DNS Resolvers')?></h2>
 		</div>
 		<div class="card-body">
@@ -184,7 +184,7 @@ threatshield_display_tabs('general');
 
 	<!-- 3. Cache & Performance -->
 	<div class="card mb-3 shadow-sm">
-		<div class="card-header bg-light">
+		<div class="card-header">
 			<h2 class="h5 mb-0"><i class="fa-solid fa-gauge-high text-primary me-2"></i><?=gettext('3. DNS Cache & Query Performance')?></h2>
 		</div>
 		<div class="card-body">
@@ -218,7 +218,7 @@ threatshield_display_tabs('general');
 
 	<!-- 4. Security & Anti-Evasion Controls -->
 	<div class="card mb-3 shadow-sm">
-		<div class="card-header bg-light">
+		<div class="card-header">
 			<h2 class="h5 mb-0"><i class="fa-solid fa-shield-virus text-primary me-2"></i><?=gettext('4. Threat Protection & Anti-Evasion Controls')?></h2>
 		</div>
 		<div class="card-body">
@@ -292,7 +292,7 @@ threatshield_display_tabs('general');
 
 	<!-- 5. EDNS Client Subnet & Rate Limiting -->
 	<div class="card mb-3 shadow-sm">
-		<div class="card-header bg-light">
+		<div class="card-header">
 			<h2 class="h5 mb-0"><i class="fa-solid fa-network-wired text-primary me-2"></i><?=gettext('5. EDNS Client Subnet (ECS) & Rate Limiting')?></h2>
 		</div>
 		<div class="card-body">
@@ -324,7 +324,7 @@ threatshield_display_tabs('general');
 
 	<!-- 6. Query Logging & Privacy Compliance -->
 	<div class="card mb-4 shadow-sm">
-		<div class="card-header bg-light">
+		<div class="card-header">
 			<h2 class="h5 mb-0"><i class="fa-solid fa-database text-primary me-2"></i><?=gettext('6. Query Logging & Privacy Compliance')?></h2>
 		</div>
 		<div class="card-body">

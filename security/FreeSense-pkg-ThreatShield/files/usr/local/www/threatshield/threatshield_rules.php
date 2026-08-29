@@ -48,7 +48,7 @@ threatshield_display_tabs('rules');
 
 <form method="post" action="threatshield_rules.php">
 	<div class="card shadow-sm mb-3">
-		<div class="card-header bg-light">
+		<div class="card-header">
 			<h2 class="h5 mb-0"><i class="fa-solid fa-pen-to-square text-primary me-2"></i><?=gettext('User-Defined Filtering Rules')?></h2>
 		</div>
 		<div class="card-body">
@@ -58,14 +58,14 @@ threatshield_display_tabs('rules');
 				<div class="form-text"><?=gettext('Supports standard Adblock Plus and AdGuard filtering syntax, regular expressions, and hosts format.')?></div>
 			</div>
 		</div>
-		<div class="card-footer bg-light">
+		<div class="card-footer">
 			<button type="submit" name="save_rules" value="1" class="btn btn-primary"><i class="fa-solid fa-floppy-disk me-2"></i><?=gettext('Save Rules')?></button>
 		</div>
 	</div>
 </form>
 
 <div class="card shadow-sm mb-4">
-	<div class="card-header bg-light">
+	<div class="card-header">
 		<h2 class="h5 mb-0"><i class="fa-solid fa-circle-question text-primary me-2"></i><?=gettext('Rule Syntax Reference & Examples')?></h2>
 	</div>
 	<div class="card-body p-0">

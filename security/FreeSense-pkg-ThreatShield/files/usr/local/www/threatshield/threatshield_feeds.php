@@ -57,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 			if (threatshield_save_and_apply($ts_config, gettext('Deleted a Threat Shield feed.'), $input_errors)) $savemsg = sprintf(gettext('Feed "%s" deleted.'), htmlspecialchars($name));
 		}
 	} elseif (isset($_POST['update_now'])) {
-		mwexec_bg('/usr/local/sbin/freesense-threatshield-update feeds');
+		mwexec_bg('/usr/local/sbin/freesense-threatshield-update feeds force');
 		$savemsg = gettext('Feed download started in background.');
 	}
 }
@@ -92,7 +92,7 @@ threatshield_display_tabs('feeds');
 
 <form method="post" action="threatshield_feeds.php">
 	<div class="card shadow-sm mb-3">
-		<div class="card-header bg-light">
+		<div class="card-header">
 			<h2 class="h5 mb-0"><i class="fa-solid fa-clock text-primary me-2"></i><?=gettext('Automated Feed Synchronization Schedule')?></h2>
 		</div>
 		<div class="card-body">
@@ -116,7 +116,7 @@ threatshield_display_tabs('feeds');
 	</div>
 
 	<div class="card shadow-sm mb-3">
-		<div class="card-header bg-light">
+		<div class="card-header">
 			<h2 class="h5 mb-0"><i class="fa-solid fa-shield-virus text-primary me-2"></i><?=gettext('Subscribed DNS Threat Feeds')?></h2>
 		</div>
 		<div class="card-body p-0">
@@ -155,14 +155,14 @@ threatshield_display_tabs('feeds');
 				</table>
 			</div>
 		</div>
-		<div class="card-footer bg-light">
+		<div class="card-footer">
 			<button type="submit" name="save_feeds" value="1" class="btn btn-primary"><i class="fa-solid fa-floppy-disk me-2"></i><?=gettext('Save Feed Settings')?></button>
 		</div>
 	</div>
 </form>
 
 <div class="card shadow-sm mb-4">
-	<div class="card-header bg-light">
+	<div class="card-header">
 		<h2 class="h5 mb-0"><i class="fa-solid fa-plus text-primary me-2"></i><?=gettext('Add Custom DNS Threat Feed')?></h2>
 	</div>
 	<div class="card-body">

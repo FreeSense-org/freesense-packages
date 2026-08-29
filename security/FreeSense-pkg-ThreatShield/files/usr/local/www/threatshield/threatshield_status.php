@@ -24,7 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 		threatshield_service_control('restart');
 		$savemsg = gettext('Threat Shield daemon restarted.');
 	} elseif ($act === 'update_feeds') {
-		mwexec_bg('/usr/local/sbin/freesense-threatshield-update all');
+		mwexec_bg('/usr/local/sbin/freesense-threatshield-update all force');
 		$savemsg = gettext('Threat feeds and GeoIP update started in the background.');
 	}
 }
@@ -75,7 +75,7 @@ threatshield_display_tabs('status');
 		<div class="card h-100 shadow-sm">
 			<div class="card-body">
 				<div class="text-uppercase text-muted small fw-semibold mb-2"><?=gettext('Total Queries (24h)')?></div>
-				<div class="fs-4 text-dark fw-bold"><i class="fa-solid fa-server text-primary me-2"></i><?=number_format($total_queries)?></div>
+		<div class="fs-4 fw-bold"><i class="fa-solid fa-server text-primary me-2"></i><?=number_format($total_queries)?></div>
 			</div>
 		</div>
 	</div>
@@ -114,7 +114,7 @@ threatshield_display_tabs('status');
 <div class="row g-3 mb-3">
 	<div class="col-lg-6">
 		<div class="card h-100 shadow-sm">
-			<div class="card-header bg-light">
+			<div class="card-header">
 				<h2 class="h5 mb-0"><i class="fa-solid fa-globe text-primary me-2"></i><?=gettext('Top Queried Domains')?></h2>
 			</div>
 			<div class="card-body p-0">
@@ -150,7 +150,7 @@ threatshield_display_tabs('status');
 
 	<div class="col-lg-6">
 		<div class="card h-100 shadow-sm">
-			<div class="card-header bg-light">
+			<div class="card-header">
 				<h2 class="h5 mb-0"><i class="fa-solid fa-shield-virus text-danger me-2"></i><?=gettext('Top Blocked Threats & Domains')?></h2>
 			</div>
 			<div class="card-body p-0">
@@ -186,7 +186,7 @@ threatshield_display_tabs('status');
 </div>
 
 <div class="card shadow-sm mb-3">
-	<div class="card-header bg-light">
+	<div class="card-header">
 		<h2 class="h5 mb-0"><i class="fa-solid fa-laptop-code text-primary me-2"></i><?=gettext('Top Requesting LAN Clients')?></h2>
 	</div>
 	<div class="card-body p-0">
