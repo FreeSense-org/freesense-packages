@@ -14,6 +14,7 @@
 require_once('guiconfig.inc');
 require_once('/usr/local/pkg/threatshield.inc');
 
+$input_errors = [];
 $savemsg = null;
 $ts_config = threatshield_config();
 
@@ -35,11 +36,23 @@ $services_catalog = [
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_services'])) {
-	$ts_config['blocked_services'] = array_map('strval', (array)($_POST['blocked_services'] ?? []));
-	config_set_path(THREATSHIELD_CONFIG_PATH, threatshield_config_for_storage($ts_config));
-	write_config(gettext('Updated Threat Shield blocked services.'));
-	threatshield_sync_config();
-	$savemsg = gettext('Blocked services updated and applied.');
+	$ts_config['blocked_services'] = array_values(array_intersect(array_map('strval', (array)($_POST['blocked_services'] ?? [])), $services_catalog ? array_keys($services_catalog) : []));
+	if (threatshield_save_and_apply($ts_config, gettext('Updated Threat Shield blocked services.'), $input_errors)) $savemsg = gettext('Blocked services updated and applied.');
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_profile'])) {
+	$name = trim((string)($_POST['profile_name'] ?? ''));
+	$ids = array_values(array_filter(array_map('trim', preg_split('/[\s,]+/', (string)($_POST['profile_ids'] ?? '')))));
+	if ($name === '' || empty($ids) || count($ids) > 20) {
+		$input_errors[] = gettext('A profile needs a name and one or more client IP addresses or hostnames.');
+	} else {
+		$ts_config['clients'][] = ['name' => $name, 'ids' => $ids, 'filtering' => in_array($_POST['profile_filtering'] ?? '', ['on','off','inherit'], true) ? $_POST['profile_filtering'] : 'inherit', 'blocked_services' => array_values(array_intersect(array_map('strval', (array)($_POST['profile_services'] ?? [])), array_keys($services_catalog)))];
+		if (threatshield_save_and_apply($ts_config, gettext('Added a Threat Shield client profile.'), $input_errors)) $savemsg = gettext('Client profile added and applied.');
+	}
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_profile'])) {
+	$index = (int)$_POST['delete_profile'];
+	if (isset($ts_config['clients'][$index])) {
+		array_splice($ts_config['clients'], $index, 1);
+		if (threatshield_save_and_apply($ts_config, gettext('Deleted a Threat Shield client profile.'), $input_errors)) $savemsg = gettext('Client profile deleted.');
+	}
 }
 
 $blocked_set = array_flip($ts_config['blocked_services'] ?? []);
@@ -49,6 +62,8 @@ $pgtitle = [gettext('Services'), gettext('Threat Shield'), gettext('Client Profi
 $pglinks = ['', '@self', '@self'];
 
 include('head.inc');
+
+if ($input_errors) print_input_errors($input_errors);
 
 if ($savemsg) {
 	print_info_box($savemsg, 'success');
@@ -94,6 +109,23 @@ threatshield_display_tabs('clients');
 		</div>
 	</div>
 </form>
+
+<div class="card shadow-sm mb-4">
+	<div class="card-header bg-light"><h2 class="h5 mb-0"><?=gettext('Per-Client Profiles')?></h2></div>
+	<div class="card-body">
+		<p class="text-muted small"><?=gettext('Use stable client IP addresses or DHCP hostnames. Profiles override the global filtering and service settings for matching clients.')?></p>
+		<?php foreach (threatshield_normalize_list($ts_config['clients']) as $idx => $profile): ?>
+			<div class="border rounded p-2 mb-2 d-flex justify-content-between align-items-center"><span><strong><?=htmlspecialchars((string)($profile['name'] ?? 'Profile'))?></strong> — <?=htmlspecialchars(implode(', ', threatshield_normalize_list($profile['ids'] ?? [])))?></span><form method="post"><button class="btn btn-sm btn-outline-danger" name="delete_profile" value="<?=$idx?>"><?=gettext('Delete')?></button></form></div>
+		<?php endforeach; ?>
+		<form method="post" class="row g-3 mt-1">
+			<div class="col-md-4"><label class="form-label"><?=gettext('Profile name')?></label><input class="form-control" name="profile_name" required></div>
+			<div class="col-md-4"><label class="form-label"><?=gettext('Client IPs / hostnames')?></label><input class="form-control" name="profile_ids" placeholder="192.168.1.20, child-tablet" required></div>
+			<div class="col-md-2"><label class="form-label"><?=gettext('Filtering')?></label><select class="form-select" name="profile_filtering"><option value="inherit"><?=gettext('Inherit global')?></option><option value="on"><?=gettext('Force on')?></option><option value="off"><?=gettext('Force off')?></option></select></div>
+			<div class="col-md-2 d-flex align-items-end"><button class="btn btn-outline-primary w-100" name="add_profile" value="1"><?=gettext('Add profile')?></button></div>
+			<div class="col-12"><label class="form-label"><?=gettext('Profile blocked services')?></label><?php foreach ($services_catalog as $key => $info): ?><label class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="profile_services[]" value="<?=$key?>"> <?=htmlspecialchars($info['name'])?></label><?php endforeach; ?></div>
+		</form>
+	</div>
+</div>
 
 <div class="card shadow-sm mb-4">
 	<div class="card-header bg-light">

@@ -14,21 +14,23 @@
 require_once('guiconfig.inc');
 require_once('/usr/local/pkg/threatshield.inc');
 
+$input_errors = [];
 $savemsg = null;
 $ts_config = threatshield_config();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_rules'])) {
 	$ts_config['custom_rules'] = trim($_POST['custom_rules'] ?? '');
-	config_set_path(THREATSHIELD_CONFIG_PATH, threatshield_config_for_storage($ts_config));
-	write_config(gettext('Updated Threat Shield custom rules.'));
-	threatshield_sync_config();
-	$savemsg = gettext('Custom filtering rules saved and applied.');
+	if (threatshield_save_and_apply($ts_config, gettext('Updated Threat Shield custom rules.'), $input_errors)) {
+		$savemsg = gettext('Custom filtering rules saved and applied.');
+	}
 }
 
 $pgtitle = [gettext('Services'), gettext('Threat Shield'), gettext('Custom Rules')];
 $pglinks = ['', '@self', '@self'];
 
 include('head.inc');
+
+if ($input_errors) print_input_errors($input_errors);
 
 if ($savemsg) {
 	print_info_box($savemsg, 'success');

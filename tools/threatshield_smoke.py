@@ -65,6 +65,10 @@ def main() -> int:
         "PF rule generation": "function threatshield_generate_rules",
         "API communication bridge": "function threatshield_api_request",
         "XML-safe list storage": "'item' => threatshield_normalize_list($v)",
+        "transactional save": "function threatshield_save_and_apply",
+        "resolver mode manager": "function threatshield_manage_unbound",
+        "policy-bound GeoIP rules": "geoip_policies",
+        "rogue DNS interface binding": "dns_intercept_interfaces",
     }
 
     for name, marker in invariants.items():
@@ -95,6 +99,10 @@ def main() -> int:
         errors.append("Unbound coordination state is not restored safely")
     if "pfsense-utils.inc" in integration:
         errors.append("ThreatShield references the removed pfSense utility include")
+    if "file_put_contents(THREATSHIELD_CONFIG_FILE, $yaml)" in integration:
+        errors.append("ThreatShield writes generated configuration non-atomically")
+    if "rate_limit_subnet_len_ipv4: 24" in integration:
+        errors.append("rate-limit IPv4 subnet setting is hard-coded")
     if "threatshield_sync_config" in install_script:
         errors.append("package installer bypasses rc.packages and invokes ThreatShield sync twice")
     if "threatshield_remove_config" in deinstall_script:
@@ -126,6 +134,11 @@ def main() -> int:
         page_text = page.read_text(encoding="utf-8", errors="replace")
         if re.search(r"\$config\s*=\s*", page_text):
             errors.append(f"{page.relative_to(ROOT)}: package page shadows the firewall global $config")
+
+    querylog = (PORT / "files/usr/local/www/threatshield/threatshield_querylog.php").read_text(encoding="utf-8")
+    status = (PORT / "files/usr/local/www/threatshield/threatshield_status.php").read_text(encoding="utf-8")
+    if "<?=$client_ip?>" in querylog or "<?=$hostname?>" in querylog or "<?=$ip?>" in status:
+        errors.append("Threat Shield status pages render unescaped client-controlled values")
 
     if errors:
         print("Threat Shield smoke check failed:", file=sys.stderr)

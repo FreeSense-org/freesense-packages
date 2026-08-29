@@ -17,6 +17,7 @@ require_once('/usr/local/pkg/threatshield.inc');
 $input_errors = [];
 $savemsg = null;
 $ts_config = threatshield_config();
+$interfaces = threatshield_assigned_interfaces();
 
 $all_countries = [
 	'Europe' => [
@@ -64,13 +65,16 @@ $all_countries = [
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 	if (isset($_POST['save_geoip'])) {
 		$ts_config['geoip_enable'] = isset($_POST['geoip_enable']) ? 'on' : 'off';
-		$ts_config['geoip_mode'] = in_array($_POST['geoip_mode'] ?? '', ['block_inbound', 'block_both', 'whitelist_inbound'], true) ? $_POST['geoip_mode'] : 'block_inbound';
 		$ts_config['geoip_countries'] = array_map('strtoupper', (array)($_POST['countries'] ?? []));
-
-		config_set_path(THREATSHIELD_CONFIG_PATH, threatshield_config_for_storage($ts_config));
-		write_config(gettext('Updated Threat Shield GeoIP settings.'));
-		threatshield_sync_config();
-		$savemsg = gettext('GeoIP country protection settings saved and applied to PF kernel tables.');
+		$ts_config['geoip_policies'] = [[
+			'id' => 'default', 'enable' => $ts_config['geoip_enable'],
+			'action' => in_array($_POST['geoip_action'] ?? '', ['block_selected','allow_selected'], true) ? $_POST['geoip_action'] : 'block_selected',
+			'direction' => in_array($_POST['geoip_direction'] ?? '', ['in','out','both'], true) ? $_POST['geoip_direction'] : 'in',
+			'interfaces' => array_values(array_intersect(array_map('strval', (array)($_POST['geoip_interfaces'] ?? [])), array_keys($interfaces))),
+			'protocol' => in_array($_POST['geoip_protocol'] ?? '', ['any','tcp','udp'], true) ? $_POST['geoip_protocol'] : 'any',
+			'ports' => trim((string)($_POST['geoip_ports'] ?? 'any')) ?: 'any', 'countries' => $ts_config['geoip_countries'],
+		]];
+		if (threatshield_save_and_apply($ts_config, gettext('Updated Threat Shield GeoIP settings.'), $input_errors)) $savemsg = gettext('GeoIP country protection settings saved and applied to PF kernel tables.');
 	} elseif (isset($_POST['update_geoip_now'])) {
 		mwexec_bg('/usr/local/sbin/freesense-threatshield-update geoip');
 		$savemsg = gettext('GeoIP Country CIDR database download started in background.');
@@ -78,6 +82,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $selected_countries = array_flip($ts_config['geoip_countries'] ?? []);
+$policy = threatshield_normalize_list($ts_config['geoip_policies'] ?? [])[0] ?? ['action' => 'block_selected', 'direction' => 'in', 'interfaces' => ['wan'], 'protocol' => 'any', 'ports' => 'any'];
 
 $pgtitle = [gettext('Services'), gettext('Threat Shield'), gettext('GeoIP Country Shield')];
 $pglinks = ['', '@self', '@self'];
@@ -118,20 +123,8 @@ threatshield_display_tabs('geoip');
 				<div class="form-text"><?=gettext('Enforces wire-speed kernel PF table blocking (<freesense_geoip_inbound>) on selected countries.')?></div>
 			</div>
 
-			<div class="mb-2">
-				<label for="geoip_mode" class="form-label fw-semibold"><?=gettext('Enforcement Direction & Mode')?></label>
-				<select name="geoip_mode" id="geoip_mode" class="form-select">
-					<option value="block_inbound" <?=$ts_config['geoip_mode'] === 'block_inbound' ? 'selected' : ''?>>
-						<?=gettext('Block Inbound: Drop all incoming WAN connections from selected countries')?>
-					</option>
-					<option value="block_both" <?=$ts_config['geoip_mode'] === 'block_both' ? 'selected' : ''?>>
-						<?=gettext('Block Inbound & Outbound: Block incoming from and outgoing connections to selected countries')?>
-					</option>
-					<option value="whitelist_inbound" <?=$ts_config['geoip_mode'] === 'whitelist_inbound' ? 'selected' : ''?>>
-						<?=gettext('Whitelist Mode: Block all incoming WAN traffic EXCEPT selected countries')?>
-					</option>
-				</select>
-			</div>
+			<div class="row g-3"><div class="col-md-3"><label class="form-label"><?=gettext('Action')?></label><select class="form-select" name="geoip_action"><option value="block_selected" <?=($policy['action'] ?? '') === 'block_selected' ? 'selected' : ''?>><?=gettext('Block selected countries')?></option><option value="allow_selected" <?=($policy['action'] ?? '') === 'allow_selected' ? 'selected' : ''?>><?=gettext('Allow selected countries only')?></option></select></div><div class="col-md-3"><label class="form-label"><?=gettext('Direction')?></label><select class="form-select" name="geoip_direction"><option value="in" <?=($policy['direction'] ?? '') === 'in' ? 'selected' : ''?>><?=gettext('Inbound')?></option><option value="out" <?=($policy['direction'] ?? '') === 'out' ? 'selected' : ''?>><?=gettext('Outbound')?></option><option value="both" <?=($policy['direction'] ?? '') === 'both' ? 'selected' : ''?>><?=gettext('Both')?></option></select></div><div class="col-md-3"><label class="form-label"><?=gettext('Protocol')?></label><select class="form-select" name="geoip_protocol"><option value="any"><?=gettext('Any')?></option><option value="tcp" <?=($policy['protocol'] ?? '') === 'tcp' ? 'selected' : ''?>>TCP</option><option value="udp" <?=($policy['protocol'] ?? '') === 'udp' ? 'selected' : ''?>>UDP</option></select></div><div class="col-md-3"><label class="form-label"><?=gettext('Ports/ranges')?></label><input class="form-control" name="geoip_ports" value="<?=htmlspecialchars((string)($policy['ports'] ?? 'any'))?>" placeholder="any or 22,80,443"></div></div>
+			<div class="mt-3"><label class="form-label fw-semibold"><?=gettext('Bind policy to interfaces')?></label><?php foreach ($interfaces as $key => $label): ?><label class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="geoip_interfaces[]" value="<?=$key?>" <?=in_array($key, threatshield_normalize_list($policy['interfaces'] ?? []), true) ? 'checked' : ''?>> <?=htmlspecialchars($label)?></label><?php endforeach; ?></div>
 		</div>
 	</div>
 

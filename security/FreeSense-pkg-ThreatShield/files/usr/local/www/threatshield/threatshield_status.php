@@ -210,7 +210,7 @@ threatshield_display_tabs('status');
 								$hostname = $dhcp_hosts[$ip] ?? gettext('Unknown Host');
 							?>
 							<tr>
-								<td class="font-monospace fw-bold"><?=$ip?></td>
+								<td class="font-monospace fw-bold"><?=htmlspecialchars((string)$ip)?></td>
 								<td>
 									<span class="badge bg-secondary"><?=htmlspecialchars((string)$hostname)?></span>
 								</td>

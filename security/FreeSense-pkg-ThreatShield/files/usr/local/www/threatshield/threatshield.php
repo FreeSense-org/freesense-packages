@@ -17,6 +17,7 @@ require_once('/usr/local/pkg/threatshield.inc');
 $input_errors = [];
 $savemsg = null;
 $ts_config = threatshield_config();
+$assigned_interfaces = threatshield_assigned_interfaces();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
 	$pconfig = $_POST;
@@ -47,6 +48,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
 	$ts_config['block_doh_canary'] = isset($pconfig['block_doh_canary']) ? 'on' : 'off';
 	$ts_config['block_icloud_private_relay'] = isset($pconfig['block_icloud_private_relay']) ? 'on' : 'off';
 	$ts_config['catch_rogue_dns'] = isset($pconfig['catch_rogue_dns']) ? 'on' : 'off';
+	$ts_config['dns_intercept_interfaces'] = array_values(array_intersect(array_map('strval', (array)($pconfig['dns_intercept_interfaces'] ?? [])), array_keys($assigned_interfaces)));
 
 	// ECS & Rate Limiting
 	$ts_config['edns_client_subnet'] = isset($pconfig['edns_client_subnet']) ? 'on' : 'off';
@@ -57,16 +59,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
 
 	// Query Log & Privacy
 	$ts_config['querylog_enabled'] = isset($pconfig['querylog_enabled']) ? 'on' : 'off';
-	$ts_config['querylog_retention'] = (int)($pconfig['querylog_retention'] ?? 90);
+	$ts_config['querylog_retention'] = (string)($pconfig['querylog_retention'] ?? '2160');
 	$ts_config['anonymize_client_ip'] = isset($pconfig['anonymize_client_ip']) ? 'on' : 'off';
 	$ts_config['ignored_domains'] = trim($pconfig['ignored_domains'] ?? '');
 
 	$input_errors = array_merge($input_errors, threatshield_validate_config($ts_config));
 
-	if (empty($input_errors)) {
-		config_set_path(THREATSHIELD_CONFIG_PATH, threatshield_config_for_storage($ts_config));
-		write_config(gettext('Updated FreeSense Threat Shield settings.'));
-		threatshield_sync_config();
+	if (empty($input_errors) && threatshield_save_and_apply($ts_config, gettext('Updated FreeSense Threat Shield settings.'), $input_errors)) {
 		$savemsg = gettext('Threat Shield settings saved and applied successfully.');
 	}
 }
@@ -111,6 +110,7 @@ threatshield_display_tabs('general');
 				</label>
 				<div class="form-text"><?=gettext('Activates the high-performance DNS filtering daemon, encrypted upstream resolution, and network-level threat defenses.')?></div>
 			</div>
+			<div class="mb-3"><label class="form-label fw-semibold"><?=gettext('Intercept only these LAN interfaces')?></label><?php foreach ($assigned_interfaces as $key => $label): ?><label class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="dns_intercept_interfaces[]" value="<?=$key?>" <?=in_array($key, threatshield_normalize_list($ts_config['dns_intercept_interfaces']), true) ? 'checked' : ''?>> <?=htmlspecialchars($label)?></label><?php endforeach; ?><div class="form-text"><?=gettext('DNS interception is never applied until at least one interface is explicitly selected.')?></div></div>
 
 			<div class="mb-3">
 				<label for="dns_coordination_mode" class="form-label fw-semibold"><?=gettext('DNS Port Coordination Mode')?></label>
@@ -338,11 +338,11 @@ threatshield_display_tabs('general');
 				<div class="col-md-6">
 					<label for="querylog_retention" class="form-label fw-semibold"><?=gettext('Query Log Retention Period')?></label>
 					<select class="form-select" name="querylog_retention" id="querylog_retention">
-						<option value="6" <?=$ts_config['querylog_retention'] === 6 ? 'selected' : ''?>><?=gettext('6 Hours')?></option>
-						<option value="24" <?=$ts_config['querylog_retention'] === 24 ? 'selected' : ''?>><?=gettext('24 Hours (1 Day)')?></option>
-						<option value="168" <?=$ts_config['querylog_retention'] === 168 ? 'selected' : ''?>><?=gettext('7 Days (1 Week)')?></option>
-						<option value="720" <?=$ts_config['querylog_retention'] === 720 ? 'selected' : ''?>><?=gettext('30 Days (1 Month)')?></option>
-						<option value="2160" <?=$ts_config['querylog_retention'] === 2160 ? 'selected' : ''?>><?=gettext('90 Days (3 Months - Recommended)')?></option>
+						<option value="6" <?=((string)$ts_config['querylog_retention'] === '6') ? 'selected' : ''?>><?=gettext('6 Hours')?></option>
+						<option value="24" <?=((string)$ts_config['querylog_retention'] === '24') ? 'selected' : ''?>><?=gettext('24 Hours (1 Day)')?></option>
+						<option value="168" <?=((string)$ts_config['querylog_retention'] === '168') ? 'selected' : ''?>><?=gettext('7 Days (1 Week)')?></option>
+						<option value="720" <?=((string)$ts_config['querylog_retention'] === '720') ? 'selected' : ''?>><?=gettext('30 Days (1 Month)')?></option>
+						<option value="2160" <?=((string)$ts_config['querylog_retention'] === '2160') ? 'selected' : ''?>><?=gettext('90 Days (3 Months - Recommended)')?></option>
 					</select>
 				</div>
 				<div class="col-md-6">
