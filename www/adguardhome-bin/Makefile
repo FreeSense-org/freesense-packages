@@ -13,6 +13,8 @@ LICENSE_FILE=	${WRKSRC}/LICENSE.txt
 ONLY_FOR_ARCHS=	amd64 aarch64
 CONFLICTS_INSTALL=	adguardhome
 
+.include <bsd.port.pre.mk>
+
 .if ${ARCH} == "aarch64"
 DISTNAME=	AdGuardHome_freebsd_arm64
 .else
@@ -29,4 +31,4 @@ do-install:
 	${MKDIR} ${STAGEDIR}${PREFIX}/bin
 	${INSTALL_PROGRAM} ${WRKSRC}/AdGuardHome ${STAGEDIR}${PREFIX}/bin/AdGuardHome
 
-.include <bsd.port.mk>
+.include <bsd.port.post.mk>
