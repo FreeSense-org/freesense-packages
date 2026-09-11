@@ -7,49 +7,18 @@
     "aarch64": {
       "exclude": [
         {
-          "origin": "net-mgmt/FreeSense-pkg-Telegraf",
-          "reason": "Requires lang/go which cannot cross-compile under qemu-user emulation.",
-          "issue": "https://github.com/FreeSense-org/freesense/issues/53",
-          "review_date": "2026-08-21"
-        },
-        {
-          "origin": "security/FreeSense-pkg-CrowdSec",
-          "reason": "Requires lang/go which cannot cross-compile under qemu-user emulation.",
-          "issue": "https://github.com/FreeSense-org/freesense/issues/53",
-          "review_date": "2026-08-21"
-        },
-        {
           "origin": "security/FreeSense-pkg-suricata",
-          "reason": "Requires lang/rust which cannot cross-compile under qemu-user emulation.",
+          "reason": "Suricata OPTIONS diverge from official packages and still require a Rust source build under qemu-user emulation.",
           "issue": "https://github.com/FreeSense-org/freesense/issues/53",
-          "review_date": "2026-08-21"
-        },
-        {
-          "origin": "security/FreeSense-pkg-Tailscale",
-          "reason": "Requires lang/go which cannot cross-compile under qemu-user emulation.",
-          "issue": "https://github.com/FreeSense-org/freesense/issues/53",
-          "review_date": "2026-08-21"
-        },
-        {
-          "origin": "sysutils/FreeSense-pkg-node_exporter",
-          "reason": "Requires lang/go which cannot cross-compile under qemu-user emulation.",
-          "issue": "https://github.com/FreeSense-org/freesense/issues/53",
-          "review_date": "2026-08-21"
-        },
-        {
-          "origin": "sysutils/FreeSense-pkg-nut",
-          "reason": "Build dependency textproc/go-md2man requires lang/go under qemu-user emulation.",
-          "issue": "https://github.com/FreeSense-org/freesense/issues/53",
-          "review_date": "2026-08-21"
+          "review_date": "2026-09-11"
         },
         {
           "origin": "www/FreeSense-pkg-WebGateway-AV",
-          "reason": "Dependency security/clamav requires lang/rust under qemu-user emulation.",
+          "reason": "Dependency security/clamav still requires a Rust source build under qemu-user emulation.",
           "issue": "https://github.com/FreeSense-org/freesense/issues/53",
-          "review_date": "2026-08-21"
+          "review_date": "2026-09-11"
         }
       ]
     }
   }
 }
-
