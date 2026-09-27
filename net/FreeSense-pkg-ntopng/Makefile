@@ -2,7 +2,7 @@
 
 PORTNAME=	FreeSense-pkg-ntopng
 PORTVERSION=	6.2.0
-PORTREVISION=	6
+PORTREVISION=	7
 CATEGORIES=	net
 MASTER_SITES=	# empty
 DISTFILES=	# empty
@@ -13,7 +13,7 @@ COMMENT=	FreeSense package ntopng
 
 LICENSE=	APACHE20
 
-RUN_DEPENDS=	ntopng>=6.6.0:net/ntopng \
+RUN_DEPENDS=	${LOCALBASE}/bin/ntopng:net/ntopng \
 		${LOCALBASE}/bin/redis-cli:databases/redis \
 		${LOCALBASE}/bin/gdbmtool:databases/gdbm \
 		${LOCALBASE}/share/fonts/webfonts/arial.ttf:x11-fonts/webfonts \
