@@ -19,7 +19,12 @@ LIB_DEPENDS=	libdnet.so:net/libdnet
 # pinned FreeBSD snapshots and in-kernel vmx(4)/VMware support covers guests.
 # RUN_DEPENDS=	open-vm-kmod>0:emulators/open-vm-kmod
 
-FLAVORS=			default nox11
+# nox11 first: the first flavor is the default, and the delta build addresses
+# this port by its flavorless origin. FreeSense only ships open-vm-tools-nox11
+# (FreeSense-pkg-Open-VM-Tools depends on it and X11 is excluded below), so a
+# flavorless build must produce that package, not an unsanctioned
+# open-vm-tools that also cost ~24 min emulated on arm64.
+FLAVORS=			nox11 default
 default_CONFLICTS_INSTALL=	open-vm-tools-nox11
 nox11_PKGNAMESUFFIX=		-nox11
 nox11_CONFLICTS_INSTALL=	open-vm-tools
