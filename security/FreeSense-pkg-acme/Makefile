@@ -16,7 +16,9 @@ LICENSE=	APACHE20
 RUN_DEPENDS=	${LOCALBASE}/bin/socat:net/socat \
 		${PHP_PKGNAMEPREFIX}pecl-ssh2>=0:security/pecl-ssh2@${PHP_FLAVOR}
 
-IGNORE_WITH_PHP=	56 70 71 74 81
+# Only PHP 8.5 (DEFAULT_VERSIONS php=8.5) is supported. List every other
+# version Mk/Uses/php.mk offers so no other flavor can be selected.
+IGNORE_WITH_PHP=	82 83 84 86
 USES=		php:flavors
 USE_PHP=	ftp
 
