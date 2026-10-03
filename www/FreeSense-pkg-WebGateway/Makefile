@@ -1,5 +1,6 @@
 PORTNAME=	FreeSense-pkg-WebGateway
 PORTVERSION=	2.0.5
+PORTREVISION=	1
 CATEGORIES=	www
 MASTER_SITES=	# empty
 DISTFILES=	# empty
