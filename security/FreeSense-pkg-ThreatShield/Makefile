@@ -1,6 +1,6 @@
 PORTNAME=	FreeSense-pkg-ThreatShield
 PORTVERSION=	1.0.0
-PORTREVISION=	2
+PORTREVISION=	3
 CATEGORIES=	security
 MASTER_SITES=	# empty
 DISTFILES=	# empty

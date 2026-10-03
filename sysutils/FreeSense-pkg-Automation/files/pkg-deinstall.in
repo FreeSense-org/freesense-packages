@@ -1,4 +1,6 @@
 #!/bin/sh
-[ "$2" = "DEINSTALL" ] || exit 0
-/usr/local/bin/php -r "require_once('/usr/local/pkg/automation/automation.inc'); automation_remove_cron_entries();" || true
+if [ "$2" = "DEINSTALL" ]; then
+	/usr/local/bin/php -r "require_once('/usr/local/pkg/automation/automation.inc'); automation_remove_cron_entries();" || true
+fi
+# rc.packages removes the package's config entry in the POST-DEINSTALL stage
 /usr/local/bin/php -f /etc/rc.packages %%PORTNAME%% "$2"

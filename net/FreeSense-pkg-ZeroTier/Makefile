@@ -1,5 +1,6 @@
 PORTNAME=	FreeSense-pkg-ZeroTier
 PORTVERSION=	1.0.0
+PORTREVISION=	1
 CATEGORIES=	net
 MASTER_SITES=	# empty
 DISTFILES=	# empty
