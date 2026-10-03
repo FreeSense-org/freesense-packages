@@ -1,4 +1,9 @@
 <?php
+/* This file is a fragment included by other Suricata pages; opened directly it crashed. */
+if (get_included_files()[0] === __FILE__) {
+	header('Location: /suricata/suricata_interfaces.php');
+	exit;
+}
 /*
  * suricata_os_policy_engine.php
  *
