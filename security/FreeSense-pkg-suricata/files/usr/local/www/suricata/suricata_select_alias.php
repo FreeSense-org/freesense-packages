@@ -62,7 +62,12 @@ if (isset($_POST['returl']) && substr($_POST['returl'], 0, 1) == '/')
 elseif (isset($_GET['returl']) && substr($_GET['returl'], 0, 1) == '/')
 	$referrer = urldecode($_GET['returl']);
 else
-	$referrer = $_SERVER['HTTP_REFERER'];
+	$referrer = parse_url($_SERVER['HTTP_REFERER'] ?? '', PHP_URL_PATH) ?: '';
+
+/* Without a usable local return page, redirecting to "?..." pointed back at
+ * this page in a loop; fall back to the Suricata interfaces list. */
+if (substr($referrer, 0, 1) != '/' || basename($referrer) == basename(__FILE__))
+	$referrer = '/suricata/suricata_interfaces.php';
 
 // Make sure we have a valid VARIABLE name
 // and ALIAS TYPE, or else bail out.
