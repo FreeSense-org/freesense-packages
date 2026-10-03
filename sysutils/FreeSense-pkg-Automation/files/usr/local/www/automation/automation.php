@@ -11,8 +11,8 @@ require_once('/usr/local/pkg/automation/automation.inc');
 $pgtitle = [gettext('Services'), gettext('Automation')];
 $pglinks = ['', '@self'];
 $input_errors = [];
-$tasks = config_get_path('installedpackages/automation/tasks', []);
-$watchdog = config_get_path('installedpackages/automation/watchdog', []);
+$tasks = automation_get_list('tasks');
+$watchdog = automation_get_list('watchdog');
 
 function automation_valid_schedule_field($value) {
 	return preg_match('/^(?:\*|\*\/[1-9][0-9]*|[0-9]+(?:-[0-9]+)?(?:,[0-9]+)*)$/D', $value);
@@ -35,8 +35,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 		unset($watchdog[(int)$_POST['index']]); $watchdog = array_values($watchdog);
 	}
 	if (!$input_errors) {
-		config_set_path('installedpackages/automation/tasks', $tasks);
-		config_set_path('installedpackages/automation/watchdog', $watchdog);
+		automation_set_list('tasks', $tasks);
+		automation_set_list('watchdog', $watchdog);
 		write_config(gettext('Updated FreeSense automation settings.'));
 		automation_sync();
 	}
