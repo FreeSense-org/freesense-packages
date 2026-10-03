@@ -8,6 +8,37 @@ define('FREESENSE_CROWDSEC_ALIAS', 'CrowdSecBlocklist');
 define('FREESENSE_CROWDSEC_FILE', '/var/db/crowdsec/freesense-blocks.txt');
 define('FREESENSE_CROWDSEC_RULE', 'FreeSense CrowdSec decisions');
 
+/* cscli waits for the local API without a timeout, so only call it while
+ * CrowdSec runs and never for longer than 10 seconds. */
+function crowdsec_cscli(string $args, &$output, &$rc): bool {
+	$output = [];
+	$rc = 1;
+	if (!is_process_running('crowdsec')) return false;
+	exec('/usr/bin/timeout 10 /usr/local/bin/cscli ' . $args, $output, $rc);
+	return true;
+}
+
+/* Active decisions as a flat list. 'cscli decisions list -o json' returns
+ * alerts that each carry a 'decisions' array; older releases returned the
+ * decisions themselves. Returns null when CrowdSec can't be queried. */
+function crowdsec_decisions(): ?array {
+	if (!crowdsec_cscli('decisions list -o json 2>/dev/null', $lines, $rc) || $rc !== 0) return null;
+	$decoded = json_decode(implode("\n", $lines), true);
+	if (!is_array($decoded)) return [];
+	$decisions = [];
+	foreach ($decoded as $item) {
+		if (!is_array($item)) continue;
+		if (isset($item['decisions']) && is_array($item['decisions'])) {
+			foreach ($item['decisions'] as $d) {
+				if (is_array($d)) $decisions[] = $d;
+			}
+		} else {
+			$decisions[] = $item;
+		}
+	}
+	return $decisions;
+}
+
 function crowdsec_ensure_alias_and_rule() {
 	$rules = get_filter_rules_list();
 	foreach ($rules as $rule) if (($rule['descr'] ?? '') === FREESENSE_CROWDSEC_RULE) return;

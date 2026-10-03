@@ -1,5 +1,6 @@
 PORTNAME=	FreeSense-pkg-CrowdSec
 PORTVERSION=	1.0.0
+PORTREVISION=	1
 CATEGORIES=	security
 MASTER_SITES=	# empty
 DISTFILES=	# empty

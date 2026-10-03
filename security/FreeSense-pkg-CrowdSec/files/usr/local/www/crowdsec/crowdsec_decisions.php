@@ -1,8 +1,9 @@
 <?php
-require_once('guiconfig.inc'); $pgtitle=[gettext('Services'),gettext('CrowdSec'),gettext('Decisions')]; $pglinks=['','/crowdsec/crowdsec.php','@self'];
-if($_SERVER['REQUEST_METHOD']==='POST'&&isset($_POST['delete'])){ $id=(string)($_POST['id']??''); if(ctype_digit($id)) exec('/usr/local/bin/cscli decisions delete --id '.escapeshellarg($id).' 2>&1',$delete_output,$delete_rc); }
-exec('/usr/local/bin/cscli decisions list -o json 2>/dev/null',$lines,$rc); $decisions=json_decode(implode("\n",$lines),true)?:[];
+require_once('guiconfig.inc'); require_once('/usr/local/pkg/crowdsec/crowdsec.inc'); $pgtitle=[gettext('Services'),gettext('CrowdSec'),gettext('Decisions')]; $pglinks=['','/crowdsec/crowdsec.php','@self'];
+if($_SERVER['REQUEST_METHOD']==='POST'&&isset($_POST['delete'])){ $id=(string)($_POST['id']??''); if(ctype_digit($id)) crowdsec_cscli('decisions delete --id '.escapeshellarg($id).' 2>&1',$delete_output,$delete_rc); }
+$running=is_process_running('crowdsec'); $decisions=crowdsec_decisions(); $failed=$running&&$decisions===null; $decisions=$decisions??[];
 include('head.inc'); $tabs=[[gettext('Settings'),false,'/crowdsec/crowdsec.php'],[gettext('Decisions'),true,'/crowdsec/crowdsec_decisions.php']]; display_top_tabs($tabs);
+if(!$running) print_info_box(gettext('CrowdSec is not running, so no decisions can be shown.'),'warning',false); elseif($failed) print_info_box(gettext('Could not read the CrowdSec decisions.'),'danger',false);
 ?>
 <div class="card"><div class="card-header"><h2 class="h5 mb-0"><?=gettext('Active decisions')?> <span class="badge text-bg-secondary"><?=count($decisions)?></span></h2></div><div class="card-body table-responsive"><table class="table table-hover"><thead><tr><th><?=gettext('Value')?></th><th><?=gettext('Reason')?></th><th><?=gettext('Origin')?></th><th><?=gettext('Expires')?></th><th></th></tr></thead><tbody><?php foreach($decisions as $d): $id=(string)($d['id']??$d['ID']??''); ?><tr><td><code><?=htmlspecialchars($d['value']??$d['Value']??'')?></code></td><td><?=htmlspecialchars($d['scenario']??$d['Scenario']??'')?></td><td><?=htmlspecialchars($d['origin']??$d['Origin']??'')?></td><td><?=htmlspecialchars($d['duration']??$d['Duration']??'')?></td><td><?php if(ctype_digit($id)): ?><form method="post"><input type="hidden" name="id" value="<?=htmlspecialchars($id)?>"><button class="btn btn-danger btn-sm" name="delete" value="1"><?=gettext('Remove')?></button></form><?php endif; ?></td></tr><?php endforeach; ?></tbody></table></div></div>
 <?php include('foot.inc'); ?>
