@@ -549,6 +549,8 @@ function webgateway_render_config($config = null, $directory = WEBGATEWAY_FRAGME
 	if ($config['icap_enable'] === 'on' || $config['local_av_enable'] === 'on') {
 		$bypass = (($config['local_av_enable'] === 'on' ? $config['av_failure'] : $config['icap_failure']) === 'closed') ? '0' : '1';
 		$lines[] = 'icap_enable on';
+		/* squidclamav needs the client address and rejects requests without it */
+		$lines[] = 'icap_send_client_ip on';
 		$req = ($config['local_av_enable'] === 'on') ? 'icap://127.0.0.1:1344/squidclamav' : $config['icap_req_url'];
 		$resp = ($config['local_av_enable'] === 'on') ? 'icap://127.0.0.1:1344/squidclamav' : $config['icap_resp_url'];
 		if ($req !== '') {
@@ -1053,21 +1055,32 @@ function webgateway_apply_av_scan_limit($config) {
 		return false;
 	}
 	$bytes = max(1048576, (int)($config['av_max_mb'] ?? 100) * 1048576);
+	/* squidclamav defaults to clamd.ctl, but FreeBSD's clamd listens on the
+	 * LocalSocket from clamd.conf (clamd.sock), so no scan could connect. */
+	$socket = '/var/run/clamav/clamd.sock';
+	if (preg_match('/^LocalSocket\s+(\S+)/m', (string)@file_get_contents('/usr/local/etc/clamd.conf'), $m)) {
+		$socket = $m[1];
+	}
 	$managed = "# BEGIN FreeSense Web Gateway AV limits\n"
 		. "maxsize {$bytes}\n"
+		. "clamd_local {$socket}\n"
 		. "# END FreeSense Web Gateway AV limits\n";
 	$current = file_get_contents($path);
 	if ($current === false) {
 		return false;
 	}
+	/* The stock config redirects infected downloads to a placeholder host
+	 * (proxy.domain.dom). Without 'redirect' squidclamav serves its own page. */
+	$original = $current;
+	$current = preg_replace('#^(redirect\s+https?://proxy\.domain\.dom/\S*)\s*$#m', '# $1  (disabled by FreeSense)', $current) ?? $current;
 	$pattern = '/# BEGIN FreeSense Web Gateway AV limits\n.*?# END FreeSense Web Gateway AV limits\n/s';
 	if (preg_match($pattern, $current)) {
 		$updated = preg_replace($pattern, $managed, $current, 1);
 	} else {
 		$updated = rtrim($current) . "\n\n" . $managed;
 	}
-	if ($updated === null || $updated === $current) {
-		return $updated === $current;
+	if ($updated === null || $updated === $original) {
+		return $updated === $original;
 	}
 	return webgateway_write_file($path, $updated, 0644);
 }
@@ -1086,7 +1099,15 @@ function webgateway_set_av_services($enable, $config = null) {
 	}
 	webgateway_apply_av_scan_limit($config);
 	mwexec('/usr/sbin/service clamav_freshclam onestart');
-	mwexec('/usr/sbin/service clamav_clamd onestart');
+	if (glob('/var/db/clamav/{main,daily}.{cvd,cld}', GLOB_BRACE)) {
+		mwexec('/usr/sbin/service clamav_clamd onestart');
+	} else {
+		/* clamd refuses to start without signatures, and on first enable
+		 * freshclam is still downloading them. Start clamd once they exist. */
+		mwexec_bg('/usr/bin/timeout 3600 /bin/sh -c ' . escapeshellarg(
+		    'until ls /var/db/clamav/main.c[lv]d /var/db/clamav/daily.c[lv]d >/dev/null 2>&1; do sleep 10; done; ' .
+		    '/usr/sbin/service clamav_clamd onestart'));
+	}
 	/* Restart so managed maxsize changes are loaded when already running. */
 	mwexec('/usr/sbin/service c-icap onerestart');
 	if (mwexec('/usr/sbin/service c-icap onestatus') !== 0) {
