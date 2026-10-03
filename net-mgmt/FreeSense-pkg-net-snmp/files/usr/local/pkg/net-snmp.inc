@@ -262,7 +262,7 @@ function netsnmp_resync() {
 	if (!empty($nhisettings['sysdescr'])) {
 		$snmpd_config .= "sysDescr {$nhisettings['sysdescr']}\n";
 	} else {
-		$snmpd_config .= "sysDescr {$g['product_name']}" . config_get_path('system/hostname') . config_get_path('system/domain') .
+		$snmpd_config .= "sysDescr {$g['product_name']} " . config_get_path('system/hostname') . '.' . config_get_path('system/domain') .
 						 " {$g['product_version_string']} " . php_uname("s") .
 						 " " . php_uname("r") . " " . php_uname("m") . "\n";
 	}
