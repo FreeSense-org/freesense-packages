@@ -2,7 +2,7 @@
 
 PORTNAME=	FreeSense-pkg-net-snmp
 PORTVERSION=	0.1.5
-PORTREVISION=	15
+PORTREVISION=	16
 CATEGORIES=	net-mgmt
 MASTER_SITES=	# empty
 DISTFILES=	# empty
