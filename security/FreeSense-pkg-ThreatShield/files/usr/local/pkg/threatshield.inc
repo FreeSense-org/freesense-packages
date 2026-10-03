@@ -50,6 +50,38 @@ function threatshield_normalize_list($value): array {
 	return is_array($value) ? array_values($value) : [];
 }
 
+/* Lists inside list records (a GeoIP policy's interfaces and countries) need
+ * the same 'item' wrapper as top-level lists: a numeric PHP array is written
+ * as <0>, <1>, ..., which makes config.xml unreadable, so write_config() fell
+ * back to the previous config and the save was lost. */
+function threatshield_storage_value($value) {
+	if (!is_array($value)) {
+		return is_scalar($value) ? (string)$value : '';
+	}
+	if (count($value) === 1 && array_key_exists('item', $value)) {
+		$value = threatshield_normalize_list($value);
+	}
+	$out = [];
+	foreach ($value as $k => $v) {
+		$out[$k] = threatshield_storage_value($v);
+	}
+	return array_is_list($value) ? ['item' => $out] : $out;
+}
+
+/* Reverse of threatshield_storage_value() for values read from config.xml. */
+function threatshield_unwrap_lists($value) {
+	if (!is_array($value)) {
+		return $value;
+	}
+	if (count($value) === 1 && array_key_exists('item', $value)) {
+		$value = threatshield_normalize_list($value);
+	}
+	foreach ($value as $k => $v) {
+		$value[$k] = threatshield_unwrap_lists($v);
+	}
+	return $value;
+}
+
 function threatshield_feed_path(string $url): string {
 	return THREATSHIELD_FILTER_DIR . '/feed_' . md5($url) . '.txt';
 }
@@ -172,7 +204,7 @@ function threatshield_config(): array {
 	}
 	foreach (threatshield_list_fields() as $field) {
 		if (array_key_exists($field, $raw)) {
-			$raw[$field] = threatshield_normalize_list($raw[$field]);
+			$raw[$field] = threatshield_unwrap_lists(threatshield_normalize_list($raw[$field]));
 		}
 	}
 	// Upgrade the original single GeoIP selector without changing an existing
@@ -204,9 +236,9 @@ function threatshield_config_for_storage(array $candidate): array {
 		if (in_array($k, threatshield_list_fields(), true)) {
 			// config.xml list tags must use a valid element name. Writing a PHP
 			// numeric array directly would emit invalid tags such as <0>.
-			$clean[$k] = ['item' => threatshield_normalize_list($v)];
+			$clean[$k] = threatshield_storage_value(threatshield_normalize_list($v));
 		} elseif (is_array($v)) {
-			$clean[$k] = $v;
+			$clean[$k] = threatshield_storage_value($v);
 		} elseif (is_scalar($v)) {
 			$clean[$k] = (string)$v;
 		}
@@ -312,6 +344,16 @@ function threatshield_save_and_apply(array $candidate, string $description, arra
 	return true;
 }
 
+/* Unbound counts as enabled when the 'enable' key exists, even when empty.
+ * Saved state uses 'on'/'off'; older state stored '', so only 'off' disables. */
+function threatshield_set_unbound_enabled(bool $enabled): void {
+	if ($enabled) {
+		config_set_path('unbound/enable', '');
+	} else {
+		config_del_path('unbound/enable');
+	}
+}
+
 function threatshield_restore_unbound(): bool {
 	$state = config_get_path(THREATSHIELD_CONFIG_PATH . '/_unbound_state', []);
 	if (!is_array($state) || ($state['managed'] ?? '') !== 'on') {
@@ -319,7 +361,7 @@ function threatshield_restore_unbound(): bool {
 	}
 	config_set_path('unbound/port', (string)($state['port'] ?? '53'));
 	config_set_path('unbound/active_interface', (string)($state['active_interface'] ?? 'all'));
-	config_set_path('unbound/enable', (string)($state['enable'] ?? ''));
+	threatshield_set_unbound_enabled(($state['enable'] ?? '') !== 'off');
 	config_set_path('unbound/custom_options', (string)($state['custom_options'] ?? ''));
 	config_del_path(THREATSHIELD_CONFIG_PATH . '/_unbound_state');
 	write_config(gettext('Threat Shield: restored the previous Unbound DNS settings'));
@@ -335,26 +377,29 @@ function threatshield_manage_unbound(array $cfg): bool {
 		$state = [
 			'managed' => 'on', 'port' => (string)config_get_path('unbound/port', '53'),
 			'active_interface' => (string)config_get_path('unbound/active_interface', 'all'),
-			'enable' => (string)config_get_path('unbound/enable', ''),
+			'enable' => config_path_enabled('unbound') ? 'on' : 'off',
 			'custom_options' => (string)config_get_path('unbound/custom_options', ''),
 		];
 		config_set_path(THREATSHIELD_CONFIG_PATH . '/_unbound_state', $state);
 	}
 	if ($mode === 'primary') {
-		config_set_path('unbound/enable', $state['enable']);
+		threatshield_set_unbound_enabled(($state['enable'] ?? '') !== 'off');
 		config_set_path('unbound/port', '5335');
 		config_set_path('unbound/active_interface', 'lo0');
 		config_set_path('unbound/custom_options', $state['custom_options']);
 	} elseif ($mode === 'proxy') {
 		// Keep Unbound client-facing and send ordinary recursion to the local
 		// filtering listener. Existing local-zone settings remain managed by Unbound.
-		config_set_path('unbound/enable', $state['enable'] ?: 'on');
+		threatshield_set_unbound_enabled(true);
 		config_set_path('unbound/port', $state['port'] ?: '53');
 		config_set_path('unbound/active_interface', $state['active_interface'] ?: 'all');
-		$forward = "# FreeSense Threat Shield managed proxy forwarder\nforward-zone:\n  name: \".\"\n  forward-addr: 127.0.0.1@5354\n";
-		config_set_path('unbound/custom_options', trim($state['custom_options'] . "\n" . $forward));
+		// Unbound won't forward to 127.0.0.1 unless do-not-query-localhost is off
+		$forward = "# FreeSense Threat Shield managed proxy forwarder\nserver:\n  do-not-query-localhost: no\nforward-zone:\n  name: \".\"\n  forward-addr: 127.0.0.1@5354\n";
+		// unbound/custom_options is stored base64-encoded (unbound.inc decodes it)
+		$custom = base64_decode((string)$state['custom_options']);
+		config_set_path('unbound/custom_options', base64_encode(trim($custom . "\n" . $forward)));
 	} elseif ($mode === 'standalone') {
-		config_set_path('unbound/enable', '');
+		threatshield_set_unbound_enabled(false);
 		config_set_path('unbound/custom_options', $state['custom_options']);
 	} else return false;
 	if (!is_array(write_config(gettext('Threat Shield: coordinated Unbound DNS mode')))) return false;
@@ -594,8 +639,7 @@ YAML;
   bogus_nxdomain: []
   upstream_mode: "{$upstream_mode}"
   use_private_ptr_resolvers: true
-  local_ptr_upstreams:
-{$local_ptr_yaml}
+  local_ptr_upstreams:{$local_ptr_yaml}
 
 tls:
   enabled: false
@@ -686,6 +730,10 @@ function threatshield_sync_config(): bool {
 		@unlink($tmp);
 		return false;
 	}
+	// Stop AdGuard Home before Unbound is moved: when Unbound goes back to
+	// port 53 (disable, or primary -> proxy) it can't bind while AdGuard Home
+	// still holds the port, and DNS was left down. Started again below.
+	if (threatshield_is_running() && !threatshield_service_control('stop')) return false;
 	if (!threatshield_manage_unbound($cfg)) return false;
 
 	// Bootstrap country data on first application so an enabled policy never
@@ -699,12 +747,9 @@ function threatshield_sync_config(): bool {
 	// Service lifecycle
 	if ($cfg['enable'] === 'on') {
 		threatshield_install_cron();
-		if (!threatshield_service_control(threatshield_is_running() ? 'restart' : 'start')) return false;
+		if (!threatshield_service_control('start')) return false;
 	} else {
 		threatshield_remove_cron();
-		if (threatshield_is_running()) {
-			if (!threatshield_service_control('stop')) return false;
-		}
 	}
 
 	filter_configure();
