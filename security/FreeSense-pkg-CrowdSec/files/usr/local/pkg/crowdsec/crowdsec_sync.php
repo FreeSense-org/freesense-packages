@@ -3,11 +3,11 @@
 require_once('config.inc');
 require_once('/usr/local/pkg/crowdsec/crowdsec.inc');
 if (config_get_path('installedpackages/crowdsec/enable') !== 'on') exit(0);
-exec('/usr/local/bin/cscli decisions list -o json 2>/dev/null', $lines, $rc);
-if ($rc !== 0) { logger(LOG_ERR, 'CrowdSec decision refresh failed'); exit(1); }
-$decoded=json_decode(implode("\n",$lines),true); if (!is_array($decoded)) exit(1);
+if (!is_process_running('crowdsec')) exit(0); // keep the current table until CrowdSec runs
+$decisions = crowdsec_decisions();
+if ($decisions === null) { logger(LOG_ERR, 'CrowdSec decision refresh failed'); exit(1); }
 $addresses=[];
-foreach ($decoded as $decision) {
+foreach ($decisions as $decision) {
 	$value=$decision['value']??$decision['Value']??'';
 	if (filter_var($value,FILTER_VALIDATE_IP) || preg_match('#^(?:[0-9A-Fa-f:.]+)/[0-9]{1,3}$#D',$value)) $addresses[$value]=true;
 }
