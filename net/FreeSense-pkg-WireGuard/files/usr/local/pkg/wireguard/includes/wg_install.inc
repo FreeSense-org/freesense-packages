@@ -218,7 +218,15 @@ function wg_service_deinstall($force_stop = false) {
 	global $wgg;
 
 	if ($force_stop) {
-		wg_service_fpm_stop();
+		/*
+		 * Don't restart Unbound, dpinger or static routes from here. This runs
+		 * inside pkg's deinstall script, and an Unbound restarted here died as
+		 * soon as the script ended, leaving the firewall without DNS. The
+		 * running services keep working; the filter reload goes through
+		 * check_reload_status instead.
+		 */
+		wg_service_fpm_stop(false);
+		send_event('filter reload');
 	}
 
 	unlink_if_exists($wgg['php_wg']);

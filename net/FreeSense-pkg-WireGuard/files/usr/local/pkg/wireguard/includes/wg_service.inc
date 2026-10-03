@@ -55,13 +55,16 @@ if (isset($argv[1])) {
 	// Should we serialize the return output?
 	$serialize = (isset($argv[2]) && strtolower($argv[2]) == 'serialize');
 
+	// 'norestart' skips restarting Unbound, dpinger and static routes on stop
+	$restart_extra = !(isset($argv[3]) && strtolower($argv[3]) == 'norestart');
+
 	switch (strtolower($argv[1])) {
 		case 'start':
 			$ret_code = wg_service_cli_start($serialize);
 			break;
 
 		case 'stop':
-			$ret_code = wg_service_cli_stop($serialize);
+			$ret_code = wg_service_cli_stop($serialize, $restart_extra);
 			break;
 
 		case 'restart':
@@ -69,7 +72,7 @@ if (isset($argv[1])) {
 			break;
 
 		default:
-			fwrite(STDOUT, "Usage: {$wgg['wg_daemon']} {START|STOP|RESTART} [SERIALIZE]");
+			fwrite(STDOUT, "Usage: {$wgg['wg_daemon']} {START|STOP|RESTART} [SERIALIZE [NORESTART]]");
 			$ret_code = 1;
 			break;
 	}
@@ -116,13 +119,15 @@ function wg_service_cli_restart($serialize = true) {
 }
 
 // This is a wrapper for safely calling from web frontend
-function wg_service_fpm_stop() {
+function wg_service_fpm_stop($restart_extra = true) {
 	global $wgg;
 
 	$exec_output = $unserialize_output = $ret_output = array();
 
+	$norestart = $restart_extra ? '' : ' norestart';
+
 	// Invokes service stop with serialization flag, so we can cleanly report back to the web frontend.
-	exec("{$wgg['wg_daemon']} stop serialize", $exec_output, $ret_code);
+	exec("{$wgg['wg_daemon']} stop serialize{$norestart}", $exec_output, $ret_code);
 
 	if ($unserialize_output = unserialize($exec_output[0], ['allowed_classes' => false])) {
 		if (is_array($unserialize_output)) {
@@ -135,7 +140,7 @@ function wg_service_fpm_stop() {
 }
 
 // Only for calling service stop from the CLI
-function wg_service_cli_stop($serialize = true) {
+function wg_service_cli_stop($serialize = true, $restart_extra = true) {
 	global $wgg;
 
 	$ret_code = 0;
@@ -159,7 +164,9 @@ function wg_service_cli_stop($serialize = true) {
     wg_gateways_set_enable(false);
 
     // Now we restart any additional services
-    $ret_code |= wg_restart_extra_services();
+    if ($restart_extra) {
+        $ret_code |= wg_restart_extra_services();
+    }
 
 	return $ret_code;
 }
