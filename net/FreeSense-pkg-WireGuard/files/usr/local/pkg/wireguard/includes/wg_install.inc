@@ -65,6 +65,21 @@ function wg_install() {
 	wg_defaults_install();
 
 	update_status("done.\n");
+
+	/*
+	 * A reinstall over an enabled configuration must bring the tunnels back:
+	 * nothing else starts the service until the next boot. Inside the pkg
+	 * script start_service() only queues the request, and FreeSense-upgrade
+	 * starts it once pkg has finished (pkg kills what its scripts leave
+	 * running).
+	 */
+	if (wg_is_service_enabled()) {
+		update_status("  Starting WireGuard service...");
+
+		start_service('wireguard');
+
+		update_status("done.\n");
+	}
 }
 
 /*
