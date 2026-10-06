@@ -36,6 +36,7 @@
 		<name>Suricata</name>
 		<tooltiptext>Configure Suricata settings</tooltiptext>
 		<section>Services</section>
+		<group>security</group>
 		<url>/suricata/suricata_overview.php</url>
 	</menu>
 	<service>

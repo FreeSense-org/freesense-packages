@@ -35,12 +35,14 @@
 		<name>ntopng Settings</name>
 		<tooltiptext>Set ntopng settings such as password and port.</tooltiptext>
 		<section>Diagnostics</section>
+		<group>tools</group>
 		<url>/pkg_edit.php?xml=ntopng.xml</url>
 	</menu>
 	<menu>
 		<name>ntopng</name>
 		<tooltiptext>Access ntopng</tooltiptext>
 		<section>Diagnostics</section>
+		<group>tools</group>
 		<url>/ntopng_redirect.php</url>
 	</menu>
 	<service>

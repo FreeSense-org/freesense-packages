@@ -33,12 +33,14 @@
 		<name>SNMP (NET-SNMP)</name>
 		<tooltiptext>Modify the NET-SNMP Daemon Settings</tooltiptext>
 		<section>Services</section>
+		<group>monitoring</group>
 		<url>/pkg_edit.php?xml=netsnmp.xml</url>
 	</menu>
 	<menu>
 		<name>SNMP Trap Daemon (NET-SNMP)</name>
 		<tooltiptext>Modify the NET-SNMP Daemon Settings</tooltiptext>
 		<section>Services</section>
+		<group>monitoring</group>
 		<url>/pkg_edit.php?xml=net-snmptrapd.xml</url>
 	</menu>
 	<service>

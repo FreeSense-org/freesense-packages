@@ -35,6 +35,7 @@
 		<name>Acme Certificates</name>
 		<tooltiptext></tooltiptext>
 		<section>Services</section>
+		<group>security</group>
 		<url>/acme/acme_certificates.php</url>
 	</menu>
 	<plugins>

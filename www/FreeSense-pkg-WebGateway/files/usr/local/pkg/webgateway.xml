@@ -10,12 +10,14 @@
 		<name>Web Gateway</name>
 		<tooltiptext>Secure forward proxy and web access policies</tooltiptext>
 		<section>Services</section>
+		<group>proxy</group>
 		<url>/webgateway/webgateway.php</url>
 	</menu>
 	<menu>
 		<name>Web Gateway</name>
 		<tooltiptext>Web Gateway service status and access log</tooltiptext>
 		<section>Status</section>
+		<group>security</group>
 		<url>/webgateway/webgateway_status.php</url>
 	</menu>
 	<service>

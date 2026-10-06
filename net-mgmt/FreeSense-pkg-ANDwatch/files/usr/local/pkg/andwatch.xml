@@ -34,12 +34,14 @@
 		<name>ANDwatch</name>
 		<tooltiptext>ANDwatch Settings</tooltiptext>
 		<section>Services</section>
+		<group>monitoring</group>
 		<url>/andwatch.php</url>
 	</menu>
 	<menu>
 		<name>ANDwatch Database</name>
 		<tooltiptext>ANDwatch Database</tooltiptext>
 		<section>Status</section>
+		<group>network</group>
 		<url>/status_andwatch.php</url>
 	</menu>
 	<service>

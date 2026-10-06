@@ -37,6 +37,7 @@
 		<name>BIND DNS Server</name>
 		<tooltiptext>Modify BIND settings</tooltiptext>
 		<section>Services</section>
+		<group>network</group>
 		<url>/pkg_edit.php?xml=bind.xml</url>
 	</menu>
 	<service>

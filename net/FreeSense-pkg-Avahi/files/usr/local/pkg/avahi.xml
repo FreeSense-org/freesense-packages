@@ -34,6 +34,7 @@
 		<name>Avahi</name>
 		<tooltiptext>Avahi mDNS/DNS-SD</tooltiptext>
 		<section>Services</section>
+		<group>network</group>
 		<url>/avahi_settings.php</url>
 	</menu>
 	<service>

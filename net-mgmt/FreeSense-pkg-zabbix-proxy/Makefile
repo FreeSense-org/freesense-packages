@@ -2,6 +2,7 @@
 
 PORTNAME?=	FreeSense-pkg-zabbix-proxy
 PORTVERSION=	1.1
+PORTREVISION=	1
 PORTREVISION?=	1
 CATEGORIES=	net-mgmt
 MASTER_SITES=	# empty

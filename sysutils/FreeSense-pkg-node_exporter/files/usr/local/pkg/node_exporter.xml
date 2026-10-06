@@ -33,6 +33,7 @@
 		<name>Prometheus node_exporter</name>
 		<tooltiptext>Setup node_exporter specific settings</tooltiptext>
 		<section>Services</section>
+		<group>monitoring</group>
 		<url>/pkg_edit.php?xml=node_exporter.xml</url>
 	</menu>
 	<service>

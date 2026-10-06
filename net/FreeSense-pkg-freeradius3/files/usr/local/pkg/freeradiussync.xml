@@ -39,6 +39,7 @@
 		<name>FreeRADIUS</name>
 		<tooltiptext>Modify FreeRADIUS users, clients, and settings.</tooltiptext>
 		<section>Services</section>
+		<group>security</group>
 		<url>/pkg.php?xml=freeradiussync.xml</url>
 	</menu>
 	<tabs>

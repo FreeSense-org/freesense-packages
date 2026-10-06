@@ -32,6 +32,7 @@
     <menu>
         <name>Telegraf</name>
         <section>Services</section>
+        <group>monitoring</group>
         <configfile>telegraf.xml</configfile>
         <url>/pkg_edit.php?xml=telegraf.xml</url>
     </menu>

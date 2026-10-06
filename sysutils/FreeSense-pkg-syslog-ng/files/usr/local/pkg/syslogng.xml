@@ -34,6 +34,7 @@
 		<name>Syslog-ng</name>
 		<tooltiptext>Setup Syslog-ng</tooltiptext>
 		<section>Services</section>
+		<group>monitoring</group>
 		<url>/pkg_edit.php?xml=syslogng.xml&amp;id=0</url>
 	</menu>
 	<service>

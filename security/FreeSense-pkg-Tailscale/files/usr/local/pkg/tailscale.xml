@@ -47,6 +47,7 @@
 	<menu>
 		<name>Tailscale</name>
 		<section>Status</section>
+		<group>vpn</group>
 		<configfile>tailscale.xml</configfile>
 		<url>/status_tailscale.php</url>
 	</menu>

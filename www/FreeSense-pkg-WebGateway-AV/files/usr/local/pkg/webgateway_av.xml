@@ -10,6 +10,7 @@
 		<name>Web Gateway Threat Protection</name>
 		<tooltiptext>Configure local ClamAV and ICAP scanning</tooltiptext>
 		<section>Services</section>
+		<group>proxy</group>
 		<url>/webgateway/webgateway_threat.php</url>
 	</menu>
 	<custom_php_resync_config_command>webgateway_sync_av();</custom_php_resync_config_command>

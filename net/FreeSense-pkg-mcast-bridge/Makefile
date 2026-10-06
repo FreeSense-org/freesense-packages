@@ -1,6 +1,6 @@
 
 PORTNAME=	FreeSense-pkg-mcast-bridge
-PORTREVISION=	2
+PORTREVISION=	3
 PORTVERSION=	1.4
 CATEGORIES=	net
 MASTER_SITES=	# empty

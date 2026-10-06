@@ -2,7 +2,7 @@
 
 PORTNAME=	FreeSense-pkg-softflowd
 PORTVERSION=	1.2.6
-PORTREVISION=	4
+PORTREVISION=	5
 CATEGORIES=	net-mgmt
 MASTER_SITES=	# empty
 DISTFILES=	# empty
