@@ -37,6 +37,7 @@
 		<name>UPS</name>
 		<tooltiptext>Network UPS Tools status</tooltiptext>
 		<section>Services</section>
+		<group>monitoring</group>
 		<url>/nut_status.php</url>
 	</menu>
 	<service>

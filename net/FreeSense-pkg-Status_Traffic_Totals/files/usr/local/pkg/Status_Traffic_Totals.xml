@@ -39,6 +39,7 @@
 		<name>Traffic Totals</name>
 		<tooltiptext>Traffic totals per interface for different periods of time.</tooltiptext>
 		<section>Status</section>
+		<group>traffic</group>
 		<url>/status_traffic_totals.php</url>
 	</menu>
 	<service>

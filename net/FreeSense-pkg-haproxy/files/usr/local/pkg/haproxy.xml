@@ -34,12 +34,14 @@
 		<name>HAProxy</name>
 		<tooltiptext></tooltiptext>
 		<section>Services</section>
+		<group>proxy</group>
 		<url>/haproxy/haproxy_listeners.php</url>
 	</menu>
 	<menu>
 		<name>HAProxy Stats</name>
 		<tooltiptext>Stats of HAProxy</tooltiptext>
 		<section>Status</section>
+		<group>traffic</group>
 		<url>/haproxy/haproxy_stats.php?haproxystats=1</url>
 	</menu>
 	<service>

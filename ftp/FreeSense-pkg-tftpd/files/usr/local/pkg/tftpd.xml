@@ -35,6 +35,7 @@
 	<menu>
 		<name>TFTP Server</name>
 		<section>Services</section>
+		<group>network</group>
 		<url>/pkg_edit.php?xml=tftpd.xml</url>
 	</menu>
 	<service>

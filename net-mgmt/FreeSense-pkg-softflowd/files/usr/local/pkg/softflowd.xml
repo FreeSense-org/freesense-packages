@@ -34,6 +34,7 @@
 		<name>softflowd</name>
 		<tooltiptext>Modify softflowd settings.</tooltiptext>
 		<section>Services</section>
+		<group>monitoring</group>
 		<configfile>softflowd.xml</configfile>
 		<url>/pkg_edit.php?xml=softflowd.xml</url>
 	</menu>

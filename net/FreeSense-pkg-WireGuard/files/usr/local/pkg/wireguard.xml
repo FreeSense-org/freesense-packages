@@ -40,6 +40,7 @@
 	<menu>
 		<name>WireGuard</name>
 		<section>Status</section>
+		<group>vpn</group>
 		<url>/wg/status_wireguard.php</url>
 	</menu>
 	<service>

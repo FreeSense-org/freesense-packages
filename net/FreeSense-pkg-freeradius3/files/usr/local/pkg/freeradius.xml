@@ -33,6 +33,7 @@
 	<menu>
 		<name>FreeRADIUS</name>
 		<section>Services</section>
+		<group>security</group>
 		<url>/pkg.php?xml=freeradius.xml</url>
 	</menu>
 	<service>

@@ -33,6 +33,7 @@
 	<menu>
 		<name>UDP Broadcast Relay</name>
 		<section>Services</section>
+		<group>routing</group>
 		<url>/udpbroadcastrelay/udpbroadcastrelay.php</url>
 	</menu>
 	<service>

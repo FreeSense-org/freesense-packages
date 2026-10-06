@@ -35,6 +35,7 @@
 		<name>LLDP</name>
 		<tooltiptext>Link Layer Discover Protocol (802.3ab)</tooltiptext>
 		<section>Services</section>
+		<group>monitoring</group>
 		<url>/lldpd_status.php</url>
 	</menu>
 	<service>

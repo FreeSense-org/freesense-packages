@@ -10,12 +10,14 @@
 		<name>Threat Shield</name>
 		<tooltiptext>Unified DNS Filtering and GeoIP Country Protection</tooltiptext>
 		<section>Services</section>
+		<group>security</group>
 		<url>/threatshield/threatshield.php</url>
 	</menu>
 	<menu>
 		<name>Threat Shield Status</name>
 		<tooltiptext>Threat Shield live query logs and threat statistics</tooltiptext>
 		<section>Status</section>
+		<group>security</group>
 		<url>/threatshield/threatshield_status.php</url>
 	</menu>
 	<service>

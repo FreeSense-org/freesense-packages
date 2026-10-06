@@ -37,6 +37,7 @@
 	<menu>
 		<name>%%ZABBIXTITLE%%</name>
 		<section>Services</section>
+		<group>monitoring</group>
 		<url>/pkg_edit.php?xml=zabbixproxy.xml&amp;id=0</url>
 	</menu>
 	<service>

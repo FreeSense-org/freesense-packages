@@ -37,6 +37,7 @@
 		<name>FreeRADIUS</name>
 		<tooltiptext>Modify FreeRADIUS macs, clients, and settings.</tooltiptext>
 		<section>Services</section>
+		<group>security</group>
 		<url>/pkg.php?xml=freeradiusauthorizedmacs.xml</url>
 	</menu>
 	<tabs>

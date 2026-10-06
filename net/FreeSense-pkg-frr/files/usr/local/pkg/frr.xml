@@ -33,42 +33,49 @@
 	<menu>
 		<name>FRR Global/Zebra</name>
 		<section>Services</section>
+		<group>routing</group>
 		<configfile>frr.xml</configfile>
 		<url>/pkg_edit.php?xml=frr.xml</url>
 	</menu>
 	<menu>
 		<name>FRR BFD</name>
 		<section>Services</section>
+		<group>routing</group>
 		<configfile>frr.xml</configfile>
 		<url>/pkg_edit.php?xml=frr/frr_bfd.xml</url>
 	</menu>
 	<menu>
 		<name>FRR BGP</name>
 		<section>Services</section>
+		<group>routing</group>
 		<configfile>frr.xml</configfile>
 		<url>/pkg_edit.php?xml=frr/frr_bgp.xml</url>
 	</menu>
 	<menu>
 		<name>FRR OSPF</name>
 		<section>Services</section>
+		<group>routing</group>
 		<configfile>frr.xml</configfile>
 		<url>/pkg_edit.php?xml=frr/frr_ospf.xml</url>
 	</menu>
 	<menu>
 		<name>FRR OSPF6</name>
 		<section>Services</section>
+		<group>routing</group>
 		<configfile>frr.xml</configfile>
 		<url>/pkg_edit.php?xml=frr/frr_ospf6.xml</url>
 	</menu>
 	<menu>
 		<name>FRR RIP</name>
 		<section>Services</section>
+		<group>routing</group>
 		<configfile>frr.xml</configfile>
 		<url>/pkg_edit.php?xml=frr/frr_rip.xml</url>
 	</menu>
 	<menu>
 		<name>FRR</name>
 		<section>Status</section>
+		<group>network</group>
 		<configfile>frr.xml</configfile>
 		<url>/status_frr.php</url>
 	</menu>

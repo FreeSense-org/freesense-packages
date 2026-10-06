@@ -35,6 +35,7 @@
 		<name>Syslog-ng</name>
 		<tooltiptext>Setup Syslog-ng</tooltiptext>
 		<section>Services</section>
+		<group>monitoring</group>
 	</menu>
 	<tabs>
 		<tab>
