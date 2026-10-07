@@ -7,68 +7,140 @@ $wg_config = webgateway_config();
 $running = webgateway_is_running();
 $version = '';
 $version_ok = webgateway_squid_version($version);
-$feed_status = [];
-if (is_readable(WEBGATEWAY_STATE_DIR . '/feeds/status.json')) {
-	$feed_status = json_decode(file_get_contents(WEBGATEWAY_STATE_DIR . '/feeds/status.json'), true) ?: [];
-}
+$feed_status = webgateway_feed_status();
+$on = function ($field) use ($wg_config) {
+	return ($wg_config[$field] ?? '') === 'on';
+};
+$count = function ($field) use ($wg_config) {
+	return count(webgateway_lines($wg_config[$field] ?? ''));
+};
+
 $pgtitle = [gettext('Services'), gettext('Web Gateway')];
+fs_page_action(gettext('Configure listeners'), '/webgateway/webgateway_listeners.php', 'fa-sliders');
+fs_page_action(gettext('Status'), '/webgateway/webgateway_status.php', 'fa-chart-line', 'secondary');
+fs_page_action(gettext('Diagnostics'), '/webgateway/webgateway_diagnostics.php', 'fa-stethoscope', 'secondary');
 include('head.inc');
 webgateway_display_tabs('overview');
+
+if (!$version_ok) {
+	print_callout(htmlspecialchars(sprintf(gettext('Web Gateway 2.0 requires Squid 7.x. Detected: %s'), $version ?: gettext('not installed'))), 'danger', gettext('Unsupported Squid version'));
+} elseif ($wg_config['tls_mode'] === 'tunnel') {
+	print_callout(htmlspecialchars(gettext('HTTPS is tunneled end-to-end. Enable selective or full inspection only after deploying a trusted inspection CA to managed clients.')), 'info', gettext('Private by default'));
+} else {
+	print_callout(htmlspecialchars(gettext('Review bypass destinations, CA expiry, privacy requirements and application compatibility regularly.')), 'warning', gettext('TLS inspection is active'));
+}
 ?>
-<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
-	<div>
-		<h2 class="h3 mb-1"><?=gettext('Secure Web Gateway')?></h2>
-		<p class="text-muted mb-0"><?=gettext('Outbound web policy, TLS inspection, identity, threat scanning and caching—managed as one transactional service.')?></p>
+<div class="fs-tiles">
+<?php
+fs_tile(gettext('Service'), $running ? gettext('Running') : gettext('Stopped'), $running ? 'up' : ($on('enable') ? 'down' : 'disabled'),
+    $on('enable') ? gettext('Enabled') : gettext('Disabled under Listeners'));
+fs_tile(gettext('HTTPS'), webgateway_tls_mode_label($wg_config['tls_mode']), ($wg_config['tls_mode'] === 'tunnel') ? null : 'warn');
+fs_tile(gettext('Identity'), webgateway_auth_mode_label($wg_config['auth_mode']));
+fs_tile(gettext('Threat feeds'), !empty($feed_status) ? number_format($feed_status['entries'] ?? 0) : gettext('Not compiled'), null,
+    !empty($feed_status) ? gettext('Active entries') : null);
+?>
+</div>
+<?php
+$chip = function ($text, $class = '') {
+	return '<span class="fs-chip' . ($class !== '' ? ' ' . $class : '') . '">' . htmlspecialchars($text) . '</span>';
+};
+$state_on = function ($enabled) {
+	return $enabled ? fs_badge('enabled') : fs_badge('disabled');
+};
+
+$modes = array_map('webgateway_listener_mode_label', (array)$wg_config['listener_modes']);
+$interfaces = array_map('strtoupper', (array)$wg_config['interfaces']);
+$local_av = is_executable('/usr/local/bin/c-icap') && is_executable('/usr/local/sbin/clamd') && is_file('/usr/local/lib/c_icap/squidclamav.so');
+
+$rows = [
+	[
+		'fa-network-wired', gettext('Listeners'), '/webgateway/webgateway_listeners.php', $state_on($on('enable')),
+		implode('', array_map(function ($m) use ($chip) { return $chip($m, 'fs-chip--strong'); }, $modes))
+		    . ($interfaces ? implode('', array_map(function ($i) use ($chip) { return $chip($i, 'fs-chip--mono'); }, $interfaces)) : $chip(gettext('No interfaces'), 'is-off')),
+		gettext('Explicit and transparent IPv4/IPv6 listeners with automatic PF safety controls.'),
+	],
+	[
+		'fa-lock', gettext('TLS inspection'), '/webgateway/webgateway_tls.php',
+		($wg_config['tls_mode'] === 'tunnel') ? fs_badge('info', gettext('Tunnel only')) : fs_badge('warn', webgateway_tls_mode_label($wg_config['tls_mode'])),
+		$chip(($wg_config['caref'] !== '') ? gettext('CA selected') : gettext('No CA'), ($wg_config['caref'] !== '') ? 'is-on' : 'is-off')
+		    . $chip(sprintf(gettext('%d inspect'), $count('inspect_domains')))
+		    . $chip(sprintf(gettext('%d splice'), $count('splice_domains'))),
+		gettext('Tunnel, selective or full inspection with built-in bypass lists.'),
+	],
+	[
+		'fa-list-check', gettext('Policies'), '/webgateway/webgateway_policies.php',
+		fs_badge('info', ($wg_config['policy_mode'] === 'allowlist') ? gettext('Allowlist') : gettext('Standard')),
+		$chip(sprintf(gettext('%d allowed'), $count('allowed_domains')))
+		    . $chip(sprintf(gettext('%d blocked'), $count('blocked_domains')))
+		    . $chip(sprintf(gettext('%d URL expressions'), $count('blocked_regex')))
+		    . $chip(sprintf(gettext('%d schedules'), $count('schedules')))
+		    . ($on('youtube_restrict') ? $chip(gettext('YouTube restricted'), 'is-on') : ''),
+		gettext('Domain, URL, regex, user-agent and schedule rules compiled directly into Squid ACLs.'),
+	],
+	[
+		'fa-fingerprint', gettext('Identity'), '/webgateway/webgateway_identity.php',
+		($wg_config['auth_mode'] === 'none') ? fs_badge('neutral', gettext('No login')) : fs_badge('enabled', gettext('Login required')),
+		$chip(webgateway_auth_mode_label($wg_config['auth_mode']))
+		    . (($wg_config['auth_server'] !== '' && in_array($wg_config['auth_mode'], ['ldap', 'radius'], true)) ? $chip($wg_config['auth_server'], 'fs-chip--mono') : ''),
+		gettext('Local users, LDAP/AD, RADIUS and Kerberos/Negotiate for explicit proxy clients.'),
+	],
+	[
+		'fa-shield-virus', gettext('Threat protection'), '/webgateway/webgateway_threat.php',
+		$state_on($on('icap_enable') || ($local_av && $on('local_av_enable'))),
+		$chip(gettext('External ICAP'), $on('icap_enable') ? 'is-on' : 'is-off')
+		    . $chip(gettext('Local ClamAV'), ($local_av && $on('local_av_enable')) ? 'is-on' : 'is-off'),
+		gettext('External ICAP or optional local ClamAV/c-icap scanning with explicit failure policy.'),
+	],
+	[
+		'fa-cloud-arrow-down', gettext('Feeds'), '/webgateway/webgateway_feeds.php', $state_on($on('feeds_enable')),
+		$chip(sprintf(gettext('%d sources'), $count('feed_urls')))
+		    . $chip(!empty($feed_status) ? sprintf(gettext('%s entries'), number_format($feed_status['entries'] ?? 0)) : gettext('Not compiled')),
+		gettext('HTTPS domain and hosts feeds, staged and activated atomically.'),
+	],
+	[
+		'fa-database', gettext('Cache & upstreams'), '/webgateway/webgateway_cache.php',
+		($wg_config['cache_profile'] === 'disabled') ? fs_badge('disabled', gettext('No cache')) : fs_badge('enabled', gettext('Caching')),
+		$chip(sprintf(gettext('Bandwidth: %s'), ['unlimited' => gettext('unlimited'), 'low_latency' => gettext('low latency'), 'balanced' => gettext('balanced'), 'bulk' => gettext('bulk')][$wg_config['bandwidth_profile']] ?? $wg_config['bandwidth_profile']))
+		    . $chip(gettext('Parent proxy'), $on('upstream_enable') ? 'is-on' : 'is-off')
+		    . $chip(gettext('Access log'), $on('access_log') ? 'is-on' : 'is-off'),
+		gettext('Cache profiles, delay-pool shaping and authenticated parent proxies.'),
+	],
+];
+?>
+<div class="panel panel-default fs-table">
+<?php fs_table_toolbar(['title' => gettext('Protection layers'), 'search' => false, 'noun' => gettext('layers'), 'noun_one' => gettext('layer')]); ?>
+	<div class="panel-body table-responsive">
+	<table class="table table-hover">
+		<thead><tr>
+			<th><?=gettext('Layer')?></th>
+			<th class="fs-col-status"><?=gettext('State')?></th>
+			<th><?=gettext('Configuration')?></th>
+			<th class="fs-col-actions"><span class="visually-hidden"><?=gettext('Actions')?></span></th>
+		</tr></thead>
+		<tbody>
+<?php foreach ($rows as [$icon, $title, $url, $badge, $chips, $help]): ?>
+			<tr>
+				<td>
+					<a class="wg-layer" href="<?=htmlspecialchars($url)?>"><i class="fa-solid <?=htmlspecialchars($icon)?>" aria-hidden="true"></i><?=htmlspecialchars($title)?></a>
+					<div class="fs-muted wg-layer-help"><?=htmlspecialchars($help)?></div>
+				</td>
+				<td><?=$badge?></td>
+				<td><div class="fs-chips"><?=$chips?></div></td>
+				<td><?=fs_row_actions([['edit', $url, $title]])?></td>
+			</tr>
+<?php endforeach; ?>
+		</tbody>
+	</table>
 	</div>
-	<div class="d-flex gap-2">
-		<a class="btn btn-primary" href="/webgateway/webgateway_listeners.php"><i class="fa-solid fa-sliders icon-embed-btn"></i><?=gettext('Configure gateway')?></a>
-		<a class="btn btn-outline-info" href="/webgateway/webgateway_diagnostics.php"><i class="fa-solid fa-stethoscope icon-embed-btn"></i><?=gettext('Run diagnostics')?></a>
-	</div>
 </div>
-
-<div class="row g-3 mb-3">
-	<?php
-	$cards = [
-		[gettext('Service'), $running ? gettext('Running') : gettext('Stopped'), $running ? 'success' : 'danger', $running ? 'circle-check' : 'circle-stop'],
-		[gettext('HTTPS'), ['tunnel' => gettext('Tunnel only'), 'selective' => gettext('Selective inspection'), 'full' => gettext('Full inspection')][$wg_config['tls_mode']], $wg_config['tls_mode'] === 'tunnel' ? 'info' : 'warning', 'lock'],
-		[gettext('Identity'), $wg_config['auth_mode'] === 'none' ? gettext('Source network') : strtoupper($wg_config['auth_mode']), 'primary', 'user-shield'],
-		[gettext('Threat feeds'), !empty($feed_status) ? sprintf(gettext('%d active entries'), $feed_status['entries'] ?? 0) : gettext('Not compiled'), !empty($feed_status) ? 'success' : 'secondary', 'shield-virus'],
-	];
-	foreach ($cards as [$label, $value, $color, $icon]): ?>
-	<div class="col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body">
-		<div class="text-uppercase text-muted small fw-semibold mb-2"><?=htmlspecialchars($label)?></div>
-		<div class="fs-5 text-<?=$color?>"><i class="fa-solid fa-<?=$icon?> me-2"></i><?=htmlspecialchars($value)?></div>
-	</div></div></div>
-	<?php endforeach; ?>
-</div>
-
-<?php if (!$version_ok): ?>
-<div class="alert alert-danger"><i class="fa-solid fa-triangle-exclamation me-2"></i><?=sprintf(gettext('Web Gateway 2.0 requires Squid 7.x. Detected: %s'), htmlspecialchars($version ?: gettext('not installed'))) ?></div>
-<?php elseif ($wg_config['tls_mode'] === 'tunnel'): ?>
-<div class="alert alert-info"><i class="fa-solid fa-shield-halved me-2"></i><strong><?=gettext('Private by default.')?></strong> <?=gettext('HTTPS is tunneled end-to-end. Enable selective or full inspection only after deploying a trusted inspection CA to managed clients.')?></div>
-<?php else: ?>
-<div class="alert alert-warning"><i class="fa-solid fa-certificate me-2"></i><strong><?=gettext('TLS inspection is active.')?></strong> <?=gettext('Review bypass destinations, CA expiry, privacy requirements and application compatibility regularly.')?></div>
-<?php endif; ?>
-
-<div class="row g-3">
-	<div class="col-lg-8"><div class="card h-100">
-		<div class="card-header"><h2 class="h5 mb-0"><i class="fa-solid fa-layer-group me-2"></i><?=gettext('Protection layers')?></h2></div>
-		<div class="card-body"><div class="row g-3">
-			<?php foreach ([
-				['network-wired', gettext('Listeners'), gettext('Explicit and transparent IPv4/IPv6 listeners with automatic PF safety controls.'), '/webgateway/webgateway_listeners.php'],
-				['list-check', gettext('Native policy'), gettext('Domain, URL, regex, user and schedule-aware rules compiled directly into Squid ACLs.'), '/webgateway/webgateway_policies.php'],
-				['fingerprint', gettext('Identity'), gettext('Local users, LDAP/AD, RADIUS and Kerberos/Negotiate for explicit proxy clients.'), '/webgateway/webgateway_identity.php'],
-				['shield-virus', gettext('Threat protection'), gettext('External ICAP or optional local ClamAV/c-icap scanning with explicit failure policy.'), '/webgateway/webgateway_threat.php'],
-			] as [$icon, $title, $text, $url]): ?>
-			<div class="col-md-6"><a class="card h-100 text-decoration-none" href="<?=$url?>"><div class="card-body">
-				<div class="d-flex gap-3"><i class="fa-solid fa-<?=$icon?> fa-2x text-primary"></i><div><h3 class="h6 mb-1"><?=$title?></h3><p class="text-muted mb-0"><?=$text?></p></div></div>
-			</div></a></div>
-			<?php endforeach; ?>
-		</div></div>
-	</div></div>
-	<div class="col-lg-4"><div class="card h-100">
-		<div class="card-header"><h2 class="h5 mb-0"><i class="fa-solid fa-route me-2"></i><?=gettext('Reverse proxy')?></h2></div>
-		<div class="card-body d-flex flex-column"><p><?=gettext('Web Gateway protects outbound client traffic. Publish inbound applications with HAProxy, which has purpose-built TLS termination, load balancing and health checks.')?></p><div class="mt-auto"><a class="btn btn-outline-primary" href="/haproxy/haproxy_listeners.php"><i class="fa-solid fa-arrow-up-right-from-square icon-embed-btn"></i><?=gettext('Open HAProxy')?></a></div></div>
-	</div></div>
-</div>
+<?php
+print_callout(htmlspecialchars(gettext('Web Gateway protects outbound client traffic. Publish inbound applications with HAProxy, which has purpose-built TLS termination, load balancing and health checks.'))
+    . ' <a href="/haproxy/haproxy_listeners.php">' . htmlspecialchars(gettext('Open HAProxy')) . '</a>', 'info', gettext('Reverse proxy'));
+?>
+<style>
+.wg-layer { display: inline-flex; gap: var(--fs-sp-2); align-items: center; font-weight: 600; }
+.wg-layer > i { color: var(--fs-text-muted); width: 1.25rem; text-align: center; }
+.wg-layer-help { font-size: var(--fs-fs-sm); padding-left: calc(1.25rem + var(--fs-sp-2)); }
+@media (max-width: 575.98px) { .wg-layer-help { display: none; } .wg-layer { white-space: nowrap; } }
+</style>
 <?php include('foot.inc'); ?>
