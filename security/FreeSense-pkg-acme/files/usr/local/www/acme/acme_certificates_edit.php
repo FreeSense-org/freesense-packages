@@ -255,12 +255,14 @@ if ($_POST) {
 		update_if_changed($stat, $certificate[$stat], $_POST[$stat]);
 	}
 
-	if (isset($id) && config_get_path("installedpackages/acme/certificates/item/{$id}")) {
-		config_set_path("installedpackages/acme/certificates/item/{$id}", $certificate);
-	} else {
-		config_set_path('installedpackages/acme/certificates/item/', $certificate);
-	}
 	if (!isset($input_errors)) {
+		/* only a valid entry reaches the config: a failed save leaves it (and the
+		 * page's view of the stored entry) untouched */
+		if (isset($id) && config_get_path("installedpackages/acme/certificates/item/{$id}")) {
+			config_set_path("installedpackages/acme/certificates/item/{$id}", $certificate);
+		} else {
+			config_set_path('installedpackages/acme/certificates/item/', $certificate);
+		}
 		if ($changecount > 0) {
 			write_config($changedesc);
 		}

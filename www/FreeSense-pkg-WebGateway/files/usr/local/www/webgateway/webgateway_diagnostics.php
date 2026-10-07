@@ -69,6 +69,7 @@ if ($files_missing):
 </div>
 <?php endif; ?>
 <div class="fs-tool">
+<?php if (!$files_missing): ?>
 	<form method="post" class="fs-tool-form">
 		<div class="panel panel-default">
 			<div class="panel-heading"><h2 class="panel-title"><?=gettext('Configuration test')?></h2></div>
@@ -86,6 +87,7 @@ if ($files_missing):
 			<div class="panel-footer"><button class="btn btn-primary" name="regenerate" value="1" type="submit" data-fs-busy="true"><i class="fa-solid fa-arrows-rotate icon-embed-btn" aria-hidden="true"></i><?=gettext('Regenerate and test with Squid')?></button></div>
 		</div>
 	</form>
+<?php endif; ?>
 	<div class="panel panel-default">
 		<div class="panel-heading">
 			<h2 class="panel-title"><?=gettext('Parser output')?></h2>
@@ -129,7 +131,7 @@ if ($files_missing):
 </div>
 <style>
 .wg-diag-text { font-size: var(--fs-fs-sm); margin: 0; }
-.wg-missing .panel-body { display: grid; gap: var(--fs-sp-3); }
+.wg-missing .panel-body { display: grid; justify-items: start; gap: var(--fs-sp-3); padding: var(--fs-sp-3) var(--fs-sp-4); }
 .wg-missing-form { margin: 0; }
 .wg-pad { padding: var(--fs-sp-3) var(--fs-sp-4); }
 .wg-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--fs-sp-2); }
