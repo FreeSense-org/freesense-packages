@@ -73,8 +73,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
 	}
 }
 
-$pgtitle = [gettext('Services'), gettext('Threat Shield'), gettext('General Settings')];
-$pglinks = ['', '@self', '@self'];
+$pgtitle = [gettext('Services'), gettext('Threat Shield'), gettext('Settings')];
+$pglinks = ['', '/threatshield/threatshield_status.php', '@self'];
 
 include('head.inc');
 
@@ -86,309 +86,169 @@ if ($savemsg) {
 }
 
 threatshield_display_tabs('general');
+
+$on = function ($key) use ($ts_config) {
+	return ($ts_config[$key] ?? 'off') === 'on';
+};
+/* checkboxes post "on" like the plain HTML checkboxes did */
+$switch = function ($name, $title, $description) use ($on) {
+	return new Form_Checkbox($name, $title, $description, $on($name), 'on');
+};
+/* one checkbox per interface, posted as name[] = interface key */
+$iface_group = function ($title, $name, array $selected, $with_all = false) use ($assigned_interfaces) {
+	$group = new Form_MultiCheckboxGroup($title);
+	$choices = $with_all ? ['all' => gettext('All assigned addresses')] + $assigned_interfaces : $assigned_interfaces;
+	foreach ($choices as $key => $label) {
+		$box = new Form_MultiCheckbox($name . '[]', null, $label, in_array((string)$key, $selected, true), (string)$key);
+		$box->setAttribute('id', $name . '_' . $key);
+		$group->add($box);
+	}
+	return $group;
+};
+$state = COLLAPSIBLE | (!empty($input_errors) ? SEC_OPEN : SEC_CLOSED);
+
+$form = new Form();
+
+$section = new Form_Section('General');
+$section->addInput($switch('enable', 'Enable', 'Enable Threat Shield DNS filtering'))
+	->setHelp('Runs the DNS filtering engine with encrypted upstreams, blocklists and the GeoIP policy.');
+$section->addInput(new Form_Select('dns_coordination_mode', 'DNS mode', $ts_config['dns_coordination_mode'], [
+	'primary' => gettext('Primary DNS (recommended): Threat Shield on port 53, DNS Resolver moves to 127.0.0.1:5335'),
+	'proxy' => gettext('Proxy: DNS Resolver stays on port 53 and forwards to Threat Shield on 127.0.0.1:5354'),
+	'standalone' => gettext('Standalone: Threat Shield answers on port 53, DNS Resolver is turned off'),
+]))->setHelp('Primary and proxy mode keep local DHCP host names and domain overrides of the DNS Resolver working.');
+$section->addInput(new Form_Input('listen_port', 'DNS port', 'number', (string)$ts_config['listen_port'], ['min' => 1, 'max' => 65535]))
+	->setHelp('Port 53 is standard DNS. Change it only for custom proxy setups; primary mode requires 53.');
+$section->add($iface_group('Listen on', 'interfaces', array_map('strval', threatshield_normalize_list($ts_config['interfaces']))))
+	->setHelp('Pick interfaces to avoid exposing DNS on every address. Proxy mode always listens on loopback only.');
+$section->addInput(new Form_Input('http_port', 'Management API port', 'number', (string)$ts_config['http_port'], ['min' => 1, 'max' => 65535]))
+	->setHelp('Bound to loopback only; used by this page and the feed updater.');
+$form->add($section);
+
+$section = new Form_Section('Upstream DNS');
+$section->addInput(new Form_Select('upstream_mode', 'Query strategy', $ts_config['upstream_mode'], [
+	'parallel' => gettext('Parallel: ask all upstreams, use the fastest answer (recommended)'),
+	'fastest_addr' => gettext('Fastest IP: benchmark upstreams and use the fastest one'),
+	'load_balance' => gettext('Load balancing: spread queries across all upstreams'),
+]));
+$section->addInput(new Form_Textarea('upstreams', 'Upstream servers', (string)$ts_config['upstreams']))
+	->setRows(4)->addClass('fs-mono')
+	->setHelp('One per line. Encrypted forms: <code>https://dns.quad9.net/dns-query</code> (DoH), <code>tls://1.1.1.1</code> (DoT), ' .
+	    '<code>quic://dns.adguard-dns.com</code> (DoQ); a plain IP such as <code>9.9.9.9</code> uses UDP/TCP.');
+$section->addInput(new Form_Textarea('bootstrap_dns', 'Bootstrap DNS', (string)$ts_config['bootstrap_dns']))
+	->setRows(2)->addClass('fs-mono')
+	->setHelp('Plain IP addresses used only to resolve the host names in DoH/DoT/DoQ upstreams.');
+$section->addInput(new Form_Textarea('fallback_dns', 'Fallback DNS', (string)$ts_config['fallback_dns']))
+	->setRows(2)->addClass('fs-mono')
+	->setHelp('Used only when no upstream server answers.');
+$form->add($section);
+
+$section = new Form_Section('Filtering');
+$section->addInput($switch('enable_dnssec', 'DNSSEC', 'Validate DNSSEC signatures'))
+	->setHelp('Protects against spoofed and poisoned DNS answers.');
+$section->addInput($switch('safebrowsing_enabled', 'Safe browsing', 'Block malware, phishing and command-and-control domains'));
+$section->addInput($switch('enable_safesearch', 'SafeSearch', 'Enforce SafeSearch on search engines and YouTube'));
+$section->addInput($switch('enable_parental', 'Parental control', 'Block adult content and gambling domains'));
+$section->addInput(new Form_Select('blocking_mode', 'Blocked answer', $ts_config['blocking_mode'], [
+	'default' => gettext('Default (0.0.0.0 and ::)'),
+	'nxdomain' => gettext('NXDOMAIN (domain does not exist)'),
+	'refused' => gettext('REFUSED (query refused)'),
+	'null_ip' => gettext('Null IP (0.0.0.0 and ::)'),
+	'custom_ip' => gettext('Custom sinkhole IP'),
+]))->setHelp('What clients receive for a blocked domain.');
+$group = new Form_Group('Sinkhole addresses');
+$group->add(new Form_Input('blocking_ipv4', 'IPv4 sinkhole', 'text', (string)$ts_config['blocking_ipv4']))
+	->addClass('fs-mono')->setPlaceholder('192.168.1.200')->setHelp('IPv4 address (required)');
+$group->add(new Form_Input('blocking_ipv6', 'IPv6 sinkhole', 'text', (string)$ts_config['blocking_ipv6']))
+	->addClass('fs-mono')->setPlaceholder('2001:db8::1')->setHelp('IPv6 address (optional)');
+$section->add($group);
+$form->add($section);
+
+$section = new Form_Section('Anti-evasion');
+$section->addInput($switch('block_doh_canary', 'Browser DoH', 'Tell browsers not to use their own DNS-over-HTTPS'))
+	->setHelp('Answers the canary domain use-application-dns.net, so Firefox, Chrome and Edge keep using filtered DNS.');
+$section->addInput($switch('block_icloud_private_relay', 'iCloud Private Relay', 'Block Apple iCloud Private Relay'))
+	->setHelp('Stops Apple devices from routing around the firewall policy through mask.icloud.com.');
+$section->addInput($switch('catch_rogue_dns', 'DNS redirection', 'Redirect hard-coded DNS servers to Threat Shield'))
+	->setHelp('A NAT rule sends DNS queries to other servers (for example a TV asking 8.8.8.8) to Threat Shield.');
+$section->add($iface_group('Redirect on', 'dns_intercept_interfaces', array_map('strval', threatshield_normalize_list($ts_config['dns_intercept_interfaces']))))
+	->setHelp('DNS is only redirected on the interfaces selected here.');
+$form->add($section);
+
+$section = new Form_Section('Query log');
+$section->addInput($switch('querylog_enabled', 'Query log', 'Log DNS queries'))
+	->setHelp('Needed for the query log and the top lists on the overview.');
+$section->addInput(new Form_Select('querylog_retention', 'Keep log for', (string)$ts_config['querylog_retention'], [
+	'6' => gettext('6 hours'),
+	'24' => gettext('1 day'),
+	'168' => gettext('7 days'),
+	'720' => gettext('30 days'),
+	'2160' => gettext('90 days (recommended)'),
+]));
+$section->addInput($switch('anonymize_client_ip', 'Anonymize clients', 'Hide the last part of client IP addresses'))
+	->setHelp('For example 192.168.1.0 instead of 192.168.1.23, in the log and the statistics.');
+$section->addInput(new Form_Textarea('ignored_domains', 'Ignored domains', (string)$ts_config['ignored_domains']))
+	->setRows(2)->addClass('fs-mono')->setAttribute('placeholder', "healthcheck.internal\n*.monitoring.lan")
+	->setHelp('One per line; these queries are not logged (for example frequent monitoring checks).');
+$form->add($section);
+
+$section = new Form_Section('Cache', 'ts-cache', $state);
+$section->addInput(new Form_Input('cache_size', 'Cache size (MB)', 'number', (string)$ts_config['cache_size'], ['min' => 1, 'max' => 1024]))
+	->setHelp('Memory for cached answers; 4 MB holds about 150,000 records.');
+$group = new Form_Group('TTL limits (s)');
+$group->add(new Form_Input('cache_ttl_min', 'Minimum TTL', 'number', (string)$ts_config['cache_ttl_min'], ['min' => 0, 'max' => 86400]))
+	->setHelp('Minimum TTL (0 = as received)');
+$group->add(new Form_Input('cache_ttl_max', 'Maximum TTL', 'number', (string)$ts_config['cache_ttl_max'], ['min' => 0, 'max' => 604800]))
+	->setHelp('Maximum TTL (0 = no cap)');
+$section->add($group);
+$section->addInput($switch('cache_optimistic', 'Optimistic cache', 'Answer from expired cache entries while refreshing them'))
+	->setHelp('Keeps frequent lookups instant; the record is refreshed in the background.');
+$form->add($section);
+
+$section = new Form_Section('Rate limiting and client subnet', 'ts-ratelimit', $state);
+$section->addInput(new Form_Input('ratelimit', 'Rate limit (queries/s)', 'number', (string)$ts_config['ratelimit'], ['min' => 0, 'max' => 10000]))
+	->setHelp('Per client subnet; 0 turns rate limiting off.');
+$group = new Form_Group('Subnet prefix length');
+$group->add(new Form_Input('rate_limit_subnet_len_ipv4', 'IPv4 prefix', 'number', (string)$ts_config['rate_limit_subnet_len_ipv4'], ['min' => 1, 'max' => 32]))
+	->setHelp('IPv4 (default 24)');
+$group->add(new Form_Input('rate_limit_subnet_len_ipv6', 'IPv6 prefix', 'number', (string)$ts_config['rate_limit_subnet_len_ipv6'], ['min' => 1, 'max' => 128]))
+	->setHelp('IPv6 (default 56)');
+$section->add($group);
+$section->addInput(new Form_Textarea('rate_limit_whitelist', 'Not rate limited', (string)$ts_config['rate_limit_whitelist']))
+	->setRows(2)->addClass('fs-mono')->setAttribute('placeholder', "192.0.2.10\n2001:db8::10")
+	->setHelp('One IPv4 or IPv6 address per line.');
+$section->addInput($switch('edns_client_subnet', 'Client subnet (ECS)', 'Send EDNS client subnet to upstream servers'))
+	->setHelp('Helps CDNs pick a nearby server but reveals part of the client address. Leave off for privacy.');
+$form->add($section);
+
+print($form);
 ?>
 
-<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
-	<div>
-		<h2 class="h3 mb-1"><i class="fa-solid fa-shield-halved text-primary me-2"></i><?=gettext('General Settings & DNS Engine')?></h2>
-		<p class="text-muted mb-0"><?=gettext('Comprehensive configuration for DNS listening, upstream encryption, caching, anti-evasion, and privacy controls.')?></p>
-	</div>
-	<div class="d-flex gap-2">
-		<a class="btn btn-outline-primary" href="/threatshield/threatshield_status.php"><i class="fa-solid fa-chart-pie me-2"></i><?=gettext('Live Dashboard')?></a>
-		<a class="btn btn-outline-secondary" href="/threatshield/threatshield_querylog.php"><i class="fa-solid fa-list-check me-2"></i><?=gettext('Query Inspector')?></a>
-	</div>
-</div>
-
-<form method="post" action="threatshield.php">
-	<!-- 1. Core DNS Configuration -->
-	<div class="card mb-3 shadow-sm">
-		<div class="card-header">
-			<h2 class="h5 mb-0"><i class="fa-solid fa-power-off text-primary me-2"></i><?=gettext('1. Core Engine & Port Coordination')?></h2>
-		</div>
-		<div class="card-body">
-			<div class="form-check form-switch mb-3">
-				<input class="form-check-input" type="checkbox" name="enable" id="enable" <?=$ts_config['enable'] === 'on' ? 'checked' : ''?>>
-				<label class="form-check-label fw-semibold" for="enable">
-					<?=gettext('Enable FreeSense Threat Shield')?>
-				</label>
-				<div class="form-text"><?=gettext('Activates the high-performance DNS filtering daemon, encrypted upstream resolution, and network-level threat defenses.')?></div>
-			</div>
-			<div class="mb-3"><label class="form-label fw-semibold"><?=gettext('Intercept only these LAN interfaces')?></label><?php foreach ($assigned_interfaces as $key => $label): ?><label class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="dns_intercept_interfaces[]" value="<?=$key?>" <?=in_array($key, threatshield_normalize_list($ts_config['dns_intercept_interfaces']), true) ? 'checked' : ''?>> <?=htmlspecialchars($label)?></label><?php endforeach; ?><div class="form-text"><?=gettext('DNS interception is never applied until at least one interface is explicitly selected.')?></div></div>
-
-			<div class="mb-3">
-				<label for="dns_coordination_mode" class="form-label fw-semibold"><?=gettext('DNS Port Coordination Mode')?></label>
-				<select class="form-select" name="dns_coordination_mode" id="dns_coordination_mode">
-					<option value="primary" <?=$ts_config['dns_coordination_mode'] === 'primary' ? 'selected' : ''?>>
-						<?=gettext('Primary DNS (Recommended): Threat Shield binds to Port 53 on all interfaces; Unbound is automatically shifted to 127.0.0.1:5335 to provide local DHCP reverse PTR and domain overrides')?>
-					</option>
-					<option value="proxy" <?=$ts_config['dns_coordination_mode'] === 'proxy' ? 'selected' : ''?>>
-						<?=gettext('Proxy Mode: Unbound remains listening on Port 53 and forwards non-local queries to Threat Shield running on 127.0.0.1:5354')?>
-					</option>
-					<option value="standalone" <?=$ts_config['dns_coordination_mode'] === 'standalone' ? 'selected' : ''?>>
-						<?=gettext('Standalone Mode: Threat Shield manages all resolution on Port 53 directly (Unbound is disabled)')?>
-					</option>
-				</select>
-				<div class="form-text"><?=gettext('Primary mode ensures seamless DHCP hostname resolution while giving you full ad/malware filtering and wire-speed performance.')?></div>
-			</div>
-
-			<div class="row g-3">
-				<div class="col-md-6">
-					<label for="listen_port" class="form-label fw-semibold"><?=gettext('DNS Listening Port')?></label>
-					<input type="number" class="form-control" name="listen_port" id="listen_port" value="<?=htmlspecialchars((string)$ts_config['listen_port'])?>">
-					<div class="form-text"><?=gettext('Standard DNS operates on port 53. Change this only if running custom proxy topologies.')?></div>
-				</div>
-				<div class="col-md-6">
-					<label for="http_port" class="form-label fw-semibold"><?=gettext('Local Management API Port')?></label>
-					<input type="number" min="1" max="65535" class="form-control" name="http_port" id="http_port" value="<?=htmlspecialchars((string)$ts_config['http_port'])?>">
-					<div class="form-text"><?=gettext('Bound to loopback only; used by the Threat Shield dashboard and updater.')?></div>
-				</div>
-				<div class="col-md-6">
-					<label for="upstream_mode" class="form-label fw-semibold"><?=gettext('Upstream Query Strategy')?></label>
-					<select class="form-select" name="upstream_mode" id="upstream_mode">
-						<option value="parallel" <?=$ts_config['upstream_mode'] === 'parallel' ? 'selected' : ''?>><?=gettext('Parallel Queries (Recommended: Sends query to all upstreams simultaneously, adopts the fastest response)')?></option>
-						<option value="fastest_addr" <?=$ts_config['upstream_mode'] === 'fastest_addr' ? 'selected' : ''?>><?=gettext('Fastest IP (Periodically benchmarks upstreams and routes all queries to the fastest responding server)')?></option>
-						<option value="load_balance" <?=$ts_config['upstream_mode'] === 'load_balance' ? 'selected' : ''?>><?=gettext('Load Balancing (Sequential round-robin distribution across all configured upstreams)')?></option>
-					</select>
-					<div class="form-text"><?=gettext('Parallel query mode eliminates ISP latency jitter and provides instantaneous failover if an upstream is slow.')?></div>
-				</div>
-			</div>
-			<div class="mt-3"><label class="form-label fw-semibold"><?=gettext('DNS listener interfaces')?></label><label class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="interfaces[]" value="all" <?=in_array('all', threatshield_normalize_list($ts_config['interfaces']), true) ? 'checked' : ''?>> <?=gettext('All assigned addresses')?></label><?php foreach ($assigned_interfaces as $key => $label): ?><label class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="interfaces[]" value="<?=$key?>" <?=in_array($key, threatshield_normalize_list($ts_config['interfaces']), true) ? 'checked' : ''?>> <?=htmlspecialchars($label)?></label><?php endforeach; ?><div class="form-text"><?=gettext('Choose specific interfaces to avoid exposing DNS on every address. Proxy mode always uses loopback only.')?></div></div>
-		</div>
-	</div>
-
-	<!-- 2. Upstream DNS Configuration -->
-	<div class="card mb-3 shadow-sm">
-		<div class="card-header">
-			<h2 class="h5 mb-0"><i class="fa-solid fa-lock text-primary me-2"></i><?=gettext('2. Encrypted Upstream DNS Resolvers')?></h2>
-		</div>
-		<div class="card-body">
-			<div class="mb-3">
-				<label for="upstreams" class="form-label fw-semibold"><?=gettext('Upstream DNS Resolvers (One entry per line)')?></label>
-				<textarea class="form-control font-monospace" name="upstreams" id="upstreams" rows="4"><?=htmlspecialchars((string)$ts_config['upstreams'])?></textarea>
-				<div class="form-text">
-					<?=gettext('Supports encrypted and secure DNS protocols:')?>
-					<ul class="mb-0 mt-1">
-						<li><code>https://dns.quad9.net/dns-query</code> &mdash; <?=gettext('DNS-over-HTTPS (DoH)')?></li>
-						<li><code>tls://1.1.1.1</code> &mdash; <?=gettext('DNS-over-TLS (DoT)')?></li>
-						<li><code>quic://dns.adguard-dns.com</code> &mdash; <?=gettext('DNS-over-QUIC (DoQ)')?></li>
-						<li><code>9.9.9.9</code> &mdash; <?=gettext('Standard Plain UDP/TCP DNS')?></li>
-					</ul>
-				</div>
-			</div>
-
-			<div class="row g-3">
-				<div class="col-md-6">
-					<label for="bootstrap_dns" class="form-label fw-semibold"><?=gettext('Bootstrap DNS IP Addresses')?></label>
-					<textarea class="form-control font-monospace" name="bootstrap_dns" id="bootstrap_dns" rows="2"><?=htmlspecialchars((string)$ts_config['bootstrap_dns'])?></textarea>
-					<div class="form-text"><?=gettext('Plain IP addresses used strictly to resolve hostnames in DoH/DoT URLs before encryption initiates.')?></div>
-				</div>
-				<div class="col-md-6">
-					<label for="fallback_dns" class="form-label fw-semibold"><?=gettext('Fallback DNS Resolvers')?></label>
-					<textarea class="form-control font-monospace" name="fallback_dns" id="fallback_dns" rows="2"><?=htmlspecialchars((string)$ts_config['fallback_dns'])?></textarea>
-					<div class="form-text"><?=gettext('Emergency backup resolvers queried only when all primary encrypted upstreams are completely unreachable.')?></div>
-				</div>
-			</div>
-		</div>
-	</div>
-
-	<!-- 3. Cache & Performance -->
-	<div class="card mb-3 shadow-sm">
-		<div class="card-header">
-			<h2 class="h5 mb-0"><i class="fa-solid fa-gauge-high text-primary me-2"></i><?=gettext('3. DNS Cache & Query Performance')?></h2>
-		</div>
-		<div class="card-body">
-			<div class="row g-3 mb-3">
-				<div class="col-md-4">
-					<label for="cache_size" class="form-label fw-semibold"><?=gettext('DNS Cache Size (in MB)')?></label>
-					<input type="number" min="1" max="1024" class="form-control" name="cache_size" id="cache_size" value="<?=htmlspecialchars((string)$ts_config['cache_size'])?>">
-					<div class="form-text"><?=gettext('RAM allocated for in-memory DNS caching (default 4 MB caches ~150,000 domains).')?></div>
-				</div>
-				<div class="col-md-4">
-					<label for="cache_ttl_min" class="form-label fw-semibold"><?=gettext('Minimum TTL Override (Seconds)')?></label>
-					<input type="number" min="0" max="86400" class="form-control" name="cache_ttl_min" id="cache_ttl_min" value="<?=htmlspecialchars((string)$ts_config['cache_ttl_min'])?>">
-					<div class="form-text"><?=gettext('Forces records to stay cached for at least this duration, reducing query volume to external upstreams (0 = respect upstream TTL).')?></div>
-				</div>
-				<div class="col-md-4">
-					<label for="cache_ttl_max" class="form-label fw-semibold"><?=gettext('Maximum TTL Cap (Seconds)')?></label>
-					<input type="number" min="0" max="604800" class="form-control" name="cache_ttl_max" id="cache_ttl_max" value="<?=htmlspecialchars((string)$ts_config['cache_ttl_max'])?>">
-					<div class="form-text"><?=gettext('Caps maximum record cache lifetime to prevent stale DNS records when upstream servers change (0 = no cap).')?></div>
-				</div>
-			</div>
-			<div class="mb-3"><label for="rate_limit_whitelist" class="form-label fw-semibold"><?=gettext('Rate-limit whitelist')?></label><textarea class="form-control font-monospace" name="rate_limit_whitelist" id="rate_limit_whitelist" rows="2" placeholder="192.0.2.10&#10;2001:db8::10"><?=htmlspecialchars((string)$ts_config['rate_limit_whitelist'])?></textarea><div class="form-text"><?=gettext('One IPv4 or IPv6 address per line; listed clients bypass DNS rate limiting.')?></div></div>
-
-			<div class="form-check form-switch mb-0">
-				<input class="form-check-input" type="checkbox" name="cache_optimistic" id="cache_optimistic" <?=$ts_config['cache_optimistic'] === 'on' ? 'checked' : ''?>>
-				<label class="form-check-label fw-semibold" for="cache_optimistic">
-					<?=gettext('Enable Optimistic Caching')?>
-				</label>
-				<div class="form-text"><?=gettext('Responds immediately with expired cached responses while asynchronously refreshing the record in the background. Yields sub-1ms query latency for frequent requests.')?></div>
-			</div>
-		</div>
-	</div>
-
-	<!-- 4. Security & Anti-Evasion Controls -->
-	<div class="card mb-3 shadow-sm">
-		<div class="card-header">
-			<h2 class="h5 mb-0"><i class="fa-solid fa-shield-virus text-primary me-2"></i><?=gettext('4. Threat Protection & Anti-Evasion Controls')?></h2>
-		</div>
-		<div class="card-body">
-			<div class="form-check form-switch mb-3">
-				<input class="form-check-input" type="checkbox" name="enable_dnssec" id="enable_dnssec" <?=$ts_config['enable_dnssec'] === 'on' ? 'checked' : ''?>>
-				<label class="form-check-label fw-semibold" for="enable_dnssec"><?=gettext('DNSSEC Cryptographic Validation')?></label>
-				<div class="form-text"><?=gettext('Validates digital signatures on DNS records from authoritative zones to protect against cache poisoning, spoofing, and BGP hijacks.')?></div>
-			</div>
-
-			<div class="form-check form-switch mb-3">
-				<input class="form-check-input" type="checkbox" name="safebrowsing_enabled" id="safebrowsing_enabled" <?=$ts_config['safebrowsing_enabled'] === 'on' ? 'checked' : ''?>>
-				<label class="form-check-label fw-semibold" for="safebrowsing_enabled"><?=gettext('SafeBrowsing Threat Heuristics')?></label>
-				<div class="form-text"><?=gettext('Blocks domains identified in live malware, ransomware, command-and-control (C2), and phishing intelligence databases.')?></div>
-			</div>
-
-			<div class="form-check form-switch mb-3">
-				<input class="form-check-input" type="checkbox" name="enable_safesearch" id="enable_safesearch" <?=$ts_config['enable_safesearch'] === 'on' ? 'checked' : ''?>>
-				<label class="form-check-label fw-semibold" for="enable_safesearch"><?=gettext('Enforce SafeSearch')?></label>
-				<div class="form-text"><?=gettext('Forces strict SafeSearch filtering on search engines (Google, Bing, DuckDuckGo, Brave, YouTube) at the DNS level.')?></div>
-			</div>
-
-			<div class="form-check form-switch mb-3">
-				<input class="form-check-input" type="checkbox" name="enable_parental" id="enable_parental" <?=$ts_config['enable_parental'] === 'on' ? 'checked' : ''?>>
-				<label class="form-check-label fw-semibold" for="enable_parental"><?=gettext('Parental Control')?></label>
-				<div class="form-text"><?=gettext('Blocks adult content, pornography, and gambling domains across the network.')?></div>
-			</div>
-
-			<hr class="my-3">
-
-			<div class="form-check form-switch mb-3">
-				<input class="form-check-input" type="checkbox" name="block_doh_canary" id="block_doh_canary" <?=$ts_config['block_doh_canary'] === 'on' ? 'checked' : ''?>>
-				<label class="form-check-label fw-semibold" for="block_doh_canary"><?=gettext('Block Browser DoH Bypass Canary (Firefox / Chrome / Edge)')?></label>
-				<div class="form-text"><?=gettext('Signals browsers via the official canary domain (use-application-dns.net) to disable automatic external encrypted DNS, ensuring all local browser queries respect firewall filtering.')?></div>
-			</div>
-
-			<div class="form-check form-switch mb-3">
-				<input class="form-check-input" type="checkbox" name="block_icloud_private_relay" id="block_icloud_private_relay" <?=$ts_config['block_icloud_private_relay'] === 'on' ? 'checked' : ''?>>
-				<label class="form-check-label fw-semibold" for="block_icloud_private_relay"><?=gettext('Block Apple iCloud Private Relay')?></label>
-				<div class="form-text"><?=gettext('Blocks Apple Private Relay domains (mask.icloud.com) to prevent Apple iOS/macOS clients on the LAN from routing around your firewall policies.')?></div>
-			</div>
-
-			<div class="form-check form-switch mb-3">
-				<input class="form-check-input" type="checkbox" name="catch_rogue_dns" id="catch_rogue_dns" <?=$ts_config['catch_rogue_dns'] === 'on' ? 'checked' : ''?>>
-				<label class="form-check-label fw-semibold" for="catch_rogue_dns"><?=gettext('Transparent Rogue DNS Redirection (PF NAT Intercept)')?></label>
-				<div class="form-text"><?=gettext('Intercepts and redirects hardcoded client DNS queries (such as Smart TVs querying 8.8.8.8) into Threat Shield.')?></div>
-			</div>
-
-			<div class="mb-3">
-				<label for="blocking_mode" class="form-label fw-semibold"><?=gettext('DNS Blocking Response Mode')?></label>
-				<select class="form-select" name="blocking_mode" id="blocking_mode" onchange="toggleCustomIpFields(this.value)">
-					<option value="default" <?=$ts_config['blocking_mode'] === 'default' ? 'selected' : ''?>><?=gettext('Default (Respond with 0.0.0.0 for IPv4 and :: for IPv6)')?></option>
-					<option value="nxdomain" <?=$ts_config['blocking_mode'] === 'nxdomain' ? 'selected' : ''?>><?=gettext('NXDOMAIN (Respond with "Non-Existent Domain" status)')?></option>
-					<option value="refused" <?=$ts_config['blocking_mode'] === 'refused' ? 'selected' : ''?>><?=gettext('REFUSED (Respond with "Query Refused" status)')?></option>
-					<option value="null_ip" <?=$ts_config['blocking_mode'] === 'null_ip' ? 'selected' : ''?>><?=gettext('Null IP (Respond with 0.0.0.0 / ::)')?></option>
-					<option value="custom_ip" <?=$ts_config['blocking_mode'] === 'custom_ip' ? 'selected' : ''?>><?=gettext('Custom Sinkhole IP (Redirect blocked traffic to custom IP page)')?></option>
-				</select>
-			</div>
-
-			<div id="custom_ip_fields" class="row g-3 <?=$ts_config['blocking_mode'] === 'custom_ip' ? '' : 'd-none'?>">
-				<div class="col-md-6">
-					<label for="blocking_ipv4" class="form-label fw-semibold"><?=gettext('Custom IPv4 Sinkhole')?></label>
-					<input type="text" class="form-control font-monospace" name="blocking_ipv4" id="blocking_ipv4" value="<?=htmlspecialchars((string)$ts_config['blocking_ipv4'])?>" placeholder="e.g. 192.168.1.200">
-				</div>
-				<div class="col-md-6">
-					<label for="blocking_ipv6" class="form-label fw-semibold"><?=gettext('Custom IPv6 Sinkhole')?></label>
-					<input type="text" class="form-control font-monospace" name="blocking_ipv6" id="blocking_ipv6" value="<?=htmlspecialchars((string)$ts_config['blocking_ipv6'])?>" placeholder="e.g. 2001:db8::1">
-				</div>
-			</div>
-		</div>
-	</div>
-
-	<!-- 5. EDNS Client Subnet & Rate Limiting -->
-	<div class="card mb-3 shadow-sm">
-		<div class="card-header">
-			<h2 class="h5 mb-0"><i class="fa-solid fa-network-wired text-primary me-2"></i><?=gettext('5. EDNS Client Subnet (ECS) & Rate Limiting')?></h2>
-		</div>
-		<div class="card-body">
-			<div class="form-check form-switch mb-3">
-				<input class="form-check-input" type="checkbox" name="edns_client_subnet" id="edns_client_subnet" <?=$ts_config['edns_client_subnet'] === 'on' ? 'checked' : ''?>>
-				<label class="form-check-label fw-semibold" for="edns_client_subnet"><?=gettext('Enable EDNS Client Subnet (ECS)')?></label>
-				<div class="form-text"><?=gettext('Sends truncated client subnet information to upstream authoritative resolvers to allow CDNs (e.g. Akamai, Cloudflare) to route to the closest geographic server. Disable for maximum privacy.')?></div>
-			</div>
-
-			<div class="row g-3">
-				<div class="col-md-4">
-					<label for="ratelimit" class="form-label fw-semibold"><?=gettext('Rate Limit (Queries / Sec)')?></label>
-					<input type="number" min="0" max="10000" class="form-control" name="ratelimit" id="ratelimit" value="<?=htmlspecialchars((string)$ts_config['ratelimit'])?>">
-					<div class="form-text"><?=gettext('Maximum queries per second allowed per client IP (0 = disabled). Protects against local DoS loops.')?></div>
-				</div>
-				<div class="col-md-4">
-					<label for="rate_limit_subnet_len_ipv4" class="form-label fw-semibold"><?=gettext('IPv4 Subnet Prefix Length')?></label>
-					<input type="number" min="1" max="32" class="form-control" name="rate_limit_subnet_len_ipv4" id="rate_limit_subnet_len_ipv4" value="<?=htmlspecialchars((string)$ts_config['rate_limit_subnet_len_ipv4'])?>">
-					<div class="form-text"><?=gettext('Subnet mask length for IPv4 rate limiting (default /24).')?></div>
-				</div>
-				<div class="col-md-4">
-					<label for="rate_limit_subnet_len_ipv6" class="form-label fw-semibold"><?=gettext('IPv6 Subnet Prefix Length')?></label>
-					<input type="number" min="1" max="128" class="form-control" name="rate_limit_subnet_len_ipv6" id="rate_limit_subnet_len_ipv6" value="<?=htmlspecialchars((string)$ts_config['rate_limit_subnet_len_ipv6'])?>">
-					<div class="form-text"><?=gettext('Subnet mask length for IPv6 rate limiting (default /56).')?></div>
-				</div>
-			</div>
-		</div>
-	</div>
-
-	<!-- 6. Query Logging & Privacy Compliance -->
-	<div class="card mb-4 shadow-sm">
-		<div class="card-header">
-			<h2 class="h5 mb-0"><i class="fa-solid fa-database text-primary me-2"></i><?=gettext('6. Query Logging & Privacy Compliance')?></h2>
-		</div>
-		<div class="card-body">
-			<div class="form-check form-switch mb-3">
-				<input class="form-check-input" type="checkbox" name="querylog_enabled" id="querylog_enabled" <?=$ts_config['querylog_enabled'] === 'on' ? 'checked' : ''?>>
-				<label class="form-check-label fw-semibold" for="querylog_enabled"><?=gettext('Enable Query Logging')?></label>
-				<div class="form-text"><?=gettext('Logs DNS requests for real-time live inspection, threat auditing, and analytics.')?></div>
-			</div>
-
-			<div class="row g-3 mb-3">
-				<div class="col-md-6">
-					<label for="querylog_retention" class="form-label fw-semibold"><?=gettext('Query Log Retention Period')?></label>
-					<select class="form-select" name="querylog_retention" id="querylog_retention">
-						<option value="6" <?=((string)$ts_config['querylog_retention'] === '6') ? 'selected' : ''?>><?=gettext('6 Hours')?></option>
-						<option value="24" <?=((string)$ts_config['querylog_retention'] === '24') ? 'selected' : ''?>><?=gettext('24 Hours (1 Day)')?></option>
-						<option value="168" <?=((string)$ts_config['querylog_retention'] === '168') ? 'selected' : ''?>><?=gettext('7 Days (1 Week)')?></option>
-						<option value="720" <?=((string)$ts_config['querylog_retention'] === '720') ? 'selected' : ''?>><?=gettext('30 Days (1 Month)')?></option>
-						<option value="2160" <?=((string)$ts_config['querylog_retention'] === '2160') ? 'selected' : ''?>><?=gettext('90 Days (3 Months - Recommended)')?></option>
-					</select>
-				</div>
-				<div class="col-md-6">
-					<div class="form-check form-switch mt-4">
-						<input class="form-check-input" type="checkbox" name="anonymize_client_ip" id="anonymize_client_ip" <?=$ts_config['anonymize_client_ip'] === 'on' ? 'checked' : ''?>>
-						<label class="form-check-label fw-semibold" for="anonymize_client_ip"><?=gettext('Anonymize Client IP Addresses (GDPR Compliance)')?></label>
-						<div class="form-text"><?=gettext('Masks the last octet of client IP addresses (e.g. 192.168.1.0) in query logs and reports.')?></div>
-					</div>
-				</div>
-			</div>
-
-			<div class="mb-0">
-				<label for="ignored_domains" class="form-label fw-semibold"><?=gettext('Ignored Domains (Exclude from Query Log)')?></label>
-				<textarea class="form-control font-monospace" name="ignored_domains" id="ignored_domains" rows="2" placeholder="healthcheck.internal&#10;*.monitoring.lan"><?=htmlspecialchars((string)$ts_config['ignored_domains'])?></textarea>
-				<div class="form-text"><?=gettext('Enter domain names (one per line) to exclude from query logging, useful for filtering out high-frequency internal monitoring chatter.')?></div>
-			</div>
-		</div>
-	</div>
-
-	<div class="d-flex gap-2 mb-4">
-		<button type="submit" name="save" class="btn btn-primary px-4"><i class="fa-solid fa-floppy-disk me-2"></i><?=gettext('Save & Apply Settings')?></button>
-		<a href="threatshield.php" class="btn btn-outline-secondary"><?=gettext('Cancel')?></a>
-	</div>
-</form>
-
 <script>
-function toggleCustomIpFields(mode) {
-	const container = document.getElementById('custom_ip_fields');
-	if (container) {
-		if (mode === 'custom_ip') {
-			container.classList.remove('d-none');
-		} else {
-			container.classList.add('d-none');
-		}
+//<![CDATA[
+events.push(function () {
+	/* the sinkhole addresses only apply to the custom IP answer */
+	function sinkhole() {
+		hideInput('blocking_ipv4', $('#blocking_mode').val() !== 'custom_ip');
 	}
-}
+	$('#blocking_mode').on('change', sinkhole);
+	sinkhole();
+
+	/* "All assigned addresses" and single interfaces exclude each other */
+	var all = document.getElementById('interfaces_all');
+	var each = document.querySelectorAll('input[name="interfaces[]"]:not(#interfaces_all)');
+	if (all) {
+		all.addEventListener('change', function () {
+			if (all.checked) each.forEach(function (box) { box.checked = false; });
+		});
+		each.forEach(function (box) {
+			box.addEventListener('change', function () {
+				if (box.checked) all.checked = false;
+			});
+		});
+	}
+});
+//]]>
 </script>
 
 <?php include('foot.inc'); ?>

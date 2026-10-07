@@ -21,7 +21,7 @@ $ts_config = threatshield_config();
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 	if (isset($_POST['save_feeds'])) {
 		$ts_config['feed_update_interval'] = $_POST['feed_update_interval'] ?? 'daily';
-		
+
 		// Update enabled statuses
 		if (!empty($ts_config['feeds']) && is_array($ts_config['feeds'])) {
 			foreach ($ts_config['feeds'] as $idx => &$feed) {
@@ -62,8 +62,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 	}
 }
 
-$pgtitle = [gettext('Services'), gettext('Threat Shield'), gettext('DNS Feeds & Lists')];
-$pglinks = ['', '@self', '@self'];
+$feeds = threatshield_normalize_list($ts_config['feeds'] ?? []);
+$last_update = threatshield_last_update('feeds');
+$categories = [];
+$enabled_count = 0;
+foreach ($feeds as $f) {
+	$categories[(string)($f['category'] ?? 'General')] = (string)($f['category'] ?? 'General');
+	if (($f['enabled'] ?? '') === 'on') $enabled_count++;
+}
+ksort($categories);
+
+$pgtitle = [gettext('Services'), gettext('Threat Shield'), gettext('Feeds')];
+$pglinks = ['', '/threatshield/threatshield_status.php', '@self'];
+
+fs_page_action(gettext('Add feed'), '#', 'fa-plus', 'primary', ['data-fs-modal' => '#feed-add']);
+fs_page_action(gettext('Download now'), 'threatshield_feeds.php?update_now=1', 'fa-cloud-arrow-down', 'secondary', ['usepost' => true]);
 
 include('head.inc');
 
@@ -77,115 +90,159 @@ if ($savemsg) {
 threatshield_display_tabs('feeds');
 ?>
 
-<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
-	<div>
-		<h2 class="h3 mb-1"><i class="fa-solid fa-layer-group text-primary me-2"></i><?=gettext('DNS Threat Feeds & Blocklists')?></h2>
-		<p class="text-muted mb-0"><?=gettext('Automated synchronization and deduplication of curated threat intelligence and ad/tracker feeds.')?></p>
+<div class="fs-tiles">
+<?php
+fs_tile(gettext('Enabled feeds'), sprintf(gettext('%1$d of %2$d'), $enabled_count, count($feeds)));
+fs_tile(gettext('Last download'), threatshield_age($last_update), null, ($last_update > 0) ? date('Y-m-d H:i', $last_update) : null);
+?>
+</div>
+
+<form method="post" action="threatshield_feeds.php" id="ts-feeds-form">
+<div class="panel panel-default fs-table">
+<?php fs_table_toolbar([
+	'title' => gettext('Blocklists'),
+	'search' => gettext('Search feeds…'),
+	'noun' => gettext('feeds'),
+	'noun_one' => gettext('feed'),
+	'filters' => (count($categories) > 1) ? ['category' => array_merge([gettext('All categories')], $categories)] : [],
+]); ?>
+	<div class="panel-body table-responsive">
+		<table class="table table-hover ts-feeds">
+			<thead>
+				<tr>
+					<th class="ts-col-switch"><?=gettext('On')?></th>
+					<th data-fs-search><?=gettext('Name')?></th>
+					<th data-fs-search><?=gettext('Category')?></th>
+					<th data-fs-search><?=gettext('Source')?></th>
+					<th><?=gettext('Cached copy')?></th>
+					<th class="fs-col-actions"><span class="visually-hidden"><?=gettext('Actions')?></span></th>
+				</tr>
+			</thead>
+			<tbody>
+<?php
+foreach ($feeds as $idx => $f):
+	$name = (string)($f['name'] ?? '');
+	$url = (string)($f['url'] ?? '');
+	$category = (string)($f['category'] ?? 'General');
+	$on = (($f['enabled'] ?? '') === 'on');
+	$cache = ($url !== '') ? threatshield_feed_path($url) : '';
+	$cached = ($cache !== '' && is_file($cache));
+?>
+				<tr data-fs-filter-category="<?=htmlspecialchars($category)?>"<?=$on ? '' : ' class="fs-row-disabled"'?>>
+					<td class="ts-col-switch">
+						<div class="form-check form-switch">
+							<input class="form-check-input" type="checkbox" role="switch" name="feed_enable_<?=(int)$idx?>" id="feed_enable_<?=(int)$idx?>"<?=$on ? ' checked' : ''?>
+							    aria-label="<?=htmlspecialchars(sprintf(gettext('Use %s'), $name))?>">
+						</div>
+					</td>
+					<td><strong><?=htmlspecialchars($name)?></strong></td>
+					<td><span class="fs-chip"><?=htmlspecialchars($category)?></span></td>
+					<td class="fs-mono small ts-url"><?=htmlspecialchars($url)?></td>
+					<td class="ts-nowrap">
+<?php	if ($cached): ?>
+						<?=htmlspecialchars(format_bytes((int)filesize($cache)))?>
+						<div class="fs-muted small"><?=htmlspecialchars(threatshield_age((int)filemtime($cache)))?></div>
+<?php	else: ?>
+						<span class="fs-muted"><?=gettext('Not downloaded')?></span>
+<?php	endif; ?>
+					</td>
+					<td class="fs-col-actions"><?=fs_row_actions([
+						['delete', 'threatshield_feeds.php?delete_feed=' . (int)$idx, $name, [
+							'thing' => gettext('feed'),
+							'detail' => gettext('Its domains are no longer blocked after the change is applied.'),
+						]],
+					])?></td>
+				</tr>
+<?php
+endforeach;
+if (empty($feeds)) {
+	fs_empty_row(6, gettext('No feeds configured.'));
+}
+?>
+			</tbody>
+		</table>
 	</div>
-	<div class="d-flex gap-2">
-		<form method="post" class="d-inline">
-			<input type="hidden" name="update_now" value="1">
-			<button type="submit" class="btn btn-outline-primary"><i class="fa-solid fa-cloud-arrow-down me-2"></i><?=gettext('Download Feeds Now')?></button>
-		</form>
+	<div class="panel-footer small fs-muted">
+		<i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+		<?=gettext('Feeds are downloaded and merged in the background; DNS keeps answering meanwhile. Switch a feed off to keep it in the list without using it.')?>
 	</div>
 </div>
 
-<form method="post" action="threatshield_feeds.php">
-	<div class="card shadow-sm mb-3">
-		<div class="card-header">
-			<h2 class="h5 mb-0"><i class="fa-solid fa-clock text-primary me-2"></i><?=gettext('Automated Feed Synchronization Schedule')?></h2>
-		</div>
-		<div class="card-body">
-			<div class="row align-items-center g-3">
-				<div class="col-md-6">
-					<label for="feed_update_interval" class="form-label fw-semibold"><?=gettext('Automatic Download Interval')?></label>
-					<select name="feed_update_interval" id="feed_update_interval" class="form-select">
-						<option value="6hours" <?=$ts_config['feed_update_interval'] === '6hours' ? 'selected' : ''?>><?=gettext('Every 6 Hours')?></option>
-						<option value="12hours" <?=$ts_config['feed_update_interval'] === '12hours' ? 'selected' : ''?>><?=gettext('Every 12 Hours')?></option>
-						<option value="daily" <?=$ts_config['feed_update_interval'] === 'daily' ? 'selected' : ''?>><?=gettext('Daily (Recommended - 03:00 UTC)')?></option>
-						<option value="weekly" <?=$ts_config['feed_update_interval'] === 'weekly' ? 'selected' : ''?>><?=gettext('Weekly')?></option>
-					</select>
-				</div>
-				<div class="col-md-6">
-					<div class="text-muted small mt-2">
-						<?=gettext('Threat Shield downloads and deduplicates blocklists in the background without interrupting active DNS resolution.')?>
-					</div>
-				</div>
+<div class="panel panel-default">
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Automatic updates')?></h2></div>
+	<div class="panel-body">
+		<div class="form-group">
+			<label class="col-sm-2 control-label" for="feed_update_interval"><?=gettext('Download')?></label>
+			<div class="col-sm-10">
+				<select name="feed_update_interval" id="feed_update_interval" class="form-select ts-interval">
+<?php foreach (['6hours' => gettext('Every 6 hours'), '12hours' => gettext('Every 12 hours'), 'daily' => gettext('Daily at 03:00 UTC (recommended)'), 'weekly' => gettext('Weekly')] as $value => $text): ?>
+					<option value="<?=$value?>"<?=(($ts_config['feed_update_interval'] ?? '') === $value) ? ' selected' : ''?>><?=htmlspecialchars($text)?></option>
+<?php endforeach; ?>
+				</select>
+				<span class="form-text help-block"><?=gettext('How often the enabled feeds are downloaded again.')?></span>
 			</div>
 		</div>
 	</div>
+</div>
 
-	<div class="card shadow-sm mb-3">
-		<div class="card-header">
-			<h2 class="h5 mb-0"><i class="fa-solid fa-shield-virus text-primary me-2"></i><?=gettext('Subscribed DNS Threat Feeds')?></h2>
-		</div>
-		<div class="card-body p-0">
-			<div class="table-responsive">
-				<table class="table table-striped table-hover align-middle mb-0">
-					<thead>
-						<tr>
-							<th style="width: 50px;" class="text-center"><?=gettext('Active')?></th>
-							<th><?=gettext('Feed Name')?></th>
-							<th><?=gettext('Category')?></th>
-							<th><?=gettext('Feed Source URL')?></th>
-							<th class="text-end"><?=gettext('Actions')?></th>
-						</tr>
-					</thead>
-					<tbody>
-						<?php if (empty($ts_config['feeds'])): ?>
-							<tr><td colspan="5" class="text-center text-muted py-3"><?=gettext('No feeds configured.')?></td></tr>
-						<?php else: ?>
-							<?php foreach ($ts_config['feeds'] as $idx => $f): ?>
-								<tr>
-									<td class="text-center">
-										<input class="form-check-input" type="checkbox" name="feed_enable_<?=$idx?>" <?=(!empty($f['enabled']) && $f['enabled'] === 'on') ? 'checked' : ''?>>
-									</td>
-									<td class="fw-semibold"><?=htmlspecialchars((string)$f['name'])?></td>
-									<td><span class="badge bg-secondary"><?=htmlspecialchars((string)($f['category'] ?? 'General'))?></span></td>
-									<td class="font-monospace text-break small text-muted"><?=htmlspecialchars((string)$f['url'])?></td>
-									<td class="text-end">
-										<button type="submit" name="delete_feed" value="<?=$idx?>" class="btn btn-sm btn-outline-danger" onclick="return confirm('<?=gettext('Are you sure you want to remove this feed?')?>');" title="<?=gettext('Delete Feed')?>">
-											<i class="fa-solid fa-trash"></i>
-										</button>
-									</td>
-								</tr>
-							<?php endforeach; ?>
-						<?php endif; ?>
-					</tbody>
-				</table>
-			</div>
-		</div>
-		<div class="card-footer">
-			<button type="submit" name="save_feeds" value="1" class="btn btn-primary"><i class="fa-solid fa-floppy-disk me-2"></i><?=gettext('Save Feed Settings')?></button>
-		</div>
-	</div>
+<div class="fs-actionbar fs-actionbar--plain">
+	<button type="submit" name="save_feeds" value="1" class="btn btn-primary"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save')?></button>
+	<span class="ts-dirty fs-muted small" hidden><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i><?=gettext('Changes are not saved yet.')?></span>
+</div>
 </form>
 
-<div class="card shadow-sm mb-4">
-	<div class="card-header">
-		<h2 class="h5 mb-0"><i class="fa-solid fa-plus text-primary me-2"></i><?=gettext('Add Custom DNS Threat Feed')?></h2>
+<?php
+fs_modal_form_begin('feed-add', gettext('Add feed'), 'threatshield_feeds.php', [], $input_errors && isset($_POST['add_feed'])
+    ? ['new_name' => (string)($_POST['new_name'] ?? ''), 'new_category' => (string)($_POST['new_category'] ?? ''), 'new_url' => (string)($_POST['new_url'] ?? '')]
+    : null);
+?>
+	<div class="mb-3">
+		<label class="form-label" for="new_name"><?=gettext('Name')?></label>
+		<input type="text" class="form-control" id="new_name" name="new_name" placeholder="<?=gettext('Custom malware list')?>" required>
 	</div>
-	<div class="card-body">
-		<form method="post" action="threatshield_feeds.php" class="row g-3">
-			<div class="col-md-4">
-				<label class="form-label fw-semibold"><?=gettext('Feed Name')?></label>
-				<input type="text" name="new_name" class="form-control" placeholder="e.g., Custom Malware List" required>
-			</div>
-			<div class="col-md-3">
-				<label class="form-label fw-semibold"><?=gettext('Category')?></label>
-				<input type="text" name="new_category" class="form-control" placeholder="e.g., Phishing, Ads" value="Custom">
-			</div>
-			<div class="col-md-5">
-				<label class="form-label fw-semibold"><?=gettext('Feed URL')?></label>
-				<div class="input-group">
-					<input type="url" name="new_url" class="form-control font-monospace" placeholder="https://..." required>
-					<button type="submit" name="add_feed" value="1" class="btn btn-success">
-						<i class="fa-solid fa-plus me-1"></i><?=gettext('Add Feed')?>
-					</button>
-				</div>
-			</div>
-		</form>
+	<div class="mb-3">
+		<label class="form-label" for="new_category"><?=gettext('Category')?></label>
+		<input type="text" class="form-control" id="new_category" name="new_category" value="Custom" list="ts-feed-categories">
+		<datalist id="ts-feed-categories">
+<?php foreach ($categories as $c): ?>
+			<option value="<?=htmlspecialchars($c)?>"></option>
+<?php endforeach; ?>
+		</datalist>
 	</div>
-</div>
+	<div class="mb-3">
+		<label class="form-label" for="new_url"><?=gettext('URL')?></label>
+		<input type="url" class="form-control fs-mono" id="new_url" name="new_url" placeholder="https://…" required>
+		<div class="form-text"><?=gettext('HTTPS only. Hosts files and AdGuard / Adblock Plus lists are supported.')?></div>
+	</div>
+<?php
+fs_modal_form_end(gettext('Add feed'), 'add_feed', '1', 'fa-plus');
+?>
+
+<style>
+.ts-feeds .ts-col-switch { width: 3.5rem; }
+.ts-feeds .ts-col-switch .form-check { margin: 0; min-height: 0; }
+.ts-feeds .ts-url { word-break: break-all; min-width: 14rem; }
+.ts-feeds .ts-nowrap { white-space: nowrap; }
+.ts-interval { max-width: 24rem; }
+.ts-dirty { display: inline-flex; align-items: center; gap: .4rem; margin-left: var(--fs-sp-3); }
+.ts-dirty > i { color: var(--fs-coral); }
+</style>
+<script>
+//<![CDATA[
+events.push(function () {
+	var form = document.getElementById('ts-feeds-form');
+	var note = form.querySelector('.ts-dirty');
+	form.addEventListener('change', function (e) {
+		if (!e.target.name) {
+			return;    /* list search and filter are not settings */
+		}
+		if (e.target.matches('input[name^="feed_enable_"]')) {
+			e.target.closest('tr').classList.toggle('fs-row-disabled', !e.target.checked);
+		}
+		note.hidden = false;
+	});
+});
+//]]>
+</script>
 
 <?php include('foot.inc'); ?>
