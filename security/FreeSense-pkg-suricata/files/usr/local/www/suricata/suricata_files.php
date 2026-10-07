@@ -27,6 +27,7 @@ require_once("guiconfig.inc");
 require_once("/usr/local/pkg/suricata/suricata.inc");
 
 global $g;
+$suri_pf_table = SURICATA_PF_TABLE;
 
 function suricata_escape_filter_regex($filtertext) {
 	/* If the caller (user) has not already put a backslash before a slash, to escape it in the regex, */
@@ -205,296 +206,33 @@ function build_instance_list() {
 	return($list);
 }
 
-$pglinks = array("", "/suricata/suricata_interfaces.php", "@self");
-$pgtitle = array("Services", "Suricata", "Files");
-include_once("head.inc");
-suricata_display_primary_navigation('events');
+/* ---------------------------------------------------------------- read the log */
 
-/* refresh every 60 secs */
-if ($pconfig['frefresh'] == 'on')
-	print '<meta http-equiv="refresh" content="60;url=/suricata/suricata_files.php?instance=' . $instanceid . '" />';
+$is_filtered = ($filterlogentries && count($filterfieldsarray));
+$eve_file = "{$suricatalogdir}suricata_{$if_real}{$suricata_uuid}/eve.json";
+$have_eve = file_exists($eve_file);
+$files = array();
 
-if ($savemsg) {
-	print_info_box($savemsg);
-}
-
-$tab_array = array();
-$tab_array[] = array(gettext("Interfaces"), false, "/suricata/suricata_interfaces.php");
-$tab_array[] = array(gettext("Global Settings"), false, "/suricata/suricata_global.php");
-$tab_array[] = array(gettext("Updates"), false, "/suricata/suricata_download_updates.php");
-$tab_array[] = array(gettext("Alerts"), false, "/suricata/suricata_alerts.php");
-$tab_array[] = array(gettext("Blocks"), false, "/suricata/suricata_blocked.php");
-$tab_array[] = array(gettext("Files"), true, "/suricata/suricata_files.php");
-$tab_array[] = array(gettext("Pass Lists"), false, "/suricata/suricata_passlist.php");
-$tab_array[] = array(gettext("Suppress"), false, "/suricata/suricata_suppress.php");
-$tab_array[] = array(gettext("Logs View"), false, "/suricata/suricata_logs_browser.php?instance={$instanceid}");
-$tab_array[] = array(gettext("Logs Mgmt"), false, "/suricata/suricata_logs_mgmt.php");
-$tab_array[] = array(gettext("SID Mgmt"), false, "/suricata/suricata_sid_mgmt.php");
-$tab_array[] = array(gettext("Sync"), false, "/pkg_edit.php?xml=suricata/suricata_sync.xml");
-$tab_array[] = array(gettext("IP Lists"), false, "/suricata/suricata_ip_list_mgmt.php");
-display_top_tabs($tab_array, true);
-
-$form = new Form(false);
-$form->setAttribute('name', 'formfile')->setAttribute('id', 'formfile');
-
-$section = new Form_Section('Files Log View Settings');
-
-$section->addInput(new Form_Select(
-	'instance',
-	'Instance to View',
-	$instanceid,
-	build_instance_list()
-))->setHelp('Choose which instance alerts you want to inspect.');
-
-$section->addInput(new Form_StaticText(
-	'NOTE',
-	'For this feature to work, the EVE JSON log with the FILE Output Type and ' .
-	'the Tracked-Files Checksum must be enabled. Optionally, File-Store can be enabled to download the captured files. ' .
-	'Supported protocols are: HTTP, SMTP, FTP, NFS, SMB'
-));
-
-$group = new Form_Group('Save Settings');
-
-$group->add(new Form_Button(
-	'save',
-	'Save',
-	null,
-	'fa-solid fa-save'
-))->removeClass('btn-secondary')->addClass('btn-success btn-sm')
-  ->setHelp('Save auto-refresh and view settings');
-
-$group->add(new Form_Checkbox(
-	'frefresh',
-	null,
-	'Refresh',
-	$pconfig['frefresh'] == 'on' ? true:false,
-	'on'
-))->setHelp('Default is ON');
-
-$group->add(new Form_Input(
-	'filenumber',
-	'File Entries',
-	'number',
-	$fnentries
-	))->setHelp('Number of files to display. Default is 250');
-
-$section->add($group);
-
-$form->add($section);
-
-// ========== Log filter Panel =============================================================
-if ($filterlogentries && count($filterfieldsarray)) {
-	$section = new Form_Section("Files Log View Filter", "filefilter", COLLAPSIBLE|SEC_OPEN);
-}
-else {
-	$section = new Form_Section("Files Log View Filter", "filefilter", COLLAPSIBLE|SEC_CLOSED);
-}
-
-$group = new Form_Group('');
-
-$group->add(new Form_Input(
-	'filterlogentries_time',
-	'Date',
-	'text',
-	$filterfieldsarray['time']
-))->setHelp("Date");
-
-$group->add(new Form_Input(
-	'filterlogentries_sourceipaddress',
-	'Source IP Address',
-	'text',
-	$filterfieldsarray['src_ip']
-))->setHelp("Source IP Address");
-
-$group->add(new Form_Input(
-	'filterlogentries_sourceport',
-	'Source Port',
-	'text',
-	$filterfieldsarray['src_port']
-))->setHelp("Source Port");
-
-$section->add($group);
-
-$group = new Form_Group('');
-
-$group->add(new Form_Input(
-	'filterlogentries_size',
-	'Size',
-	'text',
-	$filterfieldsarray['size']
-))->setHelp("Size");
-
-$group->add(new Form_Input(
-	'filterlogentries_destinationipaddress',
-	'Destination IP Address',
-	'text',
-	$filterfieldsarray['dest_ip']
-))->setHelp("Destination IP Address");
-
-$group->add(new Form_Input(
-	'filterlogentries_destinationport',
-	'Port',
-	'text',
-	$filterfieldsarray['dest_port']
-))->setHelp("Destination Port");
-
-$section->add($group);
-
-$group = new Form_Group('');
-
-$group->add(new Form_Input(
-	'filterlogentries_protocol',
-	'Protocol',
-	'text',
-	$filterfieldsarray['proto']
-))->setHelp("Protocol");
-
-$section->add($group);
-
-$group = new Form_Group('');
-
-$group->add(new Form_Input(
-	'filterlogentries_filename',
-	'Filename',
-	'text',
-	$filterfieldsarray['filename']
-))->setHelp("Filename");
-
-$group->add(new Form_Checkbox(
-	'filterlogentries_exact_match',
-	'Exact Match Only',
-	null,
-	$filterlogentries_exact_match == "on" ? true:false,
-	'on'
-))->setHelp('Exact Match');
-
-$section->add($group);
-
-$group = new Form_Group('');
-$group->add(new Form_Button(
-	'filterlogentries_submit',
-	'Apply Filter',
-	null,
-	'fa-solid fa-filter'
-))->removeClass("btn-primary btn-secondary")
-  ->addClass("btn-success btn-sm");
-
-$group->add(new Form_Button(
-	'filterlogentries_clear',
-	'Clear Filter',
-	null,
-	'fa-regular fa-trash-can'
-))->removeclass("btn-primary btn-secondary")
-  ->addClass("btn-danger no-confirm btn-sm");
-
-$section->add($group);
-
-$form->add($section);
-
-// ========== Hidden controls ==============
-$form->addGlobal(new Form_Input(
-	'ip',
-	null,
-	'hidden',
-	''
-));
-
-$form->addGlobal(new Form_Input(
-	'mode',
-	'mode',
-	'hidden',
-	''
-));
-
-if ($persist_filter_log_entries == "yes") {
-	$form->addGlobal(new Form_Input(
-		'persist_filter',
-		'persist_filter',
-		'hidden',
-		$persist_filter_log_entries
-	));
-
-	$form->addGlobal(new Form_Input(
-		'persist_filter_exact_match',
-		'persist_filter_exact_match',
-		'hidden',
-		$filterlogentries_exact_match
-	));
-
-	// Pass the $filterfieldsarray variable as serialized data
-	$form->addGlobal(new Form_Input(
-		'persist_filter_content',
-		'persist_filter_content',
-		'hidden',
-		json_encode($filterfieldsarray)
-	));
-}
-
-print($form);
-
-if ($filterlogentries && count($filterfieldsarray)) {
-	$sectitle = sprintf("Last %s File Entries. (Most recent entries are listed first)  ** FILTERED VIEW **  clear filter to see all entries", $fnentries);
-} else {
-	$sectitle = sprintf("Last %s File Entries. (Most recent entries are listed first)", $fnentries);
-}
-
-?>
-<div class="card mb-3">
-	<div class="card-header"><h2 class="h5 mb-0"><?=sprintf($sectitle)?></h2></div>
-	<div class="card-body table-responsive">
-		<table class="table table-striped table-hover table-sm sortable-theme-bootstrap" data-sortable>
-			<thead>
-			   <tr class="sortableHeaderRowIdentifier text-nowrap">
-				<th data-sortable-type="date"><?=gettext("Date"); ?></th>
-				<th><?=gettext("Proto"); ?></th>
-				<th><?=gettext("App"); ?></th>
-				<th><?=gettext("Src"); ?></th>
-				<th data-sortable-type="numeric"><?=gettext("SPort"); ?></th>
-				<th><?=gettext("Dst"); ?></th>
-				<th data-sortable-type="numeric"><?=gettext("DPort"); ?></th>
-				<th><?=gettext("Size"); ?></th>
-				<th data-sortable-type="alpha"><?=gettext("Filename"); ?></th>
-			   </tr>
-			</thead>
-			<tbody>
-	<?php
-
-/* make sure alert file exists */
-if (file_exists("{$suricatalogdir}suricata_{$if_real}{$suricata_uuid}/eve.json")) {
+if ($have_eve) {
 	exec("/usr/bin/grep filename {$suricatalogdir}suricata_{$if_real}{$suricata_uuid}/eve.json | /usr/bin/tail -{$fnentries} -r > {$g['tmp_path']}/files_suricata{$suricata_uuid}");
 	if (file_exists("{$g['tmp_path']}/files_suricata{$suricata_uuid}")) {
 		$tmpblocked = array_flip(suricata_get_blocked_ips());
-		$counter = 0;
 
 		$fd = fopen("{$g['tmp_path']}/files_suricata{$suricata_uuid}", "r");
 		$buf = "";
 		while (($buf = fgets($fd)) !== FALSE) {
-			$fields = array();
-			$tmp = array();
-
 			$fields = json_decode($buf, true);
+			if (!is_array($fields)) {
+				continue;
+			}
 
-			/**************************************************************/
-			/* Parse eve.json log entry to find the parts we want to display */
-			/**************************************************************/
-
-			// Create a DateTime object from the event timestamp that
-			// we can use to easily manipulate output formats.
 			$event_tm = date_create_from_format("Y-m-d\TH:i:s.uP", $fields['timestamp']);
-
-			// PHP date_format issues a bogus warning even though $event_tm really is an object
-			// Suppress it with @
 			@$fields['timestamp'] = date_format($event_tm, "m/d/Y") . " " . date_format($event_tm, "H:i:s");
 			$fields['filename'] = $fields['fileinfo']['filename'];
 
 			if ($filterlogentries && !suricata_match_filter_field($fields, $filterfieldsarray, $filterlogentries_exact_match)) {
 				continue;
 			}
-
-			/* Time */
-			@$file_time = date_format($event_tm, "H:i:s");
-			/* Date */
-			@$file_date = date_format($event_tm, "m/d/Y");
 
 			/* Size */
 			if ($fields['fileinfo']['size'] > 1048576) {
@@ -505,183 +243,350 @@ if (file_exists("{$suricatalogdir}suricata_{$if_real}{$suricata_uuid}/eve.json")
 				$file_size = $fields['fileinfo']['size'] . ' B';
 			}
 
-			/* Protocol */
-			$file_proto = $fields['proto'];
-
-			/* App level protocol */
-			$file_app = strtoupper($fields['app_proto']);
-
-			/* IP SRC */
-			$file_ip_src = $fields['src_ip'];
-			/* Add zero-width space as soft-break opportunity after each colon if we have an IPv6 address */
-			$file_ip_src = str_replace(":", ":&#8203;", $file_ip_src);
-			/* Add Reverse DNS lookup icon */
-			$file_ip_src .= '<br /><i class="fa-solid fa-search" onclick="javascript:resolve_with_ajax(\'' . $fields['src_ip'] . '\');" title="';
-			$file_ip_src .= gettext("Resolve host via reverse DNS lookup") . "\"  alt=\"Icon Reverse Resolve with DNS\" ";
-			$file_ip_src .= " style=\"cursor: pointer;\"></i>";
-			/* Add GeoIP check icon */
-			if (!is_private_ip($fields['src_ip']) && (substr($fields['src_ip'], 0, 2) != 'fc') &&
-			    (substr($fields['src_ip'], 0, 2) != 'fd')) {
-				$file_ip_src .= '&nbsp;&nbsp;<i class="fa-solid fa-globe" onclick="javascript:geoip_with_ajax(\'' . $fields['src_ip'] . '\');" title="';
-				$file_ip_src .= gettext("Check host GeoIP data") . "\"  alt=\"Icon Check host GeoIP\" ";
-				$file_ip_src .= " style=\"cursor: pointer;\"></i>";
-			}
-
-			/* Add icon for auto-removing from Blocked Table if required */
-			if (isset($tmpblocked[$fields['src_ip']])) {
-				$file_ip_src .= "&nbsp;&nbsp;<i class=\"fa-solid fa-times icon-pointer text-danger\" onClick=\"$('#ip').val('{$fields['src_ip']}');$('#mode').val('unblock');$('#formfile').submit();\"";
-				$file_ip_src .= ' title="' . gettext("Remove host from Blocked Table") . '"></i>';
-			}
-
-			/* IP SRC Port */
-			$file_src_p = $fields['src_port'];
-
-			/* IP DST */
-			$file_ip_dst = $fields['dest_ip'];
-			/* Add zero-width space as soft-break opportunity after each colon if we have an IPv6 address */
-			$file_ip_dst = str_replace(":", ":&#8203;", $file_ip_dst);
-			/* Add Reverse DNS lookup icons */
-			$file_ip_dst .= "<br /><i class=\"fa-solid fa-search\" onclick=\"javascript:resolve_with_ajax('{$fields['dest_ip']}');\" title=\"";
-			$file_ip_dst .= gettext("Resolve host via reverse DNS lookup") . "\" alt=\"Icon Reverse Resolve with DNS\" ";
-			$file_ip_dst .= " style=\"cursor: pointer;\"></i>";
-			/* Add GeoIP check icon */
-			if (!is_private_ip($fields['dest_ip']) && (substr($fields['dest_ip'], 0, 2) != 'fc') &&
-			    (substr($fields['dest_ip'], 0, 2) != 'fd')) {
-				$file_ip_dst .= '&nbsp;&nbsp;<i class="fa-solid fa-globe" onclick="javascript:geoip_with_ajax(\'' . $fields['dest_ip'] . '\');" title="';
-				$file_ip_dst .= gettext("Check host GeoIP data") . "\"  alt=\"Icon Check host GeoIP\" ";
-				$file_ip_dst .= " style=\"cursor: pointer;\"></i>";
-			}
-
-			/* Add icon for auto-removing from Blocked Table if required */
-			if (isset($tmpblocked[$fields['dest_ip']])) {
-				$file_ip_dst .= '&nbsp;&nbsp;<i name="todelete[]" class="fa-solid fa-times icon-pointer text-danger" onClick="$(\'#ip\').val(\'' . $fields['dest_ip'] . '\');$(\'#mode\').val(\'unblock\');$(\'#formfile\').submit();" ';
-				$file_ip_dst .= ' title="' . gettext("Remove host from Blocked Table") . '"></i>';
-			}
-
-			/* IP DST Port */
-			$file_dst_p = $fields['dest_port'];
-
-			/* Filename */
-			$file_name = $fields['fileinfo']['filename'];
-
 			/* File Hash */
-			if (isset($fields['fileinfo']['sha256']) && !empty($fields['fileinfo']['sha256'])) {
+			if (!empty($fields['fileinfo']['sha256'])) {
 				$file_hash = $fields['fileinfo']['sha256'];
-			} elseif (isset($fields['fileinfo']['sha1']) && !empty($fields['fileinfo']['sha1'])) {
+			} elseif (!empty($fields['fileinfo']['sha1'])) {
 				$file_hash = $fields['fileinfo']['sha1'];
-			} elseif (isset($fields['fileinfo']['md5']) && !empty($fields['fileinfo']['md5'])) {
+			} elseif (!empty($fields['fileinfo']['md5'])) {
 				$file_hash = $fields['fileinfo']['md5'];
 			} else {
 				$file_hash = 'none';
 			}
 
-			$file_check = '<a class="fa-solid fa-info icon-pointer" title="Click for File Check."' .
-				    'target="_blank" href="/suricata/suricata_filecheck.php?filehash=' . $file_hash .
-				    '&uuid=' . $suricata_uuid . '&filename=' . urlencode($file_name) . 
-				    '&filesize=' . urlencode($file_size) . '"></a>';
-	?>
-			<tr>
-				<td><?=$file_date;?><br/><?=$file_time;?></td>
-				<td style="word-wrap:break-word; white-space:normal"><?=$file_proto;?></td>
-				<td style="word-wrap:break-word; white-space:normal"><?=$file_app;?></td>
-				<td style="word-wrap:break-word; white-space:normal"><?=$file_ip_src;?></td>
-				<td><?=$file_src_p;?></td>
-				<td style="word-wrap:break-word; white-space:normal"><?=$file_ip_dst;?></td>
-				<td><?=$file_dst_p;?></td>
-				<td><?=$file_size;?></td>
-				<td style="word-wrap:break-word; white-space:normal"><?=htmlspecialchars($file_name);?>&nbsp;<?=$file_check;?></td>
-			</tr>
-	<?php
-			$counter++;
+			$files[] = array(
+				'f' => $fields,
+				'date' => @date_format($event_tm, "m/d/Y"),
+				'clock' => @date_format($event_tm, "H:i:s"),
+				'size' => $file_size,
+				'bytes' => intval($fields['fileinfo']['size']),
+				'hash' => $file_hash,
+				'stored' => !empty($fields['fileinfo']['stored']),
+				'src_blocked' => isset($tmpblocked[$fields['src_ip']]),
+				'dst_blocked' => isset($tmpblocked[$fields['dest_ip']]),
+			);
 		}
-		unset($fields, $buf, $tmp);
+		unset($fields, $buf);
 		fclose($fd);
 		unlink_if_exists("{$g['tmp_path']}/files_suricata{$suricata_uuid}");
 	}
 }
-	?>
+
+$total_bytes = array_sum(array_column($files, 'bytes'));
+$apps = array();
+foreach ($files as $x) {
+	if (!empty($x['f']['app_proto'])) {
+		$apps[strtolower($x['f']['app_proto'])] = strtoupper($x['f']['app_proto']);
+	}
+}
+ksort($apps);
+
+/* ------------------------------------------------------------------ the page */
+
+$pglinks = array("", "/suricata/suricata_overview.php", "/suricata/suricata_events.php", "@self");
+$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("Events"), gettext("Files"));
+
+fs_page_action(gettext('View settings'), '#', 'fa-sliders', 'secondary', ['data-fs-modal' => '#files-settings']);
+
+include_once("head.inc");
+suricata_display_primary_navigation('events');
+
+echo '<nav class="fs-viewswitch" aria-label="' . fs_h(gettext('Events')) . '">';
+foreach (array(
+	array('alerts', gettext('Alerts'), "/suricata/suricata_alerts.php?instance={$instanceid}"),
+	array('blocked', gettext('Blocked hosts'), '/suricata/suricata_blocked.php'),
+	array('files', gettext('Files'), "/suricata/suricata_files.php?instance={$instanceid}"),
+	array('events', gettext('EVE events'), '/suricata/suricata_events.php'),
+	array('logs', gettext('Log files'), "/suricata/suricata_logs_browser.php?instance={$instanceid}"),
+) as $sf_v) {
+	echo '<a href="' . fs_h($sf_v[2]) . '"' . (($sf_v[0] === 'files') ? ' aria-current="page"' : '') . '>' . fs_h($sf_v[1]) . '</a>';
+}
+echo '</nav>';
+
+/* refresh every 60 secs */
+if ($pconfig['frefresh'] == 'on')
+	print '<meta http-equiv="refresh" content="60;url=/suricata/suricata_files.php?instance=' . (int)$instanceid . '" />';
+
+if ($savemsg) {
+	print_info_box($savemsg);
+}
+
+$sf_is_public = function ($ip) {
+	return !is_private_ip($ip) && (substr($ip, 0, 2) != 'fc') && (substr($ip, 0, 2) != 'fd');
+};
+
+/* Address cell: mono address and port, then the host tools that apply */
+$sf_host = function ($x, $side) use ($sf_is_public) {
+	$ip = ($side === 'src') ? $x['f']['src_ip'] : $x['f']['dest_ip'];
+	$port = ($side === 'src') ? $x['f']['src_port'] : $x['f']['dest_port'];
+	$html = '<span class="fs-mono sf-ip">' . fs_h($ip) . '</span>';
+	if ($port !== '' && $port !== null) {
+		$html .= '<span class="fs-mono fs-muted">:' . fs_h($port) . '</span>';
+	}
+	$html .= '<div class="fs-actions sf-hostactions">'
+	    . '<button type="button" class="fs-action" data-sf-lookup="' . fs_h($ip) . '" data-sf-geo="' . ($sf_is_public($ip) ? '1' : '0') . '"'
+	    . ' title="' . fs_h(sprintf(gettext('Look up %s'), $ip)) . '" aria-label="' . fs_h(sprintf(gettext('Look up %s'), $ip)) . '">'
+	    . '<i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i></button>';
+	if ($x[$side . '_blocked']) {
+		$label = sprintf(gettext('Remove block for %s'), $ip);
+		$html .= '<button type="submit" class="fs-action" data-sf-ip="' . fs_h($ip) . '" title="' . fs_h($label) . '" aria-label="' . fs_h($label) . '"'
+		    . ' data-fs-confirm="' . fs_h(sprintf(gettext('Remove the block for %s?'), $ip)) . '"'
+		    . ' data-fs-confirm-detail="' . fs_h(gettext('The address is deleted from the blocked hosts table. A new alert can block it again.')) . '"'
+		    . ' data-fs-confirm-action="' . fs_h(gettext('Remove block')) . '"><i class="fa-solid fa-unlock" aria-hidden="true"></i></button>';
+	}
+	$html .= '</div>';
+	if ($x[$side . '_blocked']) {
+		$html .= ' ' . fs_badge('block', gettext('Blocked'));
+	}
+	return $html;
+};
+?>
+
+<style>
+.sf-file { min-width: 14rem; }
+.sf-file-name { color: var(--fs-text-strong); font-weight: 500; overflow-wrap: anywhere; }
+.sf-file-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .15rem .6rem; margin-top: .15rem; font-size: var(--fs-fs-sm); }
+.sf-hash { max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
+.sf-ip { overflow-wrap: anywhere; }
+.sf-hostactions { display: inline-flex; gap: 0; margin-left: .25rem; vertical-align: middle; }
+.sf-hostactions .fs-action { width: 1.6rem; height: 1.6rem; }
+.sf-time { white-space: nowrap; }
+.sf-instance { width: auto; max-width: 18rem; }
+.sf-advfilter { padding: var(--fs-sp-3) var(--fs-sp-4); border-bottom: 1px solid var(--fs-border); }
+.sf-advgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: .6rem 1rem; }
+.sf-advgrid .form-label { margin-bottom: .2rem; font-size: var(--fs-fs-sm); color: var(--fs-text-muted); }
+.sf-advchecks { display: flex; flex-wrap: wrap; gap: .4rem 1.25rem; margin-top: .75rem; }
+.sf-advbuttons { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .75rem; }
+.sf-notes { display: flex; flex-wrap: wrap; gap: .4rem 1.5rem; margin: -.5rem 0 var(--fs-sp-5); color: var(--fs-text-muted); font-size: var(--fs-fs-sm); }
+.sf-lookup dl { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: .5rem 1rem; margin: 0; }
+.sf-lookup dt { color: var(--fs-text-muted); font-weight: 500; }
+.sf-lookup dd { margin: 0; overflow-wrap: anywhere; white-space: pre-line; }
+@media (max-width: 575.98px) { .sf-lookup dl { grid-template-columns: 1fr; gap: .15rem; } .sf-lookup dd { margin-bottom: .5rem; } }
+</style>
+
+<div class="fs-tiles">
+<?php
+	fs_tile(gettext('Files shown'), count($files), null, $is_filtered ? gettext('Filtered view') : sprintf(gettext('Last %s file events'), $fnentries));
+	fs_tile(gettext('Total size'), format_bytes($total_bytes));
+	fs_tile(gettext('Stored'), count(array_filter(array_column($files, 'stored'))), null, gettext('Kept by File-Store'));
+?>
+</div>
+
+<form action="/suricata/suricata_files.php" method="post" name="formfile" id="formfile">
+	<input type="hidden" name="ip" id="ip" value="">
+	<input type="hidden" name="mode" id="mode" value="">
+<?php if ($persist_filter_log_entries == "yes"): ?>
+	<input type="hidden" name="persist_filter" id="persist_filter" value="<?=fs_h($persist_filter_log_entries)?>">
+	<input type="hidden" name="persist_filter_exact_match" id="persist_filter_exact_match" value="<?=fs_h($filterlogentries_exact_match)?>">
+	<input type="hidden" name="persist_filter_content" id="persist_filter_content" value="<?=fs_h(json_encode($filterfieldsarray))?>">
+<?php endif; ?>
+
+<div class="panel panel-default fs-table">
+<?php
+	$instance_select = '<select class="form-select form-select-sm sf-instance" name="instance" id="instance" aria-label="' . fs_h(gettext('Interface')) . '">';
+	foreach (build_instance_list() as $k => $v) {
+		$instance_select .= '<option value="' . fs_h($k) . '"' . (((string)$k === (string)$instanceid) ? ' selected' : '') . '>' . fs_h($v) . '</option>';
+	}
+	$instance_select .= '</select>';
+
+	$active_filters = count(array_filter($filterfieldsarray, function ($v) { return $v !== null && $v !== ''; }));
+	$filter_btn = '<button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#sf-advfilter" aria-expanded="' . ($is_filtered ? 'true' : 'false') . '" aria-controls="sf-advfilter">'
+	    . '<i class="fa-solid fa-filter icon-embed-btn" aria-hidden="true"></i>' . fs_h(gettext('Advanced filter'))
+	    . ($active_filters ? ' <span class="badge text-bg-secondary">' . (int)$active_filters . '</span>' : '') . '</button>';
+
+	$filters = array();
+	if (count($apps) > 1) {
+		$filters['app'] = array(gettext('All applications')) + $apps;
+	}
+	fs_table_toolbar(array(
+		'search' => gettext('Search file names, hashes, addresses…'),
+		'noun' => gettext('files'),
+		'noun_one' => gettext('file'),
+		'filters' => $filters,
+		'custom' => $instance_select,
+		'actions' => $filter_btn,
+	));
+?>
+	<div class="collapse sf-advfilter<?=$is_filtered ? ' show' : ''?>" id="sf-advfilter">
+		<p class="fs-muted small mb-2"><?=gettext('Matches the whole log window on the server. Prefix a value with ! to exclude it; values are regular expressions unless exact match is on.')?></p>
+		<div class="sf-advgrid">
+<?php
+	foreach (array(
+		array('filterlogentries_time', gettext('Date'), 'time'),
+		array('filterlogentries_filename', gettext('File name'), 'filename'),
+		array('filterlogentries_size', gettext('Size'), 'size'),
+		array('filterlogentries_protocol', gettext('Protocol'), 'proto'),
+		array('filterlogentries_sourceipaddress', gettext('Source address'), 'src_ip'),
+		array('filterlogentries_sourceport', gettext('Source port'), 'src_port'),
+		array('filterlogentries_destinationipaddress', gettext('Destination address'), 'dest_ip'),
+		array('filterlogentries_destinationport', gettext('Destination port'), 'dest_port'),
+	) as $ff):
+?>
+			<div>
+				<label class="form-label" for="<?=$ff[0]?>"><?=fs_h($ff[1])?></label>
+				<input type="text" class="form-control form-control-sm<?=in_array($ff[2], array('src_ip', 'dest_ip', 'src_port', 'dest_port')) ? ' fs-mono' : ''?>" name="<?=$ff[0]?>" id="<?=$ff[0]?>" value="<?=fs_h($filterfieldsarray[$ff[2]] ?? '')?>">
+			</div>
+<?php endforeach; ?>
+		</div>
+		<div class="sf-advchecks">
+			<div class="form-check"><input class="form-check-input" type="checkbox" name="filterlogentries_exact_match" id="filterlogentries_exact_match" value="on"<?=$filterlogentries_exact_match == "on" ? ' checked' : ''?>><label class="form-check-label" for="filterlogentries_exact_match"><?=gettext('Exact match only')?></label></div>
+		</div>
+		<div class="sf-advbuttons">
+			<button type="submit" class="btn btn-sm btn-primary" name="filterlogentries_submit" id="filterlogentries_submit" value="Apply Filter"><i class="fa-solid fa-filter icon-embed-btn" aria-hidden="true"></i><?=gettext('Apply filter')?></button>
+			<button type="submit" class="btn btn-sm btn-outline-secondary no-confirm" name="filterlogentries_clear" id="filterlogentries_clear" value="Clear Filter"><?=gettext('Clear filter')?></button>
+		</div>
+	</div>
+	<div class="panel-body table-responsive">
+		<table class="table table-hover" data-sortable>
+			<thead>
+				<tr>
+					<th data-sortable-type="alpha"><?=gettext("Time")?></th>
+					<th data-fs-search><?=gettext("File")?></th>
+					<th data-fs-search><?=gettext("Application")?></th>
+					<th data-fs-search><?=gettext("Source")?></th>
+					<th data-fs-search><?=gettext("Destination")?></th>
+					<th data-fs-search><?=gettext("Protocol")?></th>
+					<th class="fs-col-actions"><span class="visually-hidden"><?=gettext('Actions')?></span></th>
+				</tr>
+			</thead>
+			<tbody>
+<?php foreach ($files as $x):
+	$f = $x['f'];
+	$name = (string)$f['fileinfo']['filename'];
+	$check = '/suricata/suricata_filecheck.php?' . http_build_query(array('filehash' => $x['hash'], 'uuid' => $suricata_uuid, 'filename' => $name, 'filesize' => $x['size']), '', '&', PHP_QUERY_RFC3986);
+?>
+				<tr data-fs-filter-app="<?=fs_h(strtolower((string)$f['app_proto']))?>">
+					<td class="fs-mono sf-time" data-value="<?=fs_h($f['timestamp'])?>"><?=fs_h($x['clock'])?><div class="fs-muted small"><?=fs_h($x['date'])?></div></td>
+					<td class="sf-file">
+						<div class="sf-file-name"><?=fs_h($name)?></div>
+						<div class="sf-file-meta">
+							<span class="fs-mono"><?=fs_h($x['size'])?></span>
+<?php if ($x['hash'] !== 'none'): ?>
+							<span class="fs-mono fs-muted sf-hash" title="<?=fs_h($x['hash'])?>"><?=fs_h($x['hash'])?></span>
+<?php endif; ?>
+<?php if ($x['stored']): ?>
+							<span class="fs-chip is-on"><?=gettext('Stored')?></span>
+<?php endif; ?>
+						</div>
+					</td>
+					<td><span class="fs-chip fs-chip--strong"><?=fs_h(strtoupper((string)$f['app_proto']))?></span></td>
+					<td><?=$sf_host($x, 'src')?></td>
+					<td><?=$sf_host($x, 'dst')?></td>
+					<td class="fs-mono"><?=fs_h($f['proto'])?></td>
+					<td class="fs-col-actions"><div class="fs-actions">
+						<a class="fs-action" href="<?=fs_h($check)?>" target="_blank" rel="noopener" title="<?=fs_h(sprintf(gettext('Check %s'), $name))?>" aria-label="<?=fs_h(sprintf(gettext('Check %s'), $name))?>"><i class="fa-solid fa-file-shield" aria-hidden="true"></i></a>
+					</div></td>
+				</tr>
+<?php endforeach; ?>
+<?php
+	if (empty($files)) {
+		if (!$have_eve) {
+			fs_empty_row(7, gettext('No file events yet. Enable the EVE JSON log with the File output type on this interface.'));
+		} else {
+			fs_empty_row(7, $is_filtered ? gettext('No files match the advanced filter.') : gettext('No files were logged on this interface.'));
+		}
+	}
+?>
 			</tbody>
 		</table>
+	</div>
+</div>
+</form>
+
+<div class="sf-notes">
+	<span><?=gettext('Needs the EVE JSON log with the File output type and tracked-file checksums. Enable File-Store to keep the files. Supported protocols: HTTP, SMTP, FTP, NFS and SMB.')?></span>
+<?php if ($pconfig['frefresh'] == 'on'): ?>
+	<span><?=gettext('The page refreshes every 60 seconds.')?></span>
+<?php endif; ?>
+</div>
+
+<?php
+fs_modal_form_begin('files-settings', gettext('Files view settings'), '/suricata/suricata_files.php', array('instance' => $instanceid));
+?>
+	<div class="mb-3 form-check">
+		<input class="form-check-input" type="checkbox" name="frefresh" id="frefresh" value="on"<?=($pconfig['frefresh'] == 'on') ? ' checked' : ''?>>
+		<label class="form-check-label" for="frefresh"><?=gettext('Refresh the page every 60 seconds')?></label>
+	</div>
+	<div class="mb-1">
+		<label class="form-label" for="filenumber"><?=gettext('Files to show')?></label>
+		<input class="form-control" type="number" min="1" name="filenumber" id="filenumber" value="<?=fs_h($fnentries)?>">
+		<div class="form-text"><?=gettext('Number of most recent file events to read. Default is 250.')?></div>
+	</div>
+<?php
+fs_modal_form_end(gettext('Save'), 'save', 'Save', 'fa-floppy-disk');
+?>
+
+<div class="modal fade" id="sf-lookup" tabindex="-1" aria-labelledby="sf-lookup-title" aria-hidden="true">
+	<div class="modal-dialog modal-dialog-centered">
+		<div class="modal-content">
+			<div class="modal-header">
+				<h2 class="modal-title" id="sf-lookup-title"><?=gettext('Host lookup')?></h2>
+				<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="<?=gettext('Close')?>"></button>
+			</div>
+			<div class="modal-body sf-lookup">
+				<dl>
+					<dt><?=gettext('Address')?></dt><dd class="fs-mono" id="sf-lookup-ip"></dd>
+					<dt><?=gettext('Reverse DNS')?></dt><dd id="sf-lookup-dns"></dd>
+					<dt><?=gettext('GeoIP')?></dt><dd id="sf-lookup-geo"></dd>
+				</dl>
+			</div>
+			<div class="modal-footer">
+				<button type="button" class="btn btn-primary" data-bs-dismiss="modal"><?=gettext('Close')?></button>
+			</div>
+		</div>
 	</div>
 </div>
 
 <script type="text/javascript">
 //<![CDATA[
-function enable_showFilter() {
-	document.getElementById("filter_enable_row").style.display="none";
-	document.getElementById("filter_options_row").style.display="table-row";
-}
-
-function enable_hideFilter() {
-	document.getElementById("filter_enable_row").style.display="table-row";
-	document.getElementById("filter_options_row").style.display="none";
-}
-
-</script>
-
-<!-- The following AJAX code was borrowed from the diag_logs_filter.php -->
-<!-- file in FreeSense.  See copyright info at top of this page.          -->
-<script type="text/javascript">
-//<![CDATA[
-
-function resolve_with_ajax(ip_to_resolve) {
-	var url = "/suricata/suricata_files.php";
-
-	$.ajax(
-		url,
-		{
-			type: 'post',
-			dataType: 'json',
-			data: {
-				resolve: ip_to_resolve,
-			      },
-			complete: resolve_ip_callback
-		});
-}
-
-function resolve_ip_callback(transport) {
-	var response = JSON.parse(transport.responseText);
-	var msg = 'IP address "' + response.resolve_ip + '" resolves to\n';
-	alert(msg + 'host "' + htmlspecialchars(response.resolve_text) + '"');
-}
-
-function geoip_with_ajax(ip_to_check) {
-	var url = "/suricata/suricata_files.php";
-
-	$.ajax(
-		url,
-		{
-			type: 'post',
-			dataType: 'json',
-			data: {
-				geoip: ip_to_check,
-			      },
-			complete: geoip_callback
-		});
-}
-
-function geoip_callback(transport) {
-	var response = JSON.parse(transport.responseText);
-	alert(htmlspecialchars(response.geoip_text));
-}
-
-// From http://stackoverflow.com/questions/5499078/fastest-method-to-escape-html-tags-as-html-entities
-function htmlspecialchars(str) {
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
-}
-
 events.push(function() {
+	var page = "/suricata/suricata_files.php";
+	var loading = <?=json_encode(gettext('Loading…'))?>;
 
-	//-- Click handlers ------------------------------------------------------
+	function parse(req) {
+		try { return JSON.parse(req.responseText); } catch (e) { return {}; }
+	}
+
+	// Pick another interface: post the form so an active filter is kept
 	$('#instance').on('change', function() {
-		$('#formfile').submit();
+		document.getElementById('formfile').submit();
 	});
 
-});
+	// Remove block: the confirmed click fills the hidden fields, then the form posts
+	document.addEventListener('click', function(e) {
+		var btn = e.target.closest('button[data-sf-ip]');
+		if (!btn || e.defaultPrevented) {
+			return;
+		}
+		$('#ip').val(btn.getAttribute('data-sf-ip'));
+		$('#mode').val('unblock');
+	});
 
+	// Host lookup: reverse DNS, and GeoIP for public addresses
+	document.addEventListener('click', function(e) {
+		var btn = e.target.closest('[data-sf-lookup]');
+		if (!btn) {
+			return;
+		}
+		var ip = btn.getAttribute('data-sf-lookup');
+		$('#sf-lookup-ip').text(ip);
+		$('#sf-lookup-dns').text(loading);
+		bootstrap.Modal.getOrCreateInstance(document.getElementById('sf-lookup')).show();
+		$.ajax(page, {type: 'post', dataType: 'json', data: {resolve: ip}, complete: function(req) {
+			$('#sf-lookup-dns').text(parse(req).resolve_text || <?=json_encode(gettext('Cannot resolve'))?>);
+		}});
+		if (btn.getAttribute('data-sf-geo') === '1') {
+			$('#sf-lookup-geo').text(loading);
+			$.ajax(page, {type: 'post', dataType: 'json', data: {geoip: ip}, complete: function(req) {
+				$('#sf-lookup-geo').text(parse(req).geoip_text || <?=json_encode(gettext('Not available'))?>);
+			}});
+		} else {
+			$('#sf-lookup-geo').text(<?=json_encode(gettext('Private address'))?>);
+		}
+	});
+});
 //]]>
 </script>
 <?php
 include("foot.inc");
 ?>
-
