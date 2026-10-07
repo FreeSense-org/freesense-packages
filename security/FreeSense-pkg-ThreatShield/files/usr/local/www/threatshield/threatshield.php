@@ -97,6 +97,7 @@ $switch = function ($name, $title, $description) use ($on) {
 /* one checkbox per interface, posted as name[] = interface key */
 $iface_group = function ($title, $name, array $selected, $with_all = false) use ($assigned_interfaces) {
 	$group = new Form_MultiCheckboxGroup($title);
+	$group->addClass('notoggleall');
 	$choices = $with_all ? ['all' => gettext('All assigned addresses')] + $assigned_interfaces : $assigned_interfaces;
 	foreach ($choices as $key => $label) {
 		$box = new Form_MultiCheckbox($name . '[]', null, $label, in_array((string)$key, $selected, true), (string)$key);
@@ -119,7 +120,7 @@ $section->addInput(new Form_Select('dns_coordination_mode', 'DNS mode', $ts_conf
 ]))->setHelp('Primary and proxy mode keep local DHCP host names and domain overrides of the DNS Resolver working.');
 $section->addInput(new Form_Input('listen_port', 'DNS port', 'number', (string)$ts_config['listen_port'], ['min' => 1, 'max' => 65535]))
 	->setHelp('Port 53 is standard DNS. Change it only for custom proxy setups; primary mode requires 53.');
-$section->add($iface_group('Listen on', 'interfaces', array_map('strval', threatshield_normalize_list($ts_config['interfaces']))))
+$section->add($iface_group('Listen on', 'interfaces', array_map('strval', threatshield_normalize_list($ts_config['interfaces'])), true))
 	->setHelp('Pick interfaces to avoid exposing DNS on every address. Proxy mode always listens on loopback only.');
 $section->addInput(new Form_Input('http_port', 'Management API port', 'number', (string)$ts_config['http_port'], ['min' => 1, 'max' => 65535]))
 	->setHelp('Bound to loopback only; used by this page and the feed updater.');

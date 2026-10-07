@@ -42,8 +42,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 	}
 }
 
-$pgtitle = [gettext('Services'), gettext('Threat Shield'), gettext('DNS Rewrites')];
-$pglinks = ['', '@self', '@self'];
+$rewrites = threatshield_normalize_list($ts_config['rewrites'] ?? []);
+/* answer type for the badge column */
+$answer_type = function ($answer) {
+	if (filter_var($answer, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) return 'A';
+	if (filter_var($answer, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) return 'AAAA';
+	return 'CNAME';
+};
+
+$pgtitle = [gettext('Services'), gettext('Threat Shield'), gettext('Rewrites')];
+$pglinks = ['', '/threatshield/threatshield_status.php', '@self'];
+
+fs_page_action(gettext('Add rewrite'), '#', 'fa-plus', 'primary', ['data-fs-modal' => '#rewrite-add']);
 
 include('head.inc');
 
@@ -57,72 +67,76 @@ if ($savemsg) {
 threatshield_display_tabs('rewrites');
 ?>
 
-<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
-	<div>
-		<h2 class="h3 mb-1"><i class="fa-solid fa-arrow-right-arrow-left text-primary me-2"></i><?=gettext('Local DNS Rewrites & Host Overrides')?></h2>
-		<p class="text-muted mb-0"><?=gettext('Configure authoritative local host mappings, wildcards, and CNAME/A/AAAA aliases.')?></p>
+<div class="panel panel-default fs-table">
+<?php fs_table_toolbar([
+	'title' => gettext('DNS rewrites'),
+	'search' => gettext('Search rewrites…'),
+	'noun' => gettext('rewrites'),
+	'noun_one' => gettext('rewrite'),
+	'filters' => ['type' => [gettext('All types'), 'A' => 'A (IPv4)', 'AAAA' => 'AAAA (IPv6)', 'CNAME' => gettext('CNAME (host name)')]],
+]); ?>
+	<div class="panel-body table-responsive">
+		<table class="table table-hover" data-sortable>
+			<thead>
+				<tr>
+					<th data-fs-search><?=gettext('Domain')?></th>
+					<th><?=gettext('Type')?></th>
+					<th data-fs-search><?=gettext('Answer')?></th>
+					<th class="fs-col-actions" data-sortable="false"><span class="visually-hidden"><?=gettext('Actions')?></span></th>
+				</tr>
+			</thead>
+			<tbody>
+<?php
+foreach ($rewrites as $idx => $rw):
+	$domain = (string)($rw['domain'] ?? '');
+	$answer = (string)($rw['answer'] ?? '');
+	$type = $answer_type($answer);
+?>
+				<tr data-fs-filter-type="<?=$type?>">
+					<td class="fs-mono">
+						<?=htmlspecialchars($domain)?>
+<?php	if (strncmp($domain, '*.', 2) === 0): ?>
+						<?=fs_badge('info', gettext('Wildcard'))?>
+<?php	endif; ?>
+					</td>
+					<td><span class="fs-chip fs-chip--mono fs-chip--strong"><?=$type?></span></td>
+					<td class="fs-mono"><?=htmlspecialchars($answer)?></td>
+					<td class="fs-col-actions"><?=fs_row_actions([
+						['delete', 'threatshield_rewrites.php?delete_rewrite=' . (int)$idx, $domain, ['thing' => gettext('rewrite')]],
+					])?></td>
+				</tr>
+<?php
+endforeach;
+if (empty($rewrites)) {
+	fs_empty_row(4, gettext('No DNS rewrites yet.'));
+}
+?>
+			</tbody>
+		</table>
+	</div>
+	<div class="panel-footer small fs-muted">
+		<i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+		<?=gettext('Threat Shield answers these names itself. *.example.lan matches every subdomain; an IP address answers A/AAAA, a host name answers as an alias (CNAME).')?>
 	</div>
 </div>
 
-<div class="card shadow-sm mb-3">
-	<div class="card-header">
-		<h2 class="h5 mb-0"><i class="fa-solid fa-table-list text-primary me-2"></i><?=gettext('Configured DNS Rewrites')?></h2>
+<?php
+fs_modal_form_begin('rewrite-add', gettext('Add DNS rewrite'), 'threatshield_rewrites.php', [], ($input_errors && isset($_POST['add_rewrite']))
+    ? ['domain' => (string)($_POST['domain'] ?? ''), 'answer' => (string)($_POST['answer'] ?? '')]
+    : null);
+?>
+	<div class="mb-3">
+		<label class="form-label" for="domain"><?=gettext('Domain')?></label>
+		<input type="text" class="form-control fs-mono" id="domain" name="domain" placeholder="nas.home.arpa, *.internal.lan" required>
+		<div class="form-text"><?=gettext('A host name, or *.domain for all its subdomains.')?></div>
 	</div>
-	<div class="card-body p-0">
-		<div class="table-responsive">
-			<table class="table table-striped table-hover align-middle mb-0">
-				<thead>
-					<tr>
-						<th><?=gettext('Domain / Hostname Pattern')?></th>
-						<th><?=gettext('Rewrite Target (IPv4, IPv6, or Canonical Host)')?></th>
-						<th class="text-end"><?=gettext('Actions')?></th>
-					</tr>
-				</thead>
-				<tbody>
-					<?php if (empty($ts_config['rewrites'])): ?>
-						<tr><td colspan="3" class="text-center text-muted py-3"><?=gettext('No custom DNS rewrites configured.')?></td></tr>
-					<?php else: ?>
-						<?php foreach ($ts_config['rewrites'] as $idx => $rw): ?>
-							<tr>
-								<td class="font-monospace fw-semibold"><?=htmlspecialchars((string)$rw['domain'])?></td>
-								<td class="font-monospace text-primary"><?=htmlspecialchars((string)$rw['answer'])?></td>
-								<td class="text-end">
-									<form method="post" class="d-inline">
-										<button type="submit" name="delete_rewrite" value="<?=$idx?>" class="btn btn-sm btn-outline-danger" onclick="return confirm('<?=gettext('Delete this rewrite?')?>');" title="<?=gettext('Delete Rewrite')?>">
-											<i class="fa-solid fa-trash"></i> <?=gettext('Delete')?>
-										</button>
-									</form>
-								</td>
-							</tr>
-						<?php endforeach; ?>
-					<?php endif; ?>
-				</tbody>
-			</table>
-		</div>
+	<div class="mb-3">
+		<label class="form-label" for="answer"><?=gettext('Answer')?></label>
+		<input type="text" class="form-control fs-mono" id="answer" name="answer" placeholder="192.168.1.50, router.local" required>
+		<div class="form-text"><?=gettext('An IPv4 or IPv6 address, or another host name.')?></div>
 	</div>
-</div>
-
-<div class="card shadow-sm mb-4">
-	<div class="card-header">
-		<h2 class="h5 mb-0"><i class="fa-solid fa-plus text-primary me-2"></i><?=gettext('Add New DNS Rewrite')?></h2>
-	</div>
-	<div class="card-body">
-		<form method="post" action="threatshield_rewrites.php" class="row g-3">
-			<div class="col-md-5">
-				<label class="form-label fw-semibold"><?=gettext('Domain Name / FQDN')?></label>
-				<input type="text" name="domain" class="form-control font-monospace" placeholder="e.g., nas.home.arpa or *.internal.lan" required>
-			</div>
-			<div class="col-md-5">
-				<label class="form-label fw-semibold"><?=gettext('Target IP Address or Hostname')?></label>
-				<input type="text" name="answer" class="form-control font-monospace" placeholder="e.g., 192.168.1.50 or router.local" required>
-			</div>
-			<div class="col-md-2 d-flex align-items-end">
-				<button type="submit" name="add_rewrite" value="1" class="btn btn-success w-100">
-					<i class="fa-solid fa-plus me-1"></i> <?=gettext('Add Rewrite')?>
-				</button>
-			</div>
-		</form>
-	</div>
-</div>
+<?php
+fs_modal_form_end(gettext('Add rewrite'), 'add_rewrite', '1', 'fa-plus');
+?>
 
 <?php include('foot.inc'); ?>
