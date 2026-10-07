@@ -180,6 +180,7 @@ if (isset($_POST['save'])) {
 	if (empty($input_errors)) {
 		config_set_path('installedpackages/vpn_openvpn_export', $package_config);
 		write_config("Save openvpn client export defaults");
+		$savemsg = gettext("The client export defaults have been saved.");
 	}
 }
 

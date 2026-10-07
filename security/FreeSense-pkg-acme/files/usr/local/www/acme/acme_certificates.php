@@ -91,8 +91,10 @@ if ($_POST) {
 	} else {
 		/* a hidden move_<name> submit button moves the checked entries before <name> */
 		unset($movebtn);
+		/* the target name comes from the button value: PHP turns "." and spaces in
+		 * POST field names into "_", so the field name itself is not usable */
 		foreach ($_POST as $pn => $pd) {
-			if (preg_match("/move_(.+)/", $pn, $matches)) {
+			if ((strpos($pn, 'move_') === 0) && is_string($pd) && (strpos($pd, 'move_') === 0)) {
 				$movebtn = substr($pd, 5);
 			}
 		}

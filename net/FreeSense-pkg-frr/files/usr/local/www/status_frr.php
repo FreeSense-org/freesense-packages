@@ -41,31 +41,66 @@ function defCmdT($idx, $title, $command, $has_filter = false, $header_size = 0, 
 		'open' => $open);
 }
 
-function doCmdT($command, $limit = "all", $filter = "", $header_size = 0) {
-	$grepline = "";
-	$headline = "";
-	if (!empty($filter) && ($filter != "undefined")) {
-		$ini = ($header_size > 0 ? $header_size+1 : 1);
-		$grepline = " | /usr/bin/sed -e '{$ini},\$ { /" . escapeshellarg(htmlspecialchars($filter)) . "/!d; };'";
-	}
-	if (is_numeric($limit) && $limit > 0) {
-		$limit += $header_size;
-		$headline = " | /usr/bin/head -n " . escapeshellarg($limit);
-	}
-
-	$fd = popen("{$command}{$grepline}{$headline} 2>&1", "r");
-	$ct = 0;
-	$result = "";
-	while (($line = fgets($fd)) !== FALSE) {
-		$result .= htmlspecialchars($line, ENT_NOQUOTES);
-		if ($ct++ > 1000) {
-			ob_flush();
-			$ct = 0;
+/*
+ * Number of header lines at the top of a command's output. Route tables open
+ * with a legend whose length depends on the FRR version (5 lines for zebra up
+ * to FRR 8, about 9 in FRR 10; BGP grew too), so for those ($header_size > 1)
+ * the header runs to the first blank line plus a following title line
+ * ("IPv4 unicast VRF default:") or column heading ("Network  Next Hop ...").
+ * Without a blank line near the top the defined size is used.
+ */
+function frr_header_lines(array $lines, $header_size) {
+	$header_size = max(0, (int)$header_size);
+	if ($header_size > 1) {
+		$top = min(count($lines), 25);
+		for ($i = 0; $i < $top; $i++) {
+			if (trim($lines[$i]) === '') {
+				$n = $i + 1;
+				while (($n < count($lines)) && (trim($lines[$n]) !== '') &&
+				    (preg_match('/:\s*$/', $lines[$n]) || preg_match('/^\s*Network\s+Next Hop/', $lines[$n]))) {
+					$n++;
+				}
+				return $n;
+			}
 		}
 	}
-	pclose($fd);
+	return min($header_size, count($lines));
+}
 
-	return $result;
+/*
+ * Run a (fixed, page-defined) status command and return its output, escaped.
+ * The filter and limit are applied here in PHP, never passed to a shell: the
+ * filter is a plain text match (any characters, "/" included) on the lines
+ * after the header, the limit counts the lines after the header.
+ */
+function doCmdT($command, $limit = "all", $filter = "", $header_size = 0) {
+	$output = [];
+	$fd = popen("{$command} 2>&1", "r");
+	if ($fd !== false) {
+		while (($line = fgets($fd)) !== false) {
+			$output[] = $line;
+		}
+		pclose($fd);
+	}
+
+	$filter = (string)$filter;
+	$use_filter = ($filter !== '') && ($filter !== 'undefined');
+	$use_limit = is_numeric($limit) && ($limit > 0);
+	if ($use_filter || $use_limit) {
+		$hdr = frr_header_lines($output, $header_size);
+		$body = array_slice($output, $hdr);
+		if ($use_filter) {
+			$body = array_values(array_filter($body, function ($line) use ($filter) {
+				return strpos($line, $filter) !== false;
+			}));
+		}
+		if ($use_limit) {
+			$body = array_slice($body, 0, (int)$limit);
+		}
+		$output = array_merge(array_slice($output, 0, $hdr), $body);
+	}
+
+	return htmlspecialchars(implode('', $output), ENT_NOQUOTES);
 }
 
 function countCmdT($command) {

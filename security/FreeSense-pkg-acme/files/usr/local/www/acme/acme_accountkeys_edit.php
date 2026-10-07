@@ -146,7 +146,7 @@ if ($_POST) {
 				$certificates_changed = true;
 			}
 		}
-		if ($certificates_changed) {
+		if ($certificates_changed && !isset($input_errors)) {
 			config_set_path('installedpackages/acme/certificates/item', $configured_certificates);
 		}
 	}
@@ -161,12 +161,14 @@ if ($_POST) {
 		update_if_changed($stat, $accountkey[$stat], $_POST[$stat]);
 	}
 
-	if (isset($id) && config_get_path("installedpackages/acme/accountkeys/item/{$id}")) {
-		config_set_path("installedpackages/acme/accountkeys/item/{$id}", $accountkey);
-	} else {
-		config_set_path('installedpackages/acme/accountkeys/item/', $accountkey);
-	}
 	if (!isset($input_errors)) {
+		/* only a valid entry reaches the config: a failed save leaves it (and the
+		 * page's view of the stored entry) untouched */
+		if (isset($id) && config_get_path("installedpackages/acme/accountkeys/item/{$id}")) {
+			config_set_path("installedpackages/acme/accountkeys/item/{$id}", $accountkey);
+		} else {
+			config_set_path('installedpackages/acme/accountkeys/item/', $accountkey);
+		}
 		if ($changecount > 0) {
 			write_config($changedesc);
 		}
@@ -237,6 +239,10 @@ fs_summary_card([
 $counter=0;
 
 $form = new \Form;
+/* posted with the form; the stored name identifies the entry (get_accountkey_id) */
+if ($saved && !$is_copy) {
+	$form->addGlobal(new \Form_Input('id', null, 'hidden', $saved['name']));
+}
 
 $section = new \Form_Section(gettext('Account'));
 $section->addInput(new \Form_Input(
