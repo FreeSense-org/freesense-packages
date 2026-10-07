@@ -1,6 +1,6 @@
 PORTNAME=	FreeSense-pkg-Automation
 PORTVERSION=	1.0.0
-PORTREVISION=	2
+PORTREVISION=	3
 CATEGORIES=	sysutils
 MASTER_SITES=	# empty
 DISTFILES=	# empty
