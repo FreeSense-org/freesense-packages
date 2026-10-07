@@ -139,7 +139,7 @@ function echo_html_select($name, $keyvaluelist, $selected, $listEmptyMessage="",
 		if ($style != "") {
 			$style = " style='$style'";
 		}
-		$result .= "<select name=\"$name\" id=\"$name\" class=\"formselect\"$onchangeEvent$style>";
+		$result .= "<select name=\"$name\" id=\"$name\" class=\"formselect form-select form-select-sm\"$onchangeEvent$style>";
 		$result .= html_select_options($keyvaluelist, $selected);
 		$result .= "</select>";
 	} else {
