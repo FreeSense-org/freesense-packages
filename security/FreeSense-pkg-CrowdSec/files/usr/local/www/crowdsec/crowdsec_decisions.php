@@ -24,7 +24,7 @@ include('head.inc');
 if ($input_errors) print_input_errors($input_errors);
 if ($savemsg) print_info_box($savemsg, 'success');
 $tabs=[[gettext('Overview'),false,'/crowdsec/crowdsec.php'],[gettext('Decisions'),true,'/crowdsec/crowdsec_decisions.php']]; display_top_tabs($tabs);
-if(!$running) print_info_box(gettext('CrowdSec is not running, so no decisions can be shown.'),'warning',false); elseif($failed) print_info_box(gettext('Could not read the CrowdSec decisions.'),'danger',false);
+if(!$running) print_callout(gettext('CrowdSec is not running, so no decisions can be shown.'),'warning'); elseif($failed) print_callout(gettext('Could not read the CrowdSec decisions.'),'danger');
 ?>
 
 <div class="fs-tiles">

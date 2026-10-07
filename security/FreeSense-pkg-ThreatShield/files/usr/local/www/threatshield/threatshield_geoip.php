@@ -235,6 +235,7 @@ print($form);
 
 <style>
 .ts-countries .fs-toolbar-default { flex-wrap: wrap; }
+.ts-countries > .panel-body { padding: var(--fs-sp-3) var(--fs-sp-4) var(--fs-sp-4); }
 .ts-countries .form-select { width: auto; }
 .ts-only-selected { display: inline-flex; align-items: center; gap: .4rem; margin: 0; white-space: nowrap; font-size: var(--fs-fs-sm); }
 .ts-only-selected .form-check-input { float: none; margin: 0; }

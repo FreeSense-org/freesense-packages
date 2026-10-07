@@ -148,7 +148,7 @@ if (empty($profiles)) {
 <form method="post" action="threatshield_clients.php" id="ts-services-form">
 <div class="panel panel-default">
 	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Blocked services for the whole network')?> <span class="fs-count" id="ts-svc-count"><?=count(array_intersect_key($blocked_set, $services_catalog))?></span></h2></div>
-	<div class="panel-body">
+	<div class="panel-body ts-services-body">
 		<p class="fs-muted"><?=gettext('Turn on a service to block its domains and content networks for every client without a profile.')?></p>
 		<div class="ts-services">
 <?php foreach ($services_catalog as $key => $info): ?>
@@ -252,6 +252,7 @@ fs_modal_form_end(gettext('Add profile'), 'add_profile', '1', 'fa-plus');
 ?>
 
 <style>
+.ts-services-body { padding: var(--fs-sp-3) var(--fs-sp-4) var(--fs-sp-4); }
 .ts-services { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: var(--fs-sp-2); }
 .ts-service { display: flex; align-items: center; gap: var(--fs-sp-3); margin: 0; padding: var(--fs-sp-2) var(--fs-sp-3);
 	border: 1px solid var(--fs-border); border-radius: var(--fs-r-md); cursor: pointer; font-weight: 400; }

@@ -112,7 +112,6 @@ fs_tile(gettext('Last download'), threatshield_age($last_update), null, ($last_u
 				<tr>
 					<th class="ts-col-switch"><?=gettext('On')?></th>
 					<th data-fs-search><?=gettext('Name')?></th>
-					<th data-fs-search><?=gettext('Category')?></th>
 					<th data-fs-search><?=gettext('Source')?></th>
 					<th><?=gettext('Cached copy')?></th>
 					<th class="fs-col-actions"><span class="visually-hidden"><?=gettext('Actions')?></span></th>
@@ -135,8 +134,7 @@ foreach ($feeds as $idx => $f):
 							    aria-label="<?=htmlspecialchars(sprintf(gettext('Use %s'), $name))?>">
 						</div>
 					</td>
-					<td><strong><?=htmlspecialchars($name)?></strong></td>
-					<td><span class="fs-chip"><?=htmlspecialchars($category)?></span></td>
+					<td class="ts-name"><strong><?=htmlspecialchars($name)?></strong> <span class="fs-chip"><?=htmlspecialchars($category)?></span></td>
 					<td class="fs-mono small ts-url"><?=htmlspecialchars($url)?></td>
 					<td class="ts-nowrap">
 <?php	if ($cached): ?>
@@ -156,7 +154,7 @@ foreach ($feeds as $idx => $f):
 <?php
 endforeach;
 if (empty($feeds)) {
-	fs_empty_row(6, gettext('No feeds configured.'));
+	fs_empty_row(5, gettext('No feeds configured.'));
 }
 ?>
 			</tbody>
@@ -221,6 +219,8 @@ fs_modal_form_end(gettext('Add feed'), 'add_feed', '1', 'fa-plus');
 <style>
 .ts-feeds .ts-col-switch { width: 3.5rem; }
 .ts-feeds .ts-col-switch .form-check { margin: 0; min-height: 0; }
+.ts-feeds .ts-name { min-width: 11rem; }
+.ts-feeds .ts-name .fs-chip { margin-left: var(--fs-sp-1); }
 .ts-feeds .ts-url { word-break: break-all; min-width: 14rem; }
 .ts-feeds .ts-nowrap { white-space: nowrap; }
 .ts-interval { max-width: 24rem; }
