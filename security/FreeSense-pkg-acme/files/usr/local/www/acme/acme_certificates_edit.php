@@ -269,58 +269,31 @@ if ($_POST) {
 	}
 }
 
-$closehead = false;
-$pgtitle = array("Services", "ACME", "Certificates", "Edit");
+/* the stored entry (or the one being copied) for the page title and summary card */
+$saved = null;
+if (!$isnewitem) {
+	$saved = config_get_path("installedpackages/acme/certificates/item/" . get_certificate_id(isset($_GET['dup']) ? $_GET['dup'] : ($_POST['id'] ?? $_GET['id'])));
+}
+$is_copy = isset($_GET['dup']);
+$a_accountkeys = config_get_path('installedpackages/acme/accountkeys/item', []);
+
+$pgtitle = array(gettext("Services"), gettext("ACME"), gettext("Certificates"));
+$pglinks = array("", "acme_certificates.php", "acme_certificates.php");
+if ($saved && !$is_copy) {
+	$pgtitle[] = htmlspecialchars($saved['name']);
+	$pglinks[] = "";
+	$pgtitle[] = gettext("Edit certificate");
+} else {
+	$pgtitle[] = gettext("Add certificate");
+}
+$pglinks[] = "@self";
 include("head.inc");
 display_top_tabs_active($acme_tab_array['acme'], "certificates");
-
-?>
-<script type="text/javascript">
-	function clearcombo(){
-		for (var i=document.iform.serversSelect.options.length-1; i>=0; i--){
-			document.iform.serversSelect.options[i] = null;
-		}
-		document.iform.serversSelect.selectedIndex = -1;
-	}
-
-	function setCSSdisplay(cssID, display)
-	{
-		var ss = document.styleSheets;
-		for (var i=0; i<ss.length; i++) {
-			var rules = ss[i].cssRules || ss[i].rules;
-			for (var j=0; j<rules.length; j++) {
-				if (rules[j].selectorText === cssID) {
-					rules[j].style.display = display ? "" : "none";
-				}
-			}
-		}
-	}
-	function toggleCSSdisplay(cssID)
-	{
-		var ss = document.styleSheets;
-		for (var i=0; i<ss.length; i++) {
-			var rules = ss[i].cssRules || ss[i].rules;
-			for (var j=0; j<rules.length; j++) {
-				if (rules[j].selectorText === cssID) {
-					rules[j].style.display = rules[j].style.display === "none" ? "" : "none";
-				}
-			}
-		}
-	}
-
-	function updatevisibility()
-	{
-		d = document;
-		// IE needs components found into javascript variables
-	}
-</script>
-</head>
-<?php
 
 /* Ensure the ACME server on the ACME Account is valid, warn if not. */
 if (!empty($pconfig['acmeaccount'])) {
 	$acmeserver = "";
-	foreach (config_get_path('installedpackages/acme/accountkeys/item', []) as $accountkey) {
+	foreach ($a_accountkeys as $accountkey) {
 		if (empty($accountkey) ||
 		    !is_array($accountkey)) {
 			continue;
@@ -342,152 +315,212 @@ if (isset($input_errors)) {
 	print_input_errors($input_errors);
 }
 
+/* Summary card: saved values only */
+$summary_domains = [];
+$summary_methods = [];
+foreach (($saved['a_domainlist']['item'] ?? []) as $domain) {
+	if (is_array($domain) && (($domain['status'] ?? '') != 'disable') && !empty($domain['name'])) {
+		$summary_domains[] = $domain['name'];
+		$m = $domain['method'] ?? '';
+		$summary_methods[$m] = $acme_domain_validation_method[$m]['name'] ?? $m;
+	}
+}
+$summary_expires = '';
+$summary_badges = [];
+if (!$saved || $is_copy) {
+	$summary_badges[] = fs_badge('info', $is_copy ? gettext('Copy, not saved yet') : gettext('New'));
+} else {
+	$summary_badges[] = (($saved['status'] ?? '') == 'active') ? fs_badge('enabled', gettext('Active')) : fs_badge('disabled');
+	$issued = lookup_cert_by_name($saved['name'])['item'] ?? null;
+	if (!empty($issued['crt'])) {
+		$details = openssl_x509_parse(base64_decode($issued['crt']));
+		if (!empty($details['validTo_time_t'])) {
+			$summary_expires = date('Y-m-d', $details['validTo_time_t']);
+			if ($details['validTo_time_t'] < time()) {
+				$summary_badges[] = fs_badge('expired');
+			} elseif ($details['validTo_time_t'] < time() + 30 * 86400) {
+				$summary_badges[] = fs_badge('warn', gettext('Expires soon'));
+			}
+		}
+	}
+}
+$summary_account = $saved['acmeaccount'] ?? '';
+$summary_server = '';
+foreach ($a_accountkeys as $accountkey) {
+	if (is_array($accountkey) && ($accountkey['name'] ?? '') === $summary_account) {
+		$summary_server = trim(preg_replace('/\s*\(.*$/', '', $a_acmeserver[$accountkey['acmeserver']]['name'] ?? $accountkey['acmeserver']));
+	}
+}
+$summary_more = count($summary_domains) > 4 ? [sprintf('+%d', count($summary_domains) - 4)] : [];
+fs_summary_card([
+	'icon' => 'fa-certificate',
+	'title' => ($saved && !$is_copy) ? $saved['name'] : ($pconfig['name'] ?? ''),
+	'placeholder' => gettext('New certificate'),
+	'subtitle' => $saved['descr'] ?? '',
+	'badges' => $summary_badges,
+	'label' => gettext('Certificate summary'),
+	'facts' => [
+		[gettext('Domains'), '', 'chips' => array_merge(array_slice($summary_domains, 0, 4), $summary_more), 'empty' => gettext('None yet'),
+		    'note' => implode(', ', $summary_methods)],
+		[gettext('Account key'), $summary_account, 'href' => $summary_account ? 'acme_accountkeys_edit.php?id=' . urlencode($summary_account) : null,
+		    'note' => $summary_server, 'empty' => gettext('Not set')],
+		[gettext('Expires'), $summary_expires, 'empty' => gettext('Not issued')],
+		[gettext('Last renewal'), !empty($saved['lastrenewal']) ? cert_format_date('', $saved['lastrenewal'], true) : '', 'empty' => gettext('Never')],
+	],
+]);
+
 $counter=0;
 
-$form = new \Form;
-
-$section = new \Form_Section('General');
-
-$section->addInput(new \Form_Input(
-	'name',
-	'Name',
-	'text',
-	$pconfig['name']
-))->setHelp('Short name for the certificate. ACME will use this name to create or overwrite a Certificate Manager entry when issuing or renewing a certificate.');
-
-$section->addInput(new \Form_Input(
-	'descr',
-	'Description',
-	'text',
-	$pconfig['descr']
-))->setHelp('Longer description of the certificate and its purpose.');
-
-$activedisable = array();
-$activedisable['active'] = "Active";
-$activedisable['disabled'] = "Disabled";
-$section->addInput(new \Form_Select(
-	'status',
-	'Status',
-	$pconfig['status'],
-	$activedisable
-))->setHelp('Determines whether scheduled ACME renewal will act on this certificate.');
-
-$section->addInput(new \Form_Select(
-	'keylength',
-	'Private Key',
-	$pconfig['keylength'],
-	form_keyvalue_array($a_keylength)
-))->setHelp('The type and strength of private key to use with this certificate.');
-
-$section->addInput(new \Form_Textarea(
-	'keypaste',
-	'Custom Private Key',
-	$pconfig['keypaste']
-))->setNoWrap()
-	->setAttribute('placeholder', "-----BEGIN PRIVATE KEY-----\nBASE64-ENCODED DATA\n-----END PRIVATE KEY-----")
-	->setHelp('Paste a private key in X.509 PEM format here.');
-
-$section->addInput(new \Form_StaticText(
-	'Last Renewal',
-	(!empty($pconfig['lastrenewal'])) ? cert_format_date('', $pconfig['lastrenewal'], true) : gettext("Never")
-))->setHelp('The last date and time ACME renewed this certificate.');
-
-$section->addInput(new \Form_Input(
-	'renewafter',
-	'Renewal Threshold',
-	'text', $pconfig['renewafter']
-))->setHelp('Days of remaining lifetime at which ACME will renew the certificate. ' .
-	'Defaults to 2/3 the lifetime or 30 days if the lifetime cannot be determined. ' .
-	'ACME ignores this value if it is longer than the certificate lifetime.');
-
-$form->add($section);
-$section = new \Form_Section('ACME Server / Certificate Authority');
-
-$section->addInput(new \Form_Select(
-	'acmeaccount',
-	'ACME Account Key',
-	$pconfig['acmeaccount'],
-	form_name_array(config_get_path('installedpackages/acme/accountkeys/item', []), true)
-))->setHelp('The %1$sAccount Key%2$s ACME will use to issue this certificate. ' .
-		'This also determines the ACME Server/CA for this certificate.',
-		'<a href="acme_accountkeys.php">', '</a>');
-
-$section->addInput(new \Form_Input(
-	'certprofile',
-	'Certificate Profile',
-	'text',
-	$pconfig['certprofile']
-))->setHelp('If the ACME Server provides multiple profiles, this field selects an alternate %1$scertificate profile%2$s which changes properties of the certificate in various ways. Leave blank to use the default profile for the CA. For example, Let\'s Encrypt %3$soffers%2$s profiles such as: classic (default), shortlived, tlsserver',
-	'<a href="https://github.com/acmesh-official/acme.sh/wiki/Profile-selection">', '</a>',
-	'<a href="https://letsencrypt.org/docs/profiles/">');
-
-$section->addInput(new \Form_Input(
-	'preferredchain',
-	'Preferred Chain',
-	'text',
-	$pconfig['preferredchain']
-))->setHelp('If the ACME Server provides multiple trust chains, this field chooses an alternate %1$spreferred chain%2$s (uses a case-insensitive substring match).',
-	'<a href="https://github.com/acmesh-official/acme.sh/wiki/Preferred-Chain">', '</a>');
-
-$section->addInput(new \Form_Select(
-	'addressfamily',
-	'Use Address Family',
-	$pconfig['addressfamily'],
-	form_keyvalue_array($a_addressfamily)
-))->setHelp('Instructs ACME to use a specific address family when making requests to the ACME server where possible.');
-
-$form->add($section);
-$section = new \Form_Section('Validation');
-
-$section->addInput(new \Form_StaticText(
-	'SAN list',
-	"Subject alternative name (SAN) entries to include in the certificate, and how the ACME server will validate ownership of those entries.<br/>"
-	. $domainslist->Draw($a_domains)
-));
-
-$section->addInput(new \Form_Input(
-	'dnssleep',
-	'DNS Sleep',
-	'number',
-	$pconfig['dnssleep'],
-	['min' => '1', 'max' => '3600']
-))->setHelp('Disables automatic DNS polling for DNS validation methods and configures ' .
-	'a specific amount of time, in seconds, ACME waits before attempting verification after adding TXT records.%1$s' .
-	'The default behavior is to automatically poll public DNS servers for records until ' .
-	'ACME finds them, rather than waiting a set amount of time.', '<br/><br/>');
-
-$form->add($section);
-$section = new \Form_Section('Post-Renew Actions');
-
-$section->addInput(new \Form_StaticText(
-	'Action List',
-	"Actions ACME executes after issuing or renewing a certificate. ' .
-	'For example, to restart a service so it uses the new certificate.<br/><br/>" .
-	"Example Actions:" .
-	"<ul><li>Restart the GUI on this firewall: Select \"Shell Command\" and enter <tt>/etc/rc.restart_webgui</tt></li>" .
-	"<li>Restart HAProxy on this firewall: Select \"Shell Command\" and enter <tt>/usr/local/etc/rc.d/haproxy.sh restart</tt></li>" .
-	"<li>Restart a local captive portal instance: Select \"Restart Local Service\" and enter <tt>captiveportal zonename</tt> replacing <tt>zonename</tt> with the zone to restart.</li>" .
-	"<li>Restart the GUI of an HA peer: Select \"Restart Remote Service\" and enter <tt>webgui</tt>. This utilizes the system default HA XMLRPC Sync Settings.</li></ul>" .
-	$actionslist->Draw($a_actions)
-));
-
-$form->add($section);
-
-if (!is_array(config_get_path('installedpackages/acme/accountkeys/item')) || count(config_get_path('installedpackages/acme/accountkeys/item')) == 0) {
+if (empty($a_accountkeys)) {
+	print_callout(sprintf(gettext('Create and register an %1$saccount key%2$s before adding certificates.'),
+	    '<a href="acme_accountkeys_edit.php">', '</a>'), 'warning', gettext('Account key required'));
+	$form = null;
+} else {
 	$form = new \Form;
-	$section = new \Form_Section('Edit Certificate options');
-	$section->addInput(new \Form_StaticText(
-		'Account Key Required',
-		'Create and register an <a href="acme_accountkeys.php">Account Key</a> before configuring certificates.'
+
+	$section = new \Form_Section(gettext('Certificate'));
+
+	$section->addInput(new \Form_Input(
+		'name',
+		'*Name',
+		'text',
+		$pconfig['name']
+	))->setHelp('Letters, digits, dot, dash and underscore. ACME creates or updates the Certificate Manager entry with this name.');
+
+	$section->addInput(new \Form_Input(
+		'descr',
+		'Description',
+		'text',
+		$pconfig['descr']
 	));
+
+	$activedisable = array();
+	$activedisable['active'] = "Active";
+	$activedisable['disabled'] = "Disabled";
+	$section->addInput(new \Form_Select(
+		'status',
+		'Status',
+		$pconfig['status'],
+		$activedisable
+	))->setHelp('Scheduled renewal only acts on active certificates.');
+
+	$section->addInput(new \Form_Select(
+		'acmeaccount',
+		'ACME account key',
+		$pconfig['acmeaccount'],
+		form_name_array($a_accountkeys, true)
+	))->setHelp('The %1$saccount key%2$s used to issue this certificate. It also sets the ACME server (certificate authority).',
+			'<a href="acme_accountkeys.php">', '</a>');
+
 	$form->add($section);
+	$section = new \Form_Section(gettext('Domains'));
+
+	$section->addInput(new \Form_StaticText(
+		'SAN list',
+		'<span class="form-text help-block">' . gettext('Names (subject alternative names) in the certificate and how the ACME server validates each one. Use the plus icon of a row to show its method settings.') . '</span>'
+		. $domainslist->Draw($a_domains)
+	));
+
+	$form->add($section);
+	$section = new \Form_Section(gettext('Private key and renewal'));
+
+	$section->addInput(new \Form_Select(
+		'keylength',
+		'Private key',
+		$pconfig['keylength'],
+		form_keyvalue_array($a_keylength)
+	))->setHelp('Type and strength of the private key of this certificate.');
+
+	$section->addInput(new \Form_Textarea(
+		'keypaste',
+		'Custom private key',
+		$pconfig['keypaste']
+	))->setNoWrap()
+		->setAttribute('placeholder', "-----BEGIN PRIVATE KEY-----\nBASE64-ENCODED DATA\n-----END PRIVATE KEY-----")
+		->setHelp('Private key in X.509 PEM format.');
+
+	$section->addInput(new \Form_Input(
+		'renewafter',
+		'Renewal threshold',
+		'text', $pconfig['renewafter']
+	))->setHelp('Days of remaining lifetime at which ACME renews the certificate. ' .
+		'Default: 2/3 of the lifetime, or 30 days when the lifetime is unknown. Ignored when longer than the lifetime.');
+
+	$section->addInput(new \Form_StaticText(
+		'Last renewal',
+		(!empty($pconfig['lastrenewal'])) ? cert_format_date('', $pconfig['lastrenewal'], true) : gettext("Never")
+	));
+
+	$form->add($section);
+	$section = new \Form_Section(gettext('Post-renew actions'));
+
+	$section->addInput(new \Form_StaticText(
+		'Action list',
+		'<span class="form-text help-block">' . gettext('Run after a certificate is issued or renewed, for example to restart a service so it uses the new certificate.') . '</span>' .
+		'<details class="fs-acme-examples"><summary>' . gettext('Examples') . '</summary><ul>' .
+		'<li>' . gettext('Restart the GUI of this firewall: Shell Command') . ' <code>/etc/rc.restart_webgui</code></li>' .
+		'<li>' . gettext('Restart HAProxy on this firewall: Shell Command') . ' <code>/usr/local/etc/rc.d/haproxy.sh restart</code></li>' .
+		'<li>' . gettext('Restart a captive portal zone: Restart Local Service') . ' <code>captiveportal zonename</code></li>' .
+		'<li>' . gettext('Restart the GUI of an HA peer (uses the HA XMLRPC sync settings): Restart Remote Service') . ' <code>webgui</code></li>' .
+		'</ul></details>' .
+		$actionslist->Draw($a_actions)
+	));
+
+	$form->add($section);
+
+	$adv_set = !empty($pconfig['certprofile']) || !empty($pconfig['preferredchain']) || !empty($pconfig['dnssleep']) ||
+	    !empty($pconfig['addressfamily']);
+	$section = new \Form_Section(gettext('Advanced'), 'acme-cert-advanced',
+	    COLLAPSIBLE | ((!empty($input_errors) || $adv_set) ? SEC_OPEN : SEC_CLOSED));
+
+	$section->addInput(new \Form_Input(
+		'certprofile',
+		'Certificate profile',
+		'text',
+		$pconfig['certprofile']
+	))->setHelp('Alternate %1$scertificate profile%2$s when the CA offers several. Blank uses the default. Let\'s Encrypt %3$soffers%2$s for example classic (default), shortlived, tlsserver.',
+		'<a href="https://github.com/acmesh-official/acme.sh/wiki/Profile-selection">', '</a>',
+		'<a href="https://letsencrypt.org/docs/profiles/">');
+
+	$section->addInput(new \Form_Input(
+		'preferredchain',
+		'Preferred chain',
+		'text',
+		$pconfig['preferredchain']
+	))->setHelp('Alternate %1$strust chain%2$s when the CA offers several (case-insensitive substring match).',
+		'<a href="https://github.com/acmesh-official/acme.sh/wiki/Preferred-Chain">', '</a>');
+
+	$section->addInput(new \Form_Select(
+		'addressfamily',
+		'Address family',
+		$pconfig['addressfamily'],
+		form_keyvalue_array($a_addressfamily)
+	))->setHelp('Address family to use for requests to the ACME server where possible.');
+
+	$section->addInput(new \Form_Input(
+		'dnssleep',
+		'DNS sleep',
+		'number',
+		$pconfig['dnssleep'],
+		['min' => '1', 'max' => '3600']
+	))->setHelp('Seconds to wait after adding TXT records before validation. ' .
+		'Blank polls public DNS servers until the records are found (recommended).');
+
+	$form->add($section);
+	fs_form_cancel($form, 'acme_certificates.php');
 }
-print $form;
+if ($form) {
+	print $form;
+}
 ?>
+<style>
+.fs-acme-examples { margin: .25rem 0 .5rem; font-size: var(--fs-fs-sm); }
+.fs-acme-examples summary { cursor: pointer; color: var(--fs-text-muted); }
+.fs-acme-examples ul { margin: .4rem 0 0; padding-left: 1.2rem; }
+</style>
 	<?php if (isset($id) && config_get_path("installedpackages/acme/certificates/item/{$id}")): ?>
 	<input name="id" type="hidden" value="<?=$id;?>" />
 	<?php endif; ?>
-<br/>
 <script type="text/javascript">
 <?php
 	phparray_to_javascriptarray($fields_domains_details,"fields_details_domains",Array('/*','/*/name','/*/type'));
@@ -544,13 +577,7 @@ events.push(function() {
 		return true;
 	});
 
-	/*
-	$('#stats_enabled').click(function () {
-		updatevisibility();
-	});
-	*/
 	$('[id^=table_domainsmethod]').change();
-	updatevisibility();
 
 	// Update visibility of Custom Private Key field,
 	// based upon selection in Private Key drop-down

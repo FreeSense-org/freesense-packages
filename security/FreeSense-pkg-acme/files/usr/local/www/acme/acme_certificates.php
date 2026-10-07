@@ -228,9 +228,9 @@ display_top_tabs_active($acme_tab_array['acme'], "certificates");
 <div class="fs-tiles">
 <?php
 	fs_tile(gettext('Certificates'), count($rows), null, $counts['disabled'] ? sprintf(gettext('%d disabled'), $counts['disabled']) : gettext('All renew automatically'));
-	fs_tile(gettext('Issued'), $counts['issued'], $counts['issued'] ? 'pass' : null, gettext('Present in the Certificate Manager'));
-	fs_tile(gettext('Expiring in 30 days'), $counts['expiring'], $counts['expiring'] ? 'warn' : null);
-	fs_tile(gettext('Expired'), $counts['expired'], $counts['expired'] ? 'error' : null);
+	fs_tile(gettext('Issued'), $counts['issued'], null, gettext('Present in the Certificate Manager'));
+	fs_tile(gettext('Expiring soon'), $counts['expiring'], $counts['expiring'] ? 'warn' : null, gettext('Within 30 days'));
+	fs_tile(gettext('Expired'), $counts['expired'], $counts['expired'] ? 'expired' : null);
 ?>
 </div>
 <?php endif; ?>
@@ -332,7 +332,7 @@ display_top_tabs_active($acme_tab_array['acme'], "certificates");
 <?php	if ($row['state'] == 'expired'): ?>
 						<?=fs_badge('expired')?>
 <?php	elseif ($row['state'] == 'expiring'): ?>
-						<?=fs_badge('warn', sprintf(gettext('%d days'), max(0, (int)floor(($row['expires'] - $now) / 86400))))?>
+						<?=fs_badge('warn', sprintf(ngettext('%d day', '%d days', $days_left = max(0, (int)floor(($row['expires'] - $now) / 86400))), $days_left))?>
 <?php	endif; ?>
 <?php endif; ?>
 					</td>

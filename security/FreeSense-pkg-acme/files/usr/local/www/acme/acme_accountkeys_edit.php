@@ -177,14 +177,23 @@ if ($_POST) {
 	}
 }
 
-//$closehead = false;
-$pgtitle = array("Services", "ACME", "Account Keys", "Edit");
+/* the stored key (or the one being copied) for the page title and summary card */
+$is_copy = isset($_GET['dup']);
+$saved = $isnewitem ? null : config_get_path("installedpackages/acme/accountkeys/item/" . get_accountkey_id($is_copy ? $_GET['dup'] : $_REQUEST['id']));
+
+$pgtitle = array(gettext("Services"), gettext("ACME"), gettext("Account keys"));
+$pglinks = array("", "acme_certificates.php", "acme_accountkeys.php");
+if ($saved && !$is_copy) {
+	$pgtitle[] = htmlspecialchars($saved['name']);
+	$pglinks[] = "";
+	$pgtitle[] = gettext("Edit account key");
+} else {
+	$pgtitle[] = gettext("Add account key");
+}
+$pglinks[] = "@self";
 include("head.inc");
 display_top_tabs_active($acme_tab_array['acme'], "accountkeys");
 
-?>
-<!--/head-->
-<?php
 if (!empty($pconfig['acmeserver']) &&
     !array_key_exists($pconfig['acmeserver'], $a_acmeserver)) {
 	$input_errors[] = gettext("The ACME Server stored on this key no longer exists and the " .
@@ -197,237 +206,190 @@ if (isset($input_errors)) {
 	print_input_errors($input_errors);
 }
 
+/* Summary card: saved values only */
+$summary_certs = [];
+if ($saved) {
+	foreach (config_get_path('installedpackages/acme/certificates/item', []) as $certificate) {
+		if (is_array($certificate) && ($certificate['acmeaccount'] ?? '') === $saved['name']) {
+			$summary_certs[] = $certificate['name'];
+		}
+	}
+}
+$summary_server = $saved['acmeserver'] ?? '';
+$summary_sname = $a_acmeserver[$summary_server]['name'] ?? '';
+fs_summary_card([
+	'icon' => 'fa-key',
+	'title' => ($saved && !$is_copy) ? $saved['name'] : ($pconfig['name'] ?? ''),
+	'placeholder' => gettext('New account key'),
+	'subtitle' => $saved['descr'] ?? '',
+	'badges' => (!$saved || $is_copy) ? [fs_badge('info', $is_copy ? gettext('Copy, not saved yet') : gettext('New'))] :
+	    (($summary_server !== '' && $summary_sname === '') ? [fs_badge('warn', gettext('Unknown server'))] : []),
+	'label' => gettext('Account key summary'),
+	'facts' => [
+		[gettext('ACME server'), trim(preg_replace('/\s*\(.*$/', '', $summary_sname)) ?: $summary_server, 'note' => $summary_sname ? $summary_server : '', 'empty' => gettext('Not set')],
+		[gettext('E-mail'), $saved['email'] ?? '', 'empty' => gettext('Not set')],
+		[gettext('External account binding'), !empty($saved['eabkid']) ? gettext('Configured') : '', 'empty' => gettext('Not used')],
+		[gettext('Used by'), '', 'chips' => array_slice($summary_certs, 0, 4), 'empty' => gettext('No certificates'),
+		    'note' => (count($summary_certs) > 4) ? sprintf(gettext('and %d more'), count($summary_certs) - 4) : ''],
+	],
+]);
+
 $counter=0;
 
 $form = new \Form;
 
-$section = new \Form_Section('Identification');
+$section = new \Form_Section(gettext('Account'));
 $section->addInput(new \Form_Input(
 	'name',
-	'Name',
+	'*Name',
 	'text',
 	$pconfig['name']
-))->setHelp('Short name for this Account Key.');
+))->setHelp('Short name of this account key. Certificates refer to it by this name.');
 
 $section->addInput(new \Form_Input(
 	'descr',
 	'Description',
 	'text', $pconfig['descr']
-))->setHelp('Longer text description of this Account Key and its purpose.');
+));
 
 $section->addInput(new \Form_Input(
 	'email',
-	'E-Mail Address',
+	'E-mail address',
 	'text',
 	$pconfig['email']
-))->setHelp('The e-mail address to associate with this key. ' .
-	'The CA may use this address to send important notices.');
-
-$form->add($section);
-$section = new \Form_Section('ACME Server');
+))->setHelp('The certificate authority may send important notices to this address.');
 
 $section->addInput(new \Form_Select(
 	'acmeserver',
-	'ACME Server',
+	'ACME server',
 	$pconfig['acmeserver'],
 	form_keyvalue_array($a_acmeserver)
-))->setHelp('The Certificate Authority/ACME server which will issue certificates for this key.%1$s' .
-	'Use a staging or testing server, if available, until certificate validation works, ' .
-	'then switch to a production server.%1$s%1$s', '<br/>');
-
-$section->addInput(new \Form_Input(
-	'eabkid',
-	'EAB Key ID',
-	'text',
-	$pconfig['eabkid']
-))->setHelp('External Account Binding Key ID. Optional. Leave blank unless required by the CA.%1$s' .
-	'Registers this Account Key with a specific account at the CA.%1$s%1$s' .
-	'Check with the CA to determine if this is required and for information on how to generate the value.', '<br/>');
-
-$section->addInput(new \Form_Textarea(
-	'eabhmac',
-	'EAB HMAC Key',
-	$pconfig['eabhmac']
-))->setHelp('External Account Binding HMAC Key. Optional. Leave blank unless required by the CA.%1$s' .
-	'Registers this Account Key with a specific account at the CA.%1$s%1$s' .
-	'Check with the CA to determine if this is required and for information on how to generate the value.', '<br/>');
+))->setHelp('The certificate authority that issues certificates for this key. ' .
+	'Use a staging server until validation works, then switch to production.');
 
 $form->add($section);
-$section = new \Form_Section('Account Key');
+$section = new \Form_Section(gettext('Key and registration'));
 
 $section->addInput(new \Form_Textarea(
 	'accountkey',
-	'Account Key',
+	'Account key',
 	$pconfig['accountkey']
-))->setNoWrap()->setHelp('Key that uniquely identifies and authorizes the account.%1$s' .
-	'If empty, click %2$sGenerate New Account Key%3$s to create a new key.',
-	'<br/>', '<b>', '</b>');
+))->setNoWrap()->setHelp('Private key that identifies and authorizes the account. Leave empty and use %1$sCreate new account key%2$s to generate one.',
+	'<b>', '</b>');
 
 $section->addInput(new \Form_StaticText(
-	'',
-	"<a id='btncreatekey' class='btn btn-sm btn-primary'>"
-		. "<i id='btncreatekeyicon' class='fa-solid fa-plus'></i> Generate New Account Key</a>"
+	'Actions',
+	'<div class="fs-acme-keytools">' .
+	'<button type="button" id="btncreatekey" class="btn btn-sm btn-outline-secondary"><i id="btncreatekeyicon" class="fa-solid fa-plus icon-embed-btn" aria-hidden="true"></i>' . gettext('Create new account key') . '</button>' .
+	'<button type="button" id="btnregisterkey" class="btn btn-sm btn-primary"><i id="btnregisterkeyicon" class="fa-solid fa-key icon-embed-btn" aria-hidden="true"></i>' . gettext('Register account key') . '</button>' .
+	'<span id="acme-keytools-status" class="fs-acme-keystatus" role="status" aria-live="polite"></span>' .
+	'</div>'
+))->setHelp('Register a key with the selected ACME server before certificates can use it. ' .
+	'Registering again is harmless. When it fails, see %1$s.',
+	'<code>/tmp/acme/_registerkey/acme_issuecert.log</code>');
+
+$form->add($section);
+
+$eab_set = !empty($pconfig['eabkid']) || !empty($pconfig['eabhmac']);
+$section = new \Form_Section(gettext('External account binding'), 'acme-key-eab',
+    COLLAPSIBLE | ((!empty($input_errors) || $eab_set) ? SEC_OPEN : SEC_CLOSED));
+
+$section->addInput(new \Form_StaticText(
+	null,
+	'<span class="form-text help-block">' . gettext('Only for certificate authorities that require it (for example ZeroSSL or Google). The values come from the CA and bind this key to an existing account there. Leave blank otherwise.') . '</span>'
+));
+
+$section->addInput(new \Form_Input(
+	'eabkid',
+	'EAB key ID',
+	'text',
+	$pconfig['eabkid']
+));
+
+$section->addInput(new \Form_Textarea(
+	'eabhmac',
+	'EAB HMAC key',
+	$pconfig['eabhmac']
 ));
 
 $form->add($section);
-$section = new \Form_Section('Registration');
-
-$section->addInput(new \Form_StaticText(
-	'Account Key Registration',
-	"<a id='btnregisterkey' class='btn btn-sm btn-primary'>"
-		. "<i id='btnregisterkeyicon' class='fa-solid fa-key'></i> Register ACME Account Key</a>"
-))->setHelp('Before using an Account Key, it must first be registered with the chosen ACME Server.%1$s' .
-	'Click %5$sRegister ACME Account Key%6$s to register this Account Key%1$s%1$s' .
-	'%2$s indicates a successful registration, %3$s indicates a failure. ' .
-	'%1$s In the case of a failure, check %4$s for more information.',
-	'<br/>',
-	'<i class="fa-solid fa-check"></i>',
-	'<i class="fa-solid fa-times"></i>',
-	'<tt>/tmp/acme/_registerkey/acme_issuecert.log</tt>',
-	'<b>', '</b>');
-
-$form->add($section);
+fs_form_cancel($form, 'acme_accountkeys.php');
 
 print $form;
 ?>
-	<?php if (isset($id) && $a_certificates[$id]): ?>
-	<input name="id" type="hidden" value="<?=$id;?>" />
-	<?php endif; ?>
-<br/>
-<script type="text/javascript">
-	browser_InnerText_support = (document.getElementsByTagName("body")[0].innerText !== undefined) ? true : false;
-
-	totalrows =  <?php echo $counter; ?>;
-
-	function table_domains_listitem_change(tableId, fieldId, rowNr, field) {
-		if (fieldId === "toggle_details") {
-			fieldId = "method";
-			field = d.getElementById(tableId+fieldId+rowNr);
-		}
-		if (fieldId === "method") {
-			var actiontype = field.value;
-
-			var table = d.getElementById(tableId);
-
-			for(var actionkey in showhide_domainfields) {
-				var fields = showhide_domainfields[actionkey]['fields'];
-				for(var fieldkey in fields){
-					var fieldname = fields[fieldkey]['name'];
-					var rowid = "tr_edititemdetails_"+rowNr+"_"+actionkey+fieldname;
-					var element = d.getElementById(rowid);
-					if (element) {
-						if (actionkey === actiontype) {
-							element.style.display = '';
-						} else {
-							element.style.display = 'none';
-						}
-					}
-				}
-			}
-		}
-	}
-</script>
+<style>
+.fs-acme-keytools { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.fs-acme-keystatus { font-size: var(--fs-fs-sm); }
+.fs-acme-keystatus .fa-circle-check { color: var(--fs-pass); }
+.fs-acme-keystatus .fa-circle-xmark { color: var(--fs-block); }
+</style>
 <script type="text/javascript">
 //<![CDATA[
-
-	function setTest(data){
-		$("#accountkey").val(data);
-	}
-	function createkey() {
-		$("#btncreatekeyicon").removeClass("fa-check").addClass("fa-cog fa-solid fa-spin");
-		ajaxRequest = $.ajax({
-			type: "post",
-			data: { action: "createkey" },
-			success: function(data) {
-				setTest(data);
-				$("#btncreatekeyicon").removeClass("fa-cog fa-spin").addClass("fa-solid fa-check");
-			}
-		});
-	}
 events.push(function() {
+	var status = document.getElementById('acme-keytools-status');
+	var txt = {
+		creating: <?=json_encode(gettext('Creating a key…'))?>,
+		created: <?=json_encode(gettext('New key created. Save to keep it.'))?>,
+		registering: <?=json_encode(gettext('Registering…'))?>,
+		registered: <?=json_encode(gettext('Registered'))?>,
+		failed: <?=json_encode(gettext('Registration failed'))?>
+	};
+
+	/* status text with an optional leading icon, built as DOM nodes */
+	function setStatus(text, icon) {
+		status.textContent = '';
+		if (icon) {
+			var i = document.createElement('i');
+			i.className = 'fa-solid ' + icon + ' icon-embed-btn';
+			i.setAttribute('aria-hidden', 'true');
+			status.appendChild(i);
+		}
+		status.appendChild(document.createTextNode(text));
+	}
+
 	$('#btnregisterkey').click(function() {
-		$("#btnregisterkeyicon").removeClass("fa-key").addClass("fa-cog fa-solid fa-spin");
+		$("#btnregisterkeyicon").removeClass("fa-key fa-check fa-times").addClass("fa-gear fa-spin");
+		setStatus(txt.registering);
 		var key = $("#accountkey").val();
 		var caname = $("#acmeserver").val();
 		var email = $("#email").val();
 		var eabkid = $("#eabkid").val();
 		var eabhmac = $("#eabhmac").val();
-		ajaxRequest = $.ajax({
+		$.ajax({
 			type: "post",
 			data: { action: "registerkey", caname: caname, key: key, email: email, eabkid: eabkid, eabhmac: eabhmac },
 			success: function(data) {
 				if (data.toLowerCase().indexOf("reg-ok") > -1 ) {
-					$("#btnregisterkeyicon").removeClass("fa-cog fa-spin").addClass("fa-solid fa-check");
+					$("#btnregisterkeyicon").removeClass("fa-gear fa-spin").addClass("fa-key");
+					setStatus(txt.registered, 'fa-circle-check');
 				} else {
-					$("#btnregisterkeyicon").removeClass("fa-cog fa-spin").addClass("fa-solid fa-times");
+					$("#btnregisterkeyicon").removeClass("fa-gear fa-spin").addClass("fa-key");
+					setStatus(txt.failed, 'fa-circle-xmark');
 				}
+			},
+			error: function() {
+				$("#btnregisterkeyicon").removeClass("fa-gear fa-spin").addClass("fa-key");
+				setStatus(txt.failed, 'fa-circle-xmark');
 			}
 		});
 	});
 
 	$('#btncreatekey').click(function() {
-		$("#btncreatekeyicon").removeClass("fa-plus").addClass("fa-cog fa-solid fa-spin");
+		$("#btncreatekeyicon").removeClass("fa-plus fa-check").addClass("fa-gear fa-spin");
+		setStatus(txt.creating);
 		var caname = $("#acmeserver").val();
-		ajaxRequest = $.ajax({
+		$.ajax({
 			type: "post",
 			data: { action: "createkey", caname: caname },
 			success: function(data) {
-				setTest(data);
-				$("#btncreatekeyicon").removeClass("fa-cog fa-spin").addClass("fa-solid fa-check");
+				$("#accountkey").val(data);
+				$("#btncreatekeyicon").removeClass("fa-gear fa-spin").addClass("fa-plus");
+				setStatus(txt.created, 'fa-circle-check');
 			}
 		});
-
 	});
-
-	/*
-	$('#stats_enabled').click(function () {
-		updatevisibility();
-	});
-	*/
-	updatevisibility();
 });
 //]]>
 </script>
-
-<script type="text/javascript">
-	function clearcombo(){
-		for (var i=document.iform.serversSelect.options.length-1; i>=0; i--){
-			document.iform.serversSelect.options[i] = null;
-		}
-		document.iform.serversSelect.selectedIndex = -1;
-	}
-
-	function setCSSdisplay(cssID, display)
-	{
-		var ss = document.styleSheets;
-		for (var i=0; i<ss.length; i++) {
-			var rules = ss[i].cssRules || ss[i].rules;
-			for (var j=0; j<rules.length; j++) {
-				if (rules[j].selectorText === cssID) {
-					rules[j].style.display = display ? "" : "none";
-				}
-			}
-		}
-	}
-	function toggleCSSdisplay(cssID)
-	{
-		var ss = document.styleSheets;
-		for (var i=0; i<ss.length; i++) {
-			var rules = ss[i].cssRules || ss[i].rules;
-			for (var j=0; j<rules.length; j++) {
-				if (rules[j].selectorText === cssID) {
-					rules[j].style.display = rules[j].style.display === "none" ? "" : "none";
-				}
-			}
-		}
-	}
-
-	function updatevisibility()
-	{
-		d = document;
-		// IE needs components found into javascript variables
-	}
-</script>
 <?php
-acme_htmllist_js("account_keys");
 include("foot.inc");
