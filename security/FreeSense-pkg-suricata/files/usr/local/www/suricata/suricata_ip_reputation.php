@@ -162,10 +162,55 @@ if ($_POST['save']) {
 }
 
 $if_friendly = convert_friendly_interface_to_friendly_descr($a_nat['interface']);
-$pglinks = array("", "/suricata/suricata_interfaces.php", "/suricata/suricata_interfaces_edit.php?id={$id}", "@self");
-$pgtitle = array("Services", "Suricata", "Interface Settings", "{$if_friendly} - IP Reputation");
+$pglinks = array("", "/suricata/suricata_overview.php", "/suricata/suricata_interfaces.php", "/suricata/suricata_interfaces_edit.php?id={$id}", "@self");
+$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("Interfaces"), htmlspecialchars($a_nat['descr'] ?: $if_friendly), gettext("IP reputation"));
 include_once("head.inc");
-suricata_display_primary_navigation('lists');
+suricata_display_primary_navigation('interfaces');
+
+/* Interface context (same block on every per-interface Suricata page): settings switch + summary */
+$sf_rule = config_get_path("installedpackages/suricata/rule/{$id}", []);
+$sf_real = get_real_interface($sf_rule['interface'] ?? '');
+$sf_name = convert_friendly_interface_to_friendly_descr($sf_rule['interface'] ?? '');
+echo '<nav class="fs-viewswitch" aria-label="' . fs_h(gettext('Interface settings')) . '">';
+foreach (array(
+	array('suricata_interfaces_edit.php', gettext('Settings')),
+	array('suricata_rulesets.php', gettext('Categories')),
+	array('suricata_rules.php', gettext('Rules')),
+	array('suricata_flow_stream.php', gettext('Flow & stream')),
+	array('suricata_app_parsers.php', gettext('App parsers')),
+	array('suricata_define_vars.php', gettext('Variables')),
+	array('suricata_ip_reputation.php', gettext('IP reputation')),
+) as $sf_v) {
+	echo '<a href="/suricata/' . $sf_v[0] . '?id=' . (int)$id . '"' . (($sf_v[0] === basename(__FILE__)) ? ' aria-current="page"' : '') . '>' . fs_h($sf_v[1]) . '</a>';
+}
+echo '</nav>';
+if (($sf_rule['blockoffenders'] ?? '') != 'on') {
+	$sf_mode = gettext('Detection only');
+} elseif (($sf_rule['ips_mode'] ?? '') == 'ips_mode_inline') {
+	$sf_mode = gettext('Inline IPS');
+} else {
+	$sf_mode = gettext('Legacy blocking');
+}
+$sf_running = !empty($sf_rule['uuid']) && suricata_is_running($sf_rule['uuid'], $sf_real);
+fs_summary_card(array(
+	'icon' => 'fa-shield-halved',
+	'title' => $sf_rule['descr'] ?? '',
+	'placeholder' => $sf_name,
+	'subtitle' => sprintf(gettext('Suricata on %s'), $sf_name),
+	'badges' => array(
+		fs_badge((($sf_rule['enable'] ?? '') == 'on') ? 'enabled' : 'disabled'),
+		$sf_running ? fs_badge('up', gettext('Running')) : fs_badge('down', gettext('Stopped')),
+	),
+	'meta' => $sf_real,
+	'label' => gettext('Interface summary'),
+	'facts' => array(
+		array(gettext('Mode'), $sf_mode),
+		array(gettext('Rule categories'), (string)count(array_filter(explode('||', $sf_rule['rulesets'] ?? '')))),
+		array(gettext('Home net'), (($sf_rule['homelistname'] ?? 'default') == 'default') ? gettext('Default') : $sf_rule['homelistname']),
+		array(gettext('Suppress list'), (empty($sf_rule['suppresslistname']) || $sf_rule['suppresslistname'] == 'default') ? '' : $sf_rule['suppresslistname'], 'empty' => gettext('None')),
+	),
+	'actions' => array(array(gettext('Alerts'), '/suricata/suricata_alerts.php?instance=' . (int)$id, 'fa-bell')),
+));
 
 /* Display Alert message */
 if ($input_errors)
@@ -174,281 +219,206 @@ if ($input_errors)
 if ($savemsg)
 	print_info_box($savemsg, 'success');
 
-$tab_array = array();
-$tab_array[] = array(gettext("Interfaces"), true, "/suricata/suricata_interfaces.php");
-$tab_array[] = array(gettext("Global Settings"), false, "/suricata/suricata_global.php");
-$tab_array[] = array(gettext("Updates"), false, "/suricata/suricata_download_updates.php");
-$tab_array[] = array(gettext("Alerts"), false, "/suricata/suricata_alerts.php?instance={$id}");
-$tab_array[] = array(gettext("Blocks"), false, "/suricata/suricata_blocked.php");
-$tab_array[] = array(gettext("Files"), false, "/suricata/suricata_files.php?instance={$id}");
-$tab_array[] = array(gettext("Pass Lists"), false, "/suricata/suricata_passlist.php");
-$tab_array[] = array(gettext("Suppress"), false, "/suricata/suricata_suppress.php");
-$tab_array[] = array(gettext("Logs View"), false, "/suricata/suricata_logs_browser.php?instance={$id}");
-$tab_array[] = array(gettext("Logs Mgmt"), false, "/suricata/suricata_logs_mgmt.php");
-$tab_array[] = array(gettext("SID Mgmt"), false, "/suricata/suricata_sid_mgmt.php");
-$tab_array[] = array(gettext("Sync"), false, "/pkg_edit.php?xml=suricata/suricata_sync.xml");
-$tab_array[] = array(gettext("IP Lists"), false, "/suricata/suricata_ip_list_mgmt.php");
-display_top_tabs($tab_array, true);
+$sf_filedate = function ($f) use ($iprep_path) {
+	if (!file_exists("{$iprep_path}{$f}")) {
+		return null;
+	}
+	return date('M-d Y g:i a', filemtime("{$iprep_path}{$f}"));
+};
+$sec_state = COLLAPSIBLE | (!empty($input_errors) ? SEC_OPEN : SEC_CLOSED);
+?>
 
-$tab_array = array();
-$menu_iface=($if_friendly?substr($if_friendly,0,5)." ":"Iface ");
-$tab_array[] = array($menu_iface . gettext("Settings"), false, "/suricata/suricata_interfaces_edit.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("Categories"), false, "/suricata/suricata_rulesets.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("Rules"), false, "/suricata/suricata_rules.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("Flow/Stream"), false, "/suricata/suricata_flow_stream.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("App Parsers"), false, "/suricata/suricata_app_parsers.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("Variables"), false, "/suricata/suricata_define_vars.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("IP Rep"), true, "/suricata/suricata_ip_reputation.php?id={$id}");
-display_top_tabs($tab_array, true);
+<style>
+.sf-chooser { margin: 0 var(--fs-sp-4) var(--fs-sp-3); padding: var(--fs-sp-3); border: 1px dashed var(--fs-border); border-radius: var(--fs-r-sm); overflow-x: auto; }
+.sf-chooser .fbFile { cursor: pointer; }
+.sf-chooser .fbFile:hover { color: var(--fs-coral-text); }
+.sf-chooser .fbClose { cursor: pointer; }
+.sf-notes { display: flex; flex-wrap: wrap; gap: .4rem 1.5rem; margin: -.5rem 0 var(--fs-sp-5); color: var(--fs-text-muted); font-size: var(--fs-fs-sm); }
+</style>
 
-$form = new Form();
-
-$section = new Form_Section('IP Reputation Configuration');
-
+<form action="/suricata/suricata_ip_reputation.php" method="post" id="iform" class="form-horizontal">
+	<input type="hidden" name="id" id="id" value="<?=(int)$id?>">
+	<input type="hidden" name="mode" id="mode" value="">
+	<input type="hidden" name="iplist" id="iplist" value="">
+	<input type="hidden" name="list_id" id="list_id" value="">
+<?php
+$section = new Form_Section('IP reputation');
 $section->addInput(new Form_Checkbox(
 	'enable_iprep',
 	'Enable',
-	'Use IP Reputation Lists on this interface. Default is NOT Checked.',
+	'Use IP reputation lists on this interface. Default is off; a categories file is required.',
 	$pconfig['enable_iprep'] == 'on' ? true:false,
 	'on'
 ));
-
-$section->addInput(new Form_Input(
-	'host_memcap',
-	'Host Memcap',
-	'number',
-	$pconfig['host_memcap'],
-	['min' => '1048576']
-))->setHelp('Host table memory cap in bytes. Default is 33554432 (32 MB). Min value is 1048576 (1 MB)');
-
-$section->addInput(new Form_Input(
-	'host_hash_size',
-	'Host Hash Size',
-	'number',
-	$pconfig['host_hash_size'],
-	['min' => '1024']
-))->setHelp('	Host Hash Size in bytes. Default is 4096. Min value is 1024');
-
-$section->addInput(new Form_Input(
-	'host_prealloc',
-	'Host Preallocations',
-	'number',
-	$pconfig['host_prealloc'],
-	['min' => '10']
-))->setHelp('Number of Host Table entries to preallocate. Default is 1000. Min value is 10<br /> ' .
-			'Increasing this value may slightly improve performance when using large IP Reputation Lists');
-
-$form->add($section);
-
-$form->addGlobal(new Form_Input('id', null, 'hidden', $id));
-$form->addGlobal(new Form_Input('mode', null, 'hidden'));
-$form->addGlobal(new Form_Input('iplist', null, 'hidden'));
-$form->addGlobal(new Form_Input('list_id', null, 'hidden'));
-
-print $form;
+print($section);
 ?>
 
-<div class="card mb-3">
-	<div class="card-header"><h2 class="h5 mb-0"><?=gettext("Assign Categories File")?></h2></div>
-	<div class="card-body">
-		<!-- iprep_catlist_chooser -->
-		<div id="iprep_catlistChooser" name="iprep_catlistChooser" style="display:none; border:1px dashed gray; width:98%;" class="table-responsive"></div>
-		<table class="table table-hover table-sm">
+<div class="panel panel-default fs-table">
+<?php
+	fs_table_toolbar(array(
+		'title' => gettext('Categories file'),
+		'search' => false,
+		'noun' => gettext('files'),
+		'noun_one' => gettext('file'),
+		'actions' => empty($pconfig['iprep_catlist'])
+		    ? '<button type="button" class="btn btn-sm btn-primary" name="iprep_catlist_add" id="iprep_catlist_add" title="' . fs_h(gettext('Assign a Categories file')) . '"><i class="fa-solid fa-plus icon-embed-btn" aria-hidden="true"></i>' . fs_h(gettext('Assign file')) . '</button>'
+		    : '<button type="button" class="btn btn-sm btn-outline-secondary" name="iprep_catlist_add" id="iprep_catlist_add" title="' . fs_h(gettext('Assign a Categories file')) . '"><i class="fa-solid fa-arrow-right-arrow-left icon-embed-btn" aria-hidden="true"></i>' . fs_h(gettext('Replace')) . '</button>',
+	));
+?>
+	<div id="iprep_catlistChooser" class="sf-chooser" hidden></div>
+	<div class="panel-body table-responsive">
+		<table class="table table-hover">
 			<thead>
 				<tr>
-					<th class="col-sm-6"><?=gettext("Categories Filename")?></th>
-					<th class="col-sm-4"><?=gettext("Modification Time")?></th>
-					<th><?=gettext("Action")?></th>
+					<th><?=gettext("File name")?></th>
+					<th><?=gettext("Modified")?></th>
+					<th class="fs-col-actions"><span class="visually-hidden"><?=gettext('Actions')?></span></th>
 				</tr>
 			</thead>
 			<tbody>
-			<?php if (!empty($pconfig['iprep_catlist'])) :
-					if (!file_exists("{$iprep_path}{$pconfig['iprep_catlist']}")) {
-						$filedate = gettext("Unknown -- file missing");
-					}
-					else
-						$filedate = date('M-d Y   g:i a', filemtime("{$iprep_path}{$pconfig['iprep_catlist']}"));
-			 ?>
+<?php if (!empty($pconfig['iprep_catlist'])):
+	$filedate = $sf_filedate($pconfig['iprep_catlist']);
+?>
 				<tr>
-					<td><?=htmlspecialchars($pconfig['iprep_catlist']);?></td>
-					<td> <?=$filedate;?></td>
-					<td><button class="btn btn-sm btn-danger" name="iprep_catlist_delX" id="iprep_catlist_delX" title="<?=gettext('Remove this Categories file');?>">
-					<i class="fa-solid fa-times icon-embed-btn"></i><?=gettext("Delete")?></button>
-					</td>
+					<td class="fs-mono"><?=htmlspecialchars($pconfig['iprep_catlist'])?></td>
+					<td><?=($filedate === null) ? fs_badge('warn', gettext('File missing')) : fs_h($filedate)?></td>
+					<td class="fs-col-actions"><div class="fs-actions">
+						<button type="submit" class="fs-action fs-action--delete" name="iprep_catlist_del[]" value="0" id="iprep_catlist_delX" data-sf-list="0"
+							title="<?=gettext('Remove this Categories file')?>" aria-label="<?=gettext('Remove this Categories file')?>"
+							data-fs-confirm="<?=fs_h(sprintf(gettext('Remove the categories file “%s”?'), $pconfig['iprep_catlist']))?>" data-fs-confirm-detail="<?=gettext('The file stays on disk; it is only unassigned from this interface.')?>" data-fs-confirm-action="<?=gettext('Remove')?>"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+					</div></td>
 				</tr>
-			<?php endif; ?>
+<?php else: ?>
+<?php	fs_empty_row(3, gettext('No categories file assigned.')); ?>
+<?php endif; ?>
 			</tbody>
 		</table>
 	</div>
 </div>
-<nav class="action-buttons">
-	<button class="btn btn-sm btn-success" name="iprep_catlist_add" id="iprep_catlist_add"  title="<?=gettext('Assign a Categories file');?>">
-		<i class="fa-solid fa-plus icon-embed-btn"></i>
-		<?=gettext("Add")?>
-	</button>
-</nav>
 
-<div class="card mb-3">
-	<div class="card-header"><h2 class="h5 mb-0"><?=gettext("Assign IP Reputation Lists")?></h2></div>
-	<div class="card-body ">
-		<!-- iprep_catlist_chooser -->
-		<div id="iplistChooser" name="iplistChooser" style="display:none; border:1px dashed gray; width:98%;" class="table-responsive"></div>
-		<table class="table table-hover table-sm">
-			<!-- iplist_chooser -->
-
-				<thead>
-					<tr>
-						<th class="col-sm-6"><?php echo gettext("IP Reputation List Filename"); ?></th>
-						<th class="col-sm-4"><?php echo gettext("Modification Time"); ?></th>
-						<th><?=gettext("Action")?></th>
-					</tr>
-				</thead>
-				<tbody>
+<div class="panel panel-default fs-table">
 <?php
-				foreach(array_get_path($pconfig, 'iplist_files/item', []) as $k => $f) :
-					if (!file_exists("{$iprep_path}{$f}")) {
-						$filedate = gettext("Unknown -- file missing");
-					} else {
-						$filedate = date('M-d Y   g:i a', filemtime("{$iprep_path}{$f}"));
-					}
+	$lists = array_get_path($pconfig, 'iplist_files/item', []);
+	fs_table_toolbar(array(
+		'title' => gettext('IP reputation lists'),
+		'search' => false,
+		'noun' => gettext('lists'),
+		'noun_one' => gettext('list'),
+		'actions' => '<button type="button" class="btn btn-sm btn-primary" name="iplist_add" id="iplist_add" title="' . fs_h(gettext('Assign an IP reputation list file')) . '"><i class="fa-solid fa-plus icon-embed-btn" aria-hidden="true"></i>' . fs_h(gettext('Assign list')) . '</button>',
+	));
 ?>
-					<tr>
-						<td><?=htmlspecialchars($f);?></td>
-						<td><?=$filedate;?></td>
-						<td>
-							<button class="btn btn-sm btn-danger" name="iplist_delX[]" id="iplist_delX[]" value="<?=$k;?>" title="<?php echo gettext('Remove this IP reputation file');?>">
-							<i class="fa-solid fa-times icon-embed-btn"></i><?=gettext("Delete")?></button>
-						</td>
-					</tr>
-<?php 			endforeach;
+	<div id="iplistChooser" class="sf-chooser" hidden></div>
+	<div class="panel-body table-responsive">
+		<table class="table table-hover">
+			<thead>
+				<tr>
+					<th><?=gettext("File name")?></th>
+					<th><?=gettext("Modified")?></th>
+					<th class="fs-col-actions"><span class="visually-hidden"><?=gettext('Actions')?></span></th>
+				</tr>
+			</thead>
+			<tbody>
+<?php foreach ($lists as $k => $f):
+	$filedate = $sf_filedate($f);
 ?>
-				</tbody>
+				<tr>
+					<td class="fs-mono"><?=htmlspecialchars($f)?></td>
+					<td><?=($filedate === null) ? fs_badge('warn', gettext('File missing')) : fs_h($filedate)?></td>
+					<td class="fs-col-actions"><div class="fs-actions">
+						<button type="submit" class="fs-action fs-action--delete" name="iplist_del[]" value="0" data-sf-list="<?=(int)$k?>"
+							title="<?=fs_h(sprintf(gettext('Remove %s'), $f))?>" aria-label="<?=fs_h(sprintf(gettext('Remove %s'), $f))?>"
+							data-fs-confirm="<?=fs_h(sprintf(gettext('Remove the IP reputation list “%s”?'), $f))?>" data-fs-confirm-detail="<?=gettext('The file stays on disk; it is only unassigned from this interface.')?>" data-fs-confirm-action="<?=gettext('Remove')?>"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+					</div></td>
+				</tr>
+<?php endforeach; ?>
+<?php
+	if (empty($lists)) {
+		fs_empty_row(3, gettext('No IP reputation lists assigned.'));
+	}
+?>
+			</tbody>
 		</table>
 	</div>
 </div>
 
-<nav class="action-buttons">
-	<button class="btn btn-sm btn-success" name="iplist_add" id="iplist_add" title="<?php echo gettext('Assign a whitelist file');?>">
-		<i class="fa-solid fa-plus icon-embed-btn"></i>
-		<?=gettext("Add")?>
-	</button>
-</nav>
+<?php
+$section = new Form_Section('Host table', 'sf-hosttable', $sec_state);
+$section->addInput(new Form_Input(
+	'host_memcap',
+	'Host memory cap',
+	'number',
+	$pconfig['host_memcap'],
+	['min' => '1048576']
+))->setHelp('Bytes. Default is 33,554,432 (32 MB); at least 1,048,576 (1 MB).');
+$section->addInput(new Form_Input(
+	'host_hash_size',
+	'Host hash size',
+	'number',
+	$pconfig['host_hash_size'],
+	['min' => '1024']
+))->setHelp('Default is 4096; at least 1024.');
+$section->addInput(new Form_Input(
+	'host_prealloc',
+	'Preallocated hosts',
+	'number',
+	$pconfig['host_prealloc'],
+	['min' => '10']
+))->setHelp('Host table entries to preallocate. Default is 1000; at least 10. Larger lists can benefit from a higher value.');
+print($section);
+?>
+
+<div class="sf-notes">
+	<span><?=gettext('Upload categories and list files on the IP Lists page. Assigning or removing a file is saved at once; Save applies the settings and reloads Suricata.')?></span>
+</div>
+
+<div class="fs-actionbar">
+	<button type="submit" class="btn btn-primary" name="save" id="save" value="Save"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save')?></button>
+</div>
+</form>
 
 <script type="text/javascript">
 //<![CDATA[
 events.push(function() {
+	var form = document.getElementById('iform');
 
-// Adding a new reputation category file
-$('#iprep_catlist_add').click(function() {
-	iprep_catlistChoose();
-});
+	// Remove a file: the confirmed click sets which list, then the form posts
+	document.addEventListener('click', function(e) {
+		var btn = e.target.closest('button[data-sf-list]');
+		if (!btn || e.defaultPrevented) {
+			return;
+		}
+		$('#list_id').val(btn.getAttribute('data-sf-list'));
+	});
 
-// Adding a new IP reputation file
-$('#iplist_add').click(function() {
-	iplistChoose();
-});
-
-// Delete a reputation file
-$('[id^=iplist_delX]').click(function() {
-	$('#list_id').val($(this).val());
-	$('<input name="iplist_del[]" id="iplist_del[]" type="hidden" value="0"/>').appendTo($(form));
-	$(form).submit();
-});
-
-// Delete a reputation category file
-$('#iprep_catlist_delX').click(function() {
-	$('#list_id').val('0');
-	$('<input name="iprep_catlist_del[]" id="iprep_catlist_del[]" type="hidden" value="0"/>').appendTo($(form));
-	$(form).submit();
-});
-
-// Fetch category list information via AJAX
-function iprep_catlistChoose() {
-	if($("fbCurrentDir")) {
-		$("#iprep_catlistChooser").html("Loading ...");
-		$("#iprep_catlistChooser").show();
-	}
-
-	$.ajax(
-		"/suricata/suricata_iprep_list_browser.php?container=iprep_catlistChooser&target=iplist&val=" + new Date().getTime(),
-		{
+	// Show the file chooser (loaded over AJAX) and wire its entries
+	function choose(container, mode) {
+		var box = $('#' + container);
+		box.text(<?=json_encode(gettext('Loading…'))?>).prop('hidden', false);
+		$.ajax("/suricata/suricata_iprep_list_browser.php?container=" + container + "&target=iplist&val=" + new Date().getTime(), {
 			type: 'get',
-			complete: iprep_catlistComplete
-		}
-	);
-
-}
-
-// Fetch IP list information via AJAX
-function iplistChoose() {
-	if($("fbCurrentDir"))
-		$("#iplistChooser").html("Loading ...");
-		$("#iplistChooser").show();
-
-	$.ajax(
-		"/suricata/suricata_iprep_list_browser.php?container=iplistChooser&target=iplist&val=" + new Date().getTime(),
-		{
-			type: "get",
-			complete: iplistComplete
-		}
-	);
-}
-
-// Update the category display, adding the action handlers to each entry
-function iprep_catlistComplete(req) {
-	$("#iprep_catlistChooser").html(req.responseText);
-
-	var actions = {
-		fbClose: function() {
-			$("#iprep_catlistChooser").hide();
-		},
-
-		fbFile:  function() {
-			$("#iprep_catlist").val(this.id);
-			$("#mode").val('iprep_catlist_add');
-			$(form).submit();
-		}
-	}
-
-	for(var type in actions) {
-		$("#iprep_catlistChooser ." + type).each(
-			function() {
-				$(this).click(actions[type]);
-				$(this).css("cursor","pointer");
+			complete: function(req) {
+				box.html(req.responseText);
+				box.find('.fbClose').on('click', function() {
+					box.prop('hidden', true);
+				});
+				box.find('.fbFile').on('click', function() {
+					$('#iplist').val(this.id);
+					$('#mode').val(mode);
+					form.submit();
+				});
 			}
-		);
-	}
-}
-
-// Update the IP list display, adding the action handlers to each entry
-function iplistComplete(req) {
-	$("#iplistChooser").html(req.responseText);
-
-	var actions = {
-		fbClose: function() {
-			$("#iplistChooser").hide();
-		},
-
-		fbFile:  function() {
-			$("#iplist").val(this.id);
-		    $("#mode").val('iplist_add');
-		    $(form).submit();
-		 }
+		});
 	}
 
-	for(var type in actions) {
-		$("#iplistChooser ." + type).each(
-			function() {
-				$(this).click(actions[type]);
-				$(this).css("cursor","pointer");
-			}
-		);
-	}
-}
+	$('#iprep_catlist_add').on('click', function() {
+		choose('iprep_catlistChooser', 'iprep_catlist_add');
+	});
+	$('#iplist_add').on('click', function() {
+		choose('iplistChooser', 'iplist_add');
+	});
 });
 //]]>
 </script>
 
 <?php include("foot.inc");
 ?>
-

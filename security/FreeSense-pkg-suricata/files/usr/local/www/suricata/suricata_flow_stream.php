@@ -453,11 +453,56 @@ elseif ($_POST['cancel_import_alias']) {
 }
 
 $if_friendly = convert_friendly_interface_to_friendly_descr($pconfig['interface']);
-$pglinks = array("", "/suricata/suricata_interfaces.php", "/suricata/suricata_interfaces_edit.php?id={$id}", "@self");
-$pgtitle = array("Services", "Suricata", "Interface Settings", "{$if_friendly} - Flow and Stream Engine");
+$pglinks = array("", "/suricata/suricata_overview.php", "/suricata/suricata_interfaces.php", "/suricata/suricata_interfaces_edit.php?id={$id}", "@self");
+$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("Interfaces"), htmlspecialchars($pconfig['descr'] ?: $if_friendly), gettext("Flow and stream"));
 
 include_once("head.inc");
-suricata_display_primary_navigation('advanced');
+suricata_display_primary_navigation('interfaces');
+
+/* Interface context (same block on every per-interface Suricata page): settings switch + summary */
+$sf_rule = config_get_path("installedpackages/suricata/rule/{$id}", []);
+$sf_real = get_real_interface($sf_rule['interface'] ?? '');
+$sf_name = convert_friendly_interface_to_friendly_descr($sf_rule['interface'] ?? '');
+echo '<nav class="fs-viewswitch" aria-label="' . fs_h(gettext('Interface settings')) . '">';
+foreach (array(
+	array('suricata_interfaces_edit.php', gettext('Settings')),
+	array('suricata_rulesets.php', gettext('Categories')),
+	array('suricata_rules.php', gettext('Rules')),
+	array('suricata_flow_stream.php', gettext('Flow & stream')),
+	array('suricata_app_parsers.php', gettext('App parsers')),
+	array('suricata_define_vars.php', gettext('Variables')),
+	array('suricata_ip_reputation.php', gettext('IP reputation')),
+) as $sf_v) {
+	echo '<a href="/suricata/' . $sf_v[0] . '?id=' . (int)$id . '"' . (($sf_v[0] === basename(__FILE__)) ? ' aria-current="page"' : '') . '>' . fs_h($sf_v[1]) . '</a>';
+}
+echo '</nav>';
+if (($sf_rule['blockoffenders'] ?? '') != 'on') {
+	$sf_mode = gettext('Detection only');
+} elseif (($sf_rule['ips_mode'] ?? '') == 'ips_mode_inline') {
+	$sf_mode = gettext('Inline IPS');
+} else {
+	$sf_mode = gettext('Legacy blocking');
+}
+$sf_running = !empty($sf_rule['uuid']) && suricata_is_running($sf_rule['uuid'], $sf_real);
+fs_summary_card(array(
+	'icon' => 'fa-shield-halved',
+	'title' => $sf_rule['descr'] ?? '',
+	'placeholder' => $sf_name,
+	'subtitle' => sprintf(gettext('Suricata on %s'), $sf_name),
+	'badges' => array(
+		fs_badge((($sf_rule['enable'] ?? '') == 'on') ? 'enabled' : 'disabled'),
+		$sf_running ? fs_badge('up', gettext('Running')) : fs_badge('down', gettext('Stopped')),
+	),
+	'meta' => $sf_real,
+	'label' => gettext('Interface summary'),
+	'facts' => array(
+		array(gettext('Mode'), $sf_mode),
+		array(gettext('Rule categories'), (string)count(array_filter(explode('||', $sf_rule['rulesets'] ?? '')))),
+		array(gettext('Home net'), (($sf_rule['homelistname'] ?? 'default') == 'default') ? gettext('Default') : $sf_rule['homelistname']),
+		array(gettext('Suppress list'), (empty($sf_rule['suppresslistname']) || $sf_rule['suppresslistname'] == 'default') ? '' : $sf_rule['suppresslistname'], 'empty' => gettext('None')),
+	),
+	'actions' => array(array(gettext('Alerts'), '/suricata/suricata_alerts.php?instance=' . (int)$id, 'fa-bell')),
+));
 
 /* Display error message */
 if ($input_errors) {
@@ -468,33 +513,6 @@ if ($savemsg) {
 	/* Display save message */
 	print_info_box($savemsg);
 }
-
-$tab_array = array();
-$tab_array[] = array(gettext("Interfaces"), true, "/suricata/suricata_interfaces.php");
-$tab_array[] = array(gettext("Global Settings"), false, "/suricata/suricata_global.php");
-$tab_array[] = array(gettext("Updates"), false, "/suricata/suricata_download_updates.php");
-$tab_array[] = array(gettext("Alerts"), false, "/suricata/suricata_alerts.php?instance={$id}");
-$tab_array[] = array(gettext("Blocks"), false, "/suricata/suricata_blocked.php");
-$tab_array[] = array(gettext("Files"), false, "/suricata/suricata_files.php?instance={$id}");
-$tab_array[] = array(gettext("Pass Lists"), false, "/suricata/suricata_passlist.php");
-$tab_array[] = array(gettext("Suppress"), false, "/suricata/suricata_suppress.php");
-$tab_array[] = array(gettext("Logs View"), false, "/suricata/suricata_logs_browser.php?instance={$id}");
-$tab_array[] = array(gettext("Logs Mgmt"), false, "/suricata/suricata_logs_mgmt.php");
-$tab_array[] = array(gettext("SID Mgmt"), false, "/suricata/suricata_sid_mgmt.php");
-$tab_array[] = array(gettext("Sync"), false, "/pkg_edit.php?xml=suricata/suricata_sync.xml");
-$tab_array[] = array(gettext("IP Lists"), false, "/suricata/suricata_ip_list_mgmt.php");
-display_top_tabs($tab_array, true);
-
-$menu_iface=($if_friendly?substr($if_friendly,0,5)." ":"Iface ");
-$tab_array = array();
-$tab_array[] = array($menu_iface . gettext("Settings"), false, "/suricata/suricata_interfaces_edit.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("Categories"), false, "/suricata/suricata_rulesets.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("Rules"), false, "/suricata/suricata_rules.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("Flow/Stream"), true, "/suricata/suricata_flow_stream.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("App Parsers"), false, "/suricata/suricata_app_parsers.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("Variables"), false, "/suricata/suricata_define_vars.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("IP Rep"), false, "/suricata/suricata_ip_reputation.php?id={$id}");
-display_top_tabs($tab_array, true);
 ?>
 
 <?php
@@ -519,70 +537,67 @@ display_top_tabs($tab_array, true);
 		include("/usr/local/www/suricata/suricata_os_policy_engine.php");
 
 	} else {
+		$sec_state = COLLAPSIBLE | (!empty($input_errors) ? SEC_OPEN : SEC_CLOSED);
+		$exception_help = gettext('Default is Ignore. See the exception policy notes below.');
 ?>
 
+<style>
+.sf-notes { display: flex; flex-wrap: wrap; gap: .4rem 1.5rem; margin: -.5rem 0 var(--fs-sp-5); color: var(--fs-text-muted); font-size: var(--fs-fs-sm); }
+.sf-policy-notes .panel-body { padding: var(--fs-sp-3) var(--fs-sp-4); }
+.sf-policy-notes dl { display: grid; grid-template-columns: 9rem minmax(0, 1fr); gap: .35rem 1rem; margin: .5rem 0 0; }
+.sf-policy-notes dt { font-weight: 600; }
+.sf-policy-notes dd { margin: 0; }
+@media (max-width: 575.98px) { .sf-policy-notes dl { grid-template-columns: 1fr; gap: .1rem; } .sf-policy-notes dd { margin-bottom: .4rem; } }
+</style>
+
 <form action="suricata_flow_stream.php" method="post" name="iform" id="iform" class="">
-<input type="hidden" name="eng_id" id="eng_id" value="<?=$eng_id?>"/>
-<input type="hidden" name="id" id="id" value="<?=$id?>"/>
+<input type="hidden" name="eng_id" id="eng_id" value="<?=fs_h($eng_id)?>"/>
+<input type="hidden" name="id" id="id" value="<?=(int)$id?>"/>
 
-	<div class="card mb-3">
-		<div class="card-header"><h2 class="h5 mb-0"><?=gettext("Host-Specific Defrag and Stream Settings")?></h2></div>
-		<div class="card-body">
-			<div class="row mb-3">
-				<label class="col-sm-2 col-form-label">
-					<?=gettext("Host OS Policy Assignment"); ?>
-				</label>
-				<div class="col-sm-10">
-					<div class="table-responsive">
-						<table class="table table-striped table-hover table-sm">
-							<thead>
-								<tr>
-									<th><?=gettext("Name")?></th>
-									<th><?=gettext("Bind-To Address Alias")?></th>
-									<th>
-										<button type="submit" name="import_alias[]" class="btn btn-sm btn-primary" title="<?=gettext("Import policy configuration from existing Aliases")?>" value="Import">
-											<i class="fa-solid fa-upload icon-embed-btn"></i>
-											<?=gettext("Import"); ?>
-										</button>
-										<button type="submit" name="add_os_policy[]" class="btn btn-sm btn-success" title="<?=gettext("Add a new policy configuration")?>" value="Add">
-											<i class="fa-solid fa-plus icon-embed-btn"></i>
-											<?=gettext("Add"); ?>
-										</button>
-									</th>
-								</tr>
-							</thead>
-							<tbody>
-								<?php foreach ($pconfig['host_os_policy']['item'] as $f => $v): ?>
-									<tr>
-										<td><?=htmlspecialchars(gettext($v['name']))?></td>
-										<td><?=htmlspecialchars(gettext($v['bind_to']))?></td>
-										<td>
-											<button type="submit" name="edit_os_policy[]" class="btn btn-sm btn-primary" value="Edit" onclick="document.getElementById('eng_id').value='<?=$f?>'" title="<?=gettext("Edit this policy configuration")?>">
-												<i class="fa-solid fa-pencil icon-embed-btn"></i>
-												<?=gettext("Edit"); ?>
-											</button>
-								<?php if ($v['bind_to'] != "all") : ?>
-											<button type="submit" name="del_os_policy[]" class="btn btn-sm btn-danger" value="Delete" onclick="document.getElementById('eng_id').value='<?=$f?>';" title="<?=gettext("Delete this policy configuration")?>">
-												<i class="fa-solid fa-trash-can icon-embed-btn"></i>
-												<?=gettext("Delete"); ?>
-											</button>
-								<?php else : ?>
-											<button type="submit" name="del_os_policy[]" class="btn btn-sm btn-danger" value="Delete" title="<?=gettext("Default policy configuration cannot be deleted")?>" disabled>
-												<i class="fa-solid fa-trash-can icon-embed-btn"></i>
-												<?=gettext("Delete"); ?>
-											</button>
-								<?php endif ?>
-										</td>
-									</tr>
-								<?php endforeach; ?>
-							</tbody>
-						</table>
-					</div>
-				</div>
-			</div>
-		</div>
+<div class="panel panel-default fs-table">
+<?php
+	fs_table_toolbar(array(
+		'title' => gettext('Host OS policies'),
+		'search' => false,
+		'noun' => gettext('policies'),
+		'noun_one' => gettext('policy'),
+		'actions' => '<button type="submit" name="import_alias[]" class="btn btn-sm btn-outline-secondary" title="' . fs_h(gettext("Import policy configuration from existing Aliases")) . '" value="Import">'
+		    . '<i class="fa-solid fa-upload icon-embed-btn" aria-hidden="true"></i>' . fs_h(gettext('Import')) . '</button>'
+		    . '<button type="submit" name="add_os_policy[]" class="btn btn-sm btn-primary" title="' . fs_h(gettext("Add a new policy configuration")) . '" value="Add">'
+		    . '<i class="fa-solid fa-plus icon-embed-btn" aria-hidden="true"></i>' . fs_h(gettext('Add policy')) . '</button>',
+	));
+?>
+	<div class="panel-body table-responsive">
+		<table class="table table-hover">
+			<thead>
+				<tr>
+					<th><?=gettext("Name")?></th>
+					<th><?=gettext("Bind to")?></th>
+					<th><?=gettext("Target OS")?></th>
+					<th class="fs-col-actions"><span class="visually-hidden"><?=gettext('Actions')?></span></th>
+				</tr>
+			</thead>
+			<tbody>
+<?php foreach ($pconfig['host_os_policy']['item'] as $f => $v): ?>
+				<tr>
+					<td><?=htmlspecialchars(gettext($v['name']))?></td>
+					<td><?=($v['bind_to'] == 'all') ? '<span class="fs-chip">' . gettext('All hosts') . '</span>' : '<span class="fs-chip fs-chip--mono">' . htmlspecialchars($v['bind_to']) . '</span>'?></td>
+					<td><span class="fs-chip fs-chip--strong"><?=htmlspecialchars($v['policy'] ?? 'bsd')?></span></td>
+					<td class="fs-col-actions"><div class="fs-actions">
+						<button type="submit" name="edit_os_policy[]" value="Edit" class="fs-action" data-sf-eng="<?=(int)$f?>" title="<?=fs_h(sprintf(gettext('Edit %s'), $v['name']))?>" aria-label="<?=fs_h(sprintf(gettext('Edit %s'), $v['name']))?>"><i class="fa-solid fa-pencil" aria-hidden="true"></i></button>
+<?php if ($v['bind_to'] != "all") : ?>
+						<button type="submit" name="del_os_policy[]" value="Delete" class="fs-action fs-action--delete" data-sf-eng="<?=(int)$f?>" title="<?=fs_h(sprintf(gettext('Delete %s'), $v['name']))?>" aria-label="<?=fs_h(sprintf(gettext('Delete %s'), $v['name']))?>"
+							data-fs-confirm="<?=fs_h(sprintf(gettext('Delete host OS policy “%s”?'), $v['name']))?>" data-fs-confirm-action="<?=gettext('Delete')?>"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>
+<?php else : ?>
+						<span class="fs-action" title="<?=gettext("The default policy cannot be deleted")?>" aria-hidden="true"><i class="fa-solid fa-lock fs-muted"></i></span>
+<?php endif ?>
+					</div></td>
+				</tr>
+<?php endforeach; ?>
+			</tbody>
+		</table>
 	</div>
-
+</div>
 </form>
 
 <?php
@@ -603,314 +618,262 @@ $form->addGlobal(new Form_Input(
 	$eng_id
 ));
 
-$section = new Form_Section('IP Defragmentation');
-$section->addInput(new Form_Input(
-	'frag_memcap',
-	'Defrag Memory Cap',
-	'text',
-	$pconfig['frag_memcap']
-))->setHelp('Max memory to be used for defragmentation. Default is 33,554,432 bytes (32 MB). Sets the maximum amount of memory, in bytes, to be used by the IP defragmentation engine.');
-$section->addInput(new Form_Select(
-	'defrag_memcap_policy',
-	'Defrag Memory Cap Exception Policy',
-	$pconfig['defrag_memcap_policy'],
-	array( "bypass" => "Bypass", "drop-packet" => "Drop Packet", "pass-packet" => "Pass Packet",
-		   "reject" => "Reject", "ignore" => "Ignore" )
-))->setHelp('Apply selected policy when the memcap limit for defrag is reached and no tracker could be picked up. This policy can only be applied to packets. Default is "Ignore". ' .
-			'"Drop Packet" drops the current packet. "Reject" rejects the current packet. "Bypass" will bypass the flow, and no further inspection is done. ' .
-			'"Pass Packet" will disable detection, but still does stream updates and app-layer parsing (depending on which policy triggered it). ' .
-			'"Ignore" does not apply exception policies.');
-$section->addInput(new Form_Input(
-	'ip_max_trackers',
-	'Max Trackers',
-	'text',
-	$pconfig['ip_max_trackers']
-))->setHelp('Number of defragmented flows to follow. Default is 65,535 fragments. Sets the number of defragmented flows to follow for reassembly.');
-$section->addInput(new Form_Input(
-	'ip_max_frags',
-	'Max Fragments',
-	'text',
-	$pconfig['ip_max_frags']
-))->setHelp('Maximum number of IP fragments to hold. Default is 65,535 fragments. Sets the maximum number of IP fragments to retain in memory while awaiting reassembly. This must be equal to or greater than the Max Trackers value specified above.');
-$section->addInput(new Form_Input(
-	'frag_hash_size',
-	'Fragmentation Hash Table Size',
-	'text',
-	$pconfig['frag_hash_size']
-))->setHelp('Hash Table size. Default is 65,536 entries. Sets the size of the Hash Table used by the defragmentation engine.');
-$section->addInput(new Form_Input(
-	'ip_frag_timeout',
-	'Timeout',
-	'text',
-	$pconfig['ip_frag_timeout']
-))->setHelp('Max seconds to hold an IP fragement. Default is 60 seconds. Sets the number of seconds to hold an IP fragment in memory while awaiting the remainder of the packet to arrive.');
-$form->add($section);
+$stream_policies = array( "drop-flow" => "Drop Flow", "pass-flow" => "Pass Flow", "bypass" => "Bypass", "drop-packet" => "Drop Packet",
+	"pass-packet" => "Pass Packet", "reject" => "Reject", "ignore" => "Ignore" );
+$packet_policies = array( "bypass" => "Bypass", "drop-packet" => "Drop Packet", "pass-packet" => "Pass Packet",
+	"reject" => "Reject", "ignore" => "Ignore" );
 
-$section = new Form_Section('Flow Manager Settings');
-$section->addInput(new Form_Input(
-	'flow_memcap',
-	'Flow Memory Cap',
-	'text',
-	$pconfig['flow_memcap']
-))->setHelp('Max memory, in bytes, to be used by the flow engine. Default is 134,217,728 bytes (128 MB)');
-$section->addInput(new Form_Select(
-	'flow_memcap_policy',
-	'Flow Memory Cap Exception Policy',
-	$pconfig['flow_memcap_policy'],
-	array( "bypass" => "Bypass", "drop-packet" => "Drop Packet", "pass-packet" => "Pass Packet",
-		   "reject" => "Reject", "ignore" => "Ignore" )
-))->setHelp('Apply selected policy when the memcap limit for flows is reached and no flow could be freed up. This policy can only be applied to packets. Default is "Ignore". ' .
-			'"Drop Packet" drops the current packet. "Reject" rejects the current packet. "Bypass" will bypass the flow, and no further inspection is done. ' .
-			'"Pass Packet" will disable detection, but still does stream updates and app-layer parsing (depending on which policy triggered it). ' .
-			'"Ignore" does not apply exception policies.');
-$section->addInput(new Form_Input(
-	'flow_hash_size',
-	'Flow Hash Table Size',
-	'text',
-	$pconfig['flow_hash_size']
-))->setHelp('Hash Table size used by the flow engine. Default is 65,536 entries.');
-$section->addInput(new Form_Input(
-	'flow_prealloc',
-	'Preallocated Flows',
-	'text',
-	$pconfig['flow_prealloc']
-))->setHelp('Number of preallocated flows ready for use. Default is 10,000 flows.');
-$section->addInput(new Form_Input(
-	'flow_emerg_recovery',
-	'Emergency Recovery',
-	'text',
-	$pconfig['flow_emerg_recovery']
-))->setHelp('Percentage of preallocated flows to complete before exiting Emergency Mode. Default is 30%.');
-$section->addInput(new Form_Input(
-	'flow_prune',
-	'Prune Flows',
-	'text',
-	$pconfig['flow_prune']
-))->setHelp('Number of flows to prune in Emergency Mode when allocating a new flow. Default is 5 flows.');
-$form->add($section);
-
-$section = new Form_Section('Flow Timeout Settings');
-$group = new Form_Group('TCP Connections');
-$group->add(new Form_Input(
-	'flow_tcp_new_timeout',
-	'Prune Flows',
-	'text',
-	$pconfig['flow_tcp_new_timeout']
-))->setHelp('New TCP connection timeout in seconds. Default is 60.');
-$group->add(new Form_Input(
-	'flow_tcp_established_timeout',
-	'Prune Flows',
-	'text',
-	$pconfig['flow_tcp_established_timeout']
-))->setHelp('Established TCP connection timeout in seconds. Default is 3600.');
-$group->add(new Form_Input(
-	'flow_tcp_closed_timeout',
-	'Prune Flows',
-	'text',
-	$pconfig['flow_tcp_closed_timeout']
-))->setHelp('Closed TCP connection timeout in seconds. Default is 120.');
-$group->add(new Form_Input(
-	'flow_tcp_emerg_new_timeout',
-	'Prune Flows',
-	'text',
-	$pconfig['flow_tcp_emerg_new_timeout']
-))->setHelp('Emergency New TCP connection timeout in seconds. Default is 10.');
-$group->add(new Form_Input(
-	'flow_tcp_emerg_established_timeout',
-	'Prune Flows',
-	'text',
-	$pconfig['flow_tcp_emerg_established_timeout']
-))->setHelp('Emergency Established TCP connection timeout in seconds. Default is 300.');
-$group->add(new Form_Input(
-	'flow_tcp_emerg_closed_timeout',
-	'Prune Flows',
-	'text',
-	$pconfig['flow_tcp_emerg_closed_timeout']
-))->setHelp('Emergency Closed TCP connection timeout in seconds. Default is 20.');
-$section->add($group);
-
-$group = new Form_Group('UDP Connections');
-$group->add(new Form_Input(
-	'flow_udp_new_timeout',
-	'Prune Flows',
-	'text',
-	$pconfig['flow_udp_new_timeout']
-))->setHelp('New UDP connection timeout in seconds. Default is 30.');
-$group->add(new Form_Input(
-	'flow_udp_established_timeout',
-	'Prune Flows',
-	'text',
-	$pconfig['flow_udp_established_timeout']
-))->setHelp('Established UDP connection timeout in seconds. Default is 300.');
-$group->add(new Form_Input(
-	'flow_udp_emerg_new_timeout',
-	'Prune Flows',
-	'text',
-	$pconfig['flow_udp_emerg_new_timeout']
-))->setHelp('Emergency New UDP connection timeout in seconds. Default is 10.');
-$group->add(new Form_Input(
-	'flow_udp_emerg_established_timeout',
-	'Prune Flows',
-	'text',
-	$pconfig['flow_udp_emerg_established_timeout']
-))->setHelp('Emergency Established UDP connection timeout in seconds. Default is 100.');
-$section->add($group);
-
-$group = new Form_Group('ICMP Connections');
-$group->add(new Form_Input(
-	'flow_icmp_new_timeout',
-	'Prune Flows',
-	'text',
-	$pconfig['flow_icmp_new_timeout']
-))->setHelp('New ICMP connection timeout in seconds. Default is 30.');
-$group->add(new Form_Input(
-	'flow_icmp_established_timeout',
-	'Prune Flows',
-	'text',
-	$pconfig['flow_icmp_established_timeout']
-))->setHelp('Established ICMP connection timeout in seconds. Default is 300.');
-$group->add(new Form_Input(
-	'flow_icmp_emerg_new_timeout',
-	'Prune Flows',
-	'text',
-	$pconfig['flow_icmp_emerg_new_timeout']
-))->setHelp('Emergency New ICMP connection timeout in seconds. Default is 10.');
-$group->add(new Form_Input(
-	'flow_icmp_emerg_established_timeout',
-	'Prune Flows',
-	'text',
-	$pconfig['flow_icmp_emerg_established_timeout']
-))->setHelp('Emergency Established ICMP connection timeout in seconds. Default is 100.');
-$section->add($group);
-$form->add($section);
-
-$section = new Form_Section('Stream Engine Settings');
+/* ---- Stream engine: the settings changed most often */
+$section = new Form_Section('Stream engine');
 $section->addInput(new Form_Input(
 	'stream_memcap',
-	'Stream Memory Cap',
+	'Memory cap',
 	'text',
 	$pconfig['stream_memcap']
-))->setHelp('Max memory to be used by stream engine. Default is 268,435,456 bytes (256MB). Sets the maximum amount of memory, in bytes, to be used by the stream engine. This number will likely need to be increased beyond the default value in systems with more than 4 processor cores. If Suricata fails to start and logs a memory allocation error, increase this value in 4 MB chunks until Suricata starts successfully.');
+))->setHelp('Bytes. Default is 268,435,456 (256 MB). Raise it in 4 MB steps if Suricata fails to start with a memory allocation error; systems with more than 4 cores usually need more.');
 $section->addInput(new Form_Select(
 	'stream_memcap_policy',
-	'Memcap Exception Policy',
+	'Memory cap exception policy',
 	$pconfig['stream_memcap_policy'],
-	array( "drop-flow" => "Drop Flow", "pass-flow" => "Pass Flow", "bypass" => "Bypass", "drop-packet" => "Drop Packet",
-		   "pass-packet" => "Pass Packet", "reject" => "Reject", "ignore" => "Ignore" )
-))->setHelp('If a stream memcap limit is reached, apply the selected memcap policy to the packet and/or flow.. Default is "Ignore". ' .
-			'"Drop Flow" will disable inspection for the whole flow (packets, payload, and application layer protocol), drop ' .
-			'the packet and all future packets in the flow. "Drop Packet" drops the current packet. "Reject" is the same as "Drop Flow" ' .
-			'but rejects the current packet as well. "Bypass" will bypass the flow, and no further inspection is done. ' .
-			'"Pass Flow" will disable payload and packet detection, but stream reassembly, app-layer parsing and logging still happen. ' .
-			'"Pass Packet" will disable detection, but still does stream updates and app-layer parsing (depending on which policy triggered it). ' .
-			'"Ignore" does not apply exception policies.');
+	$stream_policies
+))->setHelp($exception_help);
 $section->addInput(new Form_Input(
 	'stream_prealloc_sessions',
-	'Preallocated Sessions',
+	'Preallocated sessions',
 	'text',
 	$pconfig['stream_prealloc_sessions']
-))->setHelp('Number of preallocated stream engine sessions. Default is 32,768 sessions. Sets the number of stream engine sessions to preallocate. This can be a performance enhancement.');
+))->setHelp('Default is 32,768 sessions.');
 $section->addInput(new Form_Checkbox(
 	'enable_midstream_sessions',
-	'Enable Mid-Stream Sessions',
-	'Suricata will allow midstream session pickups. Default is Not Checked, which will ignore and not scan midstream sessions. When this ' .
-	'option is enabled, midstream sessions are subject to the Midstream Exception Policy selected below.',
+	'Mid-stream sessions',
+	'Pick up sessions that started before Suricata saw them. Default is off; such sessions are then subject to the Midstream exception policy.',
 	$pconfig['enable_midstream_sessions'] == 'on' ? true:false,
 	'on'
 ));
 $section->addInput(new Form_Select(
 	'midstream_policy',
-	'Midstream Exception Policy',
+	'Midstream exception policy',
 	$pconfig['midstream_policy'],
-	array( "drop-flow" => "Drop Flow", "pass-flow" => "Pass Flow", "bypass" => "Bypass", "drop-packet" => "Drop Packet",
-		   "pass-packet" => "Pass Packet", "reject" => "Reject", "ignore" => "Ignore" )
-))->setHelp('If a session is picked up midstream, apply the selected midstream policy to the flow. Default is "Ignore". ' .
-			'"Drop Flow" will disable inspection for the whole flow (packets, payload, and application layer protocol), drop ' .
-			'the packet and all future packets in the flow. "Drop Packet" drops the current packet. "Reject" is the same as "Drop Flow" ' .
-			'but rejects the current packet as well. "Bypass" will bypass the flow, and no further inspection is done. ' .
-			'"Pass Flow" will disable payload and packet detection, but stream reassembly, app-layer parsing and logging still happen. ' .
-			'"Pass Packet" will disable detection, but still does stream updates and app-layer parsing (depending on which policy triggered it). ' .
-			'"Ignore" does not apply exception policies.');
+	$stream_policies
+))->setHelp($exception_help);
 $section->addInput(new Form_Checkbox(
 	'enable_async_sessions',
-	'Enable Async Streams',
-	'Suricata will track asynchronous one-sided streams. Default is Not Checked.',
+	'Async streams',
+	'Track asynchronous one-sided streams. Default is off.',
 	$pconfig['enable_async_sessions'] == 'on' ? true:false,
 	'on'
 ));
 $section->addInput(new Form_Checkbox(
 	'stream_checksum_validation',
-	'Checksum Validation',
-	'Suricata will validate the checksum of received packets. When enabled, packets with invalid checksum values will not be ' . 
-	'processed by the engine stream/app layer. Default is Checked.',
+	'Checksum validation',
+	'Packets with an invalid checksum are not processed by the stream and app layer. Default is on.',
 	$pconfig['stream_checksum_validation'] == 'on' ? true:false,
 	'on'
 ));
 $section->addInput(new Form_Checkbox(
 	'stream_bypass',
-	'Bypass Packets',
-	'Suricata will bypass packets when stream reassembly depth (configured below) is reached. Default is Not Checked.',
+	'Bypass packets',
+	'Bypass packets once the reassembly depth is reached. Default is off.',
 	$pconfig['stream_bypass'] == 'on' ? true:false,
 	'on'
 ));
 $section->addInput(new Form_Checkbox(
 	'stream_drop_invalid',
-	'Drop Invalid Packets',
-	'When using Inline mode, Suricata will drop packets that are invalid with regards to streaming engine. Default is Not Checked.',
+	'Drop invalid packets',
+	'Inline mode: drop packets that are invalid for the stream engine. Default is off.',
 	$pconfig['stream_drop_invalid'] == 'on' ? true:false,
 	'on'
 ));
+$form->add($section);
+
+/* ---- Stream reassembly */
+$section = new Form_Section('Stream reassembly', 'sf-reassembly', $sec_state);
 $section->addInput(new Form_Input(
 	'reassembly_memcap',
-	'Reassembly Memory Cap',
+	'Memory cap',
 	'text',
 	$pconfig['reassembly_memcap']
-))->setHelp('Max memory to be used for stream reassembly. Default is 134,217,728 bytes (128MB). Sets the maximum amount of memory, in bytes, to be used for stream reassembly.');
+))->setHelp('Bytes. Default is 134,217,728 (128 MB).');
 $section->addInput(new Form_Select(
 	'reassembly_memcap_policy',
-	'Reassembly Memcap Exception Policy',
+	'Memory cap exception policy',
 	$pconfig['reassembly_memcap_policy'],
-	array( "drop-flow" => "Drop Flow", "pass-flow" => "Pass Flow", "bypass" => "Bypass", "drop-packet" => "Drop Packet",
-		   "pass-packet" => "Pass Packet", "reject" => "Reject", "ignore" => "Ignore" )
-))->setHelp('If stream reassembly reaches memcap limit, apply the selected reassembly memcap policy to the flow. Default is "Ignore". ' .
-			'"Drop Flow" will disable inspection for the whole flow (packets, payload, and application layer protocol), drop ' .
-			'the packet and all future packets in the flow. "Drop Packet" drops the current packet. "Reject" is the same as "Drop Flow" ' .
-			'but rejects the current packet as well. "Bypass" will bypass the flow, and no further inspection is done. ' .
-			'"Pass Flow" will disable payload and packet detection, but stream reassembly, app-layer parsing and logging still happen. ' .
-			'"Pass Packet" will disable detection, but still does stream updates and app-layer parsing (depending on which policy triggered it). ' .
-			'"Ignore" does not apply exception policies.');
+	$stream_policies
+))->setHelp($exception_help);
 $section->addInput(new Form_Input(
 	'reassembly_depth',
-	'Reassembly Depth',
+	'Depth',
 	'text',
 	$pconfig['reassembly_depth']
-))->setHelp('Amount of a stream to reassemble. Default is 1,048,576 bytes (1MB). Sets the depth, in bytes, of a stream to be reassembled by the stream engine. Set to 0 (unlimited) to reassemble entire stream. This is required for file extraction.');
+))->setHelp('Bytes of a stream to reassemble. Default is 1,048,576 (1 MB); 0 reassembles the whole stream, which file extraction needs.');
 $section->addInput(new Form_Input(
 	'reassembly_to_server_chunk',
-	'To-Server Chunk Size',
+	'To-server chunk size',
 	'text',
 	$pconfig['reassembly_to_server_chunk']
-))->setHelp('Size of raw stream chunks to inspect. Default is 2,560 bytes. Sets the chunk size, in bytes, for raw stream inspection performed for \'to-server\' traffic.');
+))->setHelp('Bytes per raw inspection chunk for to-server traffic. Default is 2,560.');
 $section->addInput(new Form_Input(
 	'reassembly_to_client_chunk',
-	'To-Client Chunk Size',
+	'To-client chunk size',
 	'text',
 	$pconfig['reassembly_to_client_chunk']
-))->setHelp('Amount of a stream to reassemble. Default is 2,560 bytes. Sets the chunk size, in bytes, for raw stream inspection performed for \'to-client\' traffic.');
+))->setHelp('Bytes per raw inspection chunk for to-client traffic. Default is 2,560.');
 $section->addInput(new Form_Input(
 	'max_synack_queued',
-	'Max different SYN/ACKs to queue',
+	'Queued SYN/ACKs',
 	'number',
 	$pconfig['max_synack_queued']
-))->setHelp('Sets max number of extra SYN/ACKs Suricata will queue and delay judgement on while awaiting proper ACK for 3-way handshake. Default is 5.');
+))->setHelp('Extra SYN/ACKs held while waiting for the ACK of the handshake. Default is 5.');
+$form->add($section);
+
+/* ---- Flow manager */
+$section = new Form_Section('Flow manager', 'sf-flow', $sec_state);
+$section->addInput(new Form_Input(
+	'flow_memcap',
+	'Memory cap',
+	'text',
+	$pconfig['flow_memcap']
+))->setHelp('Bytes. Default is 134,217,728 (128 MB).');
+$section->addInput(new Form_Select(
+	'flow_memcap_policy',
+	'Memory cap exception policy',
+	$pconfig['flow_memcap_policy'],
+	$packet_policies
+))->setHelp($exception_help);
+$section->addInput(new Form_Input(
+	'flow_hash_size',
+	'Hash table size',
+	'text',
+	$pconfig['flow_hash_size']
+))->setHelp('Default is 65,536 entries.');
+$section->addInput(new Form_Input(
+	'flow_prealloc',
+	'Preallocated flows',
+	'text',
+	$pconfig['flow_prealloc']
+))->setHelp('Default is 10,000 flows.');
+$section->addInput(new Form_Input(
+	'flow_emerg_recovery',
+	'Emergency recovery',
+	'text',
+	$pconfig['flow_emerg_recovery']
+))->setHelp('Percent of preallocated flows to free before leaving emergency mode. Default is 30.');
+$section->addInput(new Form_Input(
+	'flow_prune',
+	'Prune flows',
+	'text',
+	$pconfig['flow_prune']
+))->setHelp('Flows to prune in emergency mode when a new flow is needed. Default is 5.');
+$form->add($section);
+
+/* ---- Flow timeouts (seconds) */
+$section = new Form_Section('Flow timeouts', 'sf-timeouts', $sec_state);
+$group = new Form_Group('TCP');
+$group->add(new Form_Input('flow_tcp_new_timeout', 'New', 'text', $pconfig['flow_tcp_new_timeout']))->setHelp('New. Default 60');
+$group->add(new Form_Input('flow_tcp_established_timeout', 'Established', 'text', $pconfig['flow_tcp_established_timeout']))->setHelp('Established. Default 3600');
+$group->add(new Form_Input('flow_tcp_closed_timeout', 'Closed', 'text', $pconfig['flow_tcp_closed_timeout']))->setHelp('Closed. Default 120');
+$section->add($group);
+$group = new Form_Group('TCP in emergency');
+$group->add(new Form_Input('flow_tcp_emerg_new_timeout', 'New', 'text', $pconfig['flow_tcp_emerg_new_timeout']))->setHelp('New. Default 10');
+$group->add(new Form_Input('flow_tcp_emerg_established_timeout', 'Established', 'text', $pconfig['flow_tcp_emerg_established_timeout']))->setHelp('Established. Default 300');
+$group->add(new Form_Input('flow_tcp_emerg_closed_timeout', 'Closed', 'text', $pconfig['flow_tcp_emerg_closed_timeout']))->setHelp('Closed. Default 20');
+$section->add($group);
+$group = new Form_Group('UDP');
+$group->add(new Form_Input('flow_udp_new_timeout', 'New', 'text', $pconfig['flow_udp_new_timeout']))->setHelp('New. Default 30');
+$group->add(new Form_Input('flow_udp_established_timeout', 'Established', 'text', $pconfig['flow_udp_established_timeout']))->setHelp('Established. Default 300');
+$section->add($group);
+$group = new Form_Group('UDP in emergency');
+$group->add(new Form_Input('flow_udp_emerg_new_timeout', 'New', 'text', $pconfig['flow_udp_emerg_new_timeout']))->setHelp('New. Default 10');
+$group->add(new Form_Input('flow_udp_emerg_established_timeout', 'Established', 'text', $pconfig['flow_udp_emerg_established_timeout']))->setHelp('Established. Default 100');
+$section->add($group);
+$group = new Form_Group('ICMP');
+$group->add(new Form_Input('flow_icmp_new_timeout', 'New', 'text', $pconfig['flow_icmp_new_timeout']))->setHelp('New. Default 30');
+$group->add(new Form_Input('flow_icmp_established_timeout', 'Established', 'text', $pconfig['flow_icmp_established_timeout']))->setHelp('Established. Default 300');
+$section->add($group);
+$group = new Form_Group('ICMP in emergency');
+$group->add(new Form_Input('flow_icmp_emerg_new_timeout', 'New', 'text', $pconfig['flow_icmp_emerg_new_timeout']))->setHelp('New. Default 10');
+$group->add(new Form_Input('flow_icmp_emerg_established_timeout', 'Established', 'text', $pconfig['flow_icmp_emerg_established_timeout']))->setHelp('Established. Default 100');
+$section->add($group);
+$section->addInput(new Form_StaticText(null, '<span class="fs-muted">' . gettext('All timeouts are in seconds.') . '</span>'));
+$form->add($section);
+
+/* ---- IP defragmentation */
+$section = new Form_Section('IP defragmentation', 'sf-defrag', $sec_state);
+$section->addInput(new Form_Input(
+	'frag_memcap',
+	'Memory cap',
+	'text',
+	$pconfig['frag_memcap']
+))->setHelp('Bytes. Default is 33,554,432 (32 MB).');
+$section->addInput(new Form_Select(
+	'defrag_memcap_policy',
+	'Memory cap exception policy',
+	$pconfig['defrag_memcap_policy'],
+	$packet_policies
+))->setHelp($exception_help);
+$section->addInput(new Form_Input(
+	'ip_max_trackers',
+	'Max trackers',
+	'text',
+	$pconfig['ip_max_trackers']
+))->setHelp('Defragmented flows to follow. Default is 65,535.');
+$section->addInput(new Form_Input(
+	'ip_max_frags',
+	'Max fragments',
+	'text',
+	$pconfig['ip_max_frags']
+))->setHelp('Fragments held while waiting for reassembly. Default is 65,535; must be at least Max trackers.');
+$section->addInput(new Form_Input(
+	'frag_hash_size',
+	'Hash table size',
+	'text',
+	$pconfig['frag_hash_size']
+))->setHelp('Default is 65,536 entries.');
+$section->addInput(new Form_Input(
+	'ip_frag_timeout',
+	'Timeout',
+	'text',
+	$pconfig['ip_frag_timeout']
+))->setHelp('Seconds to hold a fragment while waiting for the rest of the packet. Default is 60.');
 $form->add($section);
 
 print($form);
 ?>
 
-<div class="infoblock">
-	<?=print_info_box('<strong>Note:</strong> Please save your settings before you exit. Changes will rebuild the rules file. This may take several seconds. Suricata must also be restarted to activate any changes made on this screen.', 'info')?>
+<div class="panel panel-default sf-policy-notes">
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Exception policies')?></h2></div>
+	<div class="panel-body">
+		<p class="fs-muted mb-0"><?=gettext('What Suricata does with a packet or flow when a memory cap is reached or a session is picked up mid-stream:')?></p>
+		<dl>
+			<dt><?=gettext('Drop Flow')?></dt><dd><?=gettext('Stops inspecting the whole flow and drops this and all later packets of it.')?></dd>
+			<dt><?=gettext('Drop Packet')?></dt><dd><?=gettext('Drops the current packet.')?></dd>
+			<dt><?=gettext('Reject')?></dt><dd><?=gettext('Like Drop Flow (or Drop Packet for packet policies), and also rejects the current packet.')?></dd>
+			<dt><?=gettext('Bypass')?></dt><dd><?=gettext('Bypasses the flow; nothing more is inspected.')?></dd>
+			<dt><?=gettext('Pass Flow')?></dt><dd><?=gettext('Turns off payload and packet detection; reassembly, app-layer parsing and logging continue.')?></dd>
+			<dt><?=gettext('Pass Packet')?></dt><dd><?=gettext('Turns off detection, but stream updates and app-layer parsing continue.')?></dd>
+			<dt><?=gettext('Ignore')?></dt><dd><?=gettext('Applies no exception policy (default).')?></dd>
+		</dl>
+	</div>
 </div>
+
+<div class="sf-notes">
+	<span><?=gettext('Saving rebuilds the rules file, which can take several seconds. Restart Suricata on this interface to use the new values.')?></span>
+</div>
+
+<script type="text/javascript">
+//<![CDATA[
+events.push(function() {
+	// Edit / delete a host OS policy: remember which one before the form posts
+	document.addEventListener('click', function(e) {
+		var btn = e.target.closest('button[data-sf-eng]');
+		if (!btn || e.defaultPrevented) {
+			return;
+		}
+		document.getElementById('eng_id').value = btn.getAttribute('data-sf-eng');
+	});
+});
+//]]>
+</script>
 
 <?php } ?>
 

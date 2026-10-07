@@ -518,10 +518,55 @@ elseif ($_POST['save'] || $_POST['apply']) {
 }
 
 $if_friendly = convert_friendly_interface_to_friendly_descr($pconfig['interface']);
-$pglinks = array("", "/suricata/suricata_interfaces.php", "/suricata/suricata_interfaces_edit.php?id={$id}", "@self");
-$pgtitle = array("Services", "Suricata", "Interface Settings", "{$if_friendly} - App Layer Parsers");
+$pglinks = array("", "/suricata/suricata_overview.php", "/suricata/suricata_interfaces.php", "/suricata/suricata_interfaces_edit.php?id={$id}", "@self");
+$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("Interfaces"), htmlspecialchars($pconfig['descr'] ?: $if_friendly), gettext("App-layer parsers"));
 include_once("head.inc");
-suricata_display_primary_navigation('advanced');
+suricata_display_primary_navigation('interfaces');
+
+/* Interface context (same block on every per-interface Suricata page): settings switch + summary */
+$sf_rule = config_get_path("installedpackages/suricata/rule/{$id}", []);
+$sf_real = get_real_interface($sf_rule['interface'] ?? '');
+$sf_name = convert_friendly_interface_to_friendly_descr($sf_rule['interface'] ?? '');
+echo '<nav class="fs-viewswitch" aria-label="' . fs_h(gettext('Interface settings')) . '">';
+foreach (array(
+	array('suricata_interfaces_edit.php', gettext('Settings')),
+	array('suricata_rulesets.php', gettext('Categories')),
+	array('suricata_rules.php', gettext('Rules')),
+	array('suricata_flow_stream.php', gettext('Flow & stream')),
+	array('suricata_app_parsers.php', gettext('App parsers')),
+	array('suricata_define_vars.php', gettext('Variables')),
+	array('suricata_ip_reputation.php', gettext('IP reputation')),
+) as $sf_v) {
+	echo '<a href="/suricata/' . $sf_v[0] . '?id=' . (int)$id . '"' . (($sf_v[0] === basename(__FILE__)) ? ' aria-current="page"' : '') . '>' . fs_h($sf_v[1]) . '</a>';
+}
+echo '</nav>';
+if (($sf_rule['blockoffenders'] ?? '') != 'on') {
+	$sf_mode = gettext('Detection only');
+} elseif (($sf_rule['ips_mode'] ?? '') == 'ips_mode_inline') {
+	$sf_mode = gettext('Inline IPS');
+} else {
+	$sf_mode = gettext('Legacy blocking');
+}
+$sf_running = !empty($sf_rule['uuid']) && suricata_is_running($sf_rule['uuid'], $sf_real);
+fs_summary_card(array(
+	'icon' => 'fa-shield-halved',
+	'title' => $sf_rule['descr'] ?? '',
+	'placeholder' => $sf_name,
+	'subtitle' => sprintf(gettext('Suricata on %s'), $sf_name),
+	'badges' => array(
+		fs_badge((($sf_rule['enable'] ?? '') == 'on') ? 'enabled' : 'disabled'),
+		$sf_running ? fs_badge('up', gettext('Running')) : fs_badge('down', gettext('Stopped')),
+	),
+	'meta' => $sf_real,
+	'label' => gettext('Interface summary'),
+	'facts' => array(
+		array(gettext('Mode'), $sf_mode),
+		array(gettext('Rule categories'), (string)count(array_filter(explode('||', $sf_rule['rulesets'] ?? '')))),
+		array(gettext('Home net'), (($sf_rule['homelistname'] ?? 'default') == 'default') ? gettext('Default') : $sf_rule['homelistname']),
+		array(gettext('Suppress list'), (empty($sf_rule['suppresslistname']) || $sf_rule['suppresslistname'] == 'default') ? '' : $sf_rule['suppresslistname'], 'empty' => gettext('None')),
+	),
+	'actions' => array(array(gettext('Alerts'), '/suricata/suricata_alerts.php?instance=' . (int)$id, 'fa-bell')),
+));
 
 /* Display error message */
 if ($input_errors) {
@@ -532,33 +577,6 @@ if ($savemsg) {
 	/* Display save message */
 	print_info_box($savemsg);
 }
-
-$tab_array = array();
-$tab_array[] = array(gettext("Interfaces"), true, "/suricata/suricata_interfaces.php");
-$tab_array[] = array(gettext("Global Settings"), false, "/suricata/suricata_global.php");
-$tab_array[] = array(gettext("Updates"), false, "/suricata/suricata_download_updates.php");
-$tab_array[] = array(gettext("Alerts"), false, "/suricata/suricata_alerts.php?instance={$id}");
-$tab_array[] = array(gettext("Blocks"), false, "/suricata/suricata_blocked.php");
-$tab_array[] = array(gettext("Files"), false, "/suricata/suricata_files.php?instance={$id}");
-$tab_array[] = array(gettext("Pass Lists"), false, "/suricata/suricata_passlist.php");
-$tab_array[] = array(gettext("Suppress"), false, "/suricata/suricata_suppress.php");
-$tab_array[] = array(gettext("Logs View"), false, "/suricata/suricata_logs_browser.php?instance={$id}");
-$tab_array[] = array(gettext("Logs Mgmt"), false, "/suricata/suricata_logs_mgmt.php");
-$tab_array[] = array(gettext("SID Mgmt"), false, "/suricata/suricata_sid_mgmt.php");
-$tab_array[] = array(gettext("Sync"), false, "/pkg_edit.php?xml=suricata/suricata_sync.xml");
-$tab_array[] = array(gettext("IP Lists"), false, "/suricata/suricata_ip_list_mgmt.php");
-display_top_tabs($tab_array, true);
-
-$menu_iface=($if_friendly?substr($if_friendly,0,5)." ":"Iface ");
-$tab_array = array();
-$tab_array[] = array($menu_iface . gettext("Settings"), false, "/suricata/suricata_interfaces_edit.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("Categories"), false, "/suricata/suricata_rulesets.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("Rules"), false, "/suricata/suricata_rules.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("Flow/Stream"), false, "/suricata/suricata_flow_stream.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("App Parsers"), true, "/suricata/suricata_app_parsers.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("Variables"), false, "/suricata/suricata_define_vars.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("IP Rep"), false, "/suricata/suricata_ip_reputation.php?id={$id}");
-display_top_tabs($tab_array, true);
 ?>
 
 <?php
@@ -590,398 +608,274 @@ if ($importalias) {
 
 } else {
 
+	$sec_state = COLLAPSIBLE | (!empty($input_errors) ? SEC_OPEN : SEC_CLOSED);
+	$parser_opts = array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" );
+
 	print('<form action="suricata_app_parsers.php" method="post" name="iform" id="iform" class="">');
-	print('<input name="id" type="hidden" value="' . $id . '"/>');
+	print('<input name="id" type="hidden" value="' . (int)$id . '"/>');
 	print('<input type="hidden" name="eng_id" id="eng_id" value=""/>');
-
-	$section= new Form_Section('App-Layer Error Policy Settings');
+?>
+<style>
+.sf-notes { display: flex; flex-wrap: wrap; gap: .4rem 1.5rem; margin: -.5rem 0 var(--fs-sp-5); color: var(--fs-text-muted); font-size: var(--fs-fs-sm); }
+.sf-parser-legend { padding: var(--fs-sp-3) var(--fs-sp-4) 0; margin: 0; color: var(--fs-text-muted); font-size: var(--fs-fs-sm); }
+</style>
+<?php
+	/* ---- HTTP: parser, memory and the per-server libhtp configurations */
+	$section = new Form_Section('HTTP');
 	$section->addInput(new Form_Select(
-		'app_layer_error_policy',
-		'Application Layer Parser Exception Policy',
-		$pconfig['app_layer_error_policy'],
-		array( "drop-flow" => "Drop Flow", "pass-flow" => "Pass Flow", "bypass" => "Bypass", "drop-packet" => "Drop Packet",
-			   "pass-packet" => "Pass Packet", "reject" => "Reject", "ignore" => "Ignore" )
-	))->setHelp('Apply selected policy if an application layer parser reaches an error state. Default is "Ignore". ' .
-				'"Drop Flow" will disable inspection for the whole flow (packets, payload, and application layer protocol), drop ' .
-				'the packet and all future packets in the flow. "Drop Packet" drops the current packet. "Reject" is the same as "Drop Flow" ' .
-				'but rejects the current packet as well. "Bypass" will bypass the flow, and no further inspection is done. ' .
-				'"Pass Flow" will disable payload and packet detection, but stream reassembly, app-layer parsing and logging still happen. ' .
-				'"Pass Packet" will disable detection, but still does stream updates and app-layer parsing (depending on which policy triggered it). ' .
-				'"Ignore" does not apply exception policies.');
-	print($section);
-
-	$section = new Form_Section('Abstract Syntax One App-Layer Parser Settings');
+		'http_parser',
+		'HTTP parser',
+		$pconfig['http_parser'],
+		$parser_opts
+	))->setHelp('Default is yes.');
 	$section->addInput(new Form_Input(
-		'asn1_max_frames',
-		'Asn1 Max Frames',
+		'http_parser_memcap',
+		'Memory cap',
 		'text',
-		$pconfig['asn1_max_frames']
-	))->setHelp('Limit for max number of asn1 frames to decode. Default is 256 frames. To protect itself, Suricata will inspect only the maximum asn1 frames specified. Application layer protocols such as X.400 electronic mail, X.500 and LDAP directory services, H.323 (VoIP), and SNMP, use ASN.1 to describe the protocol data units (PDUs) they exchange.');
+		$pconfig['http_parser_memcap']
+	))->setHelp('Bytes. Default is 67,108,864 (64 MB).');
 	print($section);
-
-	$section = new Form_Section('DNS App-Layer Parser Settings');
+?>
+<div class="panel panel-default fs-table">
+<?php
+	fs_table_toolbar(array(
+		'title' => gettext('HTTP server configurations'),
+		'search' => false,
+		'noun' => gettext('configurations'),
+		'noun_one' => gettext('configuration'),
+		'actions' => '<button type="submit" name="import_alias" class="btn btn-sm btn-outline-secondary" title="' . fs_h(gettext("Import server configuration from existing Aliases")) . '" value="Import">'
+		    . '<i class="fa-solid fa-upload icon-embed-btn" aria-hidden="true"></i>' . fs_h(gettext('Import')) . '</button>'
+		    . '<button type="submit" name="add_libhtp_policy" class="btn btn-sm btn-primary" title="' . fs_h(gettext("Add a new server configuration")) . '" value="Add">'
+		    . '<i class="fa-solid fa-plus icon-embed-btn" aria-hidden="true"></i>' . fs_h(gettext('Add server')) . '</button>',
+	));
+?>
+	<div class="panel-body table-responsive">
+		<table class="table table-hover">
+			<thead>
+				<tr>
+					<th><?=gettext("Name")?></th>
+					<th><?=gettext("Bind to")?></th>
+					<th><?=gettext("Personality")?></th>
+					<th class="fs-col-actions"><span class="visually-hidden"><?=gettext('Actions')?></span></th>
+				</tr>
+			</thead>
+			<tbody>
+<?php foreach ($pconfig['libhtp_policy']['item'] as $f => $v): ?>
+				<tr>
+					<td><?=htmlspecialchars(gettext($v['name']))?></td>
+					<td><?=($v['bind_to'] == 'all') ? '<span class="fs-chip">' . gettext('All hosts') . '</span>' : '<span class="fs-chip fs-chip--mono">' . htmlspecialchars($v['bind_to']) . '</span>'?></td>
+					<td><span class="fs-chip fs-chip--strong"><?=htmlspecialchars($v['personality'] ?? '')?></span></td>
+					<td class="fs-col-actions"><div class="fs-actions">
+						<button type="submit" name="edit_libhtp_policy" value="Edit" class="fs-action" data-sf-eng="<?=(int)$f?>" title="<?=fs_h(sprintf(gettext('Edit %s'), $v['name']))?>" aria-label="<?=fs_h(sprintf(gettext('Edit %s'), $v['name']))?>"><i class="fa-solid fa-pencil" aria-hidden="true"></i></button>
+<?php if ($v['bind_to'] != "all") : ?>
+						<button type="submit" name="del_libhtp_policy" value="Delete" class="fs-action fs-action--delete" data-sf-eng="<?=(int)$f?>" title="<?=fs_h(sprintf(gettext('Delete %s'), $v['name']))?>" aria-label="<?=fs_h(sprintf(gettext('Delete %s'), $v['name']))?>"
+							data-fs-confirm="<?=fs_h(sprintf(gettext('Delete HTTP server configuration “%s”?'), $v['name']))?>" data-fs-confirm-action="<?=gettext('Delete')?>"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>
+<?php else : ?>
+						<span class="fs-action" title="<?=gettext("The default configuration cannot be deleted")?>" aria-hidden="true"><i class="fa-solid fa-lock fs-muted"></i></span>
+<?php endif ?>
+					</div></td>
+				</tr>
+<?php endforeach; ?>
+			</tbody>
+		</table>
+	</div>
+</div>
+<?php
+	/* ---- DNS */
+	$section = new Form_Section('DNS');
 	$section->addInput(new Form_Select(
 		'dns_parser_udp',
-		'UDP Parser',
+		'UDP parser',
 		$pconfig['dns_parser_udp'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
+		$parser_opts
+	))->setHelp('Default is yes.');
 	$section->addInput(new Form_Select(
 		'dns_parser_tcp',
-		'TCP Parser',
+		'TCP parser',
 		$pconfig['dns_parser_tcp'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
+		$parser_opts
+	))->setHelp('Default is yes.');
 	$section->addInput(new Form_Input(
 		'dns_parser_udp_ports',
-		'UDP Detection Port',
+		'UDP detection ports',
 		'text',
 		$pconfig['dns_parser_udp_ports']
-	))->setHelp('Enter comma-separated list (or a Port alias) of ports for the DNS UDP parser. Default is 53.');
+	))->setHelp('Comma-separated ports or a port alias. Default is 53.');
 	$section->addInput(new Form_Input(
 		'dns_parser_tcp_ports',
-		'TCP Detection Port',
+		'TCP detection ports',
 		'text',
 		$pconfig['dns_parser_tcp_ports']
-	))->setHelp('Enter comma-separated list (or a Port alias) of ports for the DNS TCP parser. Default is 53.');
+	))->setHelp('Comma-separated ports or a port alias. Default is 53.');
 	$section->addInput(new Form_Input(
 		'dns_global_memcap',
-		'Global Memcap',
+		'Global memory cap',
 		'text',
 		$pconfig['dns_global_memcap']
-	))->setHelp('Sets the global memcap limit for the DNS parser. Default is 16777216 bytes (16MB).');
+	))->setHelp('Bytes. Default is 16,777,216 (16 MB).');
 	$section->addInput(new Form_Input(
 		'dns_state_memcap',
-		'Flow/State Memcap',
+		'Flow/state memory cap',
 		'text',
 		$pconfig['dns_state_memcap']
-	))->setHelp('Sets per flow/state memcap limit for the DNS parser. Default is 524288 bytes (512KB).');
+	))->setHelp('Bytes per flow. Default is 524,288 (512 KB).');
 	$section->addInput(new Form_Input(
 		'dns_request_flood_limit',
-		'Request Flood Limit',
+		'Request flood limit',
 		'text',
 		$pconfig['dns_request_flood_limit']
-	))->setHelp('How many unreplied DNS requests are considered a flood. Default is 500 requests. If this limit is reached, \'app-layer-event:dns.flooded\' will match and alert.');
+	))->setHelp('Unanswered requests that count as a flood (app-layer-event:dns.flooded). Default is 500.');
 	print($section);
 
-	$section = new Form_Section('SMTP App-Layer Parser Settings');
-	$section->addInput(new Form_Select(
-		'smtp_parser',
-		'SMTP Parser',
-		$pconfig['smtp_parser'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Choose the parser/detection setting for SMTP. Default is yes. Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
-	$section->addInput(new Form_Checkbox(
-		'smtp_parser_decode_mime',
-		'Enable MIME Decoding',
-		'Suricata will decode MIME messages from SMTP transactions.  Note this may be resource intensive! Default is Not Checked.',
-		$pconfig['smtp_parser_decode_mime'] == 'on' ? true:false,
-		'on'
-	));
-	$section->addInput(new Form_Checkbox(
-		'smtp_parser_decode_base64',
-		'Base64 MIME Decoding',
-		'Suricata will decode Base64 MIME entity bodies. Default is Checked.',
-		$pconfig['smtp_parser_decode_base64'] == 'on' ? true:false,
-		'on'
-	));
-	$section->addInput(new Form_Checkbox(
-		'smtp_parser_decode_quoted_printable',
-		'Quoted-Printable MIME Decoding',
-		'Suricata will decode quoted-printable MIME entity bodies. Default is Checked.',
-		$pconfig['smtp_parser_decode_quoted_printable'] == 'on' ? true:false,
-		'on'
-	));
-	$section->addInput(new Form_Checkbox(
-		'smtp_parser_extract_urls',
-		'MIME URL Extraction',
-		'Suricata will Extract URLs and save in state data structure. Default is Checked.',
-		$pconfig['smtp_parser_extract_urls'] == 'on' ? true:false,
-		'on'
-	));
-	$section->addInput(new Form_Checkbox(
-		'smtp_parser_compute_body_md5',
-		'MIME Body MD5 Calculation',
-		'Suricata will compute the md5 of the mail body so it can be journalized. Default is Not Checked.',
-		$pconfig['smtp_parser_compute_body_md5'] == 'on' ? true:false,
-		'on'
-	));
-	print($section);
-
-	$section = new Form_Section('TLS App-Layer Parser Settings');
+	/* ---- TLS */
+	$section = new Form_Section('TLS');
 	$section->addInput(new Form_Select(
 		'tls_parser',
-		'TLS Parser',
+		'TLS parser',
 		$pconfig['tls_parser'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Choose the parser/detection setting for TLS. Default is yes. Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
+		$parser_opts
+	))->setHelp('Default is yes.');
 	$section->addInput(new Form_Input(
 		'tls_detect_ports',
-		'Detection Ports',
+		'Detection ports',
 		'text',
 		$pconfig['tls_detect_ports']
-	))->setHelp('Enter a comma-separated list of ports (or port alias) to examine for TLS traffic (e.g., 443, 8443). Default is 443.');
+	))->setHelp('Comma-separated ports or a port alias, e.g. 443, 8443. Default is 443.');
 	$section->addInput(new Form_Select(
 		'tls_encrypt_handling',
-		'Encryption Handling',
+		'Encryption handling',
 		$pconfig['tls_encrypt_handling'],
 		array(  "default" => "Default", "bypass" => "Bypass", "full" => "Full" )
-	))->setHelp('What to do when the encrypted communications start. "Default" keeps tracking the TLS session to check for protocol anomalies and inspect tls_* keywords; "Bypass" stops ' . 
-		    'processing this flow as much as possible; and "Full" keeps tracking and inspection as normal including unmodified content keyword signatures.  For best performance, select "Bypass".');
+	))->setHelp('Once encryption starts: Default keeps checking the session for anomalies and tls_* keywords, Bypass stops processing the flow (fastest), Full keeps full inspection including content signatures.');
 	$section->addInput(new Form_Checkbox(
 		'tls_ja3_fingerprint',
-		'JA3/JA3S Fingerprint',
-		'Suricata will generate JA3/JA3S fingerprint from client hello. Default is Not Checked, which disables fingerprinting unless required by the rules.',
+		'JA3/JA3S fingerprint',
+		'Generate JA3/JA3S fingerprints from the client hello. Default is off; rules that need it still turn it on.',
 		$pconfig['tls_ja3_fingerprint'] == 'on' ? true:false,
 		'on'
 	));
 	print($section);
 
-	$section = new Form_Section('FTP App-Layer Parser Settings');
+	/* ---- SMTP */
+	$section = new Form_Section('SMTP');
+	$section->addInput(new Form_Select(
+		'smtp_parser',
+		'SMTP parser',
+		$pconfig['smtp_parser'],
+		$parser_opts
+	))->setHelp('Default is yes.');
+	$section->addInput(new Form_Checkbox(
+		'smtp_parser_decode_mime',
+		'MIME decoding',
+		'Decode MIME messages of SMTP transactions. Can use a lot of resources. Default is off.',
+		$pconfig['smtp_parser_decode_mime'] == 'on' ? true:false,
+		'on'
+	));
+	$section->addInput(new Form_Checkbox(
+		'smtp_parser_decode_base64',
+		'Base64 decoding',
+		'Decode Base64 MIME entity bodies. Default is on.',
+		$pconfig['smtp_parser_decode_base64'] == 'on' ? true:false,
+		'on'
+	));
+	$section->addInput(new Form_Checkbox(
+		'smtp_parser_decode_quoted_printable',
+		'Quoted-printable decoding',
+		'Decode quoted-printable MIME entity bodies. Default is on.',
+		$pconfig['smtp_parser_decode_quoted_printable'] == 'on' ? true:false,
+		'on'
+	));
+	$section->addInput(new Form_Checkbox(
+		'smtp_parser_extract_urls',
+		'URL extraction',
+		'Extract URLs and keep them in the state data. Default is on.',
+		$pconfig['smtp_parser_extract_urls'] == 'on' ? true:false,
+		'on'
+	));
+	$section->addInput(new Form_Checkbox(
+		'smtp_parser_compute_body_md5',
+		'Body MD5',
+		'Compute the MD5 of the mail body so it can be journalized. Default is off.',
+		$pconfig['smtp_parser_compute_body_md5'] == 'on' ? true:false,
+		'on'
+	));
+	print($section);
+
+	/* ---- FTP */
+	$section = new Form_Section('FTP');
 	$section->addInput(new Form_Select(
 		'ftp_parser',
-		'FTP Parser',
+		'FTP parser',
 		$pconfig['ftp_parser'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Choose the parser/detection setting for FTP. Default is yes. Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
+		$parser_opts
+	))->setHelp('Default is yes.');
 	$section->addInput(new Form_Checkbox(
 		'ftp_data_parser',
-		'FTP DATA parser',
-		'Suricata will process FTP DATA port transfers. This feature is needed to save FTP uploads/download when File Store feature is enabled.',
+		'FTP-DATA parser',
+		'Process FTP-DATA transfers. File-Store needs this to save FTP uploads and downloads.',
 		$pconfig['ftp_data_parser'] == 'on' ? true:false,
 		'on'
 	));
 	print($section);
 
-	$section = new Form_Section('Other App-Layer Parser Settings');
-	$section->addInput(new Form_Select(
-		'bittorrent_parser',
-		'BitTorrent-DHT Parser',
-		$pconfig['bittorrent_parser'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Choose the parser/detection setting for BitTorrent-DHT. Default is yes. Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
-	$section->addInput(new Form_Select(
-		'dcerpc_parser',
-		'DCERPC Parser',
-		$pconfig['dcerpc_parser'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Choose the parser/detection setting for DCERPC. Default is yes. Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
-	$section->addInput(new Form_Select(
-		'dhcp_parser',
-		'DHCP Parser',
-		$pconfig['dhcp_parser'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Choose the parser/detection setting for DHCP. Default is yes. Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
-	$section->addInput(new Form_Select(
-		'enip_parser',
-		'ENIP Parser',
-		$pconfig['enip_parser'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Choose the parser/detection setting for ENIP. Default is yes. Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
-	$section->addInput(new Form_Select(
-		'http2_parser',
-		'HTTP2 Parser',
-		$pconfig['http2_parser'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Choose the parser/detection setting for HTTP2. Default is yes. Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
-	$section->addInput(new Form_Select(
-		'ikev2_parser',
-		'IKE Parser',
-		$pconfig['ikev2_parser'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Choose the parser/detection setting for IKE. Default is yes. Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
-	$section->addInput(new Form_Select(
-		'imap_parser',
-		'IMAP Parser',
-		$pconfig['imap_parser'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Choose the parser/detection setting for IMAP. Default is detection-only. Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
-	$section->addInput(new Form_Select(
-		'krb5_parser',
-		'Kerberos Parser',
-		$pconfig['krb5_parser'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Choose the parser/detection setting for Kerberos. Default is yes. Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
-	$section->addInput(new Form_Select(
-		'mqtt_parser',
-		'MQTT Parser',
-		$pconfig['mqtt_parser'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Choose the parser/detection setting for MQTT. Default is yes. Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
-	$section->addInput(new Form_Select(
-		'msn_parser',
-		'MSN Parser',
-		$pconfig['msn_parser'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Choose the parser/detection setting for MSN. Default is detection-only. Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
-	$section->addInput(new Form_Select(
-		'nfs_parser',
-		'NFS Parser',
-		$pconfig['nfs_parser'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Choose the parser/detection setting for NFS. Default is yes. Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
-	$section->addInput(new Form_Select(
-		'ntp_parser',
-		'NTP Parser',
-		$pconfig['ntp_parser'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Choose the parser/detection setting for NTP. Default is yes. Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
-	$section->addInput(new Form_Select(
-		'pgsql_parser',
-		'PostgreSQL Parser',
-		$pconfig['pgsql_parser'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Choose the parser/detection setting for PostgreSQL. Default is "no". Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
-	$section->addInput(new Form_Select(
-		'quic_parser',
-		'QUICv1 Parser',
-		$pconfig['quic_parser'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Choose the parser/detection setting for QUICv1. Default is yes. Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
-	$section->addInput(new Form_Select(
-		'rdp_parser',
-		'RDP Parser',
-		$pconfig['rdp_parser'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Choose the parser/detection setting for RDP. Default is yes. Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
-	$section->addInput(new Form_Select(
-		'rfb_parser',
-		'RFB Parser',
-		$pconfig['rfb_parser'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Choose the parser/detection setting for RFB. Default is yes. Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
-	$section->addInput(new Form_Select(
-		'ssh_parser',
-		'SSH Parser',
-		$pconfig['ssh_parser'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Choose the parser/detection setting for SSH. Default is yes. Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
-	$section->addInput(new Form_Select(
-		'sip_parser',
-		'SIP Parser',
-		$pconfig['sip_parser'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Choose the parser/detection setting for SIP. Default is yes. Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
-	$section->addInput(new Form_Select(
-		'smb_parser',
-		'SMB Parser',
-		$pconfig['smb_parser'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Choose the parser/detection setting for SMB. Default is yes. Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
-	$section->addInput(new Form_Select(
-		'snmp_parser',
-		'SNMP Parser',
-		$pconfig['snmp_parser'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Choose the parser/detection setting for SNMP. Default is yes. Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
-	$section->addInput(new Form_Select(
-		'telnet_parser',
-		'Telnet Parser',
-		$pconfig['telnet_parser'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Choose the parser/detection setting for Telnet. Default is yes. Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
-	$section->addInput(new Form_Select(
-		'tftp_parser',
-		'TFTP Parser',
-		$pconfig['tftp_parser'],
-		array(  "yes" => "yes", "no" => "no", "detection-only" => "detection-only" )
-	))->setHelp('Choose the parser/detection setting for TFTP. Default is yes. Selecting "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.');
-
+	/* ---- Other protocols: one select each, collapsed */
+	$section = new Form_Section('Other protocols', 'sf-other-parsers', $sec_state);
+	foreach (array(
+		array('bittorrent_parser', 'BitTorrent-DHT', 'yes'),
+		array('dcerpc_parser', 'DCERPC', 'yes'),
+		array('dhcp_parser', 'DHCP', 'yes'),
+		array('enip_parser', 'ENIP', 'yes'),
+		array('http2_parser', 'HTTP/2', 'yes'),
+		array('ikev2_parser', 'IKE', 'yes'),
+		array('imap_parser', 'IMAP', 'detection-only'),
+		array('krb5_parser', 'Kerberos', 'yes'),
+		array('mqtt_parser', 'MQTT', 'yes'),
+		array('msn_parser', 'MSN', 'detection-only'),
+		array('nfs_parser', 'NFS', 'yes'),
+		array('ntp_parser', 'NTP', 'yes'),
+		array('pgsql_parser', 'PostgreSQL', 'no'),
+		array('quic_parser', 'QUICv1', 'yes'),
+		array('rdp_parser', 'RDP', 'yes'),
+		array('rfb_parser', 'RFB', 'yes'),
+		array('ssh_parser', 'SSH', 'yes'),
+		array('sip_parser', 'SIP', 'yes'),
+		array('smb_parser', 'SMB', 'yes'),
+		array('snmp_parser', 'SNMP', 'yes'),
+		array('telnet_parser', 'Telnet', 'yes'),
+		array('tftp_parser', 'TFTP', 'yes'),
+	) as $p) {
+		$section->addInput(new Form_Select(
+			$p[0],
+			$p[1],
+			$pconfig[$p[0]],
+			$parser_opts
+		))->setHelp(sprintf(gettext('Default is %s.'), $p[2]));
+	}
 	print($section);
 
+	/* ---- Error handling and limits */
+	$section = new Form_Section('Error policy and limits', 'sf-parser-advanced', $sec_state);
+	$section->addInput(new Form_Select(
+		'app_layer_error_policy',
+		'Parser exception policy',
+		$pconfig['app_layer_error_policy'],
+		array( "drop-flow" => "Drop Flow", "pass-flow" => "Pass Flow", "bypass" => "Bypass", "drop-packet" => "Drop Packet",
+			   "pass-packet" => "Pass Packet", "reject" => "Reject", "ignore" => "Ignore" )
+	))->setHelp('What to do when a parser reaches an error state. Default is Ignore. Drop Flow drops the flow; Drop Packet the packet; Reject also rejects it; Bypass stops inspecting the flow; Pass Flow and Pass Packet turn off detection but keep parsing and logging.');
+	$section->addInput(new Form_Input(
+		'asn1_max_frames',
+		'ASN.1 max frames',
+		'text',
+		$pconfig['asn1_max_frames']
+	))->setHelp('Most ASN.1 frames to decode (X.400, LDAP, H.323, SNMP …). Default is 256.');
+	print($section);
 ?>
-
-	<div class="card mb-3">
-		<div class="card-header"><h2 class="h5 mb-0"><?=gettext('HTTP App-Layer Parser Settings');?></h2></div>
-		<div class="card-body">
-			<div class="row mb-3">
-				<label class="col-sm-2 col-form-label">
-					<?=gettext("Memcap"); ?>
-				</label>
-				<div class="col-sm-10">
-					<input name="http_parser_memcap" type="text" class="form-control" id="http_parser_memcap" size="9" value="<?=htmlspecialchars($pconfig['http_parser_memcap'])?>">
-					<span class="help-block">Sets the memcap limit for the HTTP parser. Default is 67108864 bytes (64MB).</span>
-				</div>
-			</div>
-			<div class="row mb-3">
-				<label class="col-sm-2 col-form-label">
-					<?=gettext("HTTP Parser"); ?>
-				</label>
-				<div class="col-sm-10">
-					<select name="http_parser" id="http_parser" class="form-control">
-						<?php
-							$opt = array(  "yes", "no", "detection-only" );
-							foreach ($opt as $val) {
-								$selected = "";
-								if ($val == $pconfig['http_parser'])
-									$selected = " selected";
-								echo "<option value='{$val}'{$selected}>" . $val . "</option>\n";
-							}
-						?>
-					</select>
-					<span class="help-block">Choose the parser/detection setting for HTTP. Default is yes. electing "yes" enables detection and parser, "no" disables both and "detection-only" disables parser.</span>
-				</div>
-			</div>
-			<div class="row mb-3">
-				<label class="col-sm-2 col-form-label">
-					<?=gettext("Server Configurations"); ?>
-				</label>
-				<div class="col-sm-10">
-					<div class="table-responsive">
-						<table class="table table-striped table-hover table-sm">
-							<thead>
-								<tr>
-									<th><?=gettext("Name")?></th>
-									<th><?=gettext("Bind-To Address Alias")?></th>
-									<th>
-										<button type="submit" name="import_alias" class="btn btn-sm btn-primary" title="<?=gettext("Import server configuration from existing Aliases")?>" value="Import">
-											<i class="fa-solid fa-upload icon-embed-btn"></i>
-											<?=gettext("Import"); ?>
-										</button>
-										<button type="submit" name="add_libhtp_policy" class="btn btn-sm btn-success" title="<?=gettext("Add a new server configuration")?>" value="Add">
-											<i class="fa-solid fa-plus icon-embed-btn"></i>
-											<?=gettext("Add"); ?>
-										</button>
-									</th>
-								</tr>
-							</thead>
-							<tbody>
-							<?php foreach ($pconfig['libhtp_policy']['item'] as $f => $v): ?>
-								<tr>
-									<td><?=htmlspecialchars(gettext($v['name']))?></td>
-									<td class="text-center"><?=htmlspecialchars(gettext($v['bind_to']))?></td>
-									<td class="text-end">
-										<button type="submit" name="edit_libhtp_policy" value="Edit" class="btn btn-sm btn-primary" onclick="$('#eng_id').val('<?=$f?>')" title="<?=gettext("Edit this server configuration")?>">
-											<i class="fa-solid fa-pencil icon-embed-btn"></i>
-											<?=gettext("Edit"); ?>
-										</button>
-									<?php if ($v['bind_to'] != "all") : ?>
-										<button type="submit" name="del_libhtp_policy" value="Delete" class="btn btn-sm btn-danger" onclick="$('#eng_id').val('<?=$f?>');" title="<?=gettext("Delete this server configuration")?>">
-											<i class="fa-solid fa-trash-can icon-embed-btn"></i>
-											<?=gettext("Delete"); ?>
-										</button>
-									<?php else : ?>
-										<button type="submit" name="del_libhtp_policy" value="Delete" class="btn btn-sm btn-danger" title="<?=gettext("Delete this server configuration")?>" disabled>
-											<i class="fa-solid fa-trash-can icon-embed-btn"></i>
-											<?=gettext("Delete"); ?>
-										</button>
-									<?php endif ?>
-									</td>
-								</tr>
-							<?php endforeach; ?>
-							</tbody>
-						</table>
-					</div>
-				</div>
-			</div>
-		</div>
+	<div class="sf-notes">
+		<span><?=gettext('Parser values: yes enables detection and parsing, detection-only detects the protocol without parsing it, no turns both off.')?></span>
 	</div>
 
-	<div class="col-sm-10 offset-sm-2">
-		<button type="submit" id="save" name="save" value="Save" class="btn btn-primary" title="<?=gettext('Save App Parsers settings');?>">
-			<i class="fa-solid fa-save icon-embed-btn"></i>
-			<?=gettext('Save');?>
-		</button>
+	<div class="fs-actionbar">
+		<button type="submit" id="save" name="save" value="Save" class="btn btn-primary" title="<?=gettext('Save App Parsers settings');?>"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save');?></button>
 	</div>
 
 </form>
@@ -991,6 +885,15 @@ if ($importalias) {
 <script type="text/javascript">
 //<![CDATA[
 events.push(function(){
+
+	// Edit / delete an HTTP server configuration: remember which one before the form posts
+	document.addEventListener('click', function(e) {
+		var btn = e.target.closest('button[data-sf-eng]');
+		if (!btn || e.defaultPrevented) {
+			return;
+		}
+		document.getElementById('eng_id').value = btn.getAttribute('data-sf-eng');
+	});
 
 	function toggle_smtp_mime_decoding() {
 		if ($('#smtp_parser').val() == 'yes') {
