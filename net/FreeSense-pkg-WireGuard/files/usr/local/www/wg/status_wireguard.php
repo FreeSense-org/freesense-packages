@@ -64,11 +64,26 @@ $shortcut_section = "wireguard";
 $pgtitle = array(gettext("Status"), gettext("WireGuard"));
 $pglinks = array("", "@self");
 
-$tab_array = array();
-$tab_array[] = array(gettext("Tunnels"), false, "/wg/vpn_wg_tunnels.php");
-$tab_array[] = array(gettext("Peers"), false, "/wg/vpn_wg_peers.php");
-$tab_array[] = array(gettext("Settings"), false, "/wg/vpn_wg_settings.php");
-$tab_array[] = array(gettext("Status"), true, "/wg/status_wireguard.php");
+$a_devices = wg_get_status();
+
+$peers_hidden = wg_status_peers_hidden();
+
+/* totals for the summary tiles */
+$tot = array('up' => 0, 'peers' => 0, 'active' => 0, 'rx' => 0, 'tx' => 0);
+foreach ($a_devices as $device) {
+	$tot['up'] += ($device['status'] == 'up') ? 1 : 0;
+	$tot['rx'] += (float)$device['transfer_rx'];
+	$tot['tx'] += (float)$device['transfer_tx'];
+	foreach ($device['peers'] as $peer) {
+		$tot['peers']++;
+		$hs = intval($peer['latest_handshake']);
+		$tot['active'] += (($hs > 0) && (abs(time() - $hs) < 300)) ? 1 : 0;
+	}
+}
+
+if (isAllowedPage('wg/vpn_wg_tunnels.php')) {
+	fs_page_action(gettext('Tunnels'), '/wg/vpn_wg_tunnels.php', 'fa-gear', 'secondary');
+}
 
 include("head.inc");
 
@@ -80,150 +95,163 @@ if (isset($_POST['apply'])) {
 
 wg_print_config_apply_box();
 
-display_top_tabs($tab_array);
+wg_display_tabs('status');
 
-$a_devices = wg_get_status();
-
-$peers_hidden = wg_status_peers_hidden();
+wg_ui_styles();
 ?>
 
-<?php if ($peers_hidden): ?>
-<style> tr[class^='treegrid-parent-'] { display: none; } </style>
+<style>
+.wg-st-head { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; padding: .85rem 1rem; border-bottom: 1px solid var(--fs-border); }
+.wg-st-title { margin: 0; font-size: var(--fs-fs-md); font-weight: 600; color: var(--fs-text-strong); }
+.wg-st-title .fs-mono { color: var(--fs-text-muted); font-weight: 500; margin-right: .35rem; }
+.wg-st-head .fs-actions { margin-left: auto; }
+.wg-st-facts { display: flex; flex-wrap: wrap; gap: .25rem 1.25rem; margin: 0; padding: .75rem 1rem; border-bottom: 1px solid var(--fs-border); font-size: var(--fs-fs-sm); }
+.wg-st-facts div { display: flex; gap: .4rem; align-items: baseline; min-width: 0; }
+.wg-st-facts dt { color: var(--fs-text-muted); font-weight: 500; }
+.wg-st-facts dd { margin: 0; color: var(--fs-text-strong); font-variant-numeric: tabular-nums; min-width: 0; }
+.wg-st-facts dd .wg-line { display: inline; margin-right: .5rem; }
+.wg-st-peers-toggle { margin: .5rem 1rem; }
+.wg-st-peers[hidden] { display: none; }
+</style>
+
+<?php if (!empty($a_devices)): ?>
+<div class="fs-tiles">
+<?php
+	fs_tile(gettext('Tunnels up'), sprintf('%d / %d', $tot['up'], count($a_devices)), ($tot['up'] == count($a_devices)) ? 'up' : 'down');
+	fs_tile(gettext('Active peers'), sprintf('%d / %d', $tot['active'], $tot['peers']), null, gettext('Handshake in the last 5 minutes'));
+	fs_tile(gettext('Received'), format_bytes($tot['rx']));
+	fs_tile(gettext('Sent'), format_bytes($tot['tx']));
+?>
+</div>
 <?php endif; ?>
 
-<div class="card mb-3">
-	<div class="card-header">
-		<h2 class="h5 mb-0"><?=gettext('WireGuard Status')?></h2>
+<?php
+foreach ($a_devices as $device_name => $device):
+	$tun_qs = 'tun=' . rawurlencode($device_name);
+	$is_up = ($device['status'] == 'up');
+	$cfg = is_array($device['config']) ? $device['config'] : array();
+	$did = 'wgst-' . preg_replace('/[^A-Za-z0-9_-]/', '', $device_name);
+	$actions = array(['edit', "vpn_wg_tunnels_edit.php?{$tun_qs}", $device_name]);
+?>
+<div class="panel panel-default fs-table" id="<?=htmlspecialchars($did)?>">
+	<div class="wg-st-head">
+		<h2 class="wg-st-title"><span class="fs-mono"><?=htmlspecialchars($device_name)?></span><?=htmlspecialchars($cfg['descr'] ?? '')?></h2>
+		<?=$is_up ? fs_badge('up') : fs_badge('down')?>
+		<?=fs_row_actions($actions)?>
 	</div>
-	<div class="table-responsive card-body">
-		<table class="table table-hover table-striped table-sm tree" style="overflow-x: visible;">
-			<thead>
-				<th><?=gettext('Tunnel')?></th>
-				<th><?=gettext('Description')?></th>
-				<th><?=gettext('Peers')?></th>
-				<th><?=gettext('Public Key')?></th>
-				<th><?=gettext('Address')?> / <?=gettext('Assignment')?></th>
-				<th><?=gettext('MTU')?></th>
-				<th><?=gettext('Listen Port')?></th>
-				<th><?=gettext('RX')?></th>
-				<th><?=gettext('TX')?></th>
-			</thead>
-			<tbody>
-<?php
-if (!empty($a_devices)):
-	foreach ($a_devices as $device_name => $device):
+	<dl class="wg-st-facts">
+		<div><dt><?=gettext('Peers')?></dt><dd><?=count($device['peers'])?></dd></div>
+		<div><dt><?=gettext('Listen port')?></dt><dd class="fs-mono"><?=htmlspecialchars($device['listen_port'])?></dd></div>
+		<div><dt><?=gettext('MTU')?></dt><dd class="fs-mono"><?=htmlspecialchars($device['mtu'])?></dd></div>
+		<div><dt><?=gettext('Received')?></dt><dd><?=htmlspecialchars(format_bytes($device['transfer_rx']))?></dd></div>
+		<div><dt><?=gettext('Sent')?></dt><dd><?=htmlspecialchars(format_bytes($device['transfer_tx']))?></dd></div>
+		<div><dt><?=gettext('Address')?></dt><dd><?=!empty($cfg) ? wg_ui_tunnel_addresses($cfg, 3) : '<span class="fs-muted">—</span>'?></dd></div>
+		<div><dt><?=gettext('Public key')?></dt><dd><?=wg_ui_key($device['public_key'], $device_name, 16)?></dd></div>
+	</dl>
+<?php	if (count($device['peers']) > 0): ?>
+	<button type="button" class="wg-toggle wg-st-peers-toggle" data-wg-toggle data-wg-peers-toggle aria-expanded="<?=$peers_hidden ? 'false' : 'true'?>" aria-controls="<?=htmlspecialchars($did)?>-peers">
+		<i class="fa-solid fa-chevron-down" aria-hidden="true"></i><?=gettext('Peers')?> <span class="fs-count"><?=count($device['peers'])?></span>
+	</button>
+	<div class="wg-st-peers" id="<?=htmlspecialchars($did)?>-peers"<?=$peers_hidden ? ' hidden' : ''?>>
+<?php fs_table_toolbar([
+	'search' => (count($device['peers']) > 5) ? gettext('Search peers…') : false,
+	'noun' => gettext('peers'),
+	'noun_one' => gettext('peer'),
+]); ?>
+		<div class="panel-body table-responsive">
+			<table class="table table-hover" data-sortable>
+				<thead>
+					<tr>
+						<th class="fs-col-status"><?=gettext('Handshake')?></th>
+						<th data-fs-search><?=gettext('Peer')?></th>
+						<th data-fs-search><?=gettext('Endpoint')?></th>
+						<th data-fs-search class="d-none d-md-table-cell"><?=gettext('Allowed IPs')?></th>
+						<th><?=gettext('Latest handshake')?></th>
+						<th><?=gettext('Received')?></th>
+						<th><?=gettext('Sent')?></th>
+						<th class="fs-col-actions"><span class="visually-hidden"><?=gettext('Actions')?></span></th>
+					</tr>
+				</thead>
+				<tbody>
+<?php		foreach ($device['peers'] as $peer):
+			$pcfg = is_array($peer['config']) ? $peer['config'] : array();
+			$pname = !empty($pcfg['descr']) ? $pcfg['descr'] : wg_truncate_pretty($peer['public_key'], 12);
+			$pidx = wg_peer_get_array_idx($peer['public_key'], $device_name);
+			$allowed = array_values(array_filter(array_map('trim', explode(',', (string)$peer['allowed_ips'])), fn($x) => ($x !== '') && ($x !== '(none)')));
+			$hs = intval($peer['latest_handshake']);
+			$pactions = array();
+			if (is_numericint($pidx)) {
+				$pactions[] = ['edit', "vpn_wg_peers_edit.php?peer={$pidx}", $pname];
+			}
 ?>
-				<tr class="<?="treegrid-{$device_name}"?>">
-					<td>
-						<?=wg_interface_status_icon($device['status'])?>
-						<a href="vpn_wg_tunnels_edit.php?tun=<?=htmlspecialchars($device_name)?>"><?=htmlspecialchars($device_name)?></a>
-					</td>
-					<td><?=htmlspecialchars(wg_truncate_pretty($device['config']['descr'], 16))?></td>
-					<td><?=count($device['peers'])?></td>
-					<td title="<?=htmlspecialchars($device['public_key'])?>">
-						<?=htmlspecialchars(wg_truncate_pretty($device['public_key'], 16))?>
-					</td>
-					<td><?=wg_generate_tunnel_address_popover_link($device_name)?></td>
-					<td><?=htmlspecialchars($device['mtu'])?></td>
-					<td><?=htmlspecialchars($device['listen_port'])?></td>
-					<td><?=htmlspecialchars(format_bytes($device['transfer_rx']))?></td>
-					<td><?=htmlspecialchars(format_bytes($device['transfer_tx']))?></td>
-				</tr>
-				<tr class="<?="treegrid-parent-{$device_name}"?>">
-					<td style="font-weight: bold;"><?=gettext('Peers')?></td>
-					<td colspan="8" class="contains-table">
-						<table class="table table-hover table-sm">
-							<thead>
-								<th><?=gettext('Description')?></th>
-								<th><?=gettext('Latest Handshake')?></th>
-								<th><?=gettext('Public Key')?></th>
-								<th><?=gettext('Endpoint')?></th>
-								<th><?=gettext('Allowed IPs')?></th>
-								<th><?=gettext('RX')?></th>
-								<th><?=gettext('TX')?></th>
-							</thead>
-							<tbody>
-<?php
-		if (count($device['peers']) > 0):
-			foreach($device['peers'] as $peer):
-?>
-								<tr>
-									<td>
-										<?=wg_handshake_status_icon("@{$peer['latest_handshake']}")?>
-										<?=htmlspecialchars(wg_truncate_pretty($peer['config']['descr'], 16))?>
-									</td>
-									<td><?=htmlspecialchars(wg_human_time_diff("@{$peer['latest_handshake']}"))?></td>
-									<td title="<?=htmlspecialchars($peer['public_key'])?>">
-										<?=htmlspecialchars(wg_truncate_pretty($peer['public_key'], 16))?>
-									</td>
-									<td><?=htmlspecialchars($peer['endpoint'])?></td>
-									<td><?=wg_generate_peer_allowedips_popup_link(wg_peer_get_array_idx($peer['config']['publickey'], $peer['config']['tun']))?></td>
-									<td><?=htmlspecialchars(format_bytes($peer['transfer_rx']))?></td>
-									<td><?=htmlspecialchars(format_bytes($peer['transfer_tx']))?></td>
-								</tr>
-<?php	
-			endforeach;
-		else:
-?>
-								<tr>
-									<td colspan="7"><?=gettext('No peers have been configured')?></td>
-								</tr>
-<?php		
-		endif;
-?>
-
-							</tbody>
-						</table>
-					</td>
-				</tr>
-<?php
-	endforeach;
-elseif (empty(config_get_path('installedpackages/wireguard/tunnels/item'))):
-?>
-				<tr>
-					<td colspan="9"><?php print_info_box(gettext('No WireGuard tunnels have been configured.'), 'warning', null); ?></td>
-				</tr>
-<?php
-else:
-?>
-				<tr>
-					<td colspan="9"><?php print_info_box(gettext('No WireGuard status information is available.'), 'warning', null); ?></td>
-				</tr>
-<?php
-endif;
-?>
-			</tbody>
-		</table>
-    	</div>
+					<tr>
+						<td data-value="<?=$hs?>"><?=wg_ui_handshake_badge($hs)?></td>
+						<td>
+							<?=htmlspecialchars($pname)?>
+							<span class="wg-sub"><?=wg_ui_key($peer['public_key'], $pname, 10)?></span>
+						</td>
+						<td class="fs-mono"><?=(($peer['endpoint'] ?? '') !== '' && $peer['endpoint'] !== '(none)') ? htmlspecialchars($peer['endpoint']) : '<span class="fs-muted">' . gettext('Unknown') . '</span>'?></td>
+						<td class="d-none d-md-table-cell"><?=wg_ui_address_list($allowed, 2)?></td>
+						<td class="wg-num" data-value="<?=$hs?>"><?=htmlspecialchars(wg_human_time_diff("@{$hs}"))?></td>
+						<td class="fs-mono wg-num" data-value="<?=htmlspecialchars(trim($peer['transfer_rx']))?>"><?=htmlspecialchars(format_bytes($peer['transfer_rx']))?></td>
+						<td class="fs-mono wg-num" data-value="<?=htmlspecialchars(trim($peer['transfer_tx']))?>"><?=htmlspecialchars(format_bytes($peer['transfer_tx']))?></td>
+						<td class="fs-col-actions"><?=fs_row_actions($pactions)?></td>
+					</tr>
+<?php		endforeach; ?>
+				</tbody>
+			</table>
+		</div>
+	</div>
+<?php	else: ?>
+	<div class="panel-body table-responsive">
+		<table class="table"><tbody>
+<?php		fs_empty_row(1, gettext('No peers are configured on this tunnel.'), "vpn_wg_peers_edit.php?{$tun_qs}", gettext('Add peer')); ?>
+		</tbody></table>
+	</div>
+<?php	endif; ?>
 </div>
+<?php endforeach; ?>
 
-<div class="card mb-3">
-	<div class="card-header">
-		<h2 class="h5 mb-0"><?=gettext('Package Versions')?></h2>
+<?php if (empty($a_devices)): ?>
+<div class="panel panel-default fs-table">
+	<div class="panel-body table-responsive">
+		<table class="table"><tbody>
+<?php
+	if (empty(config_get_path('installedpackages/wireguard/tunnels/item'))) {
+		fs_empty_row(1, gettext('No WireGuard tunnels yet.'), '/wg/vpn_wg_tunnels_edit.php', gettext('Add tunnel'));
+	} else {
+		fs_empty_row(1, gettext('No WireGuard status information is available. Is the service running?'));
+	}
+?>
+		</tbody></table>
 	</div>
-	<div class="table-responsive card-body">
-		<table class="table table-hover table-striped table-sm">
+</div>
+<?php endif; ?>
+
+<div class="panel panel-default fs-table">
+<?php fs_table_toolbar([
+	'title' => gettext('Package versions'),
+	'search' => false,
+	'noun' => gettext('packages'),
+	'noun_one' => gettext('package'),
+]); ?>
+	<div class="panel-body table-responsive">
+		<table class="table table-hover">
 			<thead>
 				<tr>
 					<th><?=gettext('Name')?></th>
 					<th><?=gettext('Version')?></th>
-    					<th><?=gettext('Comment')?></th>
+					<th><?=gettext('Comment')?></th>
 				</tr>
 			</thead>
 			<tbody>
-<?php
-			foreach (wg_pkg_info() as ['name' => $name, 'version' => $version, 'comment' => $comment]):
-?>
-    				<tr>
-					<td><?=htmlspecialchars($name)?></td>
-					<td><?=htmlspecialchars($version)?></td>
+<?php foreach (wg_pkg_info() as ['name' => $name, 'version' => $version, 'comment' => $comment]): ?>
+				<tr>
+					<td class="fs-mono"><?=htmlspecialchars($name)?></td>
+					<td class="fs-mono"><?=htmlspecialchars($version)?></td>
 					<td><?=htmlspecialchars($comment)?></td>
-
 				</tr>
-<?php
-			endforeach;
-?>
-
+<?php endforeach; ?>
 			</tbody>
 		</table>
 	</div>
@@ -232,11 +260,8 @@ endif;
 <script type="text/javascript">
 //<![CDATA[
 events.push(function() {
-	$('.tree').treegrid({
-		expanderExpandedClass: 'fa-solid fa fa-chevron-down',
-		expanderCollapsedClass: 'fa-solid fa fa-chevron-right',
-		initialState: (<?=json_encode($peers_hidden)?> ? 'collapsed' : 'expanded')
-	});
+	wgRegCopyHandler();
+	wgRegNestedRows(document);
 });
 //]]>
 </script>
