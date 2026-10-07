@@ -261,8 +261,7 @@ $daemon_badge = function ($proc) use ($daemons, $running) {
 
 $tiles = array();
 $daemon_tile = function ($proc) use ($daemons, $running) {
-	return array(gettext('Daemon'), $running[$proc] ? gettext('Running') : gettext('Stopped'),
-	    $running[$proc] ? 'online' : 'down', $daemons[$proc][3]);
+	return array(gettext('Daemon'), $proc, $running[$proc] ? 'up' : 'down', $daemons[$proc][3]);
 };
 $route_tiles = function () {
 	$tiles = array();
@@ -439,8 +438,10 @@ display_top_tabs($tab_array);
 .fs-frr-tools label { margin: 0; color: var(--fs-text-muted); }
 .fs-frr-tools .form-select { width: auto; }
 .fs-frr-filter { display: flex; gap: .5rem; margin-left: auto; flex: 1 1 16rem; max-width: 26rem; }
+.fs-frr-filter .form-control { flex: 1 1 auto; min-width: 0; }
+.fs-frr-filter .btn { flex: none; display: inline-flex; align-items: center; gap: .35rem; white-space: nowrap; }
 .fs-frr-count { color: var(--fs-text-muted); white-space: nowrap; }
-.fs-frr-cmd .fs-console { margin: 0; border: 0; border-radius: 0 0 var(--fs-r-md) var(--fs-r-md); }
+.fs-frr-cmd .fs-console { white-space: pre; overflow-x: auto; margin: 0; border: 0; border-radius: 0 0 var(--fs-r-md) var(--fs-r-md); }
 .fs-frr-cmd .fs-console.is-loading { color: var(--fs-text-muted); }
 .fs-frr-jump { margin-bottom: 1rem; }
 .fs-frr-jump a { text-decoration: none; }
