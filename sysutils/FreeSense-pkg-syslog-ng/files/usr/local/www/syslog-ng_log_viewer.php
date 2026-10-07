@@ -118,7 +118,7 @@ status_logs_styles();
 .fs-sng-host { white-space: nowrap; color: var(--fs-text-muted); font-family: var(--fs-font-mono); font-size: var(--fs-fs-sm); }
 @media (max-width: 575.98px) {
 	.fs-sng-file { flex: 1 1 100%; width: auto; }
-	.fs-sng-host { display: none; }
+	.fs-sng-host, .fs-sng-hosth { display: none; }
 }
 </style>
 
@@ -156,7 +156,7 @@ fs_table_toolbar([
 			<thead>
 				<tr>
 					<th><?=gettext("Time")?></th>
-					<th data-fs-search class="fs-sng-host"><?=gettext("Host")?></th>
+					<th data-fs-search class="fs-sng-hosth"><?=gettext("Host")?></th>
 					<th data-fs-search><?=gettext("Program")?></th>
 					<th data-fs-search><?=gettext("Message")?></th>
 				</tr>
