@@ -217,7 +217,7 @@ foreach ($tunnels as $i => $tunnel):
 						['custom', "vpn_wg_tunnels.php?act=download&{$qs}", $name, ['icon' => 'fa-download', 'post' => true,
 						    'label' => sprintf(gettext('Download the configuration of %s'), $name)]],
 						['toggle', "vpn_wg_tunnels.php?act=toggle&{$qs}", $name, ['enabled' => $enabled, 'attrs' => $enabled ? [
-						    'data-fs-confirm' => sprintf(gettext('Disable tunnel “%s”?'), $name),
+						    'data-fs-confirm' => sprintf(gettext('Disable tunnel â€œ%sâ€?'), $name),
 						    'data-fs-confirm-detail' => gettext('Its peers lose their connection until the tunnel is enabled again.'),
 						    'data-fs-confirm-action' => gettext('Disable')] : []]],
 						['delete', "vpn_wg_tunnels.php?act=delete&{$qs}", $name, ['thing' => gettext('tunnel'),

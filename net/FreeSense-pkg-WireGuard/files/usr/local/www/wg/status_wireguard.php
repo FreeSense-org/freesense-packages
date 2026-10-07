@@ -153,11 +153,13 @@ foreach ($a_devices as $device_name => $device):
 		<i class="fa-solid fa-chevron-down" aria-hidden="true"></i><?=gettext('Peers')?> <span class="fs-count"><?=count($device['peers'])?></span>
 	</button>
 	<div class="wg-st-peers" id="<?=htmlspecialchars($did)?>-peers"<?=$peers_hidden ? ' hidden' : ''?>>
-<?php fs_table_toolbar([
-	'search' => (count($device['peers']) > 5) ? gettext('Search peers…') : false,
-	'noun' => gettext('peers'),
-	'noun_one' => gettext('peer'),
-]); ?>
+<?php if (count($device['peers']) > 5) {
+	fs_table_toolbar([
+		'search' => gettext('Search peers…'),
+		'noun' => gettext('peers'),
+		'noun_one' => gettext('peer'),
+	]);
+} ?>
 		<div class="panel-body table-responsive">
 			<table class="table table-hover" data-sortable>
 				<thead>

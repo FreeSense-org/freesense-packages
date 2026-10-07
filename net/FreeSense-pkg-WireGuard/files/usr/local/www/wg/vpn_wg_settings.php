@@ -240,7 +240,7 @@ $save = new Form_Button(
 	null,
 	'fa-solid fa-floppy-disk'
 );
-$save->setAttribute('value', 'save')->addClass('btn-primary');
+$save->addClass('btn-primary');
 $form->addGlobal($save);
 
 print($form);
