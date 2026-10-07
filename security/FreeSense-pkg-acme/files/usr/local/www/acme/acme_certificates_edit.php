@@ -377,6 +377,10 @@ if (empty($a_accountkeys)) {
 	$form = null;
 } else {
 	$form = new \Form;
+	/* posted with the form; the stored name identifies the entry (get_certificate_id) */
+	if ($saved && !$is_copy) {
+		$form->addGlobal(new \Form_Input('id', null, 'hidden', $saved['name']));
+	}
 
 	$section = new \Form_Section(gettext('Certificate'));
 
@@ -518,9 +522,6 @@ if ($form) {
 .fs-acme-examples summary { cursor: pointer; color: var(--fs-text-muted); }
 .fs-acme-examples ul { margin: .4rem 0 0; padding-left: 1.2rem; }
 </style>
-	<?php if (isset($id) && config_get_path("installedpackages/acme/certificates/item/{$id}")): ?>
-	<input name="id" type="hidden" value="<?=$id;?>" />
-	<?php endif; ?>
 <script type="text/javascript">
 <?php
 	phparray_to_javascriptarray($fields_domains_details,"fields_details_domains",Array('/*','/*/name','/*/type'));

@@ -237,6 +237,10 @@ fs_summary_card([
 $counter=0;
 
 $form = new \Form;
+/* posted with the form; the stored name identifies the entry (get_accountkey_id) */
+if ($saved && !$is_copy) {
+	$form->addGlobal(new \Form_Input('id', null, 'hidden', $saved['name']));
+}
 
 $section = new \Form_Section(gettext('Account'));
 $section->addInput(new \Form_Input(

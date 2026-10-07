@@ -85,6 +85,7 @@ if ($_POST) {
 		
 					// Save was successful
 					header('Location: /wg/vpn_wg_tunnels.php');
+					exit;
 				}
 
 				break;
@@ -141,23 +142,31 @@ if ($_POST) {
 // A dirty string hack
 $s = fn($x) => $x;
 
+// A save that failed validation re-renders what was typed (wg_do_tunnel_post's $pconfig)
+$post_failed = (($_POST['act'] ?? '') === 'save') && !empty($input_errors);
+
 // Looks like we are editing an existing tunnel
 if (is_numericint($tun_idx) && is_array(config_get_path("installedpackages/wireguard/tunnels/item/{$tun_idx}"))) {
-	$pconfig = config_get_path("installedpackages/wireguard/tunnels/item/{$tun_idx}");
+	if (!$post_failed) {
+		$pconfig = config_get_path("installedpackages/wireguard/tunnels/item/{$tun_idx}");
+	}
 
 	// Supress warning and allow peers to be added via the 'Add Peer' link
 	$is_new = false;
 // Looks like we are creating a new tunnel
-} else {
+} elseif (!$post_failed) {
 	// Default to enabled
 	$pconfig['enabled'] = 'yes';
 	$pconfig['name'] = next_wg_if();
 }
 
 // Save the MTU settings prior to re(saving)
-$pconfig['mtu'] = get_interface_mtu($pconfig['name']);
+$if_mtu = get_interface_mtu($pconfig['name']);
+if (!$post_failed) {
+	$pconfig['mtu'] = $if_mtu;
+}
 if (!$is_new) {
-	config_set_path("installedpackages/wireguard/tunnels/item/{$tun_idx}/mtu", $pconfig['mtu']);
+	config_set_path("installedpackages/wireguard/tunnels/item/{$tun_idx}/mtu", $if_mtu);
 }
 
 $shortcut_section = "wireguard";

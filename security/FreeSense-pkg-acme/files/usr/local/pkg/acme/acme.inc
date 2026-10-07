@@ -3344,10 +3344,12 @@ function acme_convert_letsencryptv1_to_letsencryptv2() {
 
 function get_itembyname($a_array, $name) {
 	$i = 0;
+	/* compare as strings: a loose == treats numeric-looking names as numbers ("1.10" == "1.1") */
+	$name = (string)$name;
 	if (is_array($a_array)) {
 		foreach ($a_array as $item) {
-			if (($item['name'] == $name) ||
-			    ($item['name'] == htmlspecialchars_decode($name))) {
+			if (((string)$item['name'] === $name) ||
+			    ((string)$item['name'] === htmlspecialchars_decode($name))) {
 				return $i;
 			}
 			$i++;

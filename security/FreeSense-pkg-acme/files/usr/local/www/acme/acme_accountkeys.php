@@ -58,9 +58,11 @@ if ($_POST) {
 		/* yuck - IE won't send value attributes for image buttons, while Mozilla does - so we use .x/.y to find move button clicks instead... */
 		// TODO: this. is. nasty.
 		unset($delbtn, $delbtnp2, $movebtn, $movebtnp2, $togglebtn, $togglebtnp2);
+		/* the target name comes from the button value: PHP turns "." and spaces in
+		 * POST field names into "_", so the field name itself is not usable */
 		foreach ($_POST as $pn => $pd) {
-			if (preg_match("/move_(.+)/", $pn, $matches)) {
-				$movebtn = $matches[1];
+			if ((strpos($pn, 'move_') === 0) && is_string($pd) && (strpos($pd, 'move_') === 0)) {
+				$movebtn = substr($pd, 5);
 			}
 		}
 		//
@@ -129,7 +131,7 @@ display_top_tabs_active($acme_tab_array['acme'], "accountkeys");
 <div class="panel panel-default fs-table">
 <?php fs_table_toolbar([
 	'title' => gettext('Account keys'),
-	'search' => gettext('Search account keys…'),
+	'search' => gettext('Search account keysâ€¦'),
 	'noun' => gettext('account keys'),
 	'noun_one' => gettext('account key'),
 	'filters' => [
@@ -191,15 +193,15 @@ foreach ($a_accountkeys as $accountkey):
 						<span class="fs-acme-sub fs-mono"><?=htmlspecialchars($server)?></span>
 <?php endif; ?>
 					</td>
-					<td><?=!empty($accountkey['email']) ? htmlspecialchars($accountkey['email']) : '<span class="fs-muted">—</span>'?></td>
+					<td><?=!empty($accountkey['email']) ? htmlspecialchars($accountkey['email']) : '<span class="fs-muted">â€”</span>'?></td>
 					<td data-value="<?=$certs?>"><?=$certs?></td>
 					<td class="fs-col-actions">
-						<button class="d-none" type="submit" id="move_<?=htmlspecialchars(urlencode($name))?>" name="move_<?=htmlspecialchars(urlencode($name))?>" value="move_<?=htmlspecialchars(urlencode($name))?>" tabindex="-1" aria-hidden="true"></button>
+						<button class="d-none" type="submit" id="move_<?=htmlspecialchars($name)?>" name="move_<?=htmlspecialchars($name)?>" value="move_<?=htmlspecialchars($name)?>" tabindex="-1" aria-hidden="true"></button>
 						<?=fs_row_actions([
 							['edit', 'acme_accountkeys_edit.php?id=' . urlencode($name), $name],
 							['copy', 'acme_accountkeys_edit.php?dup=' . urlencode($name), $name],
 							['custom', '#', $name, ['icon' => 'fa-anchor', 'label' => sprintf(gettext('Move selected account keys before %s'), $name),
-							    'attrs' => ['data-acme-move' => 'move_' . urlencode($name)]]],
+							    'attrs' => ['data-acme-move' => 'move_' . $name]]],
 							['delete', 'acme_accountkeys.php?act=del&id=' . rawurlencode($name), $name, ['thing' => gettext('account key'),
 							    'detail' => $certs ? sprintf(ngettext('%d certificate uses this key and stops renewing.', '%d certificates use this key and stop renewing.', $certs), $certs) : null]],
 						])?>
