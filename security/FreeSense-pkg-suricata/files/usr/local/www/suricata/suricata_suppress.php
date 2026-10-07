@@ -86,98 +86,88 @@ if (isset($_POST['del_btn'])) {
 	}
 }
 
-$pglinks = array("", "/suricata/suricata_interfaces.php", "@self");
-$pgtitle = array("Services", "Suricata", "Suppress Lists");
+$pglinks = array("", "/suricata/suricata_overview.php", "@self");
+$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("Suppress lists"));
+fs_page_action(gettext('Add suppress list'), "suricata_suppress_edit.php?id={$id_gen}", 'fa-plus');
 include_once("head.inc");
-suricata_display_primary_navigation('lists');
 
 if ($input_errors) {
 	print_input_errors($input_errors);
 }
+if ($savemsg) {
+	print_info_box($savemsg);
+}
 
-$tab_array = array();
-$tab_array[] = array(gettext("Interfaces"), false, "/suricata/suricata_interfaces.php");
-$tab_array[] = array(gettext("Global Settings"), false, "/suricata/suricata_global.php");
-$tab_array[] = array(gettext("Updates"), false, "/suricata/suricata_download_updates.php");
-$tab_array[] = array(gettext("Alerts"), false, "/suricata/suricata_alerts.php");
-$tab_array[] = array(gettext("Blocks"), false, "/suricata/suricata_blocked.php");
-$tab_array[] = array(gettext("Files"), false, "/suricata/suricata_files.php");
-$tab_array[] = array(gettext("Pass Lists"), false, "/suricata/suricata_passlist.php");
-$tab_array[] = array(gettext("Suppress"), true, "/suricata/suricata_suppress.php");
-$tab_array[] = array(gettext("Logs View"), false, "/suricata/suricata_logs_browser.php");
-$tab_array[] = array(gettext("Logs Mgmt"), false, "/suricata/suricata_logs_mgmt.php");
-$tab_array[] = array(gettext("SID Mgmt"), false, "/suricata/suricata_sid_mgmt.php");
-$tab_array[] = array(gettext("Sync"), false, "/pkg_edit.php?xml=suricata/suricata_sync.xml");
-$tab_array[] = array(gettext("IP Lists"), false, "/suricata/suricata_ip_list_mgmt.php");
-display_top_tabs($tab_array, true);
+suricata_display_primary_navigation('lists');
+suricata_display_section_navigation('lists', 'suppress');
 ?>
 
-<div class="card mb-3">
-	<div class="card-header"><h2 class="h5 mb-0"><?=gettext('Configured Suppression Lists');?></h2></div>
-	<div class="table-responsive card-body">
-		<form action="/suricata/suricata_suppress.php" method="post"><?php if ($savemsg) print_info_box($savemsg); ?>
-			<input type="hidden" name="list_id" id="list_id" value=""/>
-
-			<table id="maintable" class="table table-striped table-hover table-sm">
-				<thead>
-					<tr>
-						<th>&nbsp;</th>
-						<th><?=gettext("List Name"); ?></th>
-						<th><?=gettext("Description"); ?></th>
-						<th><?=gettext("Actions"); ?></th>
-					</tr>
-				</thead>
-				<tbody>
-					<?php $i = 0; foreach ($a_suppress as $list): ?>
-					<?php
-						if (suricata_suppresslist_used($list['name'])) {
-							$icon = "&nbsp;<i class=\"fa-solid fa-info-circle\" style=\"cursor: pointer;\" title=\"" . gettext("List is in use by an instance") . "\"></i>";
-						}
-						else
-							$icon = "";
-					?>
-					<tr>
-						<td>
-							<input type="checkbox" name="del[]" value="<?=$i?>" />
-						</td>
-						<td>
-							<?=htmlspecialchars($list['name'])?> <?=$icon?>
-						</td>
-						<td>
-							<?=htmlspecialchars($list['descr'])?>
-						</td>
-						<td>
-							<a href="suricata_suppress_edit.php?id=<?=$i?>">
-								<i class="fa-solid fa-pencil fa-lg" title="<?=gettext("Edit Suppress List"); ?>"></i>
-							</a>
-							<?php if (suricata_suppresslist_used($list['name'])) : ?>
-							<a href="/suricata/suricata_interfaces_edit.php?id=<?=suricata_find_suppresslist_interface($list['name'])?>">
-								<i class="fa-regular fa-square-caret-right" title="<?=gettext('Goto first instance associated with this Suppress List')?>" style="cursor: pointer;"?></i>
-							</a>
-							<?php endif; ?>
-						</td>
-					</tr>
-					<?php $i++; endforeach; ?>
-				</tbody>
-			</table>
-		</div>
+<form action="/suricata/suricata_suppress.php" method="post">
+<input type="hidden" name="list_id" id="list_id" value=""/>
+<div class="panel panel-default fs-table">
+<?php fs_table_toolbar([
+	'title' => gettext('Suppress lists'),
+	'search' => gettext('Search suppress lists…'),
+	'noun' => gettext('suppress lists'),
+	'noun_one' => gettext('suppress list'),
+	'filters' => ['used' => [gettext('All lists'), 'yes' => gettext('Assigned'), 'no' => gettext('Not assigned')]],
+	'bulk' => [
+		['name' => 'del_btn', 'label' => gettext('Delete'), 'icon' => 'fa-trash-can', 'variant' => 'danger',
+		 'confirm' => gettext('Delete the selected suppress lists? Lists assigned to an interface are kept.')],
+	],
+]); ?>
+	<div class="panel-body table-responsive">
+		<table id="maintable" class="table table-hover table-rowdblclickedit" data-sortable>
+			<thead>
+				<tr>
+					<th class="fs-col-select"><input type="checkbox" data-fs-select-all aria-label="<?=gettext('Select all')?>"></th>
+					<th data-fs-search><?=gettext("Name")?></th>
+					<th><?=gettext("Assigned")?></th>
+					<th><?=gettext("Entries")?></th>
+					<th data-fs-search><?=gettext("Description")?></th>
+					<th class="fs-col-actions"><span class="visually-hidden"><?=gettext("Actions")?></span></th>
+				</tr>
+			</thead>
+			<tbody>
+<?php $i = 0; foreach ($a_suppress as $list):
+	$used = suricata_suppresslist_used($list['name']);
+	$entries = 0;
+	foreach (explode("\n", base64_decode($list['suppresspassthru'] ?? '')) as $line) {
+		$line = trim($line);
+		if ($line !== '' && $line[0] !== '#') {
+			$entries++;
+		}
+	}
+	$actions = [['edit', "suricata_suppress_edit.php?id={$i}", $list['name']]];
+	if ($used) {
+		$actions[] = ['custom', "/suricata/suricata_interfaces_edit.php?id=" . suricata_find_suppresslist_interface($list['name']), $list['name'], [
+			'icon' => 'fa-solid fa-arrow-right', 'label' => sprintf(gettext('Open the first interface using %s'), $list['name'])]];
+	}
+	$actions[] = ['delete', "suricata_suppress.php?del_btn=1&del[]={$i}", $list['name'], [
+		'thing' => gettext('suppress list'),
+		'detail' => $used ? gettext('It is assigned to a Suricata interface and cannot be deleted until it is unassigned.') : null,
+	]];
+?>
+				<tr data-fs-filter-used="<?=$used ? 'yes' : 'no'?>">
+					<td><input type="checkbox" name="del[]" value="<?=$i?>" data-fs-select aria-label="<?=htmlspecialchars(sprintf(gettext('Select %s'), $list['name']))?>"></td>
+					<td><a href="suricata_suppress_edit.php?id=<?=$i?>"><?=htmlspecialchars($list['name'])?></a></td>
+					<td><?=$used ? fs_badge('active', gettext('In use')) : fs_badge('idle', gettext('Not assigned'))?></td>
+					<td class="fs-mono"><?=(int)$entries?></td>
+					<td><?=htmlspecialchars($list['descr'])?></td>
+					<td class="fs-col-actions"><?=fs_row_actions($actions)?></td>
+				</tr>
+<?php $i++; endforeach; ?>
+<?php if (empty($a_suppress)) {
+	fs_empty_row(6, gettext('No suppress lists yet.'), "suricata_suppress_edit.php?id={$id_gen}", gettext('Add suppress list'));
+} ?>
+			</tbody>
+		</table>
 	</div>
-	<nav class="action-buttons">
-		<a href="suricata_suppress_edit.php?id=<?=$id_gen?>" class="btn btn-sm btn-success" title="<?=gettext('Add a new suppression list');?>">
-			<i class="fa-solid fa-plus icon-embed-btn"></i> <?=gettext("Add");?>
-		</a>
-		<?php if (count($a_suppress) > 0): ?>
-		<button type="submit" name="del_btn" id="del_btn" class="btn btn-danger btn-sm" title="<?=gettext('Delete Selected Items');?>">
-			<i class="fa-solid fa-trash-can icon-embed-btn"></i>
-			<?=gettext('Delete');?>
-		</button>
-		<?php endif; ?>
-	</nav>
-</form>
-
-
-<div class="infoblock">
-	<?=print_info_box('<p><strong>Note:</strong> Here you can create event filtering and suppression for your Suricata package rules.</p><p>Please note that you must restart a running Interface so that changes can take effect.</p><p>You cannot delete a Suppress List that is currently assigned to a Suricata interface (instance).</p><p>You must first unassign the Suppress List on the Interface Edit tab.</p>', 'info')?>
+	<div class="panel-footer small fs-muted">
+		<i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+		<?=gettext('Suppress lists filter or suppress alerts. Assign a list on the interface settings and restart Suricata on that interface. A list in use cannot be deleted.')?>
+	</div>
 </div>
+</form>
 
 <?php include("foot.inc"); ?>

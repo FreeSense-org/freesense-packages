@@ -40,7 +40,7 @@ elseif (isset($_GET['id']) && is_numericint($_GET['id']))
 
 /* Should never be called without identifying list index, so bail */
 if (!is_numericint($id)) {
-	header("Location: /suricata/suricata_interfaces_passlist.php");
+	header("Location: /suricata/suricata_passlist.php");
 	exit;
 }
 
@@ -165,38 +165,28 @@ if ($_POST['save']) {
 	}
 }
 
-$pglinks = array("", "/suricata/suricata_interfaces.php", "/suricata/suricata_passlist.php", "@self");
-$pgtitle = array("Services", "Suricata", "Pass List", "Edit");
+$is_new = !isset($a_passlist[$id]);
+$pglinks = array("", "/suricata/suricata_overview.php", "/suricata/suricata_passlist.php", "", "@self");
+$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("Pass lists"), htmlspecialchars($pconfig['name']), $is_new ? gettext("Add pass list") : gettext("Edit pass list"));
+if ($is_new) {
+	$pglinks = array("", "/suricata/suricata_overview.php", "/suricata/suricata_passlist.php", "@self");
+	$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("Pass lists"), gettext("Add pass list"));
+}
 include_once("head.inc");
-suricata_display_primary_navigation('lists');
 
 if ($input_errors)
 	print_input_errors($input_errors);
 if ($savemsg)
 	print_info_box($savemsg);
 
-$tab_array = array();
-$tab_array[] = array(gettext("Interfaces"), false, "/suricata/suricata_interfaces.php");
-$tab_array[] = array(gettext("Global Settings"), false, "/suricata/suricata_global.php");
-$tab_array[] = array(gettext("Updates"), false, "/suricata/suricata_download_updates.php");
-$tab_array[] = array(gettext("Alerts"), false, "/suricata/suricata_alerts.php");
-$tab_array[] = array(gettext("Blocks"), false, "/suricata/suricata_blocked.php");
-$tab_array[] = array(gettext("Files"), false, "/suricata/suricata_files.php");
-$tab_array[] = array(gettext("Pass Lists"), true, "/suricata/suricata_passlist.php");
-$tab_array[] = array(gettext("Suppress"), false, "/suricata/suricata_suppress.php");
-$tab_array[] = array(gettext("Logs View"), false, "/suricata/suricata_logs_browser.php?instance={$instanceid}");
-$tab_array[] = array(gettext("Logs Mgmt"), false, "/suricata/suricata_logs_mgmt.php");
-$tab_array[] = array(gettext("SID Mgmt"), false, "/suricata/suricata_sid_mgmt.php");
-$tab_array[] = array(gettext("Sync"), false, "/pkg_edit.php?xml=suricata/suricata_sync.xml");
-$tab_array[] = array(gettext("IP Lists"), false, "/suricata/suricata_ip_list_mgmt.php");
-display_top_tabs($tab_array, true);
+suricata_display_primary_navigation('lists');
+suricata_display_section_navigation('lists', 'passlist');
 
 $pattern_str = array(	'network' => '[a-zA-Z0-9_:.-]+(/[0-9]+)?( [a-zA-Z0-9_:.-]+(/[0-9]+)?)*',	// Alias Name, Host Name, IP Address, FQDN, Network or IP Address Range
 			'host'	  => '[\pL0-9_:.-]+(/[0-9]+)?( [a-zA-Z0-9_:.-]+(/[0-9]+)?)*'		// Alias Name, Host Name, IP Address, FQDN
 );
-$help = gettext("Enter as many IP addresses or alias names as desired. Enter ONLY an IP address, IP subnet or alias name! Do NOT enter a FQDN (fully qualified domain name) directly! " . 
-		"To use a FQDN, first create the necessary firewall alias, and then provide the alias name here. FQDN aliases are periodically re-resolved and updated by the firewall. " . 
-		"You can also provide an IP subnet with a proper netmask of the form network/mask such as 1.2.3.0/24.");
+$help = gettext("Enter IP addresses, subnets (such as 1.2.3.0/24) or host, network or URL table alias names. " .
+		"For a host name, create a firewall alias first and enter the alias name; the firewall re-resolves it periodically.");
 
 $form = new Form();
 
@@ -210,65 +200,65 @@ if (isset($id)) {
 	));
 }
 
-$section = new Form_Section('General Information');
+$section = new Form_Section('General', 'pl-general');
 $section->addInput(new Form_Input(
 	'name',
-	'Name',
+	'*Name',
 	'text',
 	$pconfig['name']
-))->setPattern('[a-zA-Z0-9_]+')->setHelp('The list name may only consist of the characters \'a-z, A-Z, 0-9 and _\'.');
+))->setPattern('[a-zA-Z0-9_]+')->setHelp('Letters, digits and _ only.');
 $section->addInput(new Form_Input(
 	'descr',
 	'Description',
 	'text',
 	$pconfig['descr']
-))->setHelp('You may enter a description here for your reference.');
+))->setHelp('Optional, for your reference.');
 $form->add($section);
 
-$section = new Form_Section('Auto-Generated IP Addresses');
+$section = new Form_Section('Automatic entries', 'pl-auto');
 $section->addInput(new Form_Checkbox(
 	'localnets',
-	'Local Networks',
-	'Add firewall Locally-Attached Networks to the list (excluding WAN). Default is Checked.',
+	'Local networks',
+	'Add locally attached networks (except WAN)',
 	$pconfig['localnets'] == 'yes' ? true:false,
 	'yes'
 ));
 $section->addInput(new Form_Checkbox(
 	'wangateips',
-	'WAN Gateways',
-	'Add WAN Gateways to the list. Default is Checked.',
+	'WAN gateways',
+	'Add WAN gateways',
 	$pconfig['wangateips'] == 'yes' ? true:false,
 	'yes'
 ));
 $section->addInput(new Form_Checkbox(
 	'wandnsips',
-	'WAN DNS Servers',
-	'Add WAN DNS servers to the list. Default is Checked.',
+	'WAN DNS servers',
+	'Add WAN DNS servers',
 	$pconfig['wandnsips'] == 'yes' ? true:false,
 	'yes'
 ));
 $section->addInput(new Form_Checkbox(
 	'vips',
-	'Virtual IP Networks',
-	'Add Virtual IP Networks to the list. Default is Checked.',
+	'Virtual IPs',
+	'Add virtual IP networks',
 	$pconfig['vips'] == 'yes' ? true:false,
 	'yes'
 ));
 $section->addInput(new Form_Checkbox(
 	'vpnips',
-	'VPN Addresses',
-	'Add VPN Addresses to the list. Default is Checked.',
+	'VPN addresses',
+	'Add VPN addresses',
 	$pconfig['vpnips'] == 'yes' ? true:false,
 	'yes'
 ));
 $form->add($section);
 
-$section = new Form_Section('Custom IP Addresses and Configured Firewall Aliases');
+$section = new Form_Section('Custom addresses and aliases', 'pl-custom');
 
 // Make somewhere to park the help text, and give it a class so we can update it later if desired
 $section->addInput(new Form_StaticText(
-	'Hint',
-	'<span class="helptext">' . $help . '</span>'
+	'',
+	'<span class="helptext fs-muted">' . $help . '</span>'
 ));
 
 // Iterate any defined IPs or Aliases defined for this list, otherwise
@@ -325,6 +315,7 @@ $form->addGlobal(new Form_Button(
 	'fa-solid fa-plus'
 ))->addClass('btn-success addbtn')->setAttribute('title', "Add new IP address, subnet or alias name row");
 
+fs_form_cancel($form, '/suricata/suricata_passlist.php');
 print($form);
 ?>
 

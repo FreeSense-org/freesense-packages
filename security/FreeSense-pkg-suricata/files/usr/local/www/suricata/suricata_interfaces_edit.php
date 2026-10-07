@@ -813,7 +813,7 @@ function suricata_get_config_lists($lists) {
 
 $if_crumb = $if_friendly ? $if_friendly : gettext('Interface');
 $pglinks = array("", "/suricata/suricata_overview.php", "/suricata/suricata_interfaces.php", "", "@self");
-$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("Interfaces"), $if_crumb, $new_interface ? gettext("Add interface") : gettext("Edit interface"));
+$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("Interfaces"), htmlspecialchars($if_crumb), $new_interface ? gettext("Add interface") : gettext("Edit interface"));
 if ($new_interface) {
 	$pglinks = array("", "/suricata/suricata_overview.php", "/suricata/suricata_interfaces.php", "@self");
 	$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("Interfaces"), gettext("Add interface"));
