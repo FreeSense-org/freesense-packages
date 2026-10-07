@@ -1,7 +1,7 @@
 # $FreeBSD$
 
 PORTNAME=	FreeSense-pkg-syslog-ng
-PORTREVISION=	3
+PORTREVISION=	4
 PORTVERSION=	1.16.5
 CATEGORIES=	sysutils
 MASTER_SITES=	# empty
