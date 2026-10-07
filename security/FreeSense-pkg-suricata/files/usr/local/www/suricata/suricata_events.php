@@ -66,17 +66,7 @@ $pglinks = ['', '/suricata/suricata_overview.php', '', '@self'];
 include('head.inc');
 suricata_display_primary_navigation('events');
 
-echo '<nav class="fs-viewswitch" aria-label="' . fs_h(gettext('Events')) . '">';
-foreach ([
-	['alerts', gettext('Alerts'), '/suricata/suricata_alerts.php'],
-	['blocked', gettext('Blocked hosts'), '/suricata/suricata_blocked.php'],
-	['files', gettext('Files'), '/suricata/suricata_files.php'],
-	['events', gettext('EVE events'), '/suricata/suricata_events.php'],
-	['logs', gettext('Log files'), '/suricata/suricata_logs_browser.php'],
-] as $sf_v) {
-	echo '<a href="' . fs_h($sf_v[2]) . '"' . (($sf_v[0] === 'events') ? ' aria-current="page"' : '') . '>' . fs_h($sf_v[1]) . '</a>';
-}
-echo '</nav>';
+suricata_display_section_navigation('events', 'events');
 
 /* Event type: badge for the actionable types, chip for the rest */
 $sf_type = function ($t) use ($type_labels) {

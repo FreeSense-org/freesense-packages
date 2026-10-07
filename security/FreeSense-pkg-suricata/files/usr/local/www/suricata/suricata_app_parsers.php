@@ -523,49 +523,40 @@ $pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("Interfaces")
 include_once("head.inc");
 suricata_display_primary_navigation('interfaces');
 
-/* Interface context (same block on every per-interface Suricata page): settings switch + summary */
+/* Interface context (same block on every per-interface Suricata page): tab bar + summary */
+$sf_tab = array('suricata_rulesets.php' => 'rulesets', 'suricata_rules.php' => 'rules', 'suricata_flow_stream.php' => 'flow_stream',
+	'suricata_app_parsers.php' => 'app_parsers', 'suricata_define_vars.php' => 'define_vars', 'suricata_ip_reputation.php' => 'ip_reputation');
+suricata_display_interface_tabs($id, $sf_tab[basename(__FILE__)] ?? '');
 $sf_rule = config_get_path("installedpackages/suricata/rule/{$id}", []);
 $sf_real = get_real_interface($sf_rule['interface'] ?? '');
-$sf_name = convert_friendly_interface_to_friendly_descr($sf_rule['interface'] ?? '');
-echo '<nav class="fs-viewswitch" aria-label="' . fs_h(gettext('Interface settings')) . '">';
-foreach (array(
-	array('suricata_interfaces_edit.php', gettext('Settings')),
-	array('suricata_rulesets.php', gettext('Categories')),
-	array('suricata_rules.php', gettext('Rules')),
-	array('suricata_flow_stream.php', gettext('Flow & stream')),
-	array('suricata_app_parsers.php', gettext('App parsers')),
-	array('suricata_define_vars.php', gettext('Variables')),
-	array('suricata_ip_reputation.php', gettext('IP reputation')),
-) as $sf_v) {
-	echo '<a href="/suricata/' . $sf_v[0] . '?id=' . (int)$id . '"' . (($sf_v[0] === basename(__FILE__)) ? ' aria-current="page"' : '') . '>' . fs_h($sf_v[1]) . '</a>';
-}
-echo '</nav>';
 if (($sf_rule['blockoffenders'] ?? '') != 'on') {
-	$sf_mode = gettext('Detection only');
+	$sf_mode = gettext('IDS (alerts only)');
 } elseif (($sf_rule['ips_mode'] ?? '') == 'ips_mode_inline') {
-	$sf_mode = gettext('Inline IPS');
+	$sf_mode = gettext('IPS inline');
 } else {
-	$sf_mode = gettext('Legacy blocking');
+	$sf_mode = gettext('IPS legacy');
 }
-$sf_running = !empty($sf_rule['uuid']) && suricata_is_running($sf_rule['uuid'], $sf_real);
+$sf_badges = array();
+if (($sf_rule['enable'] ?? '') != 'on') {
+	$sf_badges[] = fs_badge('disabled');
+} else {
+	$sf_badges[] = fs_badge('enabled');
+	$sf_badges[] = ($sf_real != '' && !empty($sf_rule['uuid']) && suricata_is_running($sf_rule['uuid'], $sf_real)) ? fs_badge('up', gettext('Running')) : fs_badge('down', gettext('Stopped'));
+}
 fs_summary_card(array(
 	'icon' => 'fa-shield-halved',
 	'title' => $sf_rule['descr'] ?? '',
-	'placeholder' => $sf_name,
-	'subtitle' => sprintf(gettext('Suricata on %s'), $sf_name),
-	'badges' => array(
-		fs_badge((($sf_rule['enable'] ?? '') == 'on') ? 'enabled' : 'disabled'),
-		$sf_running ? fs_badge('up', gettext('Running')) : fs_badge('down', gettext('Stopped')),
-	),
+	'placeholder' => convert_friendly_interface_to_friendly_descr($sf_rule['interface'] ?? ''),
+	'badges' => $sf_badges,
 	'meta' => $sf_real,
 	'label' => gettext('Interface summary'),
 	'facts' => array(
+		array(gettext('Interface'), ($sf_real != '') ? convert_friendly_interface_to_friendly_descr($sf_rule['interface']) . " ({$sf_real})" : '', 'empty' => gettext('Not assigned')),
 		array(gettext('Mode'), $sf_mode),
-		array(gettext('Rule categories'), (string)count(array_filter(explode('||', $sf_rule['rulesets'] ?? '')))),
-		array(gettext('Home net'), (($sf_rule['homelistname'] ?? 'default') == 'default') ? gettext('Default') : $sf_rule['homelistname']),
-		array(gettext('Suppress list'), (empty($sf_rule['suppresslistname']) || $sf_rule['suppresslistname'] == 'default') ? '' : $sf_rule['suppresslistname'], 'empty' => gettext('None')),
+		array(gettext('Home net'), $sf_rule['homelistname'] ?? '', 'empty' => 'default'),
+		array(gettext('Rule sets'), '', 'chips' => array_keys(suricata_ruleset_summary($sf_rule)), 'empty' => gettext('None selected')),
 	),
-	'actions' => array(array(gettext('Alerts'), '/suricata/suricata_alerts.php?instance=' . (int)$id, 'fa-bell')),
+	'actions' => array(array(gettext('Alerts'), '/suricata/suricata_alerts.php?instance=' . (int)$id, 'fa-bell'), array(gettext('Edit interface'), '/suricata/suricata_interfaces_edit.php?id=' . (int)$id, 'fa-pencil')),
 ));
 
 /* Display error message */

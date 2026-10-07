@@ -291,17 +291,7 @@ fs_page_action(gettext('View settings'), '#', 'fa-sliders', 'secondary', ['data-
 include_once("head.inc");
 suricata_display_primary_navigation('events');
 
-echo '<nav class="fs-viewswitch" aria-label="' . fs_h(gettext('Events')) . '">';
-foreach (array(
-	array('alerts', gettext('Alerts'), "/suricata/suricata_alerts.php?instance={$instanceid}"),
-	array('blocked', gettext('Blocked hosts'), '/suricata/suricata_blocked.php'),
-	array('files', gettext('Files'), "/suricata/suricata_files.php?instance={$instanceid}"),
-	array('events', gettext('EVE events'), '/suricata/suricata_events.php'),
-	array('logs', gettext('Log files'), "/suricata/suricata_logs_browser.php?instance={$instanceid}"),
-) as $sf_v) {
-	echo '<a href="' . fs_h($sf_v[2]) . '"' . (($sf_v[0] === 'files') ? ' aria-current="page"' : '') . '>' . fs_h($sf_v[1]) . '</a>';
-}
-echo '</nav>';
+suricata_display_section_navigation('events', 'files');
 
 /* refresh every 60 secs */
 if ($pconfig['frefresh'] == 'on')
