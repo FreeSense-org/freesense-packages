@@ -178,7 +178,7 @@ wg_ui_styles();
 				<tr>
 					<th class="fs-col-status d-none d-sm-table-cell"><?=gettext('Status')?></th>
 					<th data-fs-search><?=gettext('Tunnel')?></th>
-					<th data-fs-search><?=gettext('Addresses')?></th>
+					<th data-fs-search class="d-none d-sm-table-cell"><?=gettext('Addresses')?></th>
 					<th data-fs-search class="d-none d-md-table-cell"><?=gettext('Listen port')?></th>
 					<th data-fs-search class="d-none d-lg-table-cell"><?=gettext('Public key')?></th>
 					<th class="fs-col-actions"><span class="visually-hidden"><?=gettext('Actions')?></span></th>
@@ -204,10 +204,11 @@ foreach ($tunnels as $i => $tunnel):
 <?php	if (!empty($tunnel['descr'])): ?>
 						<span class="wg-sub"><?=htmlspecialchars($tunnel['descr'])?></span>
 <?php	endif; ?>
+						<div class="d-sm-none mt-1"><?=wg_ui_tunnel_addresses($tunnel, 1)?></div>
 						<div class="d-sm-none mt-1"><?=$badge?></div>
 						<span hidden><?=htmlspecialchars(implode(' ', $search))?></span>
 					</td>
-					<td><?=wg_ui_tunnel_addresses($tunnel)?></td>
+					<td class="d-none d-sm-table-cell"><?=wg_ui_tunnel_addresses($tunnel)?></td>
 					<td class="d-none d-md-table-cell fs-mono"><?=htmlspecialchars($tunnel['listenport'])?></td>
 					<td class="d-none d-lg-table-cell"><?=wg_ui_key($tunnel['publickey'], $name)?></td>
 					<td class="fs-col-actions">
@@ -246,7 +247,7 @@ foreach ($tunnels as $i => $tunnel):
 										<tr>
 											<th class="fs-col-status d-none d-sm-table-cell"><?=gettext('Status')?></th>
 											<th><?=gettext('Peer')?></th>
-											<th><?=gettext('Allowed IPs')?></th>
+											<th class="d-none d-sm-table-cell"><?=gettext('Allowed IPs')?></th>
 											<th class="d-none d-md-table-cell"><?=gettext('Endpoint')?></th>
 											<th class="fs-col-actions"><span class="visually-hidden"><?=gettext('Actions')?></span></th>
 										</tr>
@@ -262,9 +263,10 @@ foreach ($tunnels as $i => $tunnel):
 											<td>
 												<a href="vpn_wg_peers_edit.php?peer=<?=intval($peer_idx)?>"><?=htmlspecialchars($pname)?></a>
 												<span class="wg-sub"><?=wg_ui_key($peer['publickey'], $pname, 10)?></span>
+												<div class="d-sm-none mt-1"><?=wg_ui_address_list(wg_ui_address_strings($peer['allowedips']['row'] ?? array()), 1)?></div>
 												<div class="d-sm-none mt-1"><?=$pbadge?></div>
 											</td>
-											<td><?=wg_ui_address_list(wg_ui_address_strings($peer['allowedips']['row'] ?? array()))?></td>
+											<td class="d-none d-sm-table-cell"><?=wg_ui_address_list(wg_ui_address_strings($peer['allowedips']['row'] ?? array()))?></td>
 											<td class="d-none d-md-table-cell"><?=wg_ui_endpoint($peer)?></td>
 											<td class="fs-col-actions">
 <?=fs_row_actions([

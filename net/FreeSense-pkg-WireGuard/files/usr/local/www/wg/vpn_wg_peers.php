@@ -167,7 +167,7 @@ wg_ui_styles();
 				<tr>
 					<th class="fs-col-status d-none d-sm-table-cell"><?=gettext('Status')?></th>
 					<th data-fs-search><?=gettext('Peer')?></th>
-					<th data-fs-search><?=gettext('Tunnel')?></th>
+					<th data-fs-search class="d-none d-sm-table-cell"><?=gettext('Tunnel')?></th>
 					<th data-fs-search><?=gettext('Allowed IPs')?></th>
 					<th data-fs-search class="d-none d-md-table-cell"><?=gettext('Endpoint')?></th>
 					<th data-fs-search class="d-none d-lg-table-cell"><?=gettext('Public key')?></th>
@@ -199,9 +199,10 @@ foreach ($peers as $peer_idx => $peer):
 <?php	if ($keepalive > 0): ?>
 						<span class="wg-sub"><?=htmlspecialchars(sprintf(gettext('Keep alive %d s'), $keepalive))?></span>
 <?php	endif; ?>
+						<span class="wg-sub d-sm-none fs-mono"><?=htmlspecialchars($has_tunnel ? $peer['tun'] : gettext('Unassigned'))?></span>
 						<div class="d-sm-none mt-1"><?=$badge?></div>
 					</td>
-					<td>
+					<td class="d-none d-sm-table-cell">
 <?php	if ($has_tunnel): ?>
 						<a class="fs-mono" href="vpn_wg_tunnels_edit.php?tun=<?=htmlspecialchars(rawurlencode($peer['tun']))?>"><?=htmlspecialchars($peer['tun'])?></a>
 <?php	else: ?>
