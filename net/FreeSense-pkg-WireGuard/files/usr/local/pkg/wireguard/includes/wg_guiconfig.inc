@@ -356,4 +356,180 @@ function wg_generate_peer_allowedips_popup_link($peer_idx) {
 	return null;
 }
 
+/* ------------------------------------------------------------------
+ * FreeSense page style helpers (1.1 WebUI)
+ * ------------------------------------------------------------------ */
+
+// Renders the WireGuard tab bar; $active is 'tunnels', 'peers', 'settings' or 'status'
+function wg_display_tabs($active) {
+	$tabs = array(
+		'tunnels'	=> array(gettext('Tunnels'), '/wg/vpn_wg_tunnels.php'),
+		'peers'		=> array(gettext('Peers'), '/wg/vpn_wg_peers.php'),
+		'settings'	=> array(gettext('Settings'), '/wg/vpn_wg_settings.php'),
+		'status'	=> array(gettext('Status'), '/wg/status_wireguard.php'),
+	);
+
+	$tab_array = array();
+
+	foreach ($tabs as $key => [$label, $url]) {
+		$tab_array[] = array($label, ($key === $active), $url);
+	}
+
+	display_top_tabs($tab_array);
+}
+
+// Returns 'address/mask' strings from a config 'row' list
+function wg_ui_address_strings($rows) {
+	$ret = array();
+
+	if (is_array($rows)) {
+		foreach ($rows as $row) {
+			if (is_array($row) && !empty($row['address'])) {
+				$ret[] = "{$row['address']}/{$row['mask']}";
+			}
+		}
+	}
+
+	return $ret;
+}
+
+/*
+ * Mono list of addresses: the first $max are shown, the rest as a "+n" chip
+ * with the full list in its tooltip. Returns escaped HTML.
+ */
+function wg_ui_address_list($addresses, $max = 2, $empty = null) {
+	if (empty($addresses)) {
+		return '<span class="fs-muted">' . htmlspecialchars($empty ?? gettext('None')) . '</span>';
+	}
+
+	$html = '';
+
+	foreach (array_slice($addresses, 0, $max) as $address) {
+		$html .= '<span class="wg-line fs-mono">' . htmlspecialchars($address) . '</span>';
+	}
+
+	$more = array_slice($addresses, $max);
+
+	if (!empty($more)) {
+		$html .= '<span class="fs-chip fs-chip--mono fs-chip--muted" title="' . htmlspecialchars(implode(', ', $more)) . '">+' . count($more) . '</span>';
+	}
+
+	return $html;
+}
+
+// Truncated mono key with a copy button. Returns escaped HTML.
+function wg_ui_key($key, $what = null, $length = 12) {
+	if (empty($key)) {
+		return '<span class="fs-muted">' . htmlspecialchars(gettext('Not set')) . '</span>';
+	}
+
+	$label = $what ? sprintf(gettext('Copy the public key of %s'), $what) : gettext('Copy public key');
+
+	return '<span class="wg-key"><span class="fs-mono" title="' . htmlspecialchars($key) . '">' . htmlspecialchars(wg_truncate_pretty($key, $length)) . '</span>'
+		. '<button type="button" class="wg-copy" data-wg-copy="' . htmlspecialchars($key) . '" title="' . htmlspecialchars($label) . '" aria-label="' . htmlspecialchars($label) . '">'
+		. '<i class="fa-regular fa-copy" aria-hidden="true"></i></button></span>';
+}
+
+// Endpoint as host:port, or a muted "Dynamic". Returns escaped HTML.
+function wg_ui_endpoint($peer, $endpoint_key = 'endpoint', $port_key = 'port') {
+	global $wgg;
+
+	if (empty($peer[$endpoint_key])) {
+		return '<span class="fs-muted">' . htmlspecialchars(gettext('Dynamic')) . '</span>';
+	}
+
+	$port = !empty($peer[$port_key]) ? $peer[$port_key] : $wgg['default_port'];
+
+	$host = is_ipaddrv6($peer[$endpoint_key]) ? "[{$peer[$endpoint_key]}]" : $peer[$endpoint_key];
+
+	return '<span class="fs-mono">' . htmlspecialchars("{$host}:{$port}") . '</span>';
+}
+
+/*
+ * Assignment of a tunnel: [assigned (bool), interface name, interface description].
+ */
+function wg_ui_tunnel_assignment($tunnel_name) {
+	if (is_wg_tunnel_assigned($tunnel_name)) {
+		$info = wg_get_pfsense_interface_info($tunnel_name);
+
+		return array(true, $info['name'] ?? '', $info['descr'] ?? '');
+	}
+
+	return array(false, '', '');
+}
+
+// Addresses cell of a tunnel: its assigned interface or its own addresses. Returns escaped HTML.
+function wg_ui_tunnel_addresses($tunnel, $max = 2) {
+	[$assigned, $ifname, $ifdescr] = wg_ui_tunnel_assignment($tunnel['name']);
+
+	if ($assigned) {
+		return '<a href="/interfaces.php?if=' . htmlspecialchars(rawurlencode($ifname)) . '" title="' . htmlspecialchars(gettext('Assigned interface')) . '">'
+			. '<i class="fa-solid fa-sitemap icon-embed-btn" aria-hidden="true"></i>' . htmlspecialchars("{$ifdescr} ({$ifname})") . '</a>';
+	}
+
+	return wg_ui_address_list(wg_ui_address_strings($tunnel['addresses']['row'] ?? array()), $max);
+}
+
+/*
+ * Handshake state of a running peer as an fs_badge().
+ * $latest_handshake is a unix timestamp (0 = never).
+ */
+function wg_ui_handshake_badge($latest_handshake) {
+	global $wgg;
+
+	$ts = intval($latest_handshake);
+
+	if ($ts <= 0) {
+		return fs_badge('neutral', gettext('No handshake'), gettext('This peer has not completed a handshake yet'));
+	}
+
+	$age = abs(time() - $ts);
+
+	$title = '';
+
+	foreach ($wgg['handshake_thresholds'] as $threshold => $value) {
+		if ($age >= $threshold) {
+			$title = $value['title'];
+			break;
+		}
+	}
+
+	if ($age < 300) {
+		return fs_badge('up', gettext('Active'), $title);
+	} elseif ($age < 86400) {
+		return fs_badge('warn', gettext('Idle'), $title);
+	}
+
+	return fs_badge('down', gettext('Stale'), $title);
+}
+
+// Page-local styles shared by the WireGuard pages
+function wg_ui_styles() {
+?>
+<style>
+.wg-sub { display: block; color: var(--fs-text-muted); font-size: var(--fs-fs-xs); }
+.wg-line { display: block; }
+.wg-key { display: inline-flex; align-items: center; gap: .25rem; white-space: nowrap; }
+.wg-copy { display: inline-flex; align-items: center; justify-content: center; width: 1.75rem; height: 1.75rem; padding: 0; border: 0; border-radius: var(--fs-r-sm); background: transparent; color: var(--fs-text-muted); }
+.wg-copy:hover, .wg-copy:focus-visible { color: var(--fs-text-strong); background: var(--fs-accent-tint); }
+.wg-copy.is-done { color: var(--fs-pass); }
+.wg-num { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.wg-tun-link { font-weight: 600; }
+tr.wg-children > td { padding-top: 0; }
+.fs-table .table > tbody > tr.wg-children:hover > * { background-color: transparent; }
+.wg-children-box { margin: 0 0 .35rem .1rem; padding-left: .85rem; border-left: 2px solid var(--fs-border); }
+.wg-children-head { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .75rem; min-height: 2rem; }
+.wg-toggle { display: inline-flex; align-items: center; gap: .4rem; padding: .15rem .25rem; border: 0; border-radius: var(--fs-r-sm); background: transparent; color: var(--fs-text-muted); font-size: var(--fs-fs-sm); font-weight: 600; }
+.wg-toggle:hover, .wg-toggle:focus-visible { color: var(--fs-text-strong); }
+.wg-toggle > i { transition: transform var(--fs-t-fast) var(--fs-ease); }
+.wg-toggle[aria-expanded="false"] > i { transform: rotate(-90deg); }
+.wg-children-add { font-size: var(--fs-fs-sm); }
+.wg-children-empty { color: var(--fs-text-muted); font-size: var(--fs-fs-sm); }
+.wg-children-box .table { margin: 0; }
+.wg-children-box .table > thead > tr > th { font-size: var(--fs-fs-xs); }
+.wg-children-box .table > tbody > tr:last-child > td { border-bottom: 0; }
+</style>
+<?php
+}
+
 ?>
