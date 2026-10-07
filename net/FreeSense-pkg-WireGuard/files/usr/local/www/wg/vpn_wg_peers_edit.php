@@ -104,14 +104,19 @@ if (is_numericint($peer_idx) && is_array(config_get_path("installedpackages/wire
 
 $shortcut_section = "wireguard";
 
-$pgtitle = array(gettext("VPN"), gettext("WireGuard"), gettext("Peers"), gettext("Edit"));
-$pglinks = array("", "/wg/vpn_wg_tunnels.php", "/wg/vpn_wg_peers.php", "@self");
+$saved_peer = $is_new ? null : config_get_path("installedpackages/wireguard/peers/item/{$peer_idx}");
 
-$tab_array = array();
-$tab_array[] = array(gettext("Tunnels"), false, "/wg/vpn_wg_tunnels.php");
-$tab_array[] = array(gettext("Peers"), true, "/wg/vpn_wg_peers.php");
-$tab_array[] = array(gettext("Settings"), false, "/wg/vpn_wg_settings.php");
-$tab_array[] = array(gettext("Status"), false, "/wg/status_wireguard.php");
+$pgtitle = array(gettext("VPN"), gettext("WireGuard"), gettext("Peers"));
+$pglinks = array("", "/wg/vpn_wg_tunnels.php", "/wg/vpn_wg_peers.php");
+if ($is_new) {
+	$pgtitle[] = gettext('Add peer');
+	$pglinks[] = '@self';
+} else {
+	$pgtitle[] = htmlspecialchars(!empty($saved_peer['descr']) ? $saved_peer['descr'] : wg_truncate_pretty($saved_peer['publickey'], 12));
+	$pgtitle[] = gettext('Edit peer');
+	$pglinks[] = '';
+	$pglinks[] = '@self';
+}
 
 include("head.inc");
 
@@ -121,11 +126,36 @@ if (!empty($input_errors)) {
 	print_input_errors($input_errors);
 }
 
-display_top_tabs($tab_array);
+wg_display_tabs('peers');
+
+wg_ui_styles();
+
+/* Header summary: the saved peer (or the defaults of a new one) */
+$summary = $saved_peer ?? array('enabled' => 'yes', 'tun' => $tun_name ?? '', 'descr' => '');
+$sum_tun_ok = !empty($summary['tun']) && ($summary['tun'] != 'unassigned') && wg_tunnel_get_config_by_name($summary['tun']);
+$sum_keepalive = intval($summary['persistentkeepalive'] ?? 0);
+if (empty($summary['endpoint'])) {
+	$endpoint_fact = array(gettext('Endpoint'), gettext('Dynamic'));
+} else {
+	$endpoint_fact = array(gettext('Endpoint'), "{$summary['endpoint']}:" . (!empty($summary['port']) ? $summary['port'] : $wgg['default_port']), 'mono' => true);
+}
+fs_summary_card([
+	'icon' => 'fa-user-shield',
+	'title' => $summary['descr'] ?? '',
+	'placeholder' => $is_new ? gettext('New peer') : wg_truncate_pretty($summary['publickey'] ?? '', 16),
+	'subtitle' => gettext('WireGuard peer'),
+	'badges' => [$is_new ? fs_badge('info', gettext('Not saved yet')) : (($summary['enabled'] == 'yes') ? fs_badge('enabled') : fs_badge('disabled'))],
+	'label' => gettext('Peer summary'),
+	'facts' => [
+		$sum_tun_ok ? [gettext('Tunnel'), $summary['tun'], 'mono' => true, 'href' => '/wg/vpn_wg_tunnels_edit.php?tun=' . rawurlencode($summary['tun'])]
+		    : [gettext('Tunnel'), '', 'empty' => gettext('Unassigned')],
+		$endpoint_fact,
+		[gettext('Allowed IPs'), '', 'chips' => wg_ui_address_strings($summary['allowedips']['row'] ?? array()), 'empty' => gettext('None')],
+		[gettext('Keep alive'), ($sum_keepalive > 0) ? sprintf(gettext('%d s'), $sum_keepalive) : '', 'empty' => gettext('Off')],
+	],
+]);
 
 $form = new Form(false);
-
-$section = new Form_Section('Peer Configuration');
 
 $form->addGlobal(new Form_Input(
 	'index',
@@ -134,19 +164,22 @@ $form->addGlobal(new Form_Input(
 	$peer_idx
 ));
 
+/* ---- General */
+$section = new Form_Section(gettext('General'));
+
 $section->addInput(new Form_Checkbox(
 	'enabled',
 	'Enable',
-	gettext('Enable Peer'),
+	gettext('Enable peer'),
 	$pconfig['enabled'] == 'yes'
-))->setHelp('<span class="text-danger">Note: </span>Uncheck this option to disable this peer without removing it from the list.');
+))->setHelp('Uncheck to disable the peer without removing it.');
 
 $section->addInput($input = new Form_Select(
 	'tun',
 	'Tunnel',
 	$pconfig['tun'],
 	wg_get_tun_list()
-))->setHelp("WireGuard tunnel for this peer. (<a href='vpn_wg_tunnels_edit.php'>Create a New Tunnel</a>)");
+))->setHelp("WireGuard tunnel of this peer. <a href='vpn_wg_tunnels_edit.php'>Create a tunnel</a>");
 
 $section->addInput(new Form_Input(
 	'descr',
@@ -154,14 +187,19 @@ $section->addInput(new Form_Input(
 	'text',
 	$pconfig['descr'],
 	['placeholder' => 'Description']
-))->setHelp("Peer description for administrative reference (not parsed).");
+))->setHelp("For administrative reference (not parsed).");
+
+$form->add($section);
+
+/* ---- Connection */
+$section = new Form_Section(gettext('Connection'));
 
 $section->addInput(new Form_Checkbox(
 	'dynamic',
 	'Dynamic Endpoint',
 	gettext('Dynamic'),
 	empty($pconfig['endpoint']) || $is_dynamic
-))->setHelp('<span class="text-danger">Note: </span>Uncheck this option to assign an endpoint address and port for this peer.');
+))->setHelp('The peer connects to this firewall from an unknown address. Uncheck to set its endpoint address and port.');
 
 $group = new Form_Group('Endpoint');
 
@@ -174,8 +212,7 @@ $group->add(new Form_Input(
 	'text',
 	$pconfig['endpoint']
 ))->addClass('trim')
-  ->setHelp('Hostname, IPv4, or IPv6 address of this peer.<br />
-	     Leave endpoint and port blank if unknown (dynamic endpoints).')
+  ->setHelp('Hostname, IPv4 or IPv6 address of the peer.')
   ->setWidth(5);
 
 $group->add(new Form_Input(
@@ -184,8 +221,7 @@ $group->add(new Form_Input(
 	'text',
 	$pconfig['port']
 ))->addClass('trim')
-  ->setHelp("Port used by this peer.<br />
-	     Leave blank for default ({$wgg['default_port']}).")
+  ->setHelp("Port. Empty: {$wgg['default_port']}.")
   ->setWidth(3);
 
 $section->add($group);
@@ -197,8 +233,12 @@ $section->addInput(new Form_Input(
 	$pconfig['persistentkeepalive'],
 	['placeholder' => 'Keep Alive']
 ))->addClass('trim')
-  ->setHelp('Interval (in seconds) for Keep Alive packets sent to this peer.<br />
-	     Default is empty (disabled).');
+  ->setHelp('Interval in seconds for keep alive packets to this peer. Empty: off.');
+
+$form->add($section);
+
+/* ---- Keys */
+$section = new Form_Section(gettext('Keys'));
 
 $section->addInput(new Form_Input(
 	'publickey',
@@ -206,8 +246,8 @@ $section->addInput(new Form_Input(
 	'text',
 	$pconfig['publickey'],
 	['placeholder' => 'Public Key', 'autocomplete' => 'new-password']
-))->addClass('trim')
-  ->setHelp('WireGuard public key for this peer.');
+))->addClass('trim fs-mono')
+  ->setHelp('WireGuard public key of the peer.');
 
 $group = new Form_Group('Pre-shared Key');
 
@@ -217,28 +257,28 @@ $group->add(new Form_Input(
 	wg_secret_input_type(),
 	$pconfig['presharedkey'],
 	['autocomplete' => 'new-password']
-))->addClass('trim')
-  ->setHelp('Optional pre-shared key for this tunnel. (<a id="copypsk" style="cursor: pointer;" data-success-text="Copied" data-timeout="3000">Copy</a>)');
+))->addClass('trim fs-mono')
+  ->setHelp('Optional extra symmetric key. <a id="copypsk" href="#" role="button" data-success-text="Copied" data-timeout="3000">Copy</a>');
 
 $group->add(new Form_Button(
 	'genpsk',
 	'Generate',
 	null,
 	'fa-solid fa-key'
-))->addClass('btn-primary btn-sm')
-  ->setHelp('New Pre-shared Key');
+))->addClass('btn-outline-secondary btn-sm')
+  ->setHelp('New pre-shared key');
 
 $section->add($group);
 
 $form->add($section);
 
-$section = new Form_Section('Address Configuration');
+/* ---- Allowed IPs */
+$section = new Form_Section(gettext('Allowed IPs'));
 
 $section->addInput(new Form_StaticText(
 	gettext('Hint'),
-	gettext('Allowed IP entries here will be transformed into proper subnet start boundaries prior to validating and saving. ' .
-	        'These entries must be unique between multiple peers on the same tunnel. Otherwise, traffic to the conflicting ' .
-	        'networks will only be routed to the last peer in the list.')
+	htmlspecialchars(gettext('Entries are rounded to their subnet start before they are saved. They must be unique between the peers of a tunnel; ' .
+	        'otherwise traffic to an overlapping network goes only to the last peer in the list.'))
 ));
 
 // Init the addresses array if necessary
@@ -246,7 +286,7 @@ if (!is_array($pconfig['allowedips'])
     || !is_array($pconfig['allowedips']['row'])
     || empty($pconfig['allowedips']['row'])) {
 		array_init_path($pconfig, 'allowedips/row/0');
-	
+
 		// Hack to ensure empty lists default to /128 mask
 		$pconfig['allowedips']['row'][0]['mask'] = '128';
 		if (!$is_new) {
@@ -267,7 +307,7 @@ foreach ($pconfig['allowedips']['row'] as $counter => $item) {
 		$item['address'],
 		'BOTH'
 	))->addClass('trim')
-	  ->setHelp($counter == $last ? 'IPv4 or IPv6 subnet or host reachable via this peer.' : '')
+	  ->setHelp($counter == $last ? 'Subnet or host<br />IPv4 or IPv6 subnet or host reachable through this peer.' : '')
 	  ->addMask("address_subnet{$counter}", $item['mask'], 128, 0)
 	  ->setWidth(4);
 
@@ -276,7 +316,7 @@ foreach ($pconfig['allowedips']['row'] as $counter => $item) {
 		'Description',
 		'text',
 		$item['descr']
-	))->setHelp($counter == $last ? 'Description for administrative reference (not parsed).' : '')
+	))->setHelp($counter == $last ? 'Description' : '')
 	  ->setWidth(4);
 
 	$group->add(new Form_Button(
@@ -305,16 +345,20 @@ $form->addGlobal(new Form_Input(
 	'save'
 ));
 
+$save = new Form_Button(
+	'saveform',
+	gettext('Save peer'),
+	null,
+	'fa-solid fa-floppy-disk'
+);
+$save->addClass('btn-primary');
+$form->addGlobal($save);
+
+fs_form_cancel($form, '/wg/vpn_wg_peers.php');
+
 print($form);
 
 ?>
-
-<nav class="action-buttons">
-	<button type="submit" id="saveform" name="saveform" class="btn btn-primary btn-sm" value="save" title="<?=gettext('Save Peer')?>">
-		<i class="fa-solid fa-save icon-embed-btn"></i>
-		<?=gettext("Save Peer")?>
-	</button>
-</nav>
 
 <?php $genkeywarning = gettext("Overwrite pre-shared key? Click 'ok' to overwrite key."); ?>
 
@@ -360,11 +404,6 @@ events.push(function() {
 				}
 			});
 		}
-	});
-
-	// Save the form
-	$('#saveform').click(function () {
-		$(form).submit();
 	});
 
 	$('#dynamic').click(function () {

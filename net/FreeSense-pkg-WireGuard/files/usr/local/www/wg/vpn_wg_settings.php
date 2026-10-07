@@ -96,19 +96,9 @@ $shortcut_section = 'wireguard';
 $pgtitle = array(gettext('VPN'), gettext('WireGuard'), gettext('Settings'));
 $pglinks = array('', '/wg/vpn_wg_tunnels.php', '@self');
 
-$tab_array = array();
-$tab_array[] = array(gettext('Tunnels'), false, '/wg/vpn_wg_tunnels.php');
-$tab_array[] = array(gettext('Peers'), false, '/wg/vpn_wg_peers.php');
-$tab_array[] = array(gettext('Settings'), true, '/wg/vpn_wg_settings.php');
-$tab_array[] = array(gettext('Status'), false, '/wg/status_wireguard.php');
-
 include('head.inc');
 
 wg_print_service_warning();
-
-if ($save_success) {
-	//print_info_box(gettext('The changes have been applied successfully.'), 'success');
-}
 
 if (isset($_POST['apply'])) {
 	print_apply_result_box($ret_code);
@@ -120,11 +110,36 @@ if (!empty($input_errors)) {
 	print_input_errors($input_errors);
 }
 
-display_top_tabs($tab_array);
+wg_display_tabs('settings');
+
+$interface_group_list = array('all' => gettext('All Tunnels'), 'unassigned' => gettext('Only Unassigned Tunnels'), 'none' => gettext('None'));
+
+/* Header summary: the saved settings */
+$svc_running = wg_is_service_running();
+$sum_interval = wg_get_endpoint_resolve_interval();
+fs_summary_card([
+	'icon' => 'fa-shield-halved',
+	'title' => gettext('WireGuard'),
+	'subtitle' => gettext('Package settings'),
+	'badges' => [
+		wg_is_service_enabled() ? fs_badge('enabled') : fs_badge('disabled'),
+		$svc_running ? fs_badge('up', gettext('Running')) : fs_badge('down', gettext('Stopped')),
+	],
+	'label' => gettext('WireGuard summary'),
+	'facts' => [
+		[gettext('Tunnels'), (string)count(config_get_path('installedpackages/wireguard/tunnels/item', [])), 'href' => '/wg/vpn_wg_tunnels.php'],
+		[gettext('Peers'), (string)count(config_get_path('installedpackages/wireguard/peers/item', [])), 'href' => '/wg/vpn_wg_peers.php'],
+		[gettext('Interface group'), $interface_group_list[$pconfig['interface_group']] ?? ($pconfig['interface_group'] ?? '')],
+		[gettext('Endpoint re-resolve'), (intval($sum_interval) > 0) ? sprintf(gettext('Every %d s'), $sum_interval) : '', 'empty' => gettext('Off'),
+		    'note' => ($pconfig['resolve_interval_track'] == 'yes') ? gettext('Follows the system setting') : null],
+	],
+	'actions' => [[gettext('Status'), '/wg/status_wireguard.php', 'fa-chart-line']],
+]);
 
 $form = new Form(false);
 
-$section = new Form_Section(gettext('General Settings'));
+/* ---- General */
+$section = new Form_Section(gettext('General'));
 
 $wg_enable = new Form_Checkbox(
 	'enable',
@@ -133,8 +148,7 @@ $wg_enable = new Form_Checkbox(
 	wg_is_service_enabled()
 );
 
-$wg_enable->setHelp("<span class=\"text-danger\">{$s(gettext('Note:'))} </span>
-		     {$s(gettext('WireGuard cannot be disabled when one or more tunnels is assigned to a FreeSense interface.'))}");
+$wg_enable->setHelp(gettext('WireGuard cannot be disabled while a tunnel is assigned to an interface.'));
 
 if (wg_is_wg_assigned()) {
 	$wg_enable->setDisabled();
@@ -155,8 +169,20 @@ $section->addInput(new Form_Checkbox(
 	gettext('Keep Configuration'),
 	gettext('Enable'),
 	$pconfig['keep_conf'] == 'yes'
-))->setHelp("<span class=\"text-danger\">{$s(gettext('Note:'))} </span>
-	     {$s(gettext("With 'Keep Configurations' enabled (default), all tunnel configurations and package settings will persist on install/de-install."))}");
+))->setHelp(gettext('Keep all tunnels and package settings when the package is removed or reinstalled (default).'));
+
+$section->addInput($input = new Form_Select(
+	'interface_group',
+	gettext('Interface Group Membership'),
+	$pconfig['interface_group'],
+	$interface_group_list
+))->setHelp("{$s(htmlspecialchars(gettext('Which tunnels are members of the WireGuard interface group. Group firewall rules are evaluated before interface rules.')))}<br />
+	     {$s(htmlspecialchars(sprintf(gettext("Default: '%s'."), $interface_group_list['all'])))}");
+
+$form->add($section);
+
+/* ---- Endpoint resolving */
+$section = new Form_Section(gettext('Endpoint hostnames'));
 
 $group = new Form_Group(gettext('Endpoint Hostname Resolve Interval'));
 
@@ -167,49 +193,38 @@ $group->add(new Form_Input(
 	wg_get_endpoint_resolve_interval(),
 	['placeholder' => wg_get_endpoint_resolve_interval()]
 ))->addClass('trim')
-  ->setHelp("{$s(gettext('Interval (in seconds) for re-resolving endpoint host/domain names.'))}<br />
-	     <span class=\"text-danger\">{$s(gettext('Note:'))} </span> {$s(sprintf('The default is %s seconds (0 to disable).', $wgg['default_resolve_interval']))}");
+  ->setHelp("{$s(htmlspecialchars(gettext('Seconds between re-resolving endpoint hostnames.')))}<br />
+	     {$s(htmlspecialchars(sprintf(gettext('Default %s seconds; 0 disables.'), $wgg['default_resolve_interval'])))}");
 
 $group->add(new Form_Checkbox(
 	'resolve_interval_track',
 	null,
 	gettext('Track System Resolve Interval'),
 	($pconfig['resolve_interval_track'] == 'yes')
-))->setHelp("{$s(gettext("Tracks the system 'Aliases Hostnames Resolve Interval' setting."))}<br />
-	     <span class=\"text-danger\">{$s(gettext('Note:'))} </span> See System &gt; Advanced &gt; <a href=\"/system_advanced_firewall.php\">Firewall &amp; NAT</a>");
+))->setHelp("{$s(htmlspecialchars(gettext("Use the system 'Aliases Hostnames Resolve Interval'")))} (<a href=\"/system_advanced_firewall.php\">{$s(htmlspecialchars(gettext('Firewall & NAT')))}</a>).");
 
 $section->add($group);
 
-$interface_group_list = array('all' => gettext('All Tunnels'), 'unassigned' => gettext('Only Unassigned Tunnels'), 'none' => gettext('None'));
-
-$section->addInput($input = new Form_Select(
-	'interface_group',
-	gettext('Interface Group Membership'),
-	$pconfig['interface_group'],
-	$interface_group_list
-))->setHelp("{$s(gettext('Configures which WireGuard tunnels are members of the WireGuard interface group.'))}<br />
-	     <span class=\"text-danger\">{$s(gettext('Note:'))} </span> {$s(sprintf(gettext("Group firewall rules are evaluated before interface firewall rules. Default is '%s.'"), $interface_group_list['all']))}");
-
 $form->add($section);
 
-$section = new Form_Section(gettext('User Interface Settings'));
+/* ---- User interface (rarely changed) */
+$ui_state = COLLAPSIBLE | (!empty($input_errors) ? SEC_OPEN : SEC_CLOSED);
+$section = new Form_Section(gettext('User interface'), 'wg-ui', $ui_state);
 
 $section->addInput(new Form_Checkbox(
 	'hide_secrets',
 	gettext('Hide Secrets'),
-    	gettext('Enable'),
-    	$pconfig['hide_secrets'] == 'yes'
-))->setHelp("<span class=\"text-danger\">{$s(gettext('Note:'))} </span>
-		{$s(gettext("With 'Hide Secrets' enabled, all secrets (private and pre-shared keys) are hidden in the user interface."))}");
+	gettext('Enable'),
+	$pconfig['hide_secrets'] == 'yes'
+))->setHelp(gettext('Show private and pre-shared keys as password fields.'));
 
 $section->addInput(new Form_Checkbox(
 	'hide_peers',
 	gettext('Hide Peers'),
 	gettext('Enable'),
 	$pconfig['hide_peers'] == 'yes'
-))->setHelp("<span class=\"text-danger\">{$s(gettext('Note:'))} </span>
-		{$s(gettext("With 'Hide Peers' enabled (default), all peers for all tunnels will initially be hidden on the status page."))}");
-		
+))->setHelp(gettext('Fold the peers of every tunnel away when the status page opens (default).'));
+
 $form->add($section);
 
 $form->addGlobal(new Form_Input(
@@ -219,26 +234,23 @@ $form->addGlobal(new Form_Input(
 	'save'
 ));
 
+$save = new Form_Button(
+	'saveform',
+	gettext('Save'),
+	null,
+	'fa-solid fa-floppy-disk'
+);
+$save->addClass('btn-primary');
+$form->addGlobal($save);
+
 print($form);
 
 ?>
-
-<nav class="action-buttons">
-	<button type="submit" id="saveform" name="saveform" class="btn btn-sm btn-primary" value="save" title="<?=gettext('Save Settings')?>">
-		<i class="fa-solid fa-save icon-embed-btn"></i>
-		<?=gettext('Save')?>
-	</button>
-</nav>
 
 <script type="text/javascript">
 //<![CDATA[
 events.push(function() {
 	wgRegTrimHandler();
-
-	// Save the form
-	$('#saveform').click(function () {
-		$(form).submit();
-	});
 
 	$('#resolve_interval_track').click(function () {
 		updateResolveInterval(this.checked);
