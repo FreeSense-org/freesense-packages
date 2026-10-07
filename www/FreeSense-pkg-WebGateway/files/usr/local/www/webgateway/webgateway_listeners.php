@@ -63,7 +63,7 @@ if ($available) {
 $section->addInput(new Form_Textarea('additional_client_networks_text', gettext('Additional client networks'), webgateway_decode_list($pconfig['additional_client_networks'])))
 	->setRows(4)
 	->addClass('fs-mono')
-	->setAttribute('placeholder', "10.0.0.0/8\n172.16.0.0/12\n192.168.0.0/16")
+	->setAttribute('placeholder', '10.20.0.0/16')
 	->setHelp(gettext('Routed or VPN client networks that may use the explicit proxy, one per line. Directly connected networks come from the selected interfaces. Firewall pass rules are still required.'));
 $form->add($section);
 

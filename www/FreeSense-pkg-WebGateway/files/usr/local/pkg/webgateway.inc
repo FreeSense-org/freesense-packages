@@ -1245,7 +1245,7 @@ function webgateway_choice_style() {
 	$emitted = true;
 	return <<<'CSS'
 <style>
-.wg-choices { display: grid; gap: var(--fs-sp-2); grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); }
+.wg-choices { display: grid; gap: var(--fs-sp-2); grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); }
 .wg-choice {
 	position: relative; display: flex; flex-direction: column; gap: .15rem; margin: 0;
 	padding: var(--fs-sp-3) var(--fs-sp-4) var(--fs-sp-3) 2.6rem;
