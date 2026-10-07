@@ -1151,19 +1151,118 @@ function webgateway_plugin_xmlrpc_recv_done($result) {
 
 function webgateway_display_tabs($active) {
 	$tabs = [
-		['Overview', $active === 'overview', '/webgateway/webgateway.php'],
-		['Listeners', $active === 'listeners', '/webgateway/webgateway_listeners.php'],
-		['TLS Inspection', $active === 'tls', '/webgateway/webgateway_tls.php'],
-		['Policies', $active === 'policies', '/webgateway/webgateway_policies.php'],
-		['Identity', $active === 'identity', '/webgateway/webgateway_identity.php'],
-		['Threat Protection', $active === 'threat', '/webgateway/webgateway_threat.php'],
-		['Feeds', $active === 'feeds', '/webgateway/webgateway_feeds.php'],
-		['Cache & Upstreams', $active === 'cache', '/webgateway/webgateway_cache.php'],
-		['Status', $active === 'status', '/webgateway/webgateway_status.php'],
-		['Diagnostics', $active === 'diagnostics', '/webgateway/webgateway_diagnostics.php'],
+		[gettext('Overview'), $active === 'overview', '/webgateway/webgateway.php'],
+		[gettext('Listeners'), $active === 'listeners', '/webgateway/webgateway_listeners.php'],
+		[gettext('TLS inspection'), $active === 'tls', '/webgateway/webgateway_tls.php'],
+		[gettext('Policies'), $active === 'policies', '/webgateway/webgateway_policies.php'],
+		[gettext('Identity'), $active === 'identity', '/webgateway/webgateway_identity.php'],
+		[gettext('Threat protection'), $active === 'threat', '/webgateway/webgateway_threat.php'],
+		[gettext('Feeds'), $active === 'feeds', '/webgateway/webgateway_feeds.php'],
+		[gettext('Cache & upstreams'), $active === 'cache', '/webgateway/webgateway_cache.php'],
+		[gettext('Status'), $active === 'status', '/webgateway/webgateway_status.php'],
+		[gettext('Diagnostics'), $active === 'diagnostics', '/webgateway/webgateway_diagnostics.php'],
 	];
 	display_top_tabs($tabs);
 	webgateway_emit_submit_guard();
+}
+
+/* Labels shared by the overview, status and settings pages. */
+function webgateway_tls_mode_label($mode) {
+	return [
+		'tunnel' => gettext('Tunnel only'),
+		'selective' => gettext('Selective inspection'),
+		'full' => gettext('Full inspection'),
+	][$mode] ?? (string)$mode;
+}
+
+function webgateway_auth_mode_label($mode) {
+	return [
+		'none' => gettext('Source network'),
+		'local' => gettext('Local users'),
+		'ldap' => gettext('LDAP / Active Directory'),
+		'radius' => gettext('RADIUS'),
+		'kerberos' => gettext('Kerberos / Negotiate'),
+	][$mode] ?? strtoupper((string)$mode);
+}
+
+function webgateway_listener_mode_label($mode) {
+	return [
+		'explicit' => gettext('Explicit proxy'),
+		'intercept_http' => gettext('Transparent HTTP'),
+		'intercept_https' => gettext('Transparent HTTPS'),
+	][$mode] ?? (string)$mode;
+}
+
+/* Compiled feed database status written by webgateway_update_feeds(). */
+function webgateway_feed_status() {
+	$file = WEBGATEWAY_STATE_DIR . '/feeds/status.json';
+	if (!is_readable($file)) {
+		return [];
+	}
+	$status = json_decode((string)file_get_contents($file), true);
+	return is_array($status) ? $status : [];
+}
+
+/*
+ * Option cards for a radio or checkbox group (HTML string, escaped here).
+ * $options: value => ['title' => ..., 'help' => ..., 'icon' => 'fa-...', 'meta' => ..., 'id' => ...]
+ * $checked: the selected value (radio) or the selected values (checkbox).
+ * The inputs keep the page's field name and value, so the form posts as before.
+ */
+function webgateway_choice_cards($name, $type, array $options, $checked, $label = '', array $attrs = []) {
+	$h = function ($s) {
+		return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+	};
+	$html = webgateway_choice_style();
+	$html .= '<div class="wg-choices" role="' . (($type === 'radio') ? 'radiogroup' : 'group') . '"'
+	    . (($label !== '') ? ' aria-label="' . $h($label) . '"' : '') . '>';
+	foreach ($options as $value => $opt) {
+		$is_checked = ($type === 'radio') ? ((string)$checked === (string)$value) : in_array((string)$value, array_map('strval', (array)$checked), true);
+		$input = '<input type="' . $h($type) . '" name="' . $h($name) . '" value="' . $h($value) . '"'
+		    . (isset($opt['id']) ? ' id="' . $h($opt['id']) . '"' : '')
+		    . ($is_checked ? ' checked' : '');
+		foreach ($attrs as $k => $v) {
+			$input .= ' ' . $h($k) . '="' . $h($v) . '"';
+		}
+		$input .= '>';
+		$html .= '<label class="wg-choice">' . $input
+		    . '<span class="wg-choice-name">'
+		    . (empty($opt['icon']) ? '' : '<i class="fa-solid ' . $h($opt['icon']) . '" aria-hidden="true"></i>')
+		    . $h($opt['title']) . '</span>'
+		    . ((($opt['meta'] ?? '') !== '') ? '<span class="wg-choice-meta">' . $h($opt['meta']) . '</span>' : '')
+		    . ((($opt['help'] ?? '') !== '') ? '<span class="wg-choice-help">' . $h($opt['help']) . '</span>' : '')
+		    . '</label>';
+	}
+	return $html . '</div>';
+}
+
+/* Page-local styles of the Web Gateway pages (emitted once per page). */
+function webgateway_choice_style() {
+	static $emitted = false;
+	if ($emitted) {
+		return '';
+	}
+	$emitted = true;
+	return <<<'CSS'
+<style>
+.wg-choices { display: grid; gap: var(--fs-sp-2); grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); }
+.wg-choice {
+	position: relative; display: flex; flex-direction: column; gap: .15rem; margin: 0;
+	padding: var(--fs-sp-3) var(--fs-sp-4) var(--fs-sp-3) 2.6rem;
+	border: 1px solid var(--fs-border); border-radius: var(--fs-r-md); cursor: pointer; font-weight: 400;
+}
+.wg-choice:hover { border-color: var(--fs-text-muted); }
+.wg-choice:has(input:checked) { border-color: var(--fs-coral); background: var(--fs-accent-tint); }
+.wg-choice:has(input:focus-visible) { outline: 2px solid var(--fs-coral); outline-offset: 2px; }
+.wg-choice:has(input:disabled) { cursor: not-allowed; opacity: .6; }
+.wg-choice > input { position: absolute; top: 1.05rem; left: 1rem; margin: 0; accent-color: var(--fs-coral); }
+.wg-choice-name { display: flex; gap: var(--fs-sp-2); align-items: center; color: var(--fs-text-strong); font-weight: 600; }
+.wg-choice-name > i { color: var(--fs-text-muted); }
+.wg-choice-meta { color: var(--fs-text-muted); font-family: var(--fs-font-mono); font-size: var(--fs-fs-sm); }
+.wg-choice-help { color: var(--fs-text-muted); font-size: var(--fs-fs-sm); }
+.wg-buttons { display: flex; flex-wrap: wrap; gap: var(--fs-sp-2); }
+</style>
+CSS;
 }
 
 /*
