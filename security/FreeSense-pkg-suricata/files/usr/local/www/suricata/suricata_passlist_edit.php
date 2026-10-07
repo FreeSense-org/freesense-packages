@@ -281,7 +281,7 @@ if (count($pconfig['address']['item']) > 0) {
 			'Delete',
 			null,
 			'fa-solid fa-trash-can'
-		))->addClass('btn-warning btn-sm nowarn')->setAttribute('title', "Delete this entry from list");
+		))->addClass('btn-outline-secondary btn-sm nowarn')->setAttribute('title', "Delete this entry from list");
 
 		$section->add($group);
 		$counter++;
@@ -302,7 +302,7 @@ if (count($pconfig['address']['item']) > 0) {
 		'Delete',
 		null,
 		'fa-solid fa-trash-can'
-	))->addClass('btn-warning btn-sm nowarn')->setAttribute('title', "Delete this entry from list");
+	))->addClass('btn-outline-secondary btn-sm nowarn')->setAttribute('title', "Delete this entry from list");
 
 	$section->add($group);
 }

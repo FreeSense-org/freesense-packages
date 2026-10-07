@@ -407,7 +407,7 @@ foreach ($pconfig['extra_rules']['rule'] as $rule) {
 		'Delete',
 		null,
 		'fa-solid fa-trash-can'
-	))->addClass('btn-warning');
+	))->addClass('btn-outline-secondary');
 
 	$section->add($group);
 
