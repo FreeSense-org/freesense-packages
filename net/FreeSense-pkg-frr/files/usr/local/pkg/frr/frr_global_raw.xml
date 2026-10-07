@@ -129,8 +129,8 @@
 			<fielddescr></fielddescr>
 			<description>
 				<![CDATA[
-				<p><b>Clicking "Update Running" will fill RUNNING fields with current configuration.</p>
-				<p><button class="btn btn-success btn-sm" name='update_running' id='update_running' type='submit' value='Update Running'><i class="fa-solid fa-arrows-rotate icon-embed-btn"></i>Update Running</button></p>
+				<p>Clicking "Update Running" fills the RUNNING field with the current configuration.</p>
+				<p><button class="btn btn-outline-secondary btn-sm" name='update_running' id='update_running' type='submit' value='Update Running'><i class="fa-solid fa-arrows-rotate icon-embed-btn" aria-hidden="true"></i>Update Running</button></p>
 				]]>
 			</description>
 			<type>info</type>
@@ -170,33 +170,38 @@
 			<fieldname>frrrunning</fieldname>
 			<description>
 				<![CDATA[
-				<script>
-				var frr = document.getElementById('frr');
-				var frrrunning = document.getElementById('frrrunning');
-				function onCopyClick(elem1, elem2) {
-					elem1.value = elem2.value;
-					configCheck(elem1, elem2);
-				}
-				function configCheck(elem1,elem2) {
-					if (elem1.value == elem2.value ) {
-						elem1.style.backgroundColor = elem2.style.backgroundColor = '#FAFAFA';
-					}
-					else {
-						elem1.style.backgroundColor = elem2.style.backgroundColor = 'white';
-					}
-				}
-				window.onload = configCheck(frr, frrrunning);
-				zebra.addEventListener('keyup', function() { configCheck(frr, frrrunning)});
-				zebrarunning.addEventListener('keyup', function() { configCheck(frr, frrrunning) });
-				</script>
-				]]>
-				<![CDATA[
-				<p><b>Note: This is the CURRENT RUNNING CONFIG from "/var/etc/frr/frr.conf".<br />
-				Copy this text block to the "SAVED" block above to ensure configuration is saved.<br />
-				When finished copying, click "Save" at the bottom of the form.<br />
-				</b>
-				<button onclick='onCopyClick(frr, frrrunning); return false'>Copy frr.conf Running to Saved</button>
+				<p>This is the current running configuration from "/var/etc/frr/frr.conf".
+				Copy it to the SAVED field above and click "Save" at the bottom of the form to keep it.</p>
+				<p class="d-flex flex-wrap align-items-center gap-2">
+				<button type="button" class="btn btn-outline-secondary btn-sm" onclick="onCopyClick(); return false;"><i class="fa-regular fa-copy icon-embed-btn" aria-hidden="true"></i>Copy frr.conf Running to Saved</button>
+				<span id="frr-raw-sync" role="status" aria-live="polite"></span>
 				</p>
+				<script>
+				(function () {
+					var frr = document.getElementById('frr');
+					var frrrunning = document.getElementById('frrrunning');
+					var sync = document.getElementById('frr-raw-sync');
+					if (!frr || !frrrunning) {
+						return;
+					}
+					/* say whether SAVED and RUNNING match; colours come from the theme, not inline styles */
+					function configCheck() {
+						if (!sync) {
+							return;
+						}
+						var same = (frr.value === frrrunning.value);
+						sync.textContent = same ? 'SAVED and RUNNING are identical.' : 'SAVED and RUNNING differ.';
+						sync.classList.toggle('fs-muted', same);
+					}
+					window.onCopyClick = function () {
+						frr.value = frrrunning.value;
+						configCheck();
+					};
+					frr.addEventListener('input', configCheck);
+					frrrunning.addEventListener('input', configCheck);
+					configCheck();
+				})();
+				</script>
 				]]>
 			</description>
 			<type>textarea</type>
