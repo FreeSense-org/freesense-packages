@@ -953,16 +953,32 @@ function threatshield_get_dhcp_hostnames(): array {
 	return $leases;
 }
 
+/* Unix time of the last completed 'feeds' or 'geoip' download (0 = never). */
+function threatshield_last_update(string $kind): int {
+	$file = THREATSHIELD_DB_DIR . '/last_' . $kind . '_update';
+	return is_file($file) ? max(0, (int)trim((string)@file_get_contents($file))) : 0;
+}
+
+/* Short relative age for the WebUI ("5 min ago", "3 days ago"). */
+function threatshield_age(int $timestamp): string {
+	if ($timestamp <= 0) return gettext('Never');
+	$age = max(0, time() - $timestamp);
+	if ($age < 90) return gettext('Just now');
+	if ($age < 5400) return sprintf(gettext('%d min ago'), (int)round($age / 60));
+	if ($age < 129600) return sprintf(gettext('%d h ago'), (int)round($age / 3600));
+	return sprintf(gettext('%d days ago'), (int)round($age / 86400));
+}
+
 function threatshield_display_tabs(string $active_tab): void {
 	$tabs = [
-		[gettext('Dashboard & Metrics'), $active_tab === 'status', '/threatshield/threatshield_status.php'],
-		[gettext('General Settings'), $active_tab === 'general', '/threatshield/threatshield.php'],
-		[gettext('Live Query Inspector'), $active_tab === 'querylog', '/threatshield/threatshield_querylog.php'],
-		[gettext('DNS Feeds & Lists'), $active_tab === 'feeds', '/threatshield/threatshield_feeds.php'],
-		[gettext('GeoIP Country Shield'), $active_tab === 'geoip', '/threatshield/threatshield_geoip.php'],
-		[gettext('Custom Rules'), $active_tab === 'rules', '/threatshield/threatshield_rules.php'],
-		[gettext('Client Profiles'), $active_tab === 'clients', '/threatshield/threatshield_clients.php'],
-		[gettext('DNS Rewrites'), $active_tab === 'rewrites', '/threatshield/threatshield_rewrites.php']
+		[gettext('Overview'), $active_tab === 'status', '/threatshield/threatshield_status.php'],
+		[gettext('Settings'), $active_tab === 'general', '/threatshield/threatshield.php'],
+		[gettext('Query log'), $active_tab === 'querylog', '/threatshield/threatshield_querylog.php'],
+		[gettext('Feeds'), $active_tab === 'feeds', '/threatshield/threatshield_feeds.php'],
+		[gettext('GeoIP'), $active_tab === 'geoip', '/threatshield/threatshield_geoip.php'],
+		[gettext('Custom rules'), $active_tab === 'rules', '/threatshield/threatshield_rules.php'],
+		[gettext('Clients'), $active_tab === 'clients', '/threatshield/threatshield_clients.php'],
+		[gettext('Rewrites'), $active_tab === 'rewrites', '/threatshield/threatshield_rewrites.php']
 	];
 	display_top_tabs($tabs);
 }
