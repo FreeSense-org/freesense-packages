@@ -108,57 +108,48 @@ if ($_POST['save']) {
 	}
 }
 
-$pglinks = array("", "/suricata/suricata_interfaces.php", "/suricata/suricata_suppress.php", "@self");
-$pgtitle = array("Services", "Suricata", "Suppression List", "Edit");
+$is_new = !(isset($id) && $a_suppress[$id]);
+$pglinks = array("", "/suricata/suricata_overview.php", "/suricata/suricata_suppress.php", "", "@self");
+$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("Suppress lists"), htmlspecialchars($pconfig['name']), $is_new ? gettext("Add suppress list") : gettext("Edit suppress list"));
+if ($is_new) {
+	$pglinks = array("", "/suricata/suricata_overview.php", "/suricata/suricata_suppress.php", "@self");
+	$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("Suppress lists"), gettext("Add suppress list"));
+}
 include_once("head.inc");
-suricata_display_primary_navigation('lists');
 
 if ($input_errors) print_input_errors($input_errors);
 if ($savemsg) print_info_box($savemsg);
 
-$tab_array = array();
-$tab_array[] = array(gettext("Interfaces"), false, "/suricata/suricata_interfaces.php");
-$tab_array[] = array(gettext("Global Settings"), false, "/suricata/suricata_global.php");
-$tab_array[] = array(gettext("Updates"), false, "/suricata/suricata_download_updates.php");
-$tab_array[] = array(gettext("Alerts"), false, "/suricata/suricata_alerts.php");
-$tab_array[] = array(gettext("Blocks"), false, "/suricata/suricata_blocked.php");
-$tab_array[] = array(gettext("Files"), false, "/suricata/suricata_files.php");
-$tab_array[] = array(gettext("Pass Lists"), false, "/suricata/suricata_passlist.php");
-$tab_array[] = array(gettext("Suppress"), true, "/suricata/suricata_suppress.php");
-$tab_array[] = array(gettext("Logs View"), false, "/suricata/suricata_logs_browser.php");
-$tab_array[] = array(gettext("Logs Mgmt"), false, "/suricata/suricata_logs_mgmt.php");
-$tab_array[] = array(gettext("SID Mgmt"), false, "/suricata/suricata_sid_mgmt.php");
-$tab_array[] = array(gettext("Sync"), false, "/pkg_edit.php?xml=suricata/suricata_sync.xml");
-$tab_array[] = array(gettext("IP Lists"), false, "/suricata/suricata_ip_list_mgmt.php");
-display_top_tabs($tab_array, true);
+suricata_display_primary_navigation('lists');
+suricata_display_section_navigation('lists', 'suppress');
 
 $form = new Form;
-$section = new Form_Section('General Information');
+$section = new Form_Section('General', 'sup-general');
 $section->addInput(new Form_Input(
 	'name',
-	'Name',
+	'*Name',
 	'text',
 	$pconfig['name']
-))->setPattern('[a-zA-Z0-9_]+')->setHelp('The list name may only consist of the characters \'a-z, A-Z, 0-9 and _\'.');
+))->setPattern('[a-zA-Z0-9_]+')->setHelp('Letters, digits and _ only.');
 $section->addInput(new Form_Input(
 	'descr',
 	'Description',
 	'text',
 	$pconfig['descr']
-))->setHelp('You may enter a description here for your reference.');
+))->setHelp('Optional, for your reference.');
 $form->add($section);
 
-$content_help = gettext('Valid keywords are \'suppress\', \'event_filter\' and \'threshold\'.') . '<br />';
-$content_help .= gettext('Example 1: suppress gen_id 1, sig_id 1852, track by_src, ip 10.1.1.54') . '<br />';
-$content_help .= gettext('Example 2: event_filter gen_id 1, sig_id 1851, type limit, track by_src, count 1, seconds 60') . '<br />';
-$content_help .= gettext('Example 3: threshold gen_id 135, sig_id 1, type threshold, track by_src, count 100, seconds 1');
+$content_help = gettext('One entry per line. Keywords: suppress, event_filter and threshold. Examples:') . '<br />';
+$content_help .= '<code>suppress gen_id 1, sig_id 1852, track by_src, ip 10.1.1.54</code><br />';
+$content_help .= '<code>event_filter gen_id 1, sig_id 1851, type limit, track by_src, count 1, seconds 60</code><br />';
+$content_help .= '<code>threshold gen_id 135, sig_id 1, type threshold, track by_src, count 100, seconds 1</code>';
 
-$section = new Form_Section('Suppression List Content');
+$section = new Form_Section('Entries', 'sup-entries');
 $section->addInput(new Form_Textarea (
 	'suppresspassthru',
-	'Suppression Rules',
+	'Suppression rules',
 	$pconfig['suppresspassthru']
-))->setHelp($content_help)->setAttribute('rows', 16);
+))->setHelp($content_help)->setAttribute('rows', 16)->addClass('fs-mono')->setAttribute('wrap', 'off');
 $form->add($section);
 
 // Include the Pass List ID in a hidden form field with any $_POST
@@ -171,6 +162,7 @@ if (isset($id)) {
 	));
 }
 
+fs_form_cancel($form, '/suricata/suricata_suppress.php');
 print($form);
 
 include("foot.inc"); ?>

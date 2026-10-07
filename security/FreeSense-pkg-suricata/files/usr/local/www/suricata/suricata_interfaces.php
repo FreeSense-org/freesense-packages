@@ -62,7 +62,6 @@ if (isset($_POST['del_x'])) {
 			}
 			else {
 				// Delete the interface sub-directories and then the instance itself
-				$if_friendly = convert_friendly_interface_to_friendly_descr($snortcfg['interface']);
 				logger(LOG_NOTICE, localize_text("Stopping Suricata on %s(%s) due to Suricata instance deletion...", $if_friendly, $if_real), LOG_PREFIX_PKG_SURICATA);
 				suricata_stop($a_nat[$rulei], $if_real);
 				rmdir_recursive("{$suricatalogdir}suricata_{$if_real}{$suricata_uuid}");
@@ -115,7 +114,6 @@ if (isset($_POST['del_x'])) {
 		}
 		else {
 			// Delete the interface sub-directories and then the instance itself
-			$if_friendly = convert_friendly_interface_to_friendly_descr($snortcfg['interface']);
 			logger(LOG_NOTICE, localize_text("Stopping Suricata on %s(%s) due to Suricata instance deletion...", $if_friendly, $if_real), LOG_PREFIX_PKG_SURICATA);
 			suricata_stop($a_nat[$delbtn_list], $if_real);
 			rmdir_recursive("{$suricatalogdir}suricata_{$if_real}{$suricata_uuid}");
@@ -255,367 +253,273 @@ if ($_POST['status'] == 'check') {
 	exit;
 }
 
-// May decide to use these again for display, but for now they are not used
-$suri_bin_ver = SURICATA_BIN_VERSION;
-$suri_pkg_ver = SURICATA_PKG_VER;
+$pglinks = array("", "/suricata/suricata_overview.php", "@self");
+$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("Interfaces"));
 
-$pglinks = array("", "@self");
-$pgtitle = array("Services", "Suricata");
+if ($id_gen < count($ifaces)) {
+	fs_page_action(gettext('Add interface'), "suricata_interfaces_edit.php?id={$id_gen}", 'fa-plus');
+}
 
 include_once("head.inc");
-suricata_display_primary_navigation('interfaces'); ?>
 
-<?php
-	/* Display Alert message */
-	if ($input_errors)
-		print_input_errors($input_errors);
+if ($input_errors) {
+	print_input_errors($input_errors);
+}
+if ($savemsg) {
+	print_info_box($savemsg);
+}
 
-	if ($savemsg)
-		print_info_box($savemsg);
+suricata_display_primary_navigation('interfaces');
+
+$pkg_starting = file_exists("{$g['varrun_path']}/suricata_pkg_starting.lck");
+$can_clone = ($id_gen < count($ifaces));
+$no_rules_footnote = false;
 ?>
-
-<?php
-	$tab_array = array();
-	$tab_array[] = array(gettext("Interfaces"), true, "/suricata/suricata_interfaces.php");
-	$tab_array[] = array(gettext("Global Settings"), false, "/suricata/suricata_global.php");
-	$tab_array[] = array(gettext("Updates"), false, "/suricata/suricata_download_updates.php");
-	$tab_array[] = array(gettext("Alerts"), false, "/suricata/suricata_alerts.php");
-	$tab_array[] = array(gettext("Blocks"), false, "/suricata/suricata_blocked.php");
-	$tab_array[] = array(gettext("Files"), false, "/suricata/suricata_files.php");
-	$tab_array[] = array(gettext("Pass Lists"), false, "/suricata/suricata_passlist.php");
-	$tab_array[] = array(gettext("Suppress"), false, "/suricata/suricata_suppress.php");
-	$tab_array[] = array(gettext("Logs View"), false, "/suricata/suricata_logs_browser.php");
-	$tab_array[] = array(gettext("Logs Mgmt"), false, "/suricata/suricata_logs_mgmt.php");
-	$tab_array[] = array(gettext("SID Mgmt"), false, "/suricata/suricata_sid_mgmt.php");
-	$tab_array[] = array(gettext("Sync"), false, "/pkg_edit.php?xml=suricata/suricata_sync.xml");
-	$tab_array[] = array(gettext("IP Lists"), false, "/suricata/suricata_ip_list_mgmt.php");
-	display_top_tabs($tab_array, true);
-?>
+<style>
+.suri-if-name { font-weight: 600; }
+.suri-if-sub { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; margin-top: .15rem; }
+.suri-mode { display: flex; flex-direction: column; align-items: flex-start; gap: .2rem; }
+.suri-ifs td { vertical-align: middle; }
+.suri-ifs .fs-chips { max-width: 22rem; }
+</style>
 
 <form action="suricata_interfaces.php" method="post" enctype="multipart/form-data" name="iform" id="iform">
 <input type="hidden" name="id" id="id" value="">
 <input type="hidden" name="toggle" id="toggle" value="">
 
-<div class="card mb-3">
-	<div class="card-header"><h2 class="h5 mb-0"><?=gettext("Interface Settings Overview")?></h2></div>
-	<div class="card-body">
-		<div class="table-responsive">
-			<table id="maintable" class="table table-striped table-hover table-sm">
-				<thead>
-				<tr id="frheader">
-					<th>&nbsp;</th>
-					<th><?=gettext("Interface"); ?></th>
-					<th><?=gettext("Suricata Status"); ?></th>
-					<th><?=gettext("Pattern Match"); ?></th>
-					<th><?=gettext("Blocking Mode"); ?></th>
-					<th><?=gettext("Description"); ?></th>
-					<th><?=gettext("Actions")?></th>
-				</tr>
-				</thead>
-				<tbody>
-				<?php $nnats = $i = 0;
-
-				// Turn on buffering to speed up rendering
-				ini_set('output_buffering','true');
-
-				// Start buffering to fix display lag issues in IE9 and IE10
-				ob_start(null, 0);
-
-				/* If no interfaces are defined, then turn off the "no rules" warning */
-				$no_rules_footnote = false;
-
-				if ($id_gen == 0) {
-					$no_rules = false;
-				} else {
-					$no_rules = true;
-				}
-
-				foreach ($a_nat as $natent):
-?>
-				<tr id="fr<?=$nnats?>">
-<?php
-					/* Convert fake interfaces to real and check if iface is up. */
-					/* A null real interface indicates it has been removed from system. */
-					$if_real = get_real_interface($natent['interface']);
-					if (($if_real = get_real_interface($natent['interface'])) == "") {
-						$natent['enable'] = "off";
-						$natend_friendly = gettext("Missing (removed?)");
-					}
-					else {
-						$natend_friendly = convert_friendly_interface_to_friendly_descr($natent['interface']) . " ({$if_real})";
-					}
-
-					$suricata_uuid = $natent['uuid'];
-
-					/* See if interface has any rules defined and set boolean flag */
-					$no_rules = true;
-
-					if (isset($natent['customrules']) && !empty($natent['customrules'])) {
-						$no_rules = false;
-					}
-
-					if (isset($natent['rulesets']) && !empty($natent['rulesets'])) {
-						$no_rules = false;
-					}
-
-					if (isset($natent['ips_policy']) && !empty($natent['ips_policy'])) {
-						$no_rules = false;
-					}
-
-					/* Do not display the "no rules" warning if interface disabled */
-					if ($natent['enable'] == "off") {
-						$no_rules = false;
-					}
-
-					if ($no_rules) {
-						$no_rules_footnote = true;
-					}
-?>
-					<td>
-						<input type="checkbox" id="frc<?=$nnats?>" name="rule[]" value="<?=$i?>" onClick="fr_bgcolor('<?=$nnats?>')" style="margin: 0; padding: 0;">
-					</td>
-					<td id="frd<?=$nnats?>"
-					ondblclick="document.location='suricata_interfaces_edit.php?id=<?=$nnats?>';">
-<?php
-					if ($no_rules) {
-						echo '<span class=\'text-danger\'>' . $natend_friendly . '</span>';
-					} else {
-						echo $natend_friendly;
-					}
-?>
-					</td>
-
-					<td id="frd<?=$nnats?>" ondblclick="document.location='suricata_interfaces_edit.php?id=<?=$nnats?>';">
-					<?php if (config_get_path("installedpackages/suricata/rule/{$nnats}/enable") == "on") : ?>
-						<?php if (suricata_is_running($suricata_uuid, $if_real)) : ?>
-							<i id="suricata_<?=$if_real.$suricata_uuid;?>" class="fa-solid fa-check-circle text-success" title="<?=gettext('suricata is running on this interface');?>"></i>
-							&nbsp;
-							<i id="suricata_<?=$if_real.$suricata_uuid;?>_restart" class="fa-solid fa-arrow-rotate-right icon-pointer text-info" onclick="javascript:suricata_iface_toggle('start', '<?=$nnats?>', this);" title="<?=gettext('Restart suricata on this interface');?>"></i>
-							<i id="suricata_<?=$if_real.$suricata_uuid;?>_start" class="fa-solid fa-play-circle icon-pointer text-info hidden" onclick="javascript:suricata_iface_toggle('start', '<?=$nnats?>', this);" title="<?=gettext('Start suricata on this interface');?>"></i>
-							<i id="suricata_<?=$if_real.$suricata_uuid;?>_stop" class="fa-regular fa-circle-stop icon-pointer text-info" onclick="javascript:suricata_iface_toggle('stop', '<?=$nnats?>', this);" title="<?=gettext('Stop suricata on this interface');?>"></i>
-						<?php elseif ($suri_starting[$nnats] == TRUE || file_exists("{$g['varrun_path']}/suricata_pkg_starting.lck")) : ?>
-							<i id="suricata_<?=$if_real.$suricata_uuid;?>" class="fa-solid fa-cog fa-spin text-info" title="<?=gettext('suricata is starting on this interface');?>"></i>
-							&nbsp;
-							<i id="suricata_<?=$if_real.$suricata_uuid;?>_restart" class="fa-solid fa-arrow-rotate-right icon-pointer text-info hidden" onclick="javascript:suricata_iface_toggle('start', '<?=$nnats?>', this);" title="<?=gettext('Restart suricata on this interface');?>"></i>
-							<i id="suricata_<?=$if_real.$suricata_uuid;?>_start" class="fa-solid fa-play-circle icon-pointer text-info hidden" onclick="javascript:suricata_iface_toggle('start', '<?=$nnats?>', this);" title="<?=gettext('Start suricata on this interface');?>"></i>
-							<i id="suricata_<?=$if_real.$suricata_uuid;?>_stop" class="fa-regular fa-circle-stop icon-pointer text-info" onclick="javascript:suricata_iface_toggle('stop', '<?=$nnats?>', this);" title="<?=gettext('Stop suricata on this interface');?>"></i>
-						<?php else: ?>
-							<i class="fa-solid fa-times-circle text-danger" title="<?=gettext('suricata is stopped on this interface');?>"></i>
-							&nbsp;
-							<i id="suricata_<?=$if_real.$suricata_uuid;?>_restart" class="fa-solid fa-arrow-rotate-right icon-pointer text-info hidden" onclick="javascript:suricata_iface_toggle('start', '<?=$nnats?>', this);" title="<?=gettext('Restart suricata on this interface');?>"></i>
-							<i id="suricata_<?=$if_real.$suricata_uuid;?>_start" class="fa-solid fa-play-circle icon-pointer text-info" onclick="javascript:suricata_iface_toggle('start', '<?=$nnats?>', this);" title="<?=gettext('Start suricata on this interface');?>"></i>
-							<i id="suricata_<?=$if_real.$suricata_uuid;?>_stop" class="fa-regular fa-circle-stop icon-pointer text-info hidden" onclick="javascript:suricata_iface_toggle('stop', '<?=$nnats?>', this);" title="<?=gettext('Stop suricata on this interface');?>"></i>
-						<?php endif; ?>
-					<?php else : ?>
-						<?=gettext('DISABLED');?>&nbsp;
-					<?php endif; ?>
-
-					</td>
-
-					<td id="frd<?=$nnats?>" ondblclick="document.location='suricata_interfaces_edit.php?id=<?=$nnats?>';">
-						<?php if (config_get_path("installedpackages/suricata/rule/{$nnats}/mpm_algo") != "") : ?>
-							<?=gettext(strtoupper(config_get_path("installedpackages/suricata/rule/{$nnats}/mpm_algo")));?>
-						<?php else : ?>
-							<?=gettext('UNKNOWN');?>
-						<?php endif; ?>
-					</td>
-
-					<td id="frd<?=$nnats?>" ondblclick="document.location='suricata_interfaces_edit.php?id=<?=$nnats?>';">
-						<?php if (config_get_path("installedpackages/suricata/rule/{$nnats}/blockoffenders") == 'on' && config_get_path("installedpackages/suricata/rule/{$nnats}/ips_mode") == 'ips_mode_legacy') : ?>
-							<?=gettext('LEGACY MODE');?>
-						<?php elseif (config_get_path("installedpackages/suricata/rule/{$nnats}/blockoffenders") == 'on' && config_get_path("installedpackages/suricata/rule/{$nnats}/ips_mode") == 'ips_mode_inline') : ?>
-							<?=gettext('INLINE IPS');?>
-						<?php else : ?>
-							<?=gettext('DISABLED');?>
-						<?php endif; ?>
-					</td>
-
-					<td class="text-info" ondblclick="document.location='suricata_interfaces_edit.php?id=<?=$nnats?>';">
-						<?=htmlspecialchars($natent['descr'])?>
-					</td>
-
-					<td>
-						<a href="suricata_interfaces_edit.php?id=<?=$nnats;?>" class="fa-solid fa-pencil" title="<?=gettext('Edit this Suricata interface mapping');?>"></a>
-						<?php if ($id_gen < count($ifaces)): ?>
-							<a href="suricata_interfaces_edit.php?id=<?=$nnats?>&action=dup" class="fa-regular fa-clone" title="<?=gettext('Clone this Suricata instance to an available interface');?>"></a>
-						<?php endif; ?>
-						<a style="cursor:pointer;" class="fa-solid fa-trash-can no-confirm" id="Xldel_<?=$nnats?>" title="<?=gettext('Delete this Suricata interface mapping'); ?>"></a>
-						<button style="display: none;" class="btn btn-sm btn-warning" type="submit" id="ldel_<?=$nnats?>" name="ldel_<?=$nnats?>" value="ldel_<?=$nnats?>" title="<?=gettext('Delete this Suricata interface mapping'); ?>">Delete this Suricata interface mapping</button>
-					</td>
-
-				</tr>
-				<?php $i++; $nnats++; endforeach; ob_end_flush(); unset($suri_starting); ?>
+<div class="panel panel-default fs-table suri-ifs">
+<?php fs_table_toolbar([
+	'title' => gettext('Suricata interfaces'),
+	'search' => gettext('Search interfaces…'),
+	'noun' => gettext('interfaces'),
+	'noun_one' => gettext('interface'),
+	'filters' => [
+		'state' => [gettext('All states'), 'running' => gettext('Running'), 'stopped' => gettext('Stopped'), 'disabled' => gettext('Disabled')],
+		'mode' => [gettext('All modes'), 'ids' => gettext('IDS'), 'legacy' => gettext('IPS legacy'), 'inline' => gettext('IPS inline')],
+	],
+	'bulk' => [
+		['name' => 'del_x', 'label' => gettext('Delete'), 'icon' => 'fa-trash-can', 'variant' => 'danger',
+		 'confirm' => gettext('Delete the selected Suricata interfaces? Their logs and settings are removed.')],
+	],
+]); ?>
+	<div class="panel-body table-responsive">
+		<table id="maintable" class="table table-hover table-rowdblclickedit" data-sortable>
+			<thead>
 				<tr>
-					<td></td>
-					<td colspan="7">
-						<?php if ($no_rules_footnote): ?><span class="text-danger"><?=gettext("WARNING: Marked interface currently has no rules defined for Suricata"); ?></span>
-						<?php endif; ?>
-					</td>
+					<th class="fs-col-select"><input type="checkbox" data-fs-select-all aria-label="<?=gettext('Select all')?>"></th>
+					<th class="fs-col-status"><?=gettext("Status")?></th>
+					<th data-fs-search><?=gettext("Interface")?></th>
+					<th data-fs-search><?=gettext("Mode")?></th>
+					<th data-fs-search><?=gettext("Rule sets")?></th>
+					<th data-fs-search><?=gettext("Description")?></th>
+					<th class="fs-col-actions"><span class="visually-hidden"><?=gettext("Actions")?></span></th>
 				</tr>
-				</tbody>
-			</table>
-		</div>
+			</thead>
+			<tbody>
+<?php
+	$nnats = $i = 0;
+	foreach ($a_nat as $natent):
+		/* A null real interface indicates it has been removed from the system. */
+		$if_real = get_real_interface($natent['interface']);
+		$missing = ($if_real == "");
+		if ($missing) {
+			$natent['enable'] = "off";
+		}
+		$if_name = $missing ? gettext("Missing (removed?)") : convert_friendly_interface_to_friendly_descr($natent['interface']);
+		$suricata_uuid = $natent['uuid'];
+		$label = ($natent['descr'] ?? '') !== '' ? $natent['descr'] : $if_name;
+
+		/* Flag enabled interfaces that have no rules at all */
+		$no_rules = ($natent['enable'] != "off") && empty($natent['customrules']) && empty($natent['rulesets']) && empty($natent['ips_policy']);
+		if ($no_rules) {
+			$no_rules_footnote = true;
+		}
+
+		$enabled = (config_get_path("installedpackages/suricata/rule/{$nnats}/enable") == "on") && !$missing;
+		if (!$enabled) {
+			$state = 'disabled';
+		} elseif (suricata_is_running($suricata_uuid, $if_real)) {
+			$state = 'running';
+		} elseif (!empty($suri_starting[$nnats]) || $pkg_starting) {
+			$state = 'starting';
+		} else {
+			$state = 'stopped';
+		}
+
+		$blocking = (config_get_path("installedpackages/suricata/rule/{$nnats}/blockoffenders") == 'on');
+		$ips_mode = config_get_path("installedpackages/suricata/rule/{$nnats}/ips_mode");
+		if ($blocking && $ips_mode == 'ips_mode_inline') {
+			$mode_key = 'inline';
+			$mode_label = gettext('IPS inline');
+		} elseif ($blocking && $ips_mode == 'ips_mode_legacy') {
+			$mode_key = 'legacy';
+			$mode_label = gettext('IPS legacy');
+		} else {
+			$mode_key = 'ids';
+			$mode_label = gettext('IDS');
+		}
+		$mpm = config_get_path("installedpackages/suricata/rule/{$nnats}/mpm_algo");
+		$sources = suricata_ruleset_summary($natent);
+
+		$actions = [];
+		$actions[] = ['custom', "suricata_interfaces.php?toggle=start&id={$nnats}", $label, [
+			'icon' => 'fa-solid fa-play', 'label' => sprintf(gettext('Start Suricata on %s'), $label), 'post' => true,
+			'attrs' => ['class' => 'fs-action' . (($state === 'stopped') ? '' : ' d-none'), 'data-suri-act' => 'start']]];
+		$actions[] = ['custom', "suricata_interfaces.php?toggle=start&id={$nnats}", $label, [
+			'icon' => 'fa-solid fa-arrow-rotate-right', 'label' => sprintf(gettext('Restart Suricata on %s'), $label), 'post' => true,
+			'attrs' => ['class' => 'fs-action' . (($state === 'running') ? '' : ' d-none'), 'data-suri-act' => 'restart']]];
+		$actions[] = ['custom', "suricata_interfaces.php?toggle=stop&id={$nnats}", $label, [
+			'icon' => 'fa-solid fa-stop', 'label' => sprintf(gettext('Stop Suricata on %s'), $label), 'post' => true,
+			'confirm' => sprintf(gettext('Stop Suricata on “%s”?'), $label),
+			'detail' => gettext('Traffic on this interface is no longer inspected until Suricata is started again.'),
+			'confirm_action' => gettext('Stop'),
+			'attrs' => ['class' => 'fs-action' . (($state === 'running' || $state === 'starting') ? '' : ' d-none'), 'data-suri-act' => 'stop']]];
+		$actions[] = ['edit', "suricata_interfaces_edit.php?id={$nnats}", $label];
+		if ($can_clone) {
+			$actions[] = ['copy', "suricata_interfaces_edit.php?id={$nnats}&action=dup", $label];
+		}
+		$actions[] = ['delete', "suricata_interfaces.php?ldel_{$nnats}=ldel_{$nnats}", $label, [
+			'thing' => gettext('Suricata interface'),
+			'detail' => gettext('Suricata is stopped on this interface and its logs and settings are removed.'),
+		]];
+?>
+				<tr id="fr<?=$nnats?>" data-fs-filter-state="<?=($state === 'starting') ? 'running' : $state?>" data-fs-filter-mode="<?=$mode_key?>"
+				    data-suri-key="<?=htmlspecialchars("suricata_{$if_real}{$suricata_uuid}")?>"<?=($state === 'disabled') ? ' class="fs-row-disabled"' : ''?>>
+					<td><input type="checkbox" id="frc<?=$nnats?>" name="rule[]" value="<?=$i?>" data-fs-select aria-label="<?=htmlspecialchars(sprintf(gettext('Select %s'), $label))?>"></td>
+					<td class="suri-state">
+<?php
+		switch ($state) {
+			case 'running':
+				echo fs_badge('up', gettext('Running'));
+				break;
+			case 'starting':
+				echo fs_badge('pending', gettext('Starting'));
+				break;
+			case 'stopped':
+				echo fs_badge('down', gettext('Stopped'));
+				break;
+			default:
+				echo fs_badge('disabled');
+		}
+?>
+					</td>
+					<td>
+						<a class="suri-if-name" href="suricata_interfaces_edit.php?id=<?=$nnats?>"><?=htmlspecialchars($if_name)?></a>
+						<div class="suri-if-sub">
+							<?php if (!$missing): ?><span class="fs-mono fs-muted small"><?=htmlspecialchars($if_real)?></span><?php else: ?><?=fs_badge('warn', gettext('Interface missing'))?><?php endif; ?>
+						</div>
+					</td>
+					<td>
+						<div class="suri-mode">
+							<span class="fs-chip fs-chip--strong"><?=htmlspecialchars($mode_label)?></span>
+							<span class="fs-muted small" title="<?=gettext('Multi-pattern matcher')?>"><?=gettext('MPM')?> <span class="fs-mono"><?=htmlspecialchars($mpm != '' ? strtolower($mpm) : gettext('unknown'))?></span></span>
+						</div>
+					</td>
+					<td>
+<?php if ($no_rules): ?>
+						<span class="fs-chip is-warn" title="<?=gettext('This interface has no rules defined')?>"><?=gettext('No rules')?><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i></span>
+<?php elseif (empty($sources)): ?>
+						<span class="fs-muted">&ndash;</span>
+<?php else: ?>
+						<div class="fs-chips">
+<?php foreach ($sources as $src => $count): ?>
+							<span class="fs-chip"<?=$count ? ' title="' . htmlspecialchars(sprintf(gettext('%d rule categories'), $count)) . '"' : ''?>><?=htmlspecialchars($src)?><?=$count ? ' <span class="fs-muted">' . (int)$count . '</span>' : ''?></span>
+<?php endforeach; ?>
+						</div>
+<?php endif; ?>
+					</td>
+					<td><?=htmlspecialchars($natent['descr'])?></td>
+					<td class="fs-col-actions"><?=fs_row_actions($actions)?></td>
+				</tr>
+<?php
+		$i++;
+		$nnats++;
+	endforeach;
+	unset($suri_starting);
+
+	if (empty($a_nat)) {
+		fs_empty_row(7, gettext('No Suricata interfaces yet.'), $can_clone ? "suricata_interfaces_edit.php?id={$id_gen}" : null, $can_clone ? gettext('Add interface') : null);
+	}
+?>
+			</tbody>
+		</table>
+	</div>
+	<div class="panel-footer small fs-muted">
+		<i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+		<?=gettext('Configure the global settings before adding an interface. New settings take effect when Suricata restarts on the interface.')?>
+<?php if ($no_rules_footnote): ?>
+		<br><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+		<?=gettext('An interface marked “No rules” has no rule categories, IPS policy or custom rules selected.')?>
+<?php endif; ?>
 	</div>
 </div>
-
-<nav class="action-buttons">
-	<?php if ($id_gen < count($ifaces)): ?>
-		<a href="suricata_interfaces_edit.php?id=<?=$id_gen?>" class="btn btn-sm btn-success" title="<?=gettext('Add Suricata interface mapping')?>">
-			<i class="fa-solid fa-plus icon-embed-btn" ></i><?=gettext("Add")?>
-		</a>
-	<?php endif; ?>
-
-	<?php if ($id_gen != 0): ?>
-		<button type="submit" name="del_x" id="del_x" class="btn btn-danger btn-sm no-confirm" title="<?=gettext('Delete selected Suricata interface mapping(s)');?>" onclick="return intf_del()">
-			<i class="fa-solid fa-trash-can no-confirm icon-embed-btn"></i>
-			<?=gettext('Delete');?>
-		</button>
-	<?php endif; ?>
-</nav>
 </form>
-
-<div class="infoblock">
-	<?=print_info_box('<div class="row">
-		<div class="col-md-12">
-			<p>This is where you can see an overview of all your interface settings. Please configure the parameters on the <strong>Global Settings</strong> tab before adding an interface.</p>
-			<p><strong>Warning: New settings will not take effect until interface restart</strong></p>
-		</div>
-	</div>
-	<div class="row">
-		<div class="col-md-6">
-			<p>
-				Click on the <i class="fa-lg fa-solid fa-pencil" alt="Edit Icon"></i> icon to edit an interface and settings.<br/>
-				Click on the <i class="fa-lg fa-solid fa-trash-can" alt="Delete Icon"></i> icon to delete an interface and settings.<br/>
-				Click on the <i class="fa-lg fa-regular fa-clone" alt="Clone Icon"></i> icon to clone an existing interface.
-			</p>
-		</div>
-		<div class="col-md-6">
-			<p>
-				<i class="fa-lg fa-solid fa-check-circle" alt="Running"></i> <i class="fa-lg fa-solid fa-times" alt="Not Running"></i> icons will show current Suricata status<br/>
-				Click the <i class="fa-lg fa-regular fa-play-circle" alt="Start"></i> or <i class="fa-lg fa-solid fa-arrow-rotate-right" alt="Restart"></i> or <i class="fa-lg fa-regular fa-circle-stop" alt="Stop"></i> icons to start/restart/stop Suricata.
-			</p>
-		</div>
-	</div>', 'info')?>
-</div>
 
 <script type="text/javascript">
 //<![CDATA[
-	function check_status() {
+(function () {
+	var labels = {
+		RUNNING: ['pass', 'fa-circle-check', <?=json_encode(gettext('Running'))?>],
+		STARTING: ['warn', 'fa-hourglass-half', <?=json_encode(gettext('Starting'))?>],
+		STOPPED: ['block', 'fa-circle-xmark', <?=json_encode(gettext('Stopped'))?>]
+	};
 
-		// This function uses Ajax to post a query to
-		// this page requesting the status of each
-		// configured interface.  The result is returned
-		// as a JSON array object.  A timer is set upon
-		// completion to call the function again in
-		// 2 seconds.  This allows dynamic updating
-		// of interface status in the GUI.
-		$.ajax(
-			"<?=$_SERVER['SCRIPT_NAME'];?>",
-			{
-				type: 'post',
-				data: {
-					status: 'check'
-				},
-				success: showStatus,
-				complete: function() {
-					setTimeout(check_status, 2000);
-				}
-			}
-		);
+	function badge(state) {
+		var def = labels[state];
+		var span = document.createElement('span');
+		span.className = 'fs-badge fs-badge--' + def[0];
+		var icon = document.createElement('i');
+		icon.className = 'fa-solid ' + def[1];
+		icon.setAttribute('aria-hidden', 'true');
+		span.appendChild(icon);
+		span.appendChild(document.createTextNode(def[2]));
+		return span;
 	}
 
 	function showStatus(responseData) {
-
-		// The JSON object returned by check_status() is an associative array
-		// of interface unique IDs and corresponding service status.  The
-		// "key" is the service name followed by the physical interface and a UUID.
-		// The "value" of the key is either "DISABLED, STOPPED, STARTING, or RUNNING".
-		//
-		// Example key:  suricata_em1998
-		//
-		// Within the HTML of this page, icon controls for displaying status
-		// and for starting/restarting/stopping the service are tagged with
-		// control IDs using "key" followed by the icon's function.  These
-		// control IDs are used in the code below to alter icon appearance
-		// depending on the service status.
-		//
-		// Because an interface name in FreeBSD can contain CSS special characters
-		// such as a period, any CSS special characters in an interface name are
-		// escaped by double-backslashes in the code below.
-
-		var data = JSON.parse(responseData);
-
-		// Iterate the associative array and update interface status icons
-		for(var key in data) {
-			var service_name = key.substring(0, key.indexOf('_'));
-			if (data[key] != 'DISABLED') {
-				if (data[key] == 'STOPPED') {
-					$('#' + key.replace( /(:|\.|\[|\]|,|=|@)/g, "\\$1" )).removeClass('fa-solid fa-check-circle fa-cog fa-spin text-success text-info');
-					$('#' + key.replace( /(:|\.|\[|\]|,|=|@)/g, "\\$1" )).addClass('fa-solid fa-times-circle text-danger');
-					$('#' + key.replace( /(:|\.|\[|\]|,|=|@)/g, "\\$1" )).prop('title', service_name + ' is stopped on this interface');
-					$('#' + key.replace( /(:|\.|\[|\]|,|=|@)/g, "\\$1" ) + '_restart').addClass('hidden');
-					$('#' + key.replace( /(:|\.|\[|\]|,|=|@)/g, "\\$1" ) + '_stop').addClass('hidden');
-					$('#' + key.replace( /(:|\.|\[|\]|,|=|@)/g, "\\$1" ) + '_start').removeClass('hidden');
-				}
-				if (data[key] == 'STARTING') {
-					$('#' + key.replace( /(:|\.|\[|\]|,|=|@)/g, "\\$1" )).removeClass('fa-solid fa-check-circle fa-times-circle text-success text-danger');
-					$('#' + key.replace( /(:|\.|\[|\]|,|=|@)/g, "\\$1" )).addClass('fa-cog fa-solid fa-spin text-info');
-					$('#' + key.replace( /(:|\.|\[|\]|,|=|@)/g, "\\$1" )).prop('title', service_name + ' is starting on this interface');
-					$('#' + key.replace( /(:|\.|\[|\]|,|=|@)/g, "\\$1" ) + '_restart').addClass('hidden');
-					$('#' + key.replace( /(:|\.|\[|\]|,|=|@)/g, "\\$1" ) + '_start').addClass('hidden');
-					$('#' + key.replace( /(:|\.|\[|\]|,|=|@)/g, "\\$1" ) + '_stop').removeClass('hidden');
-				}
-				if (data[key] == 'RUNNING') {
-					$('#' + key.replace( /(:|\.|\[|\]|,|=|@)/g, "\\$1" )).removeClass('fa-solid fa-times-circle fa-cog fa-spin text-danger text-info');
-					$('#' + key.replace( /(:|\.|\[|\]|,|=|@)/g, "\\$1" )).addClass('fa-solid fa-check-circle text-success');
-					$('#' + key.replace( /(:|\.|\[|\]|,|=|@)/g, "\\$1" )).prop('title', service_name + ' is running on this interface');
-					$('#' + key.replace( /(:|\.|\[|\]|,|=|@)/g, "\\$1" ) + '_restart').removeClass('hidden');
-					$('#' + key.replace( /(:|\.|\[|\]|,|=|@)/g, "\\$1" ) + '_stop').removeClass('hidden');
-					$('#' + key.replace( /(:|\.|\[|\]|,|=|@)/g, "\\$1" ) + '_start').addClass('hidden');
-				}
+		var data;
+		try {
+			data = (typeof responseData === 'string') ? JSON.parse(responseData) : responseData;
+		} catch (e) {
+			return;
+		}
+		document.querySelectorAll('tr[data-suri-key]').forEach(function (row) {
+			var state = data[row.getAttribute('data-suri-key')];
+			if (!state || state === 'DISABLED' || !labels[state] || row.getAttribute('data-suri-state') === state) {
+				return;
 			}
-		}
+			row.setAttribute('data-suri-state', state);
+			row.setAttribute('data-fs-filter-state', (state === 'STOPPED') ? 'stopped' : 'running');
+			var cell = row.querySelector('.suri-state');
+			cell.replaceChildren(badge(state));
+			var show = {
+				start: state === 'STOPPED',
+				restart: state === 'RUNNING',
+				stop: state !== 'STOPPED'
+			};
+			Object.keys(show).forEach(function (act) {
+				var a = row.querySelector('[data-suri-act="' + act + '"]');
+				if (a) {
+					a.classList.toggle('d-none', !show[act]);
+				}
+			});
+		});
 	}
 
-	function suricata_iface_toggle(action, id, intf) {
-		if (action == "stop") {
-			$(intf).removeClass('fa-regular fa-circle-stop fa-solid fa-check-circle text-success text-danger');
-			$(intf).addClass('fa-cog fa-solid fa-spin text-info');
-			$(intf).prop('title', 'Suricata is shutting down on this interface');
-		}
-		$('#toggle').val(action);
-		$('#id').val(id);
-		$('#iform').submit();
-	}
-
-	function intf_del() {
-		var isSelected = false;
-		var inputs = document.iform.elements;
-		for (var i = 0; i < inputs.length; i++) {
-			if (inputs[i].type == "checkbox") {
-				if (inputs[i].checked)
-					isSelected = true;
-			}
-		}
-		if (isSelected)
-			return confirm('Do you really want to delete the selected Suricata mapping?');
-		else
-			alert("There is no Suricata mapping selected for deletion.  Click the checkbox beside the Suricata mapping(s) you wish to delete.");
-	}
-
-	events.push(function() {
-		$('[id^=Xldel_]').click(function (event) {
-			if(confirm("<?=gettext('Delete this Suricata interface mapping?')?>")) {
-				$('#' + event.target.id.slice(1)).click();
+	function check_status() {
+		// Ask this page for the status of each configured interface (JSON), then poll again.
+		$.ajax("/suricata/suricata_interfaces.php", {
+			type: 'post',
+			data: { status: 'check' },
+			success: showStatus,
+			complete: function () {
+				setTimeout(check_status, 2000);
 			}
 		});
+	}
 
-	});
-
-	// Set a timer to call the check_status()
-	// function in two seconds.
 	setTimeout(check_status, 2000);
-
+})();
 //]]>
 </script>
 

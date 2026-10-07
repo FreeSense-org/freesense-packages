@@ -26,62 +26,99 @@ $rendered = preg_replace('/(basic_ldap_auth[^\n]*\s-w\s+)(?:\x27[^\x27]*\x27|\S+
 $version = '';
 $version_ok = webgateway_squid_version($version);
 $helpers = [
-	'certificate generator' => '/usr/local/libexec/squid/security_file_certgen',
-	'local authentication' => '/usr/local/libexec/squid/basic_ncsa_auth',
-	'LDAP authentication' => '/usr/local/libexec/squid/basic_ldap_auth',
-	'RADIUS authentication' => '/usr/local/libexec/squid/basic_radius_auth',
-	'Kerberos authentication' => '/usr/local/libexec/squid/negotiate_kerberos_auth',
+	gettext('Certificate generator') => '/usr/local/libexec/squid/security_file_certgen',
+	gettext('Local authentication') => '/usr/local/libexec/squid/basic_ncsa_auth',
+	gettext('LDAP authentication') => '/usr/local/libexec/squid/basic_ldap_auth',
+	gettext('RADIUS authentication') => '/usr/local/libexec/squid/basic_radius_auth',
+	gettext('Kerberos authentication') => '/usr/local/libexec/squid/negotiate_kerberos_auth',
 ];
+$helpers_ok = count(array_filter($helpers, 'is_executable'));
 
 $pgtitle = [gettext('Diagnostics'), gettext('Web Gateway')];
 include('head.inc');
 webgateway_display_tabs('diagnostics');
 ?>
-
-<?php if ($prepare_error !== null): ?>
-	<div class="alert alert-danger"><i class="fa-solid fa-circle-xmark me-2"></i><?=htmlspecialchars($prepare_error)?></div>
-<?php elseif ($test_ok): ?>
-	<div class="alert alert-success"><i class="fa-solid fa-circle-check me-2"></i><?=gettext('Squid accepted the generated configuration.')?></div>
-<?php else: ?>
-	<div class="alert alert-danger"><i class="fa-solid fa-circle-xmark me-2"></i><?=gettext('Squid rejected the generated configuration.')?></div>
+<div class="fs-tiles">
+<?php
+if ($prepare_error !== null) {
+	fs_tile(gettext('Configuration test'), gettext('Not run'), 'error', gettext('The configuration could not be generated.'));
+} else {
+	fs_tile(gettext('Configuration test'), $test_ok ? gettext('Accepted') : gettext('Rejected'), $test_ok ? 'pass' : 'error',
+	    $test_ok ? gettext('Squid accepted the generated configuration.') : gettext('Squid rejected the generated configuration.'));
+}
+fs_tile(gettext('Squid engine'), $version ?: gettext('Not detected'), $version_ok ? 'pass' : 'error', sprintf(gettext('Version %d.x required'), WEBGATEWAY_MAJOR));
+fs_tile(gettext('Required helpers'), sprintf(gettext('%1$d of %2$d'), $helpers_ok, count($helpers)), ($helpers_ok === count($helpers)) ? 'pass' : 'warn');
+?>
+</div>
+<?php
+if ($prepare_error !== null) {
+	print_callout(htmlspecialchars($prepare_error), 'danger', gettext('Configuration could not be generated'));
+}
+?>
+<div class="fs-tool">
+	<form method="post" class="fs-tool-form">
+		<div class="panel panel-default">
+			<div class="panel-heading"><h2 class="panel-title"><?=gettext('Configuration test')?></h2></div>
+			<div class="panel-body">
+				<p class="fs-muted wg-diag-text"><?=gettext('Regenerates the Squid configuration from the saved settings and parses it with Squid. The running service is not reloaded.')?></p>
+				<div>
+					<div class="form-label"><?=gettext('Helpers')?></div>
+					<div class="fs-chips">
+<?php foreach ($helpers as $name => $path): $ok = is_executable($path); ?>
+						<span class="fs-chip <?=$ok ? 'is-on' : 'is-warn'?>" title="<?=htmlspecialchars($path)?>"><?=htmlspecialchars($name)?><?php if (!$ok): ?> <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i><span class="visually-hidden"><?=gettext('missing')?></span><?php endif; ?></span>
+<?php endforeach; ?>
+					</div>
+				</div>
+			</div>
+			<div class="panel-footer"><button class="btn btn-primary" name="regenerate" value="1" type="submit" data-fs-busy="true"><i class="fa-solid fa-arrows-rotate icon-embed-btn" aria-hidden="true"></i><?=gettext('Regenerate and test with Squid')?></button></div>
+		</div>
+	</form>
+	<div class="panel panel-default">
+		<div class="panel-heading">
+			<h2 class="panel-title"><?=gettext('Parser output')?></h2>
+<?php if ($test_output !== ''): ?>
+			<button type="button" class="btn btn-sm btn-outline-secondary" data-fs-copy="#wg-test-output"><i class="fa-regular fa-copy icon-embed-btn" aria-hidden="true"></i><?=gettext('Copy')?></button>
 <?php endif; ?>
-
-<div class="row g-3 mb-3">
-	<div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="text-muted text-uppercase small"><?=gettext('Squid engine')?></div><div class="fs-4 text-<?=$version_ok?'success':'danger'?>">Squid <?=htmlspecialchars($version ?: gettext('not detected'))?></div></div></div></div>
-	<div class="col-md-8"><div class="card h-100"><div class="card-body"><div class="text-muted text-uppercase small mb-2"><?=gettext('Required helpers')?></div><div class="d-flex flex-wrap gap-2"><?php foreach($helpers as $name=>$path): ?><span class="badge bg-<?=is_executable($path)?'success':'danger'?>"><?=htmlspecialchars($name)?></span><?php endforeach; ?></div></div></div></div>
-</div>
-
-<div class="row g-3 mb-3">
-	<div class="col-lg-5">
-		<div class="card h-100">
-			<div class="card-header"><h2 class="h5 mb-0"><i class="fa-solid fa-stethoscope me-2"></i><?=gettext('Configuration Test')?></h2></div>
-			<div class="card-body">
-				<pre class="bg-dark text-light rounded p-3 overflow-auto" style="min-height:12rem"><?=htmlspecialchars($test_output ?: gettext('No parser output.'))?></pre>
-				<form method="post"><button class="btn btn-primary" name="regenerate" value="1" type="submit"><i class="fa-solid fa-arrows-rotate icon-embed-btn"></i><?=gettext('Regenerate and test with Squid')?></button></form>
-			</div>
 		</div>
-	</div>
-	<div class="col-lg-7">
-		<div class="card h-100">
-			<div class="card-header"><h2 class="h5 mb-0"><i class="fa-solid fa-shield-halved me-2"></i><?=gettext('Safety Checks')?></h2></div>
-			<div class="card-body">
-				<ul class="list-group list-group-flush">
-					<li class="list-group-item"><i class="fa-solid fa-check text-success me-2"></i><?=gettext('Listeners bind only to selected interface addresses.')?></li>
-					<li class="list-group-item"><i class="fa-solid fa-check text-success me-2"></i><?=gettext('Client access is limited to selected interface networks plus any additional routed client networks.')?></li>
-					<li class="list-group-item"><i class="fa-solid fa-check text-success me-2"></i><?=gettext('Unsafe destination ports are rejected before policy evaluation.')?></li>
-					<li class="list-group-item"><i class="fa-solid fa-check text-success me-2"></i><?=gettext('TLS inspection requires explicit acknowledgement and an internal CA with a private key.')?></li>
-					<li class="list-group-item"><i class="fa-solid fa-check text-success me-2"></i><?=gettext('Transparent PF redirects are emitted only while the enabled proxy service is healthy.')?></li>
-					<li class="list-group-item"><i class="fa-solid fa-check text-success me-2"></i><?=gettext('A failed parser or service health check restores the previous working configuration.')?></li>
-					<li class="list-group-item"><i class="fa-solid fa-check text-success me-2"></i><?=gettext('Save and apply actions stage configuration, parse it with Squid, then reload transactionally.')?></li>
-				</ul>
-			</div>
-		</div>
+<?php if ($test_output !== ''): ?>
+		<pre class="fs-console" id="wg-test-output"><?=htmlspecialchars($test_output)?></pre>
+<?php else: ?>
+		<div class="fs-tool-empty"><i class="fa-solid fa-<?=$test_ok ? 'circle-check' : 'stethoscope'?>" aria-hidden="true"></i><span><?=$test_ok ? gettext('Squid reported no warnings.') : gettext('No parser output.')?></span></div>
+<?php endif; ?>
 	</div>
 </div>
 
-<div class="card mb-3">
-	<div class="card-header"><h2 class="h5 mb-0"><i class="fa-solid fa-code me-2"></i><?=gettext('Generated configuration preview')?></h2></div>
-	<div class="card-body p-0"><pre class="m-0 p-3 bg-dark text-light overflow-auto" style="max-height:42rem"><?=htmlspecialchars($rendered)?></pre></div>
+<div class="panel panel-default">
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Safety checks')?></h2></div>
+	<div class="panel-body wg-pad">
+		<ul class="wg-checks">
+<?php foreach ([
+	gettext('Listeners bind only to selected interface addresses.'),
+	gettext('Client access is limited to selected interface networks plus any additional routed client networks.'),
+	gettext('Unsafe destination ports are rejected before policy evaluation.'),
+	gettext('TLS inspection requires explicit acknowledgement and an internal CA with a private key.'),
+	gettext('Transparent PF redirects are emitted only while the enabled proxy service is healthy.'),
+	gettext('A failed parser or service health check restores the previous working configuration.'),
+	gettext('Save and apply actions stage configuration, parse it with Squid, then reload transactionally.'),
+] as $check): ?>
+			<li><i class="fa-solid fa-check" aria-hidden="true"></i><?=htmlspecialchars($check)?></li>
+<?php endforeach; ?>
+		</ul>
+	</div>
 </div>
 
+<div class="panel panel-default">
+	<div class="panel-heading">
+		<h2 class="panel-title"><?=gettext('Generated configuration')?></h2>
+		<button type="button" class="btn btn-sm btn-outline-secondary" data-fs-copy="#wg-config"><i class="fa-regular fa-copy icon-embed-btn" aria-hidden="true"></i><?=gettext('Copy')?></button>
+	</div>
+	<pre class="fs-console" id="wg-config"><?=htmlspecialchars($rendered)?></pre>
+</div>
+<style>
+.wg-diag-text { font-size: var(--fs-fs-sm); margin: 0; }
+.wg-pad { padding: var(--fs-sp-3) var(--fs-sp-4); }
+.wg-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--fs-sp-2); }
+.wg-checks li { display: flex; gap: var(--fs-sp-2); align-items: baseline; }
+.wg-checks i { color: var(--fs-pass); }
+</style>
 <?php include('foot.inc'); ?>

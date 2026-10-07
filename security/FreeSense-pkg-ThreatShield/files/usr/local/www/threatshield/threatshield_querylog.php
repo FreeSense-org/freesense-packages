@@ -43,15 +43,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 	}
 }
 
+$running = threatshield_is_running();
 $raw_log = threatshield_api_request('querylog?limit=100');
 $entries = $raw_log['data'] ?? [];
 $dhcp_hosts = threatshield_get_dhcp_hostnames();
+$blocked_reasons = ['FilteredBlocked', 'BlockedParental', 'BlockedSafeBrowsing'];
 
 $search = trim($_GET['search'] ?? '');
 $filter_status = $_GET['filter'] ?? 'all';
+if (!in_array($filter_status, ['all', 'blocked', 'allowed'], true)) {
+	$filter_status = 'all';
+}
 
 if ($search !== '' || $filter_status !== 'all') {
-	$entries = array_filter($entries, function($item) use ($search, $filter_status) {
+	$entries = array_filter($entries, function($item) use ($search, $filter_status, $blocked_reasons) {
 		$domain = $item['question']['name'] ?? '';
 		$client = $item['client'] ?? '';
 		$reason = $item['reason'] ?? '';
@@ -63,134 +68,188 @@ if ($search !== '' || $filter_status !== 'all') {
 		}
 
 		if ($filter_status === 'blocked') {
-			return in_array($reason, ['FilteredBlocked', 'BlockedParental', 'BlockedSafeBrowsing'], true);
+			return in_array($reason, $blocked_reasons, true);
 		} elseif ($filter_status === 'allowed') {
-			return !in_array($reason, ['FilteredBlocked', 'BlockedParental', 'BlockedSafeBrowsing'], true);
+			return !in_array($reason, $blocked_reasons, true);
 		}
 
 		return true;
 	});
 }
 
-$pgtitle = [gettext('Status'), gettext('Threat Shield'), gettext('Live Query Inspector')];
-$pglinks = ['', '@self', '@self'];
+/* numbers for the tiles, over the entries shown */
+$count_blocked = 0;
+$count_rewritten = 0;
+$latency_sum = 0.0;
+foreach ($entries as $e) {
+	$reason = $e['reason'] ?? '';
+	if (in_array($reason, $blocked_reasons, true)) $count_blocked++;
+	elseif ($reason === 'Rewrite') $count_rewritten++;
+	$latency_sum += (float)($e['elapsedMs'] ?? 0);
+}
+$filtered = ($search !== '' || $filter_status !== 'all');
+
+$pgtitle = [gettext('Services'), gettext('Threat Shield'), gettext('Query log')];
+$pglinks = ['', '/threatshield/threatshield_status.php', '@self'];
+
+$refresh_query = http_build_query(array_filter(['search' => $search, 'filter' => ($filter_status !== 'all') ? $filter_status : ''], 'strlen'));
+fs_page_action(gettext('Refresh'), 'threatshield_querylog.php' . (($refresh_query !== '') ? '?' . $refresh_query : ''), 'fa-arrows-rotate', 'secondary');
+fs_page_action(gettext('Custom rules'), 'threatshield_rules.php', 'fa-code', 'secondary');
 
 include('head.inc');
 
+if ($input_errors) {
+	print_input_errors($input_errors);
+}
 if ($savemsg) {
 	print_info_box($savemsg, 'success');
 }
 
 threatshield_display_tabs('querylog');
+
+if (!$running) {
+	print_callout(gettext('Threat Shield is not running, so the query log cannot be read.'), 'warning');
+} elseif (($ts_config['querylog_enabled'] ?? 'on') !== 'on') {
+	print_callout(gettext('The query log is turned off under Settings, so no new queries are recorded.'), 'info');
+}
 ?>
 
-<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
-	<div>
-		<h2 class="h3 mb-1"><i class="fa-solid fa-list-check text-primary me-2"></i><?=gettext('Live Query Inspector')?></h2>
-		<p class="text-muted mb-0"><?=gettext('Real-time inspection of DNS traffic with instant one-click block and allow actions.')?></p>
+<div class="fs-tiles">
+<?php
+fs_tile(gettext('Queries shown'), number_format(count($entries)), null, $filtered ? gettext('Filtered, of the last 100') : gettext('The last 100 queries'));
+fs_tile(gettext('Blocked'), number_format($count_blocked));
+fs_tile(gettext('Rewritten'), number_format($count_rewritten));
+fs_tile(gettext('Average latency'), (count($entries) > 0 ? round($latency_sum / count($entries), 1) : 0) . ' ms');
+?>
+</div>
+
+<?php
+/* server-side filter in the list toolbar (GET, so filtered views can be linked) */
+ob_start();
+?>
+<form method="get" action="threatshield_querylog.php" class="ts-log-filter">
+	<div class="fs-search"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+		<input type="search" class="form-control" name="search" value="<?=htmlspecialchars($search)?>"
+		    placeholder="<?=gettext('Domain or client IP…')?>" aria-label="<?=gettext('Filter by domain or client IP')?>" autocomplete="off">
 	</div>
-	<div class="d-flex gap-2">
-		<a href="threatshield_querylog.php" class="btn btn-outline-secondary"><i class="fa-solid fa-arrows-rotate me-2"></i><?=gettext('Refresh Log')?></a>
+	<select name="filter" class="form-select form-select-sm" aria-label="<?=gettext('Status')?>">
+		<option value="all"<?=($filter_status === 'all') ? ' selected' : ''?>><?=gettext('All queries')?></option>
+		<option value="blocked"<?=($filter_status === 'blocked') ? ' selected' : ''?>><?=gettext('Blocked only')?></option>
+		<option value="allowed"<?=($filter_status === 'allowed') ? ' selected' : ''?>><?=gettext('Allowed only')?></option>
+	</select>
+	<button type="submit" class="btn btn-sm btn-outline-secondary"><i class="fa-solid fa-filter icon-embed-btn" aria-hidden="true"></i><?=gettext('Filter')?></button>
+<?php if ($filtered): ?>
+	<a class="btn btn-sm btn-link" href="threatshield_querylog.php"><?=gettext('Clear')?></a>
+<?php endif; ?>
+</form>
+<?php
+$filterform = ob_get_clean();
+?>
+
+<div class="panel panel-default fs-table">
+<?php fs_table_toolbar([
+	'search' => false,
+	'noun' => gettext('queries'),
+	'noun_one' => gettext('query'),
+	'custom' => $filterform,
+]); ?>
+	<div class="panel-body table-responsive">
+		<table class="table table-hover table-sm ts-log">
+			<thead>
+				<tr>
+					<th><?=gettext('Time')?></th>
+					<th><?=gettext('Client')?></th>
+					<th><?=gettext('Domain')?></th>
+					<th><?=gettext('Type')?></th>
+					<th><?=gettext('Status')?></th>
+					<th class="ts-num"><?=gettext('Latency')?></th>
+					<th class="fs-col-actions"><span class="visually-hidden"><?=gettext('Actions')?></span></th>
+				</tr>
+			</thead>
+			<tbody>
+<?php
+foreach ($entries as $e):
+	$time = isset($e['time']) ? date('H:i:s', strtotime($e['time'])) : '-';
+	$client_ip = (string)($e['client'] ?? '-');
+	$hostname = (string)($dhcp_hosts[$client_ip] ?? '');
+	$domain = (string)($e['question']['name'] ?? '-');
+	$type = (string)($e['question']['type'] ?? 'A');
+	$reason = $e['reason'] ?? 'NotFilteredNotFound';
+	$elapsed = round((float)($e['elapsedMs'] ?? 0), 1);
+	$is_blocked = in_array($reason, $blocked_reasons, true);
+	$domain_q = rawurlencode($domain);
+	if ($is_blocked) {
+		$action = ['custom', 'threatshield_querylog.php?quick_allow=1&domain=' . $domain_q, $domain, [
+			'icon' => 'fa-solid fa-circle-check', 'post' => true,
+			'label' => sprintf(gettext('Allow %s'), $domain),
+			'confirm' => sprintf(gettext('Always allow “%s”?'), $domain),
+			'detail' => gettext('An allow rule for the domain and its subdomains is added to the custom rules and applied.'),
+			'confirm_action' => gettext('Allow')]];
+	} else {
+		$action = ['custom', 'threatshield_querylog.php?quick_block=1&domain=' . $domain_q, $domain, [
+			'icon' => 'fa-solid fa-ban', 'post' => true,
+			'label' => sprintf(gettext('Block %s'), $domain),
+			'confirm' => sprintf(gettext('Block “%s”?'), $domain),
+			'detail' => gettext('A block rule for the domain and its subdomains is added to the custom rules and applied.'),
+			'confirm_action' => gettext('Block')]];
+	}
+?>
+				<tr>
+					<td class="fs-mono ts-nowrap"><?=htmlspecialchars((string)$time)?></td>
+					<td>
+						<span class="fs-mono"><?=htmlspecialchars($client_ip)?></span>
+<?php	if ($hostname !== ''): ?>
+						<div class="fs-muted small"><?=htmlspecialchars($hostname)?></div>
+<?php	endif; ?>
+					</td>
+					<td class="fs-mono ts-domain"><?=htmlspecialchars($domain)?></td>
+					<td><span class="fs-chip fs-chip--mono"><?=htmlspecialchars($type)?></span></td>
+					<td>
+<?php	if ($is_blocked): ?>
+						<?=fs_badge('block', gettext('Blocked'), (string)$reason)?>
+<?php	elseif ($reason === 'Rewrite'): ?>
+						<?=fs_badge('info', gettext('Rewritten'))?>
+<?php	else: ?>
+						<?=fs_badge('pass', gettext('Allowed'))?>
+<?php	endif; ?>
+					</td>
+					<td class="ts-num"><?=$elapsed?> ms</td>
+					<td class="fs-col-actions"><?=fs_row_actions([$action])?></td>
+				</tr>
+<?php
+endforeach;
+if (empty($entries)) {
+	fs_empty_row(7, $filtered ? gettext('No queries match the filter.') :
+	    ($running ? gettext('No queries logged yet.') : gettext('No query log while Threat Shield is not running.')));
+}
+?>
+			</tbody>
+		</table>
+	</div>
+	<div class="panel-footer small fs-muted">
+		<i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+		<?=gettext('Shows the last 100 queries. Block and allow add a rule to the custom rules, for the domain and all its subdomains.')?>
 	</div>
 </div>
 
-<div class="card shadow-sm mb-4">
-	<div class="card-header">
-		<form method="get" class="row g-2 align-items-center">
-			<div class="col-md-6">
-				<div class="input-group">
-					<span class="input-group-text"><i class="fa-solid fa-magnifying-glass"></i></span>
-					<input type="text" name="search" class="form-control" placeholder="<?=gettext('Filter by domain name or client IP...')?>" value="<?=htmlspecialchars($search)?>">
-				</div>
-			</div>
-			<div class="col-md-4">
-				<select name="filter" class="form-select" onchange="this.form.submit()">
-					<option value="all" <?=$filter_status === 'all' ? 'selected' : ''?>><?=gettext('All Queries')?></option>
-					<option value="blocked" <?=$filter_status === 'blocked' ? 'selected' : ''?>><?=gettext('Blocked Threats & Ads Only')?></option>
-					<option value="allowed" <?=$filter_status === 'allowed' ? 'selected' : ''?>><?=gettext('Allowed Queries Only')?></option>
-				</select>
-			</div>
-			<div class="col-md-2 text-end">
-				<button type="submit" class="btn btn-primary w-100"><i class="fa-solid fa-filter me-2"></i><?=gettext('Filter')?></button>
-			</div>
-		</form>
-	</div>
-	<div class="card-body p-0">
-		<div class="table-responsive">
-			<table class="table table-striped table-hover align-middle mb-0">
-				<thead>
-					<tr>
-						<th><?=gettext('Time')?></th>
-						<th><?=gettext('Client')?></th>
-						<th><?=gettext('Domain Queried')?></th>
-						<th><?=gettext('Type')?></th>
-						<th><?=gettext('Status')?></th>
-						<th><?=gettext('Latency')?></th>
-						<th class="text-end"><?=gettext('Actions')?></th>
-					</tr>
-				</thead>
-				<tbody>
-					<?php if (empty($entries)): ?>
-						<tr>
-							<td colspan="7" class="text-center text-muted py-4">
-								<?=gettext('No matching DNS query log entries found.')?>
-							</td>
-						</tr>
-					<?php else: ?>
-						<?php foreach ($entries as $e): ?>
-							<?php
-								$time = isset($e['time']) ? date('H:i:s', strtotime($e['time'])) : '-';
-								$client_ip = $e['client'] ?? '-';
-								$hostname = $dhcp_hosts[$client_ip] ?? '';
-								$domain = $e['question']['name'] ?? '-';
-								$type = $e['question']['type'] ?? 'A';
-								$reason = $e['reason'] ?? 'NotFilteredNotFound';
-								$elapsed = round((float)($e['elapsedMs'] ?? 0), 1);
-								$is_blocked = in_array($reason, ['FilteredBlocked', 'BlockedParental', 'BlockedSafeBrowsing'], true);
-							?>
-							<tr>
-								<td class="text-nowrap text-muted small"><?=htmlspecialchars((string)$time)?></td>
-								<td>
-									<div class="font-monospace fw-bold"><?=htmlspecialchars((string)$client_ip)?></div>
-									<?php if ($hostname !== ''): ?>
-										<span class="badge bg-secondary"><?=htmlspecialchars((string)$hostname)?></span>
-									<?php endif; ?>
-								</td>
-								<td class="font-monospace text-break">
-									<strong class="<?=$is_blocked ? 'text-danger' : ''?>"><?=htmlspecialchars((string)$domain)?></strong>
-								</td>
-								<td><span class="badge border"><?=htmlspecialchars((string)$type)?></span></td>
-								<td>
-									<?php if ($is_blocked): ?>
-										<span class="badge bg-danger"><i class="fa-solid fa-ban me-1"></i><?=gettext('BLOCKED')?></span>
-									<?php elseif ($reason === 'Rewrite'): ?>
-										<span class="badge bg-info"><i class="fa-solid fa-arrow-right-arrow-left me-1"></i><?=gettext('REWRITTEN')?></span>
-									<?php else: ?>
-										<span class="badge bg-success"><i class="fa-solid fa-check me-1"></i><?=gettext('ALLOWED')?></span>
-									<?php endif; ?>
-								</td>
-								<td class="text-muted small"><?=$elapsed?> ms</td>
-								<td class="text-end text-nowrap">
-									<form method="post" class="d-inline">
-										<input type="hidden" name="domain" value="<?=htmlspecialchars((string)$domain)?>">
-										<?php if ($is_blocked): ?>
-											<button type="submit" name="quick_allow" value="1" class="btn btn-sm btn-outline-success" title="<?=gettext('Whitelist Domain')?>">
-												<i class="fa-solid fa-check me-1"></i><?=gettext('Allow')?>
-											</button>
-										<?php else: ?>
-											<button type="submit" name="quick_block" value="1" class="btn btn-sm btn-outline-danger" title="<?=gettext('Block Domain')?>">
-												<i class="fa-solid fa-ban me-1"></i><?=gettext('Block')?>
-											</button>
-										<?php endif; ?>
-									</form>
-								</td>
-							</tr>
-						<?php endforeach; ?>
-					<?php endif; ?>
-				</tbody>
-			</table>
-		</div>
-	</div>
-</div>
+<style>
+.ts-log-filter { display: flex; flex-wrap: wrap; align-items: center; gap: var(--fs-sp-2); flex: 1 1 32rem; }
+.ts-log-filter .fs-search { flex: 1 1 14rem; }
+.ts-log-filter .form-select { width: auto; }
+.ts-log .ts-domain { word-break: break-all; min-width: 12rem; }
+.ts-log .ts-nowrap { white-space: nowrap; }
+.ts-log .ts-num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+</style>
+<script>
+//<![CDATA[
+events.push(function () {
+	/* a new status choice applies at once, like the search button */
+	var sel = document.querySelector('.ts-log-filter select[name="filter"]');
+	if (sel) {
+		sel.addEventListener('change', function () { sel.form.submit(); });
+	}
+});
+//]]>
+</script>
 
 <?php include('foot.inc'); ?>

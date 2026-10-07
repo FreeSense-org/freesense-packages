@@ -267,196 +267,106 @@ if (!$input_errors) {
 	}
 }
 
-$pglinks = array("", "/suricata/suricata_interfaces.php", "@self");
-$pgtitle = array("Services", "Suricata", "Global Settings");
+$pglinks = array("", "/suricata/suricata_overview.php", "@self");
+$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("Global settings"));
 include_once("head.inc");
-suricata_display_primary_navigation('advanced');
 
 /* Display Alert message, under form tag or no refresh */
 if ($input_errors)
 	print_input_errors($input_errors);
 
-$tab_array = array();
-$tab_array[] = array(gettext("Interfaces"), false, "/suricata/suricata_interfaces.php");
-$tab_array[] = array(gettext("Global Settings"), true, "/suricata/suricata_global.php");
-$tab_array[] = array(gettext("Updates"), false, "/suricata/suricata_download_updates.php");
-$tab_array[] = array(gettext("Alerts"), false, "/suricata/suricata_alerts.php");
-$tab_array[] = array(gettext("Blocks"), false, "/suricata/suricata_blocked.php");
-$tab_array[] = array(gettext("Files"), false, "/suricata/suricata_files.php");
-$tab_array[] = array(gettext("Pass Lists"), false, "/suricata/suricata_passlist.php");
-$tab_array[] = array(gettext("Suppress"), false, "/suricata/suricata_suppress.php");
-$tab_array[] = array(gettext("Logs View"), false, "/suricata/suricata_logs_browser.php");
-$tab_array[] = array(gettext("Logs Mgmt"), false, "/suricata/suricata_logs_mgmt.php");
-$tab_array[] = array(gettext("SID Mgmt"), false, "/suricata/suricata_sid_mgmt.php");
-$tab_array[] = array(gettext("Sync"), false, "/pkg_edit.php?xml=suricata/suricata_sync.xml");
-$tab_array[] = array(gettext("IP Lists"), false, "/suricata/suricata_ip_list_mgmt.php");
-display_top_tabs($tab_array, true);
-?>
+suricata_display_primary_navigation('advanced');
 
-<div id="container">
-
-<?php
+$url_help = 'Complete URL including the file name. A matching ".md5" file must exist at the same location.';
+$cb = function ($name, $title, $text, $value = 'on') use (&$pconfig) {
+	return new Form_Checkbox($name, $title, $text, $pconfig[$name] == 'on' ? true : false, $value);
+};
 
 $form = new Form;
-$section = new Form_Section('Please Choose The Type Of Rules You Wish To Download');
 
-$group = new Form_Group('Install ETOpen Emerging Threats rules');
-$group->add(new Form_Checkbox(
-	'enable_etopen_rules',
-	'Install ETOpen Emerging Threats rules',
-	'ETOpen is a free open source set of Suricata rules whose coverage is more limited than ETPro.',
-	$pconfig['enable_etopen_rules'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'enable_etopen_custom_url',
-	'Enable ETOpen Custom Download URL',
-	'Use a custom URL for ETOpen downloads',
-	$pconfig['enable_etopen_custom_url'] == 'on' ? true:false,
-	'on'
-));
-$group->setHelp('Enabling the custom URL option will force the use of a custom user-supplied URL when downloading ETOpen rules.');
+/* -------------------------------------------------------------- rule sources */
+$section = new Form_Section('Rule sources', 'suri-sources');
+
+$group = new Form_Group('ET Open');
+$group->add($cb('enable_etopen_rules', 'Install ETOpen Emerging Threats rules', 'Emerging Threats Open rules (free)'));
+$group->add($cb('enable_etopen_custom_url', 'Enable ETOpen Custom Download URL', 'Custom download URL'));
+$group->setHelp('Free open-source rule set with more limited coverage than ET Pro.');
 $section->add($group);
 $section->addInput(new Form_Input(
 	'etopen_custom_rule_url',
-	'ETOpen Custom Rule Download URL',
+	'ET Open URL',
 	'text',
 	$pconfig['etopen_custom_rule_url']
-))->setHelp('You must provide the complete URL including the filename!  The code will assume a matching filename exists at the same URL with an additional extension of ".md5".');
+))->setHelp($url_help);
 
-$group = new Form_Group('Install ETPro Emerging Threats rules');
-$group->add(new Form_Checkbox(
-	'enable_etpro_rules',
-	'Install ETPro Emerging Threats rules',
-	'ETPro for Suricata offers daily updates and extensive coverage of current malware threats.',
-	$pconfig['enable_etpro_rules'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'enable_etpro_custom_url',
-	'Enable ETPro Custom Download URL',
-	'Use a custom URL for ETPro rule downloads',
-	$pconfig['enable_etpro_custom_url'] == 'on' ? true:false,
-	'on'
-));
-$group->setHelp('The ETPro rules contain all of the ETOpen rules, so the ETOpen rules are not required and are disabled when the ETPro rules are selected. ' . 
-		'<a href="https://www.proofpoint.com/us/products/et-pro-ruleset">Sign Up for an ETPro Account</a>.  Enabling the custom URL option will force the use of a custom user-supplied URL when downloading ETPro rules.');
+$group = new Form_Group('ET Pro');
+$group->add($cb('enable_etpro_rules', 'Install ETPro Emerging Threats rules', 'Emerging Threats Pro rules (subscription)'));
+$group->add($cb('enable_etpro_custom_url', 'Enable ETPro Custom Download URL', 'Custom download URL'));
+$group->setHelp('Daily updates with broad malware coverage. ET Pro includes all ET Open rules, so ET Open is turned off when ET Pro is selected. ' .
+	'<a href="https://www.proofpoint.com/us/products/et-pro-ruleset" target="_blank" rel="noopener">Get an ET Pro subscription</a>.');
 $section->add($group);
 $section->addInput(new Form_Input(
 	'etpro_custom_rule_url',
-	'ETPro Custom Rule Download URL',
+	'ET Pro URL',
 	'text',
 	$pconfig['etpro_custom_rule_url']
-))->setHelp('You must provide the complete URL including the filename!  The code will assume a matching filename exists at the same URL with an additional extension of ".md5".');
+))->setHelp($url_help);
 $section->addInput(new Form_Input(
 	'etprocode',
-	'ETPro Subscription Configuration Code',
+	'ET Pro subscription code',
 	'text',
 	$pconfig['etprocode']
-))->setHelp('Obtain an ETPro subscription code and paste it here.');
+))->setHelp('The subscription code from your ET Pro account.');
 
-$group = new Form_Group('Install Snort rules');
-$group->add(new Form_Checkbox(
-	'enable_vrt_rules',
-	'Install Snort rules',
-	'Snort free Registered User or paid Subscriber rules',
-	$pconfig['enable_vrt_rules'] == 'on' ? true:false,
-	'on'
-))->setHelp('<a href="https://www.snort.org/users/sign_up">Sign Up for a free Registered User Rules Account</a><br /><a href="https://www.snort.org/products">Sign Up for paid Snort Subscriber Rule Set (by Talos)</a>');
-$group->add(new Form_Checkbox(
-	'enable_snort_custom_url',
-	'Enable Snort Custom Download URL',
-	'Use a custom URL for Snort rule downloads',
-	$pconfig['enable_snort_custom_url'] == 'on' ? true:false,
-	'on'
-));
-$group->setHelp('Enabling the custom URL option will force the use of a custom user-supplied URL when downloading Snort Subscriber rules.');
+$group = new Form_Group('Snort');
+$group->add($cb('enable_vrt_rules', 'Install Snort rules', 'Snort registered user or subscriber rules'))
+	->setHelp('<a href="https://www.snort.org/users/sign_up" target="_blank" rel="noopener">Free registered user account</a> · <a href="https://www.snort.org/products" target="_blank" rel="noopener">Paid subscriber rule set</a>');
+$group->add($cb('enable_snort_custom_url', 'Enable Snort Custom Download URL', 'Custom download URL'));
 $section->add($group);
 $section->addInput(new Form_Input(
 	'snort_custom_url',
-	'Snort Rules Custom Download URL',
+	'Snort URL',
 	'text',
 	$pconfig['snort_custom_url']
-))->setHelp('You must provide the complete URL including the filename!  The code will assume a matching filename exists at the same URL with an additional extension of ".md5".');
+))->setHelp($url_help);
 $section->addInput(new Form_Input(
 	'snort_rules_file',
-	'Snort Rules Filename',
+	'Snort rules file name',
 	'text',
 	$pconfig['snort_rules_file']
-))->setHelp('Enter the rules tarball filename (filename only, do not include the URL.)<br />Example: snortrules-snapshot-29200.tar.gz<br />DO NOT specify a Snort3 rules file!  Snort3 rules are incompatible with Suricata and will break your installation!');
+))->setHelp('File name only, for example snortrules-snapshot-29200.tar.gz. Do not use a Snort 3 rules file: it is incompatible with Suricata.');
 $section->addInput(new Form_Input(
 	'oinkcode',
-	'Snort Oinkmaster Code',
+	'Snort Oinkmaster code',
 	'text',
 	$pconfig['oinkcode']
-))->setHelp('Obtain a snort.org Oinkmaster code and paste it here.');
+))->setHelp('The Oinkmaster code from your snort.org account.');
 
-$group = new Form_Group('Install Snort GPLv2 Community rules');
-$group->add(new Form_Checkbox(
-	'snortcommunityrules',
-	'Install Snort GPLv2 Community rules',
-	'The Snort Community Ruleset is a GPLv2 Talos-certified ruleset that is distributed free of charge without any Snort Subscriber License restrictions.',
-	$pconfig['snortcommunityrules'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'enable_gplv2_custom_url',
-	'Enable Snort GPLv2 Custom Download URL',
-	'Use a custom URL for Snort GPLv2 rule downloads',
-	$pconfig['enable_gplv2_custom_url'] == 'on' ? true:false,
-	'on'
-));
-$group->setHelp('This ruleset is updated daily and is a subset of the subscriber ruleset.  If you are a Snort Subscriber Rules customer (paid subscriber), ' .
-		'the community ruleset is already built into your download of the Snort Subscriber rules, and there is no benefit in adding this rule set separately.');
+$group = new Form_Group('Snort GPLv2 Community');
+$group->add($cb('snortcommunityrules', 'Install Snort GPLv2 Community rules', 'Snort GPLv2 Community rules (free)'));
+$group->add($cb('enable_gplv2_custom_url', 'Enable Snort GPLv2 Custom Download URL', 'Custom download URL'));
+$group->setHelp('Free daily-updated subset of the subscriber rules. Snort subscribers already receive these rules.');
 $section->add($group);
 $section->addInput(new Form_Input(
 	'gplv2_custom_url',
-	'Snort GPLv2 Custom Rule Download URL',
+	'GPLv2 URL',
 	'text',
 	$pconfig['gplv2_custom_url']
-))->setHelp('You must provide the complete URL including the filename!  The code will assume a matching filename exists at the same URL with an additional extension of ".md5".');
+))->setHelp($url_help);
 
-$group = new Form_Group('Install Feodo Tracker Botnet C2 IP rules');
-$group->add(new Form_Checkbox(
-	'enable_feodo_botnet_c2_rules',
-	'Install Feodo Tracker Suricata Botnet C2 IP rules',
-	'The Feodo Botnet C2 IP Ruleset contains Dridex and Emotet/Heodo botnet command and control servers (C&Cs) tracked by Feodo Tracker.',
-	$pconfig['enable_feodo_botnet_c2_rules'] == 'on' ? true:false,
-	'on'
-));
+$group = new Form_Group('abuse.ch');
+$group->add($cb('enable_feodo_botnet_c2_rules', 'Install Feodo Tracker Suricata Botnet C2 IP rules', 'Feodo Tracker botnet C2 IP rules'));
+$group->add($cb('enable_abuse_ssl_blacklist_rules', 'Install ABUSE.ch SSL Blacklist rules', 'SSL Blacklist certificate rules'));
+$group->setHelp('Feodo Tracker lists Dridex and Emotet command-and-control servers; the SSL Blacklist contains fingerprints of blacklisted certificates.');
 $section->add($group);
 
-$group = new Form_Group('Install ABUSE.ch SSL Blacklist rules');
-$group->add(new Form_Checkbox(
-	'enable_abuse_ssl_blacklist_rules',
-	'Install ABUSE.ch SSL Blacklist rules',
-	'The ABUSE.ch SSL Blacklist Ruleset contains the SSL cert fingerprints of all SSL certs blacklisted by ABUSE.ch.',
-	$pconfig['enable_abuse_ssl_blacklist_rules'] == 'on' ? true:false,
-	'on'
-));
-$section->add($group);
-
-$group = new Form_Group('Hide Deprecated Rules Categories');
-$group->add(new Form_Checkbox(
-	'hide_deprecated_rules',
-	'Hide Deprecated Rules Categories',
-	'Hide deprecated rules categories in the GUI and remove them from the configuration. Default is Not Checked.',
-	$pconfig['hide_deprecated_rules'] == 'on' ? true:false,
-	'on'
-));
-$section->add($group);
-
-$section->addInput(new Form_Checkbox(
-	'enable_extra_rules',
-	'Download Extra Rules',
-	'Download Extra Rules',
-	$pconfig['enable_extra_rules'] == 'on' ? true:false,
-	'on'
-))->setHelp('Download extra rules file or tar.gz archive with rules. If "Check MD5" is set, the code will assume a matching filename exists at the same URL with an additional extension of ".md5".');
-
+$section->addInput($cb('hide_deprecated_rules', 'Deprecated categories', 'Hide deprecated rule categories and remove them from the configuration'));
+$section->addInput($cb('enable_extra_rules', 'Extra rules', 'Download extra rule files'))
+	->setHelp('A .rules file or a .tar.gz archive per entry. With "Check MD5" a matching ".md5" file must exist at the same URL.');
 $form->add($section);
 
-$section = new Form_Section('Extra rules');
+/* ---------------------------------------------------------------- extra rules */
+$section = new Form_Section('Extra rules', 'suri-extra');
 $section->addClass('extra_rules');
 
 if (!$pconfig['extra_rules']) {
@@ -464,9 +374,7 @@ if (!$pconfig['extra_rules']) {
 	$pconfig['extra_rules']['rule']  = array(array('name' => '', 'url' => '', 'md5' => false));
 }
 
-$numrows = count($item) -1;
 $counter = 0;
-
 $numrows = count($pconfig['extra_rules']['rule']) -1;
 
 foreach ($pconfig['extra_rules']['rule'] as $rule) {
@@ -499,7 +407,7 @@ foreach ($pconfig['extra_rules']['rule'] as $rule) {
 		'Delete',
 		null,
 		'fa-solid fa-trash-can'
-	))->addClass('btn-warning');
+	))->addClass('btn-outline-secondary');
 
 	$section->add($group);
 
@@ -515,142 +423,93 @@ $section->addInput(new Form_Button(
 
 $form->add($section);
 
-$section = new Form_Section('Rules Update Settings');
+/* --------------------------------------------------------------- rule updates */
+$section = new Form_Section('Rule updates', 'suri-updates');
 $section->addInput(new Form_Select(
 	'autoruleupdate',
-	'Update Interval',
+	'Update interval',
 	$pconfig['autoruleupdate'],
 	array('never_up' => gettext('NEVER'), '6h_up' => gettext('6 HOURS'), '12h_up' => gettext('12 HOURS'),
 		  '1d_up' => gettext('1 DAY'), '4d_up' => gettext('4 DAYS'), '7d_up' => gettext('7 DAYS'), '28d_up' => gettext('28 DAYS'))
-))->setHelp('Please select the interval for rule updates. Choosing NEVER disables auto-updates.<br /><br />Hint: In most cases, every 12 hours is a good choice.');
+))->setHelp('NEVER turns automatic updates off. Every 12 hours suits most installations.');
 $section->addInput(new Form_Input(
 	'autoruleupdatetime',
-	'Update Start Time',
+	'Start time',
 	'text',
 	$pconfig['autoruleupdatetime']
-))->setHelp('Enter the rule update start time in 24-hour format (HH:MM).  Default is 00 hours with a randomly chosen minutes value.  ' . 
-			'Rules will update at the interval chosen above starting at the time specified here. ' . 
-			'For example, using a start time of 00:08 and choosing 12 Hours for the interval, ' . 
-			'the rules will update at 00:08 and 12:08 each day. The randomized minutes value should ' . 
-			'be retained to minimize the impact to the rules update site from large numbers of simultaneous requests.');
-$section->addInput(new Form_Checkbox(
-	'live_swap_updates',
-	'Live Rule Swap on Update',
-	'Enable "Live Swap" reload of rules after downloading an update. Default is Not Checked',
-	$pconfig['live_swap_updates'] == 'on' ? true:false,
-	'on'
-))->setHelp('When enabled, Suricata will perform a live load of the new rules following an update instead of a hard restart. If issues are encountered with live load, uncheck this option to perform a hard restart of all Suricata instances following an update.');
-$section->addInput(new Form_Checkbox(
-	'autogeoipupdate',
-	'GeoLite2 DB Update',
-	'Enable downloading of free GeoLite2 Country IP Database updates. Default is Not Checked',
-	$pconfig['autogeoipupdate'] == 'on' ? true:false,
-	'on'
-))->setHelp('When enabled, Suricata will automatically download updates for the free GeoLite2 country IP database.<br /><br />If you have a subscription for more current GeoIP2 updates, uncheck this option and instead create your own process to place the required database file in /usr/local/share/suricata/GeoLite2/.');
+))->setHelp('24-hour HH:MM. Updates run at this time and then every interval (00:08 with 12 hours runs at 00:08 and 12:08). ' .
+	'Keep the random minutes to spread the load on the download sites.');
+$section->addInput($cb('live_swap_updates', 'Live rule swap', 'Reload rules live after an update instead of restarting Suricata'))
+	->setHelp('Turn this off if live reloads cause problems; all instances then restart after an update.');
+$form->add($section);
+
+/* --------------------------------------------------------------------- GeoIP */
+$section = new Form_Section('GeoLite2 database', 'suri-geoip');
+$section->addInput($cb('autogeoipupdate', 'GeoLite2 updates', 'Download updates of the free GeoLite2 country database'))
+	->setHelp('With a GeoIP2 subscription, leave this off and place the database in /usr/local/share/suricata/GeoLite2/ yourself.');
 $section->addInput(new Form_Input(
 	'maxmind_geoipdb_uid',
-	gettext('GeoLite2 DB Account ID'),
+	gettext('Account ID'),
 	'text',
 	$pconfig['maxmind_geoipdb_uid'],
 	['placeholder' => 'Enter your MaxMind GeoLite2 Account ID']
-))->setHelp('To utilize the free MaxMind GeoLite2 GeoIP functionality, you must <a href="https://www.maxmind.com/en/geolite2/signup" target="_blank">register for a free MaxMind user account</a>. '
-	. '<strong>Use the GeoIP Update version 3.1.1 or newer registration option.</strong>')
+))->setHelp('From a free <a href="https://www.maxmind.com/en/geolite2/signup" target="_blank" rel="noopener">MaxMind account</a> (GeoIP Update 3.1.1 or newer).')
   ->setAttribute('autocomplete', 'off');
 $section->addInput(new Form_Input(
 	'maxmind_geoipdb_key',
-	gettext('GeoLite2 DB License Key'),
+	gettext('License key'),
 	'text',
 	$pconfig['maxmind_geoipdb_key'],
 	['placeholder' => 'Enter your MaxMind GeoLite2 License Key']
-))->setHelp('To utilize the free MaxMind GeoLite2 GeoIP functionality, you must <a href="https://www.maxmind.com/en/geolite2/signup" target="_blank">register for a free MaxMind user account</a>. '
-	. '<strong>Use the GeoIP Update version 3.1.1 or newer registration option.</strong>')
+))->setHelp('The license key generated in your MaxMind account.')
   ->setAttribute('autocomplete', 'off');
 $form->add($section);
 
-$section = new Form_Section('General Settings');
+/* ---------------------------------------------------------- blocking and logs */
+$section = new Form_Section('Blocking and logging', 'suri-general');
 $section->addInput(new Form_Select(
 	'rm_blocked',
-	'Remove Blocked Hosts Interval',
+	'Remove blocked hosts after',
 	$pconfig['rm_blocked'],
 	array('never_b' => gettext('NEVER'), '15m_b' => gettext('15 MINS'), '30m_b' => gettext('30 MINS'),
 		  '1h_b' => gettext('1 HOUR'), '3h_b' => gettext('3 HOURS'), '6h_b' => gettext('6 HOURS'),
 		  '12h_b' => gettext('12 HOURS'), '1d_b' => gettext('1 DAY'), '4d_b' => gettext('4 DAYS'),
 		  '7d_b' => gettext('7 DAYS'), '28d_b' => gettext('28 DAYS'))
-))->setHelp('Please select the amount of time you would like hosts to be blocked.  Note this setting is only applicable when using Legacy Mode blocking!  This setting is ignored when using Inline IPS Mode.<br /><br />Hint: in most cases, 1 hour is a good choice.');
-$section->addInput(new Form_Checkbox(
-	'log_to_systemlog',
-	'Log to System Log',
-	'Copy Suricata messages to the firewall system log.',
-	$pconfig['log_to_systemlog'] == 'on' ? true:false,
-	'on'
-));
+))->setHelp('Legacy mode blocking only (ignored in Inline IPS mode). One hour suits most installations.');
+$section->addInput($cb('log_to_systemlog', 'Log to system log', 'Copy Suricata messages to the firewall system log'));
 $section->addInput(new Form_Select(
 	'log_to_systemlog_facility',
-	'Log Facility',
+	'Log facility',
 	$pconfig['log_to_systemlog_facility'],
 	array('authpriv' => gettext('AUTHPRIV'), 'daemon' => gettext('DAEMON'), 'kern' => gettext('KERN'),
 		'security' => gettext('SECURITY'), 'syslog' => gettext('SYSLOG'), 'user' => gettext('USER'), 'local0' => gettext('LOCAL0'),
 		'local1' => gettext('LOCAL1'), 'local2' => gettext('LOCAL2'), 'local3' => gettext('LOCAL3'), 'local4' => gettext('LOCAL4'),
 		'local5' => gettext('LOCAL5'), 'local6' => gettext('LOCAL6'), 'local7' => gettext('LOCAL7'))
-))->setHelp('Select system log facility to use for reporting. Default is LOCAL1.');
-
+))->setHelp('Default is LOCAL1.');
 $section->addInput(new Form_Select(
 	'log_to_systemlog_priority',
-	'Log Priority',
+	'Log priority',
 	$pconfig['log_to_systemlog_priority'],
 	array( "debug" => "DEBUG", "config" => "CONF", "perf" => "PERF", "error" => "ERR", "warning" => "WARNING", "notice" => "NOTICE", "info" => "INFO" )
-))->setHelp('Select system log Priority (Level) to use for reporting. Default is NOTICE.');
-
-$section->addInput(new Form_Checkbox(
-	'forcekeepsettings',
-	'Keep Suricata Settings After Deinstall',
-	'Settings will not be removed during package deinstallation.',
-	$pconfig['forcekeepsettings'] == 'on' ? true:false,
-	'on'
-));
-
-$section->addInput(new Form_Checkbox(
-	'clearblocks',
-	'Clear Blocked Hosts After Deinstall',
-	'Click to clear all blocked hosts added by Suricata when removing the package.  Default is checked.',
-	$pconfig['clearblocks'] == 'on' ? true:false,
-	'on'
-));
+))->setHelp('Default is NOTICE.');
 $form->add($section);
 
-$section = new Form_Section('Notifications');
+/* ------------------------------------------------------------- notifications */
+$section = new Form_Section('Notifications', 'suri-notify');
+$section->addInput($cb('update_notify', 'Updates', 'Notify about rule, GeoIP and IQRisk updates', 'off'));
+$section->addInput($cb('rule_categories_notify', 'Rule categories', 'Notify when new rule categories appear', 'off'))
+	->setHelp('Delivered through the e-mail, Telegram or Pushover settings under System > Advanced > Notifications.');
+$form->add($section);
 
-$section->addInput(new Form_StaticText(
-	null,
-	'E-Mail/Telegram/Pushover notifications. Delivery settings are configured under System -> Advanced, ' .
-        'on the Notifications tab.',
-));
-
-$section->addInput(new Form_Checkbox(
-	'update_notify',
-	'Update',
-	'Rules, GeoIP and IQRisk update notifications.',
-	$pconfig['update_notify'] == 'on' ? true:false,
-	'off'
-));
-
-$section->addInput(new Form_Checkbox(
-	'rule_categories_notify',
-	'Rule Categories',
-	'Send notifications when new rule categories appear.',
-	$pconfig['rule_categories_notify'] == 'on' ? true:false,
-	'off'
-));
-
+/* --------------------------------------------------------------- uninstall */
+$section = new Form_Section('Package removal', 'suri-uninstall', COLLAPSIBLE | (!empty($input_errors) ? SEC_OPEN : SEC_CLOSED));
+$section->addInput($cb('forcekeepsettings', 'Keep settings', 'Keep the Suricata settings when the package is removed'));
+$section->addInput($cb('clearblocks', 'Clear blocked hosts', 'Remove all hosts blocked by Suricata when the package is removed (default)'));
 $form->add($section);
 
 print $form;
 ?>
-</div>
-
-<div class="infoblock">
-	<?=print_info_box('<strong>Note:</strong> Changing any settings on this page will affect all Suricata-configured interfaces.', 'info')?>
-</div>
+<p class="small fs-muted"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> <?=gettext('These settings apply to every Suricata interface.')?></p>
 
 <script type="text/javascript">
 //<![CDATA[

@@ -150,11 +150,16 @@ if (isset($_POST['iplist_edit_save']) && isset($_POST['iplist_data'])) {
 // so we can pick up any changes made to files in code above.
 $ipfiles = return_dir_as_array($iprep_path);
 
-$pglinks = array("", "/suricata/suricata_interfaces.php", "@self");
-$pgtitle = array("Services", "Suricata", "IP Lists Management");
+$pglinks = array("", "/suricata/suricata_overview.php", "@self");
+$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("IP reputation files"));
+fs_page_action(gettext('Add IP list'), '#', 'fa-plus', 'primary', [
+	'data-fs-modal' => '#iplist-editor',
+	'data-fs-modal-title' => gettext('Add IP list'),
+	'data-fs-fill' => json_encode(['iplist_name' => '', 'iplist_data' => '']),
+]);
+fs_page_action(gettext('Upload'), '#', 'fa-upload', 'secondary', ['data-fs-modal' => '#iplist-upload']);
 
 include_once("head.inc");
-suricata_display_primary_navigation('lists');
 
 if ($input_errors) {
 	print_input_errors($input_errors);
@@ -164,175 +169,134 @@ if ($savemsg) {
 	print_info_box($savemsg);
 }
 
-$tab_array = array();
-$tab_array[] = array(gettext("Interfaces"), false, "/suricata/suricata_interfaces.php");
-$tab_array[] = array(gettext("Global Settings"), false, "/suricata/suricata_global.php");
-$tab_array[] = array(gettext("Updates"), false, "/suricata/suricata_download_updates.php");
-$tab_array[] = array(gettext("Alerts"), false, "/suricata/suricata_alerts.php?instance={$id}");
-$tab_array[] = array(gettext("Blocks"), false, "/suricata/suricata_blocked.php");
-$tab_array[] = array(gettext("Files"), false, "/suricata/suricata_files.php");
-$tab_array[] = array(gettext("Pass Lists"), false, "/suricata/suricata_passlist.php");
-$tab_array[] = array(gettext("Suppress"), false, "/suricata/suricata_suppress.php");
-$tab_array[] = array(gettext("Logs View"), false, "/suricata/suricata_logs_browser.php?instance={$id}");
-$tab_array[] = array(gettext("Logs Mgmt"), false, "/suricata/suricata_logs_mgmt.php");
-$tab_array[] = array(gettext("SID Mgmt"), false, "/suricata/suricata_sid_mgmt.php");
-$tab_array[] = array(gettext("Sync"), false, "/pkg_edit.php?xml=suricata/suricata_sync.xml");
-$tab_array[] = array(gettext("IP Lists"), true, "/suricata/suricata_ip_list_mgmt.php");
-display_top_tabs($tab_array, true);
-?>
-
-<div id="container">
-
-<?php
+suricata_display_primary_navigation('lists');
+suricata_display_section_navigation('lists', 'iplists');
 
 $form = new Form;
-$section = new Form_Section('IP Reputation List Management');
+$section = new Form_Section('Emerging Threats IQRisk', 'iprep-iqrisk');
 $section->addInput(new Form_Checkbox(
 	'et_iqrisk_enable',
-	'Emerging Threats IQRisk Settings Enable',
-	'Checking this box enables auto-download of IQRisk List updates with a valid subscription code.',
+	'IQRisk downloads',
+	'Download IQRisk IP list updates with a subscription code',
 	$pconfig['et_iqrisk_enable'] == 'on' ? true:false,
 	'on'
-))->setHelp('IQRisk IP lists will auto-update nightly at midnight. Visit <a href="https://www.proofpoint.com/us/products/et-intelligence" target="_blank">https://www.proofpoint.com/us/products/et-intelligence</a> for more information or to purchase a subscription.');
+))->setHelp('The lists update every night at midnight. <a href="https://www.proofpoint.com/us/products/et-intelligence" target="_blank" rel="noopener">About ET Intelligence subscriptions</a>.');
 $section->addInput(new Form_Input(
 	'iqrisk_code',
-	'IQRisk Subscription Configuration Code',
+	'IQRisk subscription code',
 	'text',
 	$pconfig['iqrisk_code']
-))->setHelp('Obtain an Emerging Threats IQRisk List subscription code and paste it here.');
+))->setHelp('The subscription code from your ET Intelligence account.');
 $form->add($section);
 print $form;
+
+$editor_open = ($iplist_edit_style !== "display: none;");
 ?>
 
-	<form action="/suricata/suricata_ip_list_mgmt.php" enctype="multipart/form-data" method="post" name="iform" id="iform">
-	<input type="hidden" name="MAX_FILE_SIZE" value="100000000" />
-	<input type="hidden" name="iplist_fname" id="iplist_fname" value=""/>
-	<input type="hidden" name="iplist_action" id="iplist_action" value=""/>
-	<div class="card mb-3">
-		<div class="card-header"><h2 class="h5 mb-0"><?=gettext("IP Reputation List Management")?></h2></div>
-		<div class="card-body">
-			<div class="table-responsive">
-				<table class="table table-striped table-hover table-sm">
-					<thead>
-						<tr>
-							<th><?=gettext("IP List File Name"); ?></th>
-							<th><?=gettext("Last Modified Time"); ?></th>
-							<th><?=gettext("File Size"); ?></th>
-							<th><?=gettext("Actions"); ?></th>
-						</tr>
-					</thead>
-				<?php foreach ($ipfiles as $file):
-					if (substr(strrchr($file, "."), 1) == "md5")
-						continue; ?>
-					<tr>
-						<td><?=gettext($file); ?></td>
-						<td><?=date('M-d Y g:i a', filemtime("{$iprep_path}{$file}")); ?></td>
-						<td><?=format_bytes(filesize("{$iprep_path}{$file}")); ?></td>
-						<td>
-							<a href="#" class="fa-solid fa-pencil" onClick="suricata_iplist_action('edit', '<?=addslashes($file);?>');" title="<?=gettext('Edit this IP List');?>"></a>
-							<a href="#" class="fa-solid fa-trash-can no-confirm" onClick="suricata_iplist_action('delete', '<?=addslashes($file);?>');" title="<?=gettext('Delete this IP List');?>"></a>
-						</td>
-					</tr>
-				<?php endforeach; ?>
-				</table>
-			</div>
-			<div class="table-responsive">
-				<table class="table table-sm">
-					<tbody id="iplist_editor" style="<?=$iplist_edit_style?>">
-					<tr>
-						<td colspan="4">&nbsp;</td>
-					</tr>
-					<tr>
-						<td colspan="4">
-							<strong><?=gettext("File Name: ")?></strong>
-							<input type="text" size="45" class="formfld file" id="iplist_name" name="iplist_name" value="<?=$iplist_name?>" />
-							<input type="submit" class="btn btn-success btn-sm" id="iplist_edit_save" name="iplist_edit_save" value="<?=gettext(" Save ")?>" title="<?=gettext("Save changes and close editor")?>" />
-							<input type="button" class="btn btn-danger btn-sm" id="cancel" name="cancel" value="<?=gettext("Cancel")?>" onClick="document.getElementById('iplist_editor').style.display='none';" title="<?=gettext("Abandon changes and quit editor")?>" />
-						</td>
-					</tr>
-					<tr>
-						<td colspan="4">&nbsp;</td>
-					</tr>
-					<tr>
-						<td colspan="4">
-							<textarea wrap="off" cols="80" rows="20" name="iplist_data" id="iplist_data" style="width:95%; height:100%;"><?=$iplist_data?></textarea>
-						</td>
-					</tr>
-					</tbody>
-					<tbody id="uploader" style="display: none;">
-						<tr>
-							<td colspan="4">&nbsp;</td>
-						</tr>
-						<tr>
-							<td colspan="4">
-								<p><?=gettext("Select a file to import, and then click 'Upload' or click 'Close' to quit."); ?></p>
-								<input type="file" name="iprep_fileup" id="iprep_fileup" class="formfld file" size="50" /><br />
-								<input type="submit" class="btn btn-success btn-sm" name="upload" id="upload" value="<?=gettext("Upload")?>" title="<?=gettext("Upload selected IP list to firewall")?>"/>
-								<input type="button" class="btn btn-danger btn-sm" value="<?=gettext("Close")?>" onClick="document.getElementById('uploader').style.display='none';"/>
-							</td>
-						</tr>
-					</tbody>
-					<tr>
-						<td colspan="4" class="text-end">
-							<button type="button" class="btn btn-success btn-sm" title="<?=gettext('Create a new IP List');?>" onclick="document.getElementById('iplist_data').value=''; document.getElementById('iplist_name').value=''; document.getElementById('iplist_editor').style.display='table-row-group'; document.getElementById('iplist_name').focus();">
-								<i class="fa-solid fa-plus icon-embed-btn"></i>
-								<?=gettext(' Add');?>
-							</button>
-							<button type="button" class="btn btn-info btn-sm" title="<?=gettext('Upload IP List file');?>" onclick="document.getElementById('uploader').style.display='table-row-group';">
-								<i class="fa-solid fa-upload icon-embed-btn"></i>
-								<?=gettext(' Upload');?>
-							</button>
-						</td>
-					</tr>
-				</table>
-			</div>
-		</div>
+<div class="panel panel-default fs-table">
+<?php fs_table_toolbar([
+	'title' => gettext('IP list files'),
+	'search' => gettext('Search files…'),
+	'noun' => gettext('files'),
+	'noun_one' => gettext('file'),
+]); ?>
+	<div class="panel-body table-responsive">
+		<table class="table table-hover" data-sortable>
+			<thead>
+				<tr>
+					<th data-fs-search><?=gettext("File name")?></th>
+					<th><?=gettext("In use")?></th>
+					<th><?=gettext("Modified")?></th>
+					<th><?=gettext("Size")?></th>
+					<th class="fs-col-actions"><span class="visually-hidden"><?=gettext("Actions")?></span></th>
+				</tr>
+			</thead>
+			<tbody>
+<?php
+$shown = 0;
+foreach ($ipfiles as $file):
+	if (substr(strrchr($file, "."), 1) == "md5") {
+		continue;
+	}
+	$shown++;
+	$active = suricata_is_iplist_active($file);
+	$q = rawurlencode($file);
+?>
+				<tr>
+					<td class="fs-mono"><?=htmlspecialchars($file)?></td>
+					<td><?=$active ? fs_badge('active', gettext('In use')) : fs_badge('idle', gettext('Not used'))?></td>
+					<td class="small"><?=htmlspecialchars(date('Y-m-d H:i', filemtime("{$iprep_path}{$file}")))?></td>
+					<td class="fs-mono small"><?=htmlspecialchars(format_bytes(filesize("{$iprep_path}{$file}")))?></td>
+					<td class="fs-col-actions"><?=fs_row_actions([
+						['edit', "suricata_ip_list_mgmt.php?iplist_action=edit&iplist_fname={$q}", $file, ['attrs' => ['usepost' => '']]],
+						['delete', "suricata_ip_list_mgmt.php?iplist_action=delete&iplist_fname={$q}", $file, [
+							'thing' => gettext('IP list'),
+							'detail' => $active ? gettext('It is assigned to an interface and cannot be deleted until it is unassigned.') : gettext('The file is removed from the firewall.'),
+						]],
+					])?></td>
+				</tr>
+<?php endforeach; ?>
+<?php if ($shown == 0) {
+	fs_empty_row(5, gettext('No IP list files yet. Add or upload a list.'));
+} ?>
+			</tbody>
+		</table>
 	</div>
-</form>
-
-<div class="infoblock">
-	<div class="alert alert-info clearfix" role="alert"><button type="button" class="close" data-bs-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>
-		<div class="float-start">
-			<div class="row">
-				<div class="col-md-12">
-					<p>
-						<ol>
-							<li>A Categories file is required and contains CSV fields for Category Number, Short Name and Description per line.M</li>
-							<li>IP Lists are CSV format text files with an IP address, category code and reputation score per line.M</li>
-							<li>IP Lists are stored as local files on the firewall and their contents are not saved as part of the firewall configuration file.M</li>
-							<li>Visit <a href="https://redmine.openinfosecfoundation.org/projects/suricata/wiki/IPReputationFormat" target="_blank">https://redmine.openinfosecfoundation.org/projects/suricata/wiki/IPReputationFormat</a> for IP Reputation file formats.M</li>
-						</ol>
-					</p>
-					<p>
-						Click on the <i class="fa-solid fa-lg fa-plus" alt="Add Icon"></i> icon to open the editor window to create a new IP List.<br/>
-						Click on the <i class="fa-solid fa-lg fa-upload" alt="Upload Icon"></i> icon to upload a new IP List file from your local machine.<br/>
-						Click on the <i class="fa-solid fa-lg fa-pencil" alt="Edit Icon"></i> icon to view or edit an existing IP List.<br/>
-						Click on the <i class="fa-solid fa-lg fa-trash-can" alt="Delete Icon"></i> icon to delete an existing IP List.
-					</p>
-				</div>
-			</div>
-		</div>
+	<div class="panel-footer small fs-muted">
+		<i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+		<?=gettext('A categories file (category number, short name, description per line) is required. IP lists are CSV files with an IP address, category and reputation score per line. They are stored on the firewall, not in the configuration.')?>
+		<a href="https://docs.suricata.io/en/latest/reputation/ipreputation/ip-reputation-format.html" target="_blank" rel="noopener"><?=gettext('File format')?></a>
 	</div>
 </div>
 
+<div class="modal fade fs-modal-form" id="iplist-editor" tabindex="-1" aria-labelledby="iplist-editor-title" aria-hidden="true"<?=$editor_open ? ' data-fs-open' : ''?>>
+	<div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
+	<form action="/suricata/suricata_ip_list_mgmt.php" method="post">
+		<div class="modal-header">
+			<h2 class="modal-title" id="iplist-editor-title"><?=$iplist_name ? gettext('Edit IP list') : gettext('Add IP list')?></h2>
+			<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="<?=gettext('Close')?>"></button>
+		</div>
+		<div class="modal-body">
+			<div class="mb-3">
+				<label class="form-label" for="iplist_name"><?=gettext('File name')?></label>
+				<input type="text" class="form-control fs-mono" id="iplist_name" name="iplist_name" value="<?=htmlspecialchars($iplist_name)?>" autocomplete="off">
+			</div>
+			<div>
+				<label class="form-label" for="iplist_data"><?=gettext('Contents')?></label>
+				<textarea class="form-control fs-mono" wrap="off" rows="16" name="iplist_data" id="iplist_data"><?=$iplist_data?></textarea>
+			</div>
+		</div>
+		<div class="modal-footer">
+			<button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal"><?=gettext('Cancel')?></button>
+			<button type="submit" class="btn btn-primary" id="iplist_edit_save" name="iplist_edit_save" value="<?=gettext(" Save ")?>"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save')?></button>
+		</div>
+	</form>
+	</div></div>
+</div>
+
+<div class="modal fade fs-modal-form" id="iplist-upload" tabindex="-1" aria-labelledby="iplist-upload-title" aria-hidden="true">
+	<div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+	<form action="/suricata/suricata_ip_list_mgmt.php" enctype="multipart/form-data" method="post">
+		<input type="hidden" name="MAX_FILE_SIZE" value="100000000" />
+		<div class="modal-header">
+			<h2 class="modal-title" id="iplist-upload-title"><?=gettext('Upload IP list')?></h2>
+			<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="<?=gettext('Close')?>"></button>
+		</div>
+		<div class="modal-body">
+			<label class="form-label" for="iprep_fileup"><?=gettext('File')?></label>
+			<input type="file" class="form-control" name="iprep_fileup" id="iprep_fileup">
+			<div class="form-text"><?=gettext('Up to 16 MB. Letters, digits, dot, dash and underscore in the file name.')?></div>
+		</div>
+		<div class="modal-footer">
+			<button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal"><?=gettext('Cancel')?></button>
+			<button type="submit" class="btn btn-primary" name="upload" id="upload" value="<?=gettext("Upload")?>"><i class="fa-solid fa-upload icon-embed-btn" aria-hidden="true"></i><?=gettext('Upload')?></button>
+		</div>
+	</form>
+	</div></div>
 </div>
 
 <script type="text/javascript">
 //<![CDATA[
-
-	function suricata_iplist_action(action,list) {
-		$('#iplist_action').val(action);
-		$('#iplist_fname').val(list);
-		if (action == 'delete') {
-			if (confirm('Are you sure you want to delete this IP List?'))
-				$('#iform').submit();
-		}
-		else {
-			$('#iform').submit();
-		}
-		return false;
-	}
-
 	events.push(function(){
 
 		function et_iqrisk_enable() {
@@ -340,17 +304,12 @@ print $form;
 			hideInput('iqrisk_code', hide);
 		}
 
-		// ---------- Click checkbox handlers ---------------------------------------------------------
-		// When 'enable_vrt_rules' is clicked, toggle the Oinkmaster text control
 		$('#et_iqrisk_enable').click(function() {
 			et_iqrisk_enable();
 		});
 
-		// ---------- On initial page load ------------------------------------------------------------
 		et_iqrisk_enable();
-
 	});
-
 //]]>
 </script>
 

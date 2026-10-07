@@ -303,26 +303,18 @@ foreach ($sidmodlists as $list) {
 	$sidmodselections[] = $list['name'];
 }
 
-$pglinks = array("", "/suricata/suricata_interfaces.php", "@self");
-$pgtitle = array("Services", "Suricata", "SID Management");
+$pglinks = array("", "/suricata/suricata_overview.php", "@self");
+$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("SID management"));
+fs_page_action(gettext('Add list'), '#', 'fa-plus', 'primary', [
+	'data-fs-modal' => '#sidlist_editor',
+	'data-fs-modal-title' => gettext('Add SID management list'),
+	'data-fs-fill' => json_encode(['listid' => count($a_list), 'sidlist_name' => '', 'sidlist_data' => '']),
+]);
+fs_page_action(gettext('Import'), '#', 'fa-upload', 'secondary', ['data-fs-modal' => '#uploader']);
+if (!empty($sidmodlists)) {
+	fs_page_action(gettext('Download all'), 'suricata_sid_mgmt.php?sidlist_dnload_all=1', 'fa-download', 'secondary', ['usepost' => '']);
+}
 include_once("head.inc");
-suricata_display_primary_navigation('policies');
-
-$tab_array = array();
-$tab_array[] = array(gettext("Interfaces"), false, "/suricata/suricata_interfaces.php");
-$tab_array[] = array(gettext("Global Settings"), false, "/suricata/suricata_global.php");
-$tab_array[] = array(gettext("Updates"), false, "/suricata/suricata_download_updates.php");
-$tab_array[] = array(gettext("Alerts"), false, "/suricata/suricata_alerts.php");
-$tab_array[] = array(gettext("Blocks"), false, "/suricata/suricata_blocked.php");
-$tab_array[] = array(gettext("Files"), false, "/suricata/suricata_files.php");
-$tab_array[] = array(gettext("Pass Lists"), false, "/suricata/suricata_passlist.php");
-$tab_array[] = array(gettext("Suppress"), false, "/suricata/suricata_suppress.php");
-$tab_array[] = array(gettext("Logs View"), false, "/suricata/suricata_logs_browser.php");
-$tab_array[] = array(gettext("Logs Mgmt"), false, "/suricata/suricata_logs_mgmt.php");
-$tab_array[] = array(gettext("SID Mgmt"), true, "/suricata/suricata_sid_mgmt.php");
-$tab_array[] = array(gettext("Sync"), false, "/pkg_edit.php?xml=suricata/suricata_sync.xml");
-$tab_array[] = array(gettext("IP Lists"), false, "/suricata/suricata_ip_list_mgmt.php");
-display_top_tabs($tab_array, true);
 
 /* Display Alert message, under form tag or no refresh */
 if ($input_errors) {
@@ -333,355 +325,214 @@ if ($savemsg) {
 	print_info_box($savemsg, 'success');
 }
 
+suricata_display_primary_navigation('policies');
+suricata_display_section_navigation('policies', 'sid');
+
+$editor_open = ($sidmodlist_edit_style != "display: none;");
+
+/* <select> for one interface/list-type cell; keeps the original names and ids */
+$sid_select = function ($field, $k, $current, $choices, $label) {
+	$html = '<select name="' . $field . '[' . $k . ']" id="' . $field . '[' . $k . ']" class="form-select form-select-sm" aria-label="' . htmlspecialchars($label) . '">';
+	foreach ($choices as $value => $text) {
+		$html .= '<option value="' . htmlspecialchars($value) . '"' . (($value == $current) ? ' selected' : '') . '>' . htmlspecialchars($text) . '</option>';
+	}
+	return $html . '</select>';
+};
+$list_choices = array_combine($sidmodselections, array_map('gettext', $sidmodselections));
 ?>
+<style>
+.suri-pad { padding: 1rem; }
+.suri-sid-assign td { min-width: 9rem; }
+.suri-sid-assign td:first-child, .suri-sid-assign td:nth-child(2) { min-width: 0; }
+</style>
+
+<div class="panel panel-default fs-table">
+<?php fs_table_toolbar([
+	'title' => gettext('SID management lists'),
+	'search' => gettext('Search lists…'),
+	'noun' => gettext('lists'),
+	'noun_one' => gettext('list'),
+]); ?>
+	<div class="panel-body table-responsive">
+		<table class="table table-hover" data-sortable>
+			<thead>
+				<tr>
+					<th data-fs-search><?=gettext("Name")?></th>
+					<th><?=gettext("In use")?></th>
+					<th><?=gettext("Modified")?></th>
+					<th class="fs-col-actions"><span class="visually-hidden"><?=gettext("Actions")?></span></th>
+				</tr>
+			</thead>
+			<tbody>
+<?php foreach ($sidmodlists as $i => $list):
+	$active = suricata_is_sidmodslist_active($list['name']);
+?>
+				<tr>
+					<td class="fs-mono"><?=htmlspecialchars($list['name'])?></td>
+					<td><?=$active ? fs_badge('active', gettext('In use')) : fs_badge('idle', gettext('Not used'))?></td>
+					<td class="small"><?=htmlspecialchars(date('Y-m-d H:i', $list['modtime'] + 0))?></td>
+					<td class="fs-col-actions"><?=fs_row_actions([
+						['edit', "suricata_sid_mgmt.php?sidlist_edit=0&sidlist_id={$i}", $list['name'], ['attrs' => ['usepost' => '']]],
+						['custom', "suricata_sid_mgmt.php?sidlist_dnload=0&sidlist_id={$i}", $list['name'], [
+							'icon' => 'fa-solid fa-download', 'label' => sprintf(gettext('Download %s'), $list['name']), 'post' => true]],
+						['delete', "suricata_sid_mgmt.php?sidlist_delete=0&sidlist_id={$i}", $list['name'], [
+							'thing' => gettext('SID management list'),
+							'detail' => $active ? gettext('It is assigned to an interface and cannot be deleted until it is unassigned.') : null,
+						]],
+					])?></td>
+				</tr>
+<?php endforeach; ?>
+<?php if (empty($sidmodlists)) {
+	fs_empty_row(4, gettext('No SID management lists yet. Add a list or import one.'));
+} ?>
+			</tbody>
+		</table>
+	</div>
+	<div class="panel-footer small fs-muted">
+		<i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+		<?=gettext('Lists use the PulledPork / Oinkmaster format (enablesid, disablesid, modifysid, dropsid). Sample lists are included.')?>
+	</div>
+</div>
 
 <form action="suricata_sid_mgmt.php" method="post" enctype="multipart/form-data" name="iform" id="iform">
 	<input type="hidden" name="MAX_FILE_SIZE" value="100000000" />
 	<input type="hidden" name="sidlist_id" id="sidlist_id" value=""/>
 
-	<div class="card mb-3">
-		<div class="card-header"><h2 class="h5 mb-0"><?=gettext("General Settings")?></h2></div>
-		<div class="card-body table-responsive">
-
-			<div class="row mb-3">
-				<label class="col-sm-2 col-form-label">
-					<?= gettext("Enable Automatic SID State Management"); ?>
-				</label>
-				<div class="checkbox col-sm-10">
-					<label>
-						<input type="checkbox" id="auto_manage_sids" name="auto_manage_sids" value="on"
-						<?php if ($pconfig['auto_manage_sids'] == 'on') echo " checked"; ?>
-						onclick="enable_sid_conf();" />
-						<?=gettext("Enable automatic management of rule state and content using SID Management Configuration Lists.  Default is Not Checked.")?>
-					</label>
-					<span class="help-block">
-						<?=gettext("When checked, Suricata will automatically enable/disable/modify text rules upon each update using criteria ") .
-						gettext("specified in SID Management Configuration Lists.  The supported configuration list format is the same as that used ") .
-						gettext("by PulledPork and Oinkmaster.  See the included sample conf lists for usage examples.  ") .
-						gettext("Either upload existing configurations to the firewall or create new ones by clicking ADD below."); ?>
-					</span>
-				</div>
+	<div class="panel panel-default">
+		<div class="panel-heading"><h2 class="panel-title"><?=gettext("Automatic SID management")?></h2></div>
+		<div class="panel-body suri-pad">
+			<div class="form-check">
+				<input type="checkbox" class="form-check-input" id="auto_manage_sids" name="auto_manage_sids" value="on"<?=($pconfig['auto_manage_sids'] == 'on') ? ' checked' : ''?> />
+				<label class="form-check-label" for="auto_manage_sids"><?=gettext("Apply the assigned SID management lists automatically after every rule update")?></label>
 			</div>
+			<div class="form-text"><?=gettext("Rules are enabled, disabled or modified with the lists assigned to each interface below.")?></div>
 		</div>
 	</div>
 
-	<div class="card mb-3">
-		<div class="card-header"><h2 class="h5 mb-0"><?=gettext("SID Management Configuration Lists")?></h2></div>
-		<div class="card-body table-responsive">
-			<table class="table table-striped table-hover table-sm">
-				<tbody>
-				<tr>
-					<td>
-						<table class="table table-striped table-hover table-sm">
-							<thead>
-								<tr>
-									<th><?=gettext("SID Mods List Name"); ?></th>
-									<th><?=gettext("Last Modified Time"); ?></th>
-									<th><?=gettext("List Actions")?>
-									</th>
-								</tr>
-							</thead>
-							<tbody>
-						<?php foreach ($sidmodlists as $i => $list): ?>
-							<tr>
-								<td><?=gettext($list['name']); ?></td>
-								<td><?=date('M-d Y g:i a', $list['modtime'] + 0); ?></td>
-
-								<td>
-									<a name="sidlist_editX[]" id="sidlist_editX[]" type="button" title="<?=gettext('Edit this SID Mods List');?>"
-										onClick='sidlistid="<?=$i;?>"' style="cursor: pointer;">
-										<i class="fa-solid fa-pencil"></i>
-									</a>
-
-									<a name="sidlist_deleteX[]" id="sidlist_deleteX[]" type="button" title="<?=gettext('Delete this SID Mods List');?>"
-										onClick='sidlistid="<?=$i;?>"' style="cursor: pointer;">
-										<i class="fa-solid fa-trash-can" title="<?=gettext('Delete this SID Mods List');?>"></i>
-									</a>
-
-									<a name="sidlist_dnloadX[]" id="sidlist_dnloadX[]" type="button" title="<?=gettext('Download this SID Mods List');?>"
-										onClick='sidlistid="<?=$i;?>"' style="cursor: pointer;">
-										<i class="fa-solid fa-download" title="<?=gettext('Download this SID Mods List');?>"></i>
-									</a>
-								</td>
-							</tr>
-						<?php endforeach; ?>
-						</table>
-					</td>
-				</tr>
-				</tbody>
-			</table>
-		</div>
-
-		<!-- Modal file upload window -->
-		<div class="modal fade" role="dialog" id="uploader" name="uploader">
-			<div class="modal-dialog">
-				<div class="modal-content">
-					<div class="modal-header">
-						<button type="button" class="close" data-bs-dismiss="modal" aria-label="Close">
-							<span aria-hidden="true">&times;</span>
-						</button>
-
-						<h3 class="modal-title" id="myModalLabel"><?=gettext("SID Management List Upload")?></h3>
-					</div>
-
-					<div class="modal-body">
-						<?=gettext("Click BROWSE to select a file to import, and then click UPLOAD.  Click CLOSE to quit."); ?><br /><br />
-
-						<input type="file" class="btn btn-info" name="sidmods_fileup" id="sidmods_fileup" class="file" size="50" /><br />
-						<input type="submit" class="btn btn-sm btn-primary" name="upload" id="upload" value="<?=gettext("Upload");?>" title="<?=gettext("Upload selected SID mods list to firewall");?>"/>&nbsp;&nbsp;
-						<input type="button" class="btn btn-sm btn-secondary" value="<?=gettext("Close");?>" data-bs-dismiss="modal"/><br/>
-					</div>
-				</div>
-			</div>
-		</div>
-
-		<!-- Modal SID editor window -->
-		<div class="modal fade" role="dialog" id="sidlist_editor">
-			<div class="modal-dialog">
-				<div class="modal-content">
-					<div class="modal-header">
-						<button type="button" class="close" data-bs-dismiss="modal" aria-label="Close">
-							<span aria-hidden="true">&times;</span>
-						</button>
-
-						<h3 class="modal-title" id="myModalLabel"><?=gettext("SID Auto-Management List Editor")?></h3>
-					</div>
-
-					<div class="modal-body">
-						<input type="hidden" name="listid" id="listid" value="<?=htmlspecialchars($sidmodlist_id);?>" />
-						<?=gettext("List Name: ");?>
-						<input type="text" size="45" class="form-control file" id="sidlist_name" name="sidlist_name" value="<?=htmlspecialchars($sidmodlist_name);?>" /><br />
-						<button type="submit" class="btn btn-sm btn-primary" id="save" name="save" value="<?=gettext("Save");?>" title="<?=gettext("Save changes and close editor");?>">
-							<i class="fa-solid fa-save icon-embed-btn"></i>
-							<?=gettext("Save");?>
-						</button>
-						<button type="button" class="btn btn-sm btn-warning" id="cancel" name="cancel" value="<?=gettext("Cancel");?>" data-bs-dismiss="modal" title="<?=gettext("Abandon changes and quit editor");?>">
-							<?=gettext("Cancel");?>
-						</button><br /><br />
-
-						<textarea class="form-control" wrap="off" cols="80" rows="20" name="sidlist_data" id="sidlist_data"
-						><?=$sidmodlist_data;?></textarea>
-					</div>
-				</div>
-			</div>
-		</div>
-	</div>
-
-	<nav class="action-buttons">
-
-		<button data-bs-toggle="modal" data-bs-target="#sidlist_editor" role="button" aria-expanded="false" type="button" name="sidlist_new" id="sidlist_new" class="btn btn-success btn-sm" title="<?=gettext('Create a new SID Mods List');?>"
-		onClick="document.getElementById('sidlist_data').value=''; document.getElementById('sidlist_name').value=''; document.getElementById('sidlist_editor').style.display='table-row-group'; document.getElementById('sidlist_name').focus();
-			document.getElementById('sidlist_id').value='<?=count($a_list);?>';">
-			<i class="fa-solid fa-plus icon-embed-btn"></i><?=gettext("Add")?>
-		</button>
-
-		<button data-bs-toggle="modal" data-bs-target="#uploader" role="button" aria-expanded="false" type="button" name="sidlist_import" id="sidlist_import" class="btn btn-info btn-sm" title="<?=gettext('Import/upload SID Mods List');?>">
-			<i class="fa-solid fa-upload icon-embed-btn"></i>
-			<?=gettext("Import")?>
-		</button>
-
-		<button type="input" name="sidlist_dnload_all" id="sidlist_dnload_all" class="btn btn-info btn-sm" title="<?=gettext('Download all SID Mods Lists in a single gzip archive');?>">
-			<i class="fa-solid fa-download icon-embed-btn"></i>
-			<?=gettext("Download")?>
-		</button>
-
-	</nav>
-
-	<div class="card mb-3">
-		<div class="card-header"><h2 class="h5 mb-0"><?=gettext("Interface SID Management List Assignments")?></h2></div>
-		<div class="card-body table-responsive">
-			<table class="table table-striped table-hover table-sm">
+	<div class="panel panel-default fs-table">
+<?php fs_table_toolbar([
+	'title' => gettext('Interface assignments'),
+	'search' => false,
+	'noun' => gettext('interfaces'),
+	'noun_one' => gettext('interface'),
+]); ?>
+		<div class="panel-body table-responsive">
+			<table class="table table-hover suri-sid-assign">
 				<thead>
-				   <tr>
-					<th><?=gettext("Rebuild")?></th>
-					<th><?=gettext("Interface")?></th>
-					<th><?=gettext("SID State Order")?></th>
-					<th><?=gettext("Enable SID List")?></th>
-					<th><?=gettext("Disable SID List")?></th>
-					<th><?=gettext("Modify SID List")?></th>
-					<th><?=gettext("Drop SID List")?></th>
-					<th><?=gettext("Reject SID List")?></th>
-				   </tr>
+					<tr>
+						<th title="<?=gettext('Apply the new configuration and rebuild the rules of this interface when saving')?>"><?=gettext("Rebuild")?></th>
+						<th><?=gettext("Interface")?></th>
+						<th><?=gettext("State order")?></th>
+						<th><?=gettext("Enable list")?></th>
+						<th><?=gettext("Disable list")?></th>
+						<th><?=gettext("Modify list")?></th>
+						<th><?=gettext("Drop list")?></th>
+						<th><?=gettext("Reject list")?></th>
+					</tr>
 				</thead>
 				<tbody>
-			   <?php foreach ($a_nat as $k => $natent): ?>
-				<?php
-					// Skip displaying any instance where the physical FreeSense interface is missing
-					if (get_real_interface($natent['interface']) == "") {
-						continue;
-					}
-				?>
-				<tr>
-					<td class="text-center">
-						<input type="checkbox" name="torestart[]" id="torestart[]" value="<?=$k;?>" title="<?=gettext("Apply new configuration and rebuild rules for this interface when saving");?>" />
-					</td>
-					<td><?=convert_friendly_interface_to_friendly_descr($natent['interface']); ?></td>
-					<td>
-						<select name="sid_state_order[<?=$k?>]" class="form-control" id="sid_state_order[<?=$k?>]">
-							<?php
-								foreach (array("disable_enable" => "Disable, Enable", "enable_disable" => "Enable, Disable") as $key => $order) {
-									if ($key == $natent['sid_state_order'])
-										echo "<option value='{$key}' selected>";
-									else
-										echo "<option value='{$key}'>";
-
-									echo htmlspecialchars($order) . '</option>';
-								}
-							?>
-						</select>
-					</td>
-					<td>
-						<select name="enable_sid_file[<?=$k?>]" class="form-control" id="enable_sid_file[<?=$k?>]">
-							<?php
-								foreach ($sidmodselections as $choice) {
-									if ($choice == $natent['enable_sid_file'])
-										echo "<option value='{$choice}' selected>";
-									else
-										echo "<option value='{$choice}'>";
-
-									echo htmlspecialchars(gettext($choice)) . '</option>';
-								}
-							?>
-						</select>
-					</td>
-					<td>
-						<select name="disable_sid_file[<?=$k?>]" class="form-control" id="disable_sid_file[<?=$k?>]">
-							<?php
-								foreach ($sidmodselections as $choice) {
-									if ($choice == $natent['disable_sid_file'])
-										echo "<option value='{$choice}' selected>";
-									else
-										echo "<option value='{$choice}'>";
-
-									echo htmlspecialchars(gettext($choice)) . '</option>';
-								}
-							?>
-						</select>
-					</td>
-					<td>
-						<select name="modify_sid_file[<?=$k?>]" class="form-control" id="modify_sid_file[<?=$k?>]">
-							<?php
-								foreach ($sidmodselections as $choice) {
-									if ($choice == $natent['modify_sid_file'])
-										echo "<option value='{$choice}' selected>";
-									else
-										echo "<option value='{$choice}'>";
-
-									echo htmlspecialchars(gettext($choice)) . '</option>';
-								}
-							?>
-						</select>
-					</td>
-					<td>
-						<?php if ($natent['blockoffenders'] == 'on' && ($natent['ips_mode'] == 'ips_mode_inline' || $natent['block_drops_only'] == 'on')) : ?>
-							<select name="drop_sid_file[<?=$k?>]" class="form-control" id="drop_sid_file[<?=$k?>]">
-								<?php
-									foreach ($sidmodselections as $choice) {
-										if ($choice == $natent['drop_sid_file'])
-											echo "<option value='{$choice}' selected>";
-										else
-											echo "<option value='{$choice}'>";
-
-										echo htmlspecialchars(gettext($choice)) . '</option>';
-									}
-								?>
-							</select>
-						<?php else : ?>
-							<input type="hidden" name="drop_sid_file[<?=$k?>]" id="drop_sid_file[<?=$k?>]" value="<?=isset($natent['drop_sid_file']) ? $natent['drop_sid_file'] : 'None';?>">
-							<span class="text-center"><?=gettext("N/A")?></span>
-						<?php endif; ?>
-					</td>
-					<td>
-						<?php if ($natent['blockoffenders'] == 'on' && $natent['ips_mode'] == 'ips_mode_inline') : ?>
-							<select name="reject_sid_file[<?=$k?>]" class="form-control" id="reject_sid_file[<?=$k?>]">
-								<?php
-									foreach ($sidmodselections as $choice) {
-										if ($choice == $natent['reject_sid_file'])
-											echo "<option value='{$choice}' selected>";
-										else
-											echo "<option value='{$choice}'>";
-
-										echo htmlspecialchars(gettext($choice)) . '</option>';
-									}
-								?>
-							</select>
-						<?php else : ?>
-							<input type="hidden" name="reject_sid_file[<?=$k?>]" id="reject_sid_file[<?=$k?>]" value="<?=isset($natent['reject_sid_file']) ? $natent['reject_sid_file'] : 'None';?>">
-							<span class="text-center"><?=gettext("N/A")?></span>
-						<?php endif; ?>
-					</td>
-				</tr>
-			   <?php endforeach; ?>
+<?php
+$assigned = 0;
+foreach ($a_nat as $k => $natent):
+	// Skip any instance whose firewall interface is missing
+	if (get_real_interface($natent['interface']) == "") {
+		continue;
+	}
+	$assigned++;
+	$ifname = convert_friendly_interface_to_friendly_descr($natent['interface']);
+	$drop_ok = ($natent['blockoffenders'] == 'on' && ($natent['ips_mode'] == 'ips_mode_inline' || $natent['block_drops_only'] == 'on'));
+	$reject_ok = ($natent['blockoffenders'] == 'on' && $natent['ips_mode'] == 'ips_mode_inline');
+?>
+					<tr>
+						<td><input type="checkbox" class="form-check-input" name="torestart[]" id="torestart[]" value="<?=$k;?>" aria-label="<?=htmlspecialchars(sprintf(gettext('Rebuild rules for %s when saving'), $ifname))?>" /></td>
+						<td><?=htmlspecialchars($ifname)?></td>
+						<td><?=$sid_select('sid_state_order', $k, $natent['sid_state_order'], array("disable_enable" => "Disable, Enable", "enable_disable" => "Enable, Disable"), sprintf(gettext('State order for %s'), $ifname))?></td>
+						<td><?=$sid_select('enable_sid_file', $k, $natent['enable_sid_file'], $list_choices, sprintf(gettext('Enable list for %s'), $ifname))?></td>
+						<td><?=$sid_select('disable_sid_file', $k, $natent['disable_sid_file'], $list_choices, sprintf(gettext('Disable list for %s'), $ifname))?></td>
+						<td><?=$sid_select('modify_sid_file', $k, $natent['modify_sid_file'], $list_choices, sprintf(gettext('Modify list for %s'), $ifname))?></td>
+						<td>
+<?php if ($drop_ok): ?>
+							<?=$sid_select('drop_sid_file', $k, $natent['drop_sid_file'], $list_choices, sprintf(gettext('Drop list for %s'), $ifname))?>
+<?php else: ?>
+							<input type="hidden" name="drop_sid_file[<?=$k?>]" id="drop_sid_file[<?=$k?>]" value="<?=htmlspecialchars(isset($natent['drop_sid_file']) ? $natent['drop_sid_file'] : 'None')?>">
+							<span class="fs-muted" title="<?=gettext('Only with blocking on drops or Inline IPS mode')?>"><?=gettext("N/A")?></span>
+<?php endif; ?>
+						</td>
+						<td>
+<?php if ($reject_ok): ?>
+							<?=$sid_select('reject_sid_file', $k, $natent['reject_sid_file'], $list_choices, sprintf(gettext('Reject list for %s'), $ifname))?>
+<?php else: ?>
+							<input type="hidden" name="reject_sid_file[<?=$k?>]" id="reject_sid_file[<?=$k?>]" value="<?=htmlspecialchars(isset($natent['reject_sid_file']) ? $natent['reject_sid_file'] : 'None')?>">
+							<span class="fs-muted" title="<?=gettext('Only in Inline IPS mode')?>"><?=gettext("N/A")?></span>
+<?php endif; ?>
+						</td>
+					</tr>
+<?php endforeach; ?>
+<?php if ($assigned == 0) {
+	fs_empty_row(8, gettext('No Suricata interfaces yet.'));
+} ?>
 				</tbody>
 			</table>
+		</div>
+		<div class="panel-footer small fs-muted">
+			<i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+			<?=gettext('Tick Rebuild to apply the changes and live-load the new rules on that interface when saving; otherwise only the assignments are saved. State order decides whether enable or disable runs last (the last action wins). "None" skips that list.')?>
+		</div>
+	</div>
+
+	<div class="fs-actionbar fs-actionbar--plain">
+		<button type="submit" id="save_auto_sid_conf" name="save_auto_sid_conf" class="btn btn-primary" value="<?=gettext("Save");?>">
+			<i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext("Save");?>
+		</button>
+	</div>
+</form>
+
+<div class="modal fade fs-modal-form" id="sidlist_editor" tabindex="-1" aria-labelledby="sidlist-editor-title" aria-hidden="true"<?=$editor_open ? ' data-fs-open' : ''?>>
+	<div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
+	<form action="suricata_sid_mgmt.php" method="post">
+		<input type="hidden" name="listid" id="listid" value="<?=htmlspecialchars($sidmodlist_id);?>" />
+		<div class="modal-header">
+			<h2 class="modal-title" id="sidlist-editor-title"><?=gettext("Edit SID management list")?></h2>
+			<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="<?=gettext('Close')?>"></button>
+		</div>
+		<div class="modal-body">
+			<div class="mb-3">
+				<label class="form-label" for="sidlist_name"><?=gettext('List name')?></label>
+				<input type="text" class="form-control fs-mono" id="sidlist_name" name="sidlist_name" value="<?=htmlspecialchars($sidmodlist_name);?>" autocomplete="off" />
+			</div>
+			<div>
+				<label class="form-label" for="sidlist_data"><?=gettext('Contents')?></label>
+				<textarea class="form-control fs-mono" wrap="off" rows="18" name="sidlist_data" id="sidlist_data"><?=$sidmodlist_data;?></textarea>
 			</div>
 		</div>
-
-		<button type="submit" id="save_auto_sid_conf" name="save_auto_sid_conf" class="btn btn-primary" value="<?=gettext("Save");?>" title="<?=gettext("Save SID Management configuration");?>" >
-			<i class="fa-solid fa-save icon-embed-btn"></i>
-			<?=gettext("Save");?>
-		</button>
-		&nbsp;&nbsp;<?=gettext("Remember to save changes before exiting this page"); ?>
-
-</form>
-</br />
-
-<div class="infoblock">
-<?php
-	print_info_box(
-		'<p>' .
-			gettext("Check the box beside an interface to immediately apply new auto-SID management changes and signal Suricata to live-load the new rules for the interface when clicking Save; " .
-				"otherwise only the new file assignments will be saved.") .
-		'</p>' .
-		'<p>' .
-			gettext("SID State Order controls the order in which enable and disable state modifications are performed. An example would be to disable an entire category and later enable only a rule or two from it. " .
-				" In this case you would choose 'disable,enable' for the State Order.  Note that the last action performed takes priority.") .
-		'</p>' .
-		'<p>' .
-			gettext("The Enable SID File, Disable SID File, Modify SID File and Drop SID File drop-down controls specify which rule modification lists are run automatically for the interface.  Setting a list control to 'None' disables that modification. " .
-				"Setting all list controls for an interface to 'None' disables automatic SID state management for the interface.") .
-		'</p>', 'info', false);
-?>
+		<div class="modal-footer">
+			<button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal"><?=gettext('Cancel')?></button>
+			<button type="submit" class="btn btn-primary" id="save" name="save" value="<?=gettext("Save");?>"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext("Save");?></button>
+		</div>
+	</form>
+	</div></div>
 </div>
 
-<script type="text/javascript">
-//<![CDATA[
-events.push(function() {
-
-	$('[id^=sidlist_editX]').click(function () {
-		$('#sidlist_edit').remove();
-		$('#sidlist_delete').remove();
-		$('#sidlist_dnload').remove();
-		$('#sidlist_id').val(sidlistid);
-		$('<input type="hidden" name="sidlist_edit" id="sidlist_edit" value="0"/>').appendTo($(form));
-		$(form).submit();
-	});
-
-	$('[id^=sidlist_deleteX]').click(function () {
-		$('#sidlist_edit').remove();
-		$('#sidlist_delete').remove();
-		$('#sidlist_dnload').remove();
-		$('#sidlist_id').val(sidlistid);
-		$('<input type="hidden" name="sidlist_delete" id="sidlist_delete" value="0"/>').appendTo($(form));
-		$(form).submit();
-	});
-
-	$('[id^=sidlist_dnloadX]').click(function () {
-		$('#sidlist_edit').remove();
-		$('#sidlist_delete').remove();
-		$('#sidlist_dnload').remove();
-		$('#sidlist_id').val(sidlistid);
-		$('<input type="hidden" name="sidlist_dnload" id="sidlist_dnload" value="0"/>').appendTo($(form));
-		$(form).submit();
-	});
-
-	// If the user is editing a file, open the modal on page load
-<?php if ($sidmodlist_edit_style == "show") : ?>
-	$("#sidlist_editor").modal('show');
-<?php endif ?>
-});
-//]]>
-</script>
+<div class="modal fade fs-modal-form" id="uploader" tabindex="-1" aria-labelledby="uploader-title" aria-hidden="true">
+	<div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+	<form action="suricata_sid_mgmt.php" method="post" enctype="multipart/form-data">
+		<input type="hidden" name="MAX_FILE_SIZE" value="100000000" />
+		<div class="modal-header">
+			<h2 class="modal-title" id="uploader-title"><?=gettext("Import SID management list")?></h2>
+			<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="<?=gettext('Close')?>"></button>
+		</div>
+		<div class="modal-body">
+			<label class="form-label" for="sidmods_fileup"><?=gettext('File')?></label>
+			<input type="file" class="form-control" name="sidmods_fileup" id="sidmods_fileup" />
+			<div class="form-text"><?=gettext('The file name becomes the list name and must not exist yet.')?></div>
+		</div>
+		<div class="modal-footer">
+			<button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal"><?=gettext('Cancel')?></button>
+			<button type="submit" class="btn btn-primary" name="upload" id="upload" value="<?=gettext("Upload");?>"><i class="fa-solid fa-upload icon-embed-btn" aria-hidden="true"></i><?=gettext("Upload");?></button>
+		</div>
+	</form>
+	</div></div>
+</div>
 
 <?php
 include("foot.inc"); ?>

@@ -4,16 +4,75 @@ require_once('guiconfig.inc'); require_once('webgateway.inc');
 $wg_config=webgateway_config(); $pconfig=$wg_config; $input_errors=[]; $savemsg=null;
 if($_POST){$pconfig=array_merge($wg_config,$_POST); if(webgateway_save_candidate($pconfig,gettext('Web Gateway identity settings changed'),$input_errors)){ $savemsg=gettext('Identity provider saved and applied to Squid.'); $wg_config=$pconfig=webgateway_config(); }}
 $servers=webgateway_auth_servers();
-$pgtitle=[gettext('Services'),gettext('Web Gateway'),gettext('Identity')]; include('head.inc'); webgateway_display_tabs('identity'); if($input_errors)print_input_errors($input_errors);if($savemsg)print_info_box($savemsg,'success');
+$pgtitle=[gettext('Services'),gettext('Web Gateway'),gettext('Identity')];
+$pglinks=['', '/webgateway/webgateway.php', '@self'];
+include('head.inc'); webgateway_display_tabs('identity'); if($input_errors)print_input_errors($input_errors);if($savemsg)print_info_box($savemsg,'success');
+
+print_callout(htmlspecialchars(gettext('Authentication is available only on explicit proxy listeners. Transparent interception uses source network and interface policy because browsers cannot authenticate reliably during interception.')), 'info');
+
+$form = new Form(gettext('Save and apply'));
+
+$section = new Form_Section(gettext('Identity provider'), 'wg-identity-provider');
+$section->addInput(new Form_StaticText(gettext('Provider'), webgateway_choice_cards('auth_mode', 'radio', [
+	'none' => ['icon' => 'fa-network-wired', 'title' => gettext('Source network'), 'help' => gettext('No login challenge. Identify clients by source address.')],
+	'local' => ['icon' => 'fa-users', 'title' => gettext('Local users'), 'help' => gettext('Enabled users in the FreeSense local database.')],
+	'ldap' => ['icon' => 'fa-building-shield', 'title' => gettext('LDAP / Active Directory'), 'help' => gettext('Basic proxy authentication against an LDAPS/StartTLS server.')],
+	'radius' => ['icon' => 'fa-tower-broadcast', 'title' => gettext('RADIUS'), 'help' => gettext('Basic proxy authentication through a configured RADIUS server.')],
+	'kerberos' => ['icon' => 'fa-key', 'title' => gettext('Kerberos / Negotiate'), 'help' => gettext('Browser single sign-on using a service principal and keytab.')],
+], $pconfig['auth_mode'], gettext('Identity provider'))));
+$form->add($section);
+
+$section = new Form_Section(gettext('Authentication server'), 'wg-identity-server');
+$section->addInput(new Form_Select('auth_server', gettext('Server'), $pconfig['auth_server'], ['' => gettext('Select for LDAP or RADIUS')] + $servers))
+	->setHelp($servers ? gettext('LDAP and RADIUS servers from System > User Manager > Authentication Servers.')
+	    : gettext('No LDAP or RADIUS server is configured yet.'));
+$section->addInput(new Form_StaticText(gettext('Servers'),
+    '<div class="wg-buttons"><a class="btn btn-sm btn-outline-secondary" href="/system_authservers.php"><i class="fa-solid fa-gear icon-embed-btn" aria-hidden="true"></i>'
+    . htmlspecialchars(gettext('Manage authentication servers')) . '</a>'
+    . '<a class="btn btn-sm btn-outline-secondary" href="/diag_authentication.php"><i class="fa-solid fa-vial icon-embed-btn" aria-hidden="true"></i>'
+    . htmlspecialchars(gettext('Test authentication')) . '</a></div>'));
+$form->add($section);
+
+$section = new Form_Section(gettext('Login challenge'), 'wg-identity-challenge');
+$section->addInput(new Form_Input('auth_realm', gettext('Realm'), 'text', $pconfig['auth_realm']))
+	->setHelp(gettext('Shown to clients in the browser login prompt.'));
+$section->addInput(new Form_Input('auth_ttl', gettext('Credential TTL'), 'number', $pconfig['auth_ttl'], ['min' => 1, 'max' => 1440]))
+	->setHelp(gettext('Minutes before a client must authenticate again (1-1440).'));
+$form->add($section);
+
+$section = new Form_Section(gettext('Kerberos / Negotiate'), 'wg-identity-kerberos');
+$section->addInput(new Form_Input('kerberos_principal', gettext('Service principal'), 'text', $pconfig['kerberos_principal']))
+	->addClass('fs-mono')
+	->setAttribute('placeholder', 'HTTP/proxy.example.com@EXAMPLE.COM');
+$section->addInput(new Form_Input('kerberos_keytab', gettext('Keytab path'), 'text', $pconfig['kerberos_keytab']))
+	->addClass('fs-mono')
+	->setHelp(gettext('The keytab must be readable only by root and the Squid runtime account. NTLM/SMB fallback is intentionally unsupported.'));
+$form->add($section);
+
+print($form);
 ?>
-<form method="post">
-<div class="alert alert-info"><i class="fa-solid fa-circle-info me-2"></i><?=gettext('Authentication is available only on explicit proxy listeners. Transparent interception uses source network and interface policy because browsers cannot authenticate reliably during interception.')?></div>
-<div class="card mb-3"><div class="card-header"><h2 class="h5 mb-0"><i class="fa-solid fa-user-shield me-2"></i><?=gettext('Identity provider')?></h2></div><div class="card-body"><div class="row g-3">
-	<?php foreach ([['none','network-wired',gettext('Source network'),gettext('No login challenge. Identify clients by source address.')],['local','users',gettext('Local users'),gettext('Use enabled users in the FreeSense local database.')],['ldap','building-shield',gettext('LDAP / Active Directory'),gettext('Basic proxy authentication against an LDAPS/StartTLS server.')],['radius','tower-broadcast',gettext('RADIUS'),gettext('Basic proxy authentication through a configured RADIUS server.')],['kerberos','key',gettext('Kerberos / Negotiate'),gettext('Browser single sign-on using a service principal and keytab.')]] as [$value,$icon,$title,$text]): ?><div class="col-md-6 col-xl"><label class="card h-100"><div class="card-body"><div class="d-flex gap-2"><input class="form-check-input" type="radio" name="auth_mode" value="<?=$value?>" <?=$pconfig['auth_mode']===$value?'checked':''?>><i class="fa-solid fa-<?=$icon?> text-primary"></i><strong><?=$title?></strong></div><p class="small text-muted mb-0 mt-2"><?=$text?></p></div></label></div><?php endforeach; ?>
-</div></div></div>
-<div class="row g-3 mb-3"><div class="col-lg-6"><div class="card h-100"><div class="card-header"><h2 class="h5 mb-0"><?=gettext('Authentication service')?></h2></div><div class="card-body"><label class="form-label" for="auth_server"><?=gettext('FreeSense authentication server')?></label><select class="form-select mb-3" name="auth_server" id="auth_server"><option value=""><?=gettext('Select for LDAP or RADIUS')?></option><?php foreach($servers as $name=>$label):?><option value="<?=htmlspecialchars($name)?>" <?=$pconfig['auth_server']===$name?'selected':''?>><?=htmlspecialchars($label)?></option><?php endforeach;?></select><div class="d-flex gap-2"><a class="btn btn-outline-primary" href="/system_authservers.php"><i class="fa-solid fa-gear icon-embed-btn"></i><?=gettext('Manage authentication servers')?></a><a class="btn btn-outline-info" href="/diag_authentication.php"><i class="fa-solid fa-vial icon-embed-btn"></i><?=gettext('Test authentication')?></a></div></div></div></div>
-<div class="col-lg-6"><div class="card h-100"><div class="card-header"><h2 class="h5 mb-0"><?=gettext('Challenge settings')?></h2></div><div class="card-body"><div class="row g-3"><div class="col-md-8"><label class="form-label" for="auth_realm"><?=gettext('Realm shown to clients')?></label><input class="form-control" id="auth_realm" name="auth_realm" value="<?=htmlspecialchars($pconfig['auth_realm'])?>"></div><div class="col-md-4"><label class="form-label" for="auth_ttl"><?=gettext('Credential TTL (minutes)')?></label><input class="form-control" type="number" min="1" max="1440" id="auth_ttl" name="auth_ttl" value="<?=htmlspecialchars($pconfig['auth_ttl'])?>"></div></div></div></div></div></div>
-<div class="card mb-3"><div class="card-header"><h2 class="h5 mb-0"><i class="fa-solid fa-key me-2"></i><?=gettext('Kerberos / Negotiate')?></h2></div><div class="card-body"><div class="row g-3"><div class="col-lg-6"><label class="form-label" for="kerberos_principal"><?=gettext('Service principal')?></label><input class="form-control font-monospace" id="kerberos_principal" name="kerberos_principal" placeholder="HTTP/proxy.example.com@EXAMPLE.COM" value="<?=htmlspecialchars($pconfig['kerberos_principal'])?>"></div><div class="col-lg-6"><label class="form-label" for="kerberos_keytab"><?=gettext('Keytab path')?></label><input class="form-control font-monospace" id="kerberos_keytab" name="kerberos_keytab" value="<?=htmlspecialchars($pconfig['kerberos_keytab'])?>"></div></div><div class="form-text"><?=gettext('The keytab must be readable only by root and the Squid runtime account. NTLM/SMB fallback is intentionally unsupported.')?></div></div></div>
-<button class="btn btn-primary" type="submit"><i class="fa-solid fa-floppy-disk icon-embed-btn"></i><?=gettext('Save and apply')?></button>
-</form>
-<?php include('foot.inc');?>
+<script>
+(function () {
+	/* Show only the sections the selected provider uses; hidden fields still post. */
+	var show = {
+		'wg-identity-server': ['ldap', 'radius'],
+		'wg-identity-challenge': ['local', 'ldap', 'radius', 'kerberos'],
+		'wg-identity-kerberos': ['kerberos']
+	};
+	function update() {
+		var checked = document.querySelector('input[name="auth_mode"]:checked');
+		var mode = checked ? checked.value : 'none';
+		Object.keys(show).forEach(function (id) {
+			var el = document.getElementById(id);
+			if (el) {
+				el.classList.toggle('d-none', show[id].indexOf(mode) < 0);
+			}
+		});
+	}
+	document.querySelectorAll('input[name="auth_mode"]').forEach(function (r) {
+		r.addEventListener('change', update);
+	});
+	update();
+})();
+</script>
+<?php include('foot.inc'); ?>

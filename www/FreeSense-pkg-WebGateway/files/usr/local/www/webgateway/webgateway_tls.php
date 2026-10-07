@@ -22,28 +22,59 @@ if ($_POST) {
 	}
 }
 $cas = webgateway_internal_cas();
-$pgtitle = [gettext('Services'), gettext('Web Gateway'), gettext('TLS Inspection')];
-include('head.inc'); webgateway_display_tabs('tls');
-if ($input_errors) print_input_errors($input_errors); if ($savemsg) print_info_box($savemsg, 'success');
-?>
-<form method="post">
-<div class="alert alert-warning"><div class="d-flex gap-3"><i class="fa-solid fa-triangle-exclamation fa-2x"></i><div><strong><?=gettext('TLS inspection changes the trust boundary.')?></strong><br><?=gettext('Use it only on managed devices after reviewing applicable privacy and employment law. Certificate-pinned and mutual-TLS applications must remain spliced.')?></div></div></div>
-<div class="card mb-3"><div class="card-header"><h2 class="h5 mb-0"><i class="fa-solid fa-lock me-2"></i><?=gettext('HTTPS handling mode')?></h2></div><div class="card-body"><div class="row g-3">
-	<?php foreach ([
-		['tunnel','shield-halved',gettext('Tunnel only'),gettext('Default. CONNECT traffic remains end-to-end encrypted; policy can use host, SNI and IP only.')],
-		['selective','filter-circle-dollar',gettext('Selective inspection'),gettext('Inspect only destinations in the inspection list; splice everything else.')],
-		['full','magnifying-glass-chart',gettext('Full inspection'),gettext('Inspect by default while honoring the built-in and administrator bypass lists.')],
-	] as [$value,$icon,$title,$text]): ?>
-	<div class="col-lg-4"><label class="card h-100 <?=($pconfig['tls_mode']===$value)?'border-primary':''?>"><div class="card-body"><div class="d-flex gap-3"><input class="form-check-input" type="radio" name="tls_mode" value="<?=$value?>" <?=($pconfig['tls_mode']===$value)?'checked':''?>><i class="fa-solid fa-<?=$icon?> fa-2x text-primary"></i><div><strong><?=$title?></strong><p class="text-muted small mb-0 mt-1"><?=$text?></p></div></div></div></label></div>
-	<?php endforeach; ?>
-</div></div></div>
-<div class="row g-3 mb-3"><div class="col-lg-5"><div class="card h-100"><div class="card-header"><h2 class="h5 mb-0"><i class="fa-solid fa-certificate me-2"></i><?=gettext('Inspection certificate authority')?></h2></div><div class="card-body">
-	<label class="form-label" for="caref"><?=gettext('Signing CA')?></label><select class="form-select mb-3" id="caref" name="caref"><option value=""><?=gettext('None—tunnel only')?></option><?php foreach ($cas as $ref=>$name): ?><option value="<?=htmlspecialchars($ref)?>" <?=$pconfig['caref']===$ref?'selected':''?>><?=htmlspecialchars($name)?></option><?php endforeach; ?></select>
-	<?php if (!$cas): ?><div class="alert alert-info"><?=gettext('No internal CA with a private key exists. Create a dedicated Web Gateway CA in Certificate Manager before enabling inspection.')?></div><?php endif; ?>
-	<div class="d-flex flex-wrap gap-2"><a class="btn btn-outline-primary" href="/system_camanager.php"><i class="fa-solid fa-plus icon-embed-btn"></i><?=gettext('Certificate Manager')?></a><?php if ($pconfig['caref']): ?><a class="btn btn-outline-info" href="/system_camanager.php?act=export_cert&id=<?=urlencode($pconfig['caref'])?>"><i class="fa-solid fa-download icon-embed-btn"></i><?=gettext('Export CA')?></a><?php endif; ?></div>
-	<div class="form-check mt-4"><input class="form-check-input" type="checkbox" id="tls_ack" name="tls_ack" <?=$pconfig['tls_ack']==='on'?'checked':''?>><label class="form-check-label" for="tls_ack"><?=gettext('I understand the legal, privacy, client-trust and application-compatibility impact of decrypting TLS traffic.')?></label></div>
-</div></div></div><div class="col-lg-7"><div class="card h-100"><div class="card-header"><h2 class="h5 mb-0"><i class="fa-solid fa-code-branch me-2"></i><?=gettext('Bump and splice policy')?></h2></div><div class="card-body"><div class="row g-3"><div class="col-md-6"><label class="form-label"><?=gettext('Inspect in selective mode')?></label><textarea class="form-control font-monospace" name="inspect_domains_text" rows="10" placeholder=".example.com"><?=htmlspecialchars(webgateway_decode_list($pconfig['inspect_domains']))?></textarea><div class="form-text"><?=gettext('One destination domain per line.')?></div></div><div class="col-md-6"><label class="form-label"><?=gettext('Always splice / never inspect')?></label><textarea class="form-control font-monospace" name="splice_domains_text" rows="10" placeholder=".bank.example"><?=htmlspecialchars(webgateway_decode_list($pconfig['splice_domains']))?></textarea><div class="form-text"><?=gettext('Added to the built-in pinned, update, authentication and PKI bypass set.')?></div></div></div></div></div></div></div>
-<div class="alert alert-info"><i class="fa-solid fa-eye-slash me-2"></i><?=gettext('ECH or unknown-SNI traffic is spliced by default. Transparent HTTPS inspection can optionally block QUIC under Listeners so clients retry over TCP.')?></div>
-<button class="btn btn-primary" type="submit"><i class="fa-solid fa-floppy-disk icon-embed-btn"></i><?=gettext('Save and apply')?></button>
-</form>
-<?php include('foot.inc'); ?>
+$pgtitle = [gettext('Services'), gettext('Web Gateway'), gettext('TLS inspection')];
+$pglinks = ['', '/webgateway/webgateway.php', '@self'];
+include('head.inc');
+webgateway_display_tabs('tls');
+if ($input_errors) print_input_errors($input_errors);
+if ($savemsg) print_info_box($savemsg, 'success');
+
+print_callout(htmlspecialchars(gettext('Use it only on managed devices after reviewing applicable privacy and employment law. Certificate-pinned and mutual-TLS applications must remain spliced.')),
+    'warning', gettext('TLS inspection changes the trust boundary'));
+
+$form = new Form(gettext('Save and apply'));
+
+$section = new Form_Section(gettext('HTTPS handling'), 'wg-tls-mode');
+$section->addInput(new Form_StaticText(gettext('Mode'), webgateway_choice_cards('tls_mode', 'radio', [
+	'tunnel' => ['icon' => 'fa-shield-halved', 'title' => gettext('Tunnel only'),
+	    'help' => gettext('Default. CONNECT traffic stays end-to-end encrypted; policy can use host, SNI and IP only.')],
+	'selective' => ['icon' => 'fa-filter', 'title' => gettext('Selective inspection'),
+	    'help' => gettext('Inspect only destinations in the inspection list; splice everything else.')],
+	'full' => ['icon' => 'fa-magnifying-glass', 'title' => gettext('Full inspection'),
+	    'help' => gettext('Inspect by default while honoring the built-in and administrator bypass lists.')],
+], $pconfig['tls_mode'], gettext('HTTPS handling mode'))));
+$form->add($section);
+
+$section = new Form_Section(gettext('Inspection certificate authority'), 'wg-tls-ca');
+$section->addInput(new Form_Select('caref', gettext('Signing CA'), $pconfig['caref'], ['' => gettext('None (tunnel only)')] + $cas))
+	->setHelp($cas ? gettext('An internal CA with a private key. Deploy its public certificate to managed clients before turning inspection on.')
+	    : gettext('No internal CA with a private key exists. Create a dedicated Web Gateway CA in Certificate Manager before enabling inspection.'));
+$buttons = '<div class="wg-buttons"><a class="btn btn-sm btn-outline-secondary" href="/system_camanager.php"><i class="fa-solid fa-certificate icon-embed-btn" aria-hidden="true"></i>'
+    . htmlspecialchars(gettext('Certificate Manager')) . '</a>';
+if ($pconfig['caref']) {
+	$buttons .= '<a class="btn btn-sm btn-outline-secondary" href="/system_camanager.php?act=export_cert&amp;id=' . htmlspecialchars(urlencode($pconfig['caref'])) . '">'
+	    . '<i class="fa-solid fa-download icon-embed-btn" aria-hidden="true"></i>' . htmlspecialchars(gettext('Export CA certificate')) . '</a>';
+}
+$section->addInput(new Form_StaticText(gettext('Certificates'), $buttons . '</div>'));
+$section->addInput(new Form_Checkbox('tls_ack', gettext('Acknowledgement'),
+    gettext('I understand the legal, privacy, client-trust and application-compatibility impact of decrypting TLS traffic.'), $pconfig['tls_ack'] === 'on', 'on'))
+	->setHelp(gettext('Required for selective and full inspection.'));
+$form->add($section);
+
+$section = new Form_Section(gettext('Bump and splice lists'), 'wg-tls-lists');
+$section->addInput(new Form_Textarea('inspect_domains_text', gettext('Inspect in selective mode'), webgateway_decode_list($pconfig['inspect_domains'])))
+	->setRows(8)
+	->addClass('fs-mono')
+	->setAttribute('placeholder', '.example.com')
+	->setHelp(gettext('One destination domain per line. A leading dot includes subdomains.'));
+$section->addInput(new Form_Textarea('splice_domains_text', gettext('Always splice'), webgateway_decode_list($pconfig['splice_domains'])))
+	->setRows(8)
+	->addClass('fs-mono')
+	->setAttribute('placeholder', '.bank.example')
+	->setHelp(gettext('Never inspected. Added to the built-in pinned, update, authentication and PKI bypass set.'));
+$form->add($section);
+
+print($form);
+
+print_callout(htmlspecialchars(gettext('ECH or unknown-SNI traffic is spliced by default. Transparent HTTPS inspection can block QUIC under Listeners so clients retry over TCP.')), 'info');
+include('foot.inc');
