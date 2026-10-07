@@ -811,10 +811,14 @@ function suricata_get_config_lists($lists) {
 	return(['default' => 'default'] + $list);
 }
 
-$pglinks = array("", "/suricata/suricata_interfaces.php", "@self");
-$pgtitle = array("Services", "Suricata", "{$if_friendly} - Interface Settings");
+$if_crumb = $if_friendly ? $if_friendly : gettext('Interface');
+$pglinks = array("", "/suricata/suricata_overview.php", "/suricata/suricata_interfaces.php", "", "@self");
+$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("Interfaces"), $if_crumb, $new_interface ? gettext("Add interface") : gettext("Edit interface"));
+if ($new_interface) {
+	$pglinks = array("", "/suricata/suricata_overview.php", "/suricata/suricata_interfaces.php", "@self");
+	$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("Interfaces"), gettext("Add interface"));
+}
 include_once("head.inc");
-suricata_display_primary_navigation('interfaces');
 
 /* Display Alert message */
 if ($input_errors) {
@@ -827,6 +831,8 @@ if ($savemsg2) {
 	print_info_box($savemsg2);
 }
 
+suricata_display_primary_navigation('interfaces');
+
 // Check that CSO, TSO and LRO are all disabled for proper operation
 $suricata_realif = get_real_interface($pconfig['interface'] ?? '');
 if (!empty($suricata_realif) && function_exists('nic_settings_effective')) {
@@ -837,940 +843,163 @@ if (!empty($suricata_realif) && function_exists('nic_settings_effective')) {
 }
 
 if ($pconfig['enable'] == 'on' && $suricata_offload_active) {
-	print_info_box(gettext('WARNING! Suricata now requires that Hardware Checksum Offloading, Hardware TCP Segmentation Offloading and Hardware Large Receive Offloading ' .
-				'all be disabled for proper operation. This firewall currently has one or more of these Offloading settings NOT disabled. Visit the ') . '<a href="/interfaces_nic_settings.php">' . 
-			        gettext('Interfaces > NIC Settings') . '</a>' . gettext(' page and ensure all three of these Offloading settings are disabled.'));
+	print_info_box(gettext('Suricata needs hardware checksum, TCP segmentation and large receive offloading disabled on this interface. One or more of them is still enabled.') .
+		' <a href="/interfaces_nic_settings.php">' . gettext('Open NIC settings') . '</a>', 'warning');
 }
 
-$tab_array = array();
-$tab_array[] = array(gettext("Interfaces"), true, "/suricata/suricata_interfaces.php");
-$tab_array[] = array(gettext("Global Settings"), false, "/suricata/suricata_global.php");
-$tab_array[] = array(gettext("Updates"), false, "/suricata/suricata_download_updates.php");
+suricata_display_interface_tabs($id, 'settings', $new_interface);
 
-if ($new_interface) {
-	$tab_array[] = array(gettext("Alerts"), false, "/suricata/suricata_alerts.php");
+/* ------------------------------------------------------------ summary card */
+$sum = (!$new_interface && isset($a_rule[$id])) ? $a_rule[$id] : $pconfig;
+$sum_real = get_real_interface($sum['interface'] ?? '');
+$sum_blocking = (($sum['blockoffenders'] ?? '') == 'on');
+if ($sum_blocking && ($sum['ips_mode'] ?? '') == 'ips_mode_inline') {
+	$sum_mode = gettext('IPS inline');
+} elseif ($sum_blocking) {
+	$sum_mode = gettext('IPS legacy');
 } else {
-	$tab_array[] = array(gettext("Alerts"), false, "/suricata/suricata_alerts.php?instance={$id}");
+	$sum_mode = gettext('IDS (alerts only)');
 }
-
-$tab_array[] = array(gettext("Blocks"), false, "/suricata/suricata_blocked.php");
-$tab_array[] = array(gettext("Files"), false, "/suricata/suricata_files.php?instance={$id}");
-$tab_array[] = array(gettext("Pass Lists"), false, "/suricata/suricata_passlist.php");
-$tab_array[] = array(gettext("Suppress"), false, "/suricata/suricata_suppress.php");
-$tab_array[] = array(gettext("Logs View"), false, "/suricata/suricata_logs_browser.php?instance={$id}");
-$tab_array[] = array(gettext("Logs Mgmt"), false, "/suricata/suricata_logs_mgmt.php");
-$tab_array[] = array(gettext("SID Mgmt"), false, "/suricata/suricata_sid_mgmt.php");
-$tab_array[] = array(gettext("Sync"), false, "/pkg_edit.php?xml=suricata/suricata_sync.xml");
-$tab_array[] = array(gettext("IP Lists"), false, "/suricata/suricata_ip_list_mgmt.php");
-display_top_tabs($tab_array, true);
-
-$tab_array = array();
-$menu_iface=($if_friendly?substr($if_friendly,0,5)." ":"Iface ");
-$tab_array[] = array($menu_iface . gettext("Settings"), true, "/suricata/suricata_interfaces_edit.php?id={$id}");
+$sum_eve = gettext('Off');
+if (($sum['enable_eve_log'] ?? '') == 'on') {
+	$eve_types = array("regular" => gettext("File"), "syslog" => gettext("Syslog"), "redis" => gettext("Redis"), "unix_dgram" => gettext("UNIX datagram socket"), "unix_stream" => gettext("UNIX stream socket"));
+	$sum_eve = $eve_types[$sum['eve_output_type'] ?? 'regular'] ?? gettext('File');
+}
+$sum_badges = [];
+if ($new_interface) {
+	$sum_badges[] = fs_badge('pending', gettext('Not saved yet'));
+} elseif (($sum['enable'] ?? '') != 'on') {
+	$sum_badges[] = fs_badge('disabled');
+} else {
+	$sum_badges[] = fs_badge('enabled');
+	$sum_badges[] = ($sum_real != '' && suricata_is_running($sum['uuid'], $sum_real)) ? fs_badge('up', gettext('Running')) : fs_badge('down', gettext('Stopped'));
+}
+$sum_sources = suricata_ruleset_summary($sum);
+$sum_facts = [
+	[gettext('Interface'), ($sum_real != '') ? convert_friendly_interface_to_friendly_descr($sum['interface']) . " ({$sum_real})" : '', 'empty' => gettext('Not assigned')],
+	[gettext('Mode'), $sum_mode],
+	[gettext('Home net'), $sum['homelistname'] ?? '', 'empty' => 'default'],
+	[gettext('EVE JSON log'), $sum_eve],
+];
 if (!$new_interface) {
-	$tab_array[] = array($menu_iface . gettext("Categories"), false, "/suricata/suricata_rulesets.php?id={$id}");
-	$tab_array[] = array($menu_iface . gettext("Rules"), false, "/suricata/suricata_rules.php?id={$id}");
-	$tab_array[] = array($menu_iface . gettext("Flow/Stream"), false, "/suricata/suricata_flow_stream.php?id={$id}");
-	$tab_array[] = array($menu_iface . gettext("App Parsers"), false, "/suricata/suricata_app_parsers.php?id={$id}");
-	$tab_array[] = array($menu_iface . gettext("Variables"), false, "/suricata/suricata_define_vars.php?id={$id}");
-	$tab_array[] = array($menu_iface . gettext("IP Rep"), false, "/suricata/suricata_ip_reputation.php?id={$id}");
+	$sum_facts[] = [gettext('Rule sets'), '', 'chips' => array_keys($sum_sources), 'empty' => gettext('None selected')];
 }
-display_top_tabs($tab_array, true);
+fs_summary_card([
+	'icon' => 'fa-shield-halved',
+	'title' => $new_interface ? '' : ($sum['descr'] ?? ''),
+	'placeholder' => gettext('New Suricata interface'),
+	'subtitle' => $new_interface ? gettext('Save the settings before starting Suricata on this interface.') : '',
+	'badges' => $sum_badges,
+	'meta' => $new_interface ? '' : $sum_real,
+	'label' => gettext('Interface summary'),
+	'facts' => $sum_facts,
+	'actions' => $new_interface ? [] : [[gettext('Alerts'), "/suricata/suricata_alerts.php?instance={$id}", 'fa-bell'], [gettext('Rules'), "/suricata/suricata_rules.php?id={$id}", 'fa-list-check']],
+]);
+
+$sec_state = COLLAPSIBLE | (!empty($input_errors) ? SEC_OPEN : SEC_CLOSED);
+$syslog_facilities = array("auth" => "AUTH", "authpriv" => "AUTHPRIV", "daemon" => "DAEMON", "kern" => "KERN", "security" => "SECURITY",
+	"syslog" => "SYSLOG", "user" => "USER", "local0" => "LOCAL0", "local1" => "LOCAL1", "local2" => "LOCAL2",
+	"local3" => "LOCAL3", "local4" => "LOCAL4", "local5" => "LOCAL5", "local6" => "LOCAL6", "local7" => "LOCAL7");
+$log_filetypes = array("regular" => "Regular", "unix_dgram" => "UNIX Datagram Socket", "unix_stream" => "UNIX Stream Socket");
+
+// Checkbox shorthand: every field keeps its name, value and checked state.
+$cb = function ($name, $title, $text, $on = 'on') use (&$pconfig) {
+	return new Form_Checkbox($name, $title, $text, $pconfig[$name] == $on ? true : false, $on);
+};
+$view_btn = function ($name, $target) {
+	$btn = new Form_Button($name, ' ' . 'View List', '#', 'fa-regular fa-file-lines');
+	$btn->removeClass('btn-primary')->removeClass('btn-secondary')->addClass('btn-outline-secondary')->addClass('btn-sm')
+	    ->setAttribute('data-bs-toggle', 'modal')->setAttribute('data-bs-target', $target);
+	return $btn;
+};
 
 $form = new Form;
 
-$section = new Form_Section('General Settings');
-$section->addInput(new Form_Checkbox(
-	'enable',
-	'Enable',
-	'Checking this box enables Suricata inspection on the interface.',
-	$pconfig['enable'] == 'on' ? true:false,
-	'on'
-));
-
+/* ------------------------------------------------------------------ general */
+$section = new Form_Section('General', 'suri-general');
+$section->addInput($cb('enable', 'Enable', 'Inspect traffic on this interface with Suricata'));
 $section->addInput(new Form_Select(
 	'interface',
-	'Interface',
+	'*Interface',
 	$pconfig['interface'],
 	$interfaces
-))->setHelp('Choose which interface this Suricata instance applies to. In most cases, you will want to choose LAN here if this is the first Suricata-configured interface.');
-
+))->setHelp('The firewall interface this Suricata instance inspects.');
 $section->addInput(new Form_Input(
 	'descr',
 	'Description',
 	'text',
 	$pconfig['descr']
-))->setHelp('Enter a meaningful description here for your reference. The default is the FreeSense interface friendly description.');
-
+))->setHelp('Defaults to the interface name.');
 $form->add($section);
 
-$section = new Form_Section('Logging Settings');
+/* ----------------------------------------------------------------- networks */
+$section = new Form_Section('Networks and lists', 'suri-networks');
 
-$section->addInput(new Form_Checkbox(
-	'alertsystemlog',
-	'Send Alerts to System Log',
-	'Suricata will send Alerts from this interface to the firewall\'s system log.',
-	$pconfig['alertsystemlog'] == 'on' ? true:false,
-	'on'
-))->setHelp('NOTE:  the FreeBSD syslog daemon will automatically truncate exported messages to 480 bytes max.');
-
-$section->addInput(new Form_Select(
-	'alertsystemlog_facility',
-	'Log Facility',
-	$pconfig['alertsystemlog_facility'],
-	array(  "auth" => "AUTH", "authpriv" => "AUTHPRIV", "daemon" => "DAEMON", "kern" => "KERN", "security" => "SECURITY", 
-		"syslog" => "SYSLOG", "user" => "USER", "local0" => "LOCAL0", "local1" => "LOCAL1", "local2" => "LOCAL2", 
-		"local3" => "LOCAL3", "local4" => "LOCAL4", "local5" => "LOCAL5", "local6" => "LOCAL6", "local7" => "LOCAL7" )
-))->setHelp('Select system log Facility to use for reporting. Default is LOCAL1.');
-
-$section->addInput(new Form_Select(
-	'alertsystemlog_priority',
-	'Log Priority',
-	$pconfig['alertsystemlog_priority'],
-	array( "emergency" => "EMERG", "critical" => "CRIT", "alert" => "ALERT", "error" => "ERR", "warning" => "WARNING", "notice" => "NOTICE", "info" => "INFO", "debug" => "DEBUG" )
-))->setHelp('Select system log Priority (Level) to use for reporting. Default is NOTICE.');
-
-$section->addInput(new Form_Checkbox(
-	'enable_stats_collection',
-	'Enable Stats Collection',
-	'Suricata will periodically gather performance statistics for this interface. Default is Not Checked.',
-	$pconfig['enable_stats_collection'] == 'on' ? true:false,
-	'on'
-));
-
-$section->addInput(new Form_Input(
-	'stats_upd_interval',
-	'Stats Update Interval',
-	'text',
-	$pconfig['stats_upd_interval']
-))->setHelp('Enter the update interval in seconds for collection of performance statistics. Default is 10 seconds.');
-
-$section->addInput(new Form_Checkbox(
-	'enable_stats_log',
-	'Enable Stats Log',
-	'Suricata will periodically log statistics for this interface to a CSV text log file. Default is Not Checked.',
-	$pconfig['enable_stats_log'] == 'on' ? true:false,
-	'on'
-));
-
-$section->addInput(new Form_Checkbox(
-	'append_stats_log',
-	'Append Stats Log',
-	'Suricata will append-to instead of clearing the stats log file when restarting. Default is Not Checked.',
-	$pconfig['append_stats_log'] == 'on' ? true:false,
-	'on'
-));
-
-$section->addInput(new Form_Checkbox(
-	'enable_telegraf_stats',
-	'Enable Telegraf Stats',
-	'Suricata will periodically log statistics for this interface to Telegraf via a Unix socket. Default is Not Checked.',
-	$pconfig['enable_telegraf_stats'] == 'on' ? true:false,
-	'on'
-));
-
-$section->addInput(new Form_Input(
-	'suricata_telegraf_unix_socket_name',
-	'Telegraf Unix Socket',
-	'text',
-	base64_decode($pconfig['suricata_telegraf_unix_socket_name'])
-))->setHelp('Enter the full Unix socket name configured in Telegraf. This value must match exactly what is configured in the Telegraf input.suricata plugin! Note that Suricata will not create this socket. It must be created by Telegraf.');
-
-$section->addInput(new Form_Checkbox(
-	'enable_http_log',
-	'Enable HTTP Log',
-	'Suricata will log decoded HTTP traffic for the interface. Default is Checked.',
-	$pconfig['enable_http_log'] == 'on' ? true:false,
-	'on'
-));
-
-$section->addInput(new Form_Select(
-	'http_log_filetype',
-	'HTTP Log File Type',
-	$pconfig['http_log_filetype'],
-	array("regular" => "Regular", "unix_dgram" => "UNIX Datagram Socket", "unix_stream"=>"UNIX Stream Socket")
-))->setHelp('Select "Regular" to log to a conventional file, or choose UNIX "Datagram" or "Stream" Socket to log to an existing UNIX socket. Default is "Regular"');
-
-$section->addInput(new Form_Input(
-	'http_log_socket',
-	'HTTP Log Socket Name',
-	'text',
-	base64_decode($pconfig['http_log_socket'])
-))->setHelp('Enter the UNIX socket name where TLS logs should be output. The user is responsible for creating the socket. It is NOT created by Suricata.');
-
-$section->addInput(new Form_Checkbox(
-	'append_http_log',
-	'Append HTTP Log',
-	'Suricata will append-to instead of clearing HTTP log file when restarting. Default is Checked.',
-	$pconfig['append_http_log'] == 'on' ? true:false,
-	'on'
-));
-
-$section->addInput(new Form_Checkbox(
-	'http_log_extended',
-	'Log Extended HTTP Info',
-	'Suricata will log extended HTTP information. Default is Checked.',
-	$pconfig['http_log_extended'] == 'on' ? true:false,
-	'on'
-));
-
-$section->addInput(new Form_Checkbox(
-	'enable_tls_log',
-	'Enable TLS Log',
-	'Suricata will log TLS handshake traffic for the interface. Default is Not Checked.',
-	$pconfig['enable_tls_log'] == 'on' ? true:false,
-	'on'
-));
-
-$section->addInput(new Form_Select(
-	'tls_log_filetype',
-	'TLS Log File Type',
-	$pconfig['tls_log_filetype'],
-	array("regular" => "Regular", "unix_dgram" => "UNIX Datagram Socket", "unix_stream"=>"UNIX Stream Socket")
-))->setHelp('Select "Regular" to log to a conventional file, or choose UNIX "Datagram" or "Stream" Socket to log to an existing UNIX socket. Default is "Regular"');
-
-$section->addInput(new Form_Input(
-	'tls_log_socket',
-	'TLS Log Socket Name',
-	'text',
-	base64_decode($pconfig['tls_log_socket'])
-))->setHelp('Enter the UNIX socket name where TLS logs should be output. The user is responsible for creating the socket. It is NOT created by Suricata.');
-
-$section->addInput(new Form_Checkbox(
-	'append_tls_log',
-	'Append TLS Log',
-	'Suricata will append-to instead of clearing TLS log file when restarting. Default is Checked.',
-	$pconfig['append_tls_log'] == 'on' ? true:false,
-	'on'
-));
-
-$section->addInput(new Form_Checkbox(
-	'tls_session_resumption',
-	'Enable TLS Session Resumption',
-	'Suricata will output TLS transactions where the session is resumed using a Session ID. Default is Not Checked.',
-	$pconfig['tls_session_resumption'] == 'on' ? true:false,
-	'on'
-));
-
-$section->addInput(new Form_Checkbox(
-	'enable_tls_store',
-	'Enable TLS Store',
-	'Suricata will log and store TLS certificates for the interface. Default is Not Checked.',
-	$pconfig['enable_tls_store'] == 'on' ? true:false,
-	'on'
-));
-
-$section->addInput(new Form_Checkbox(
-	'tls_log_extended',
-	'Log Extended TLS Info',
-	'Suricata will log extended TLS info such as fingerprint. Default is Checked.',
-	$pconfig['tls_log_extended'] == 'on' ? true:false,
-	'on'
-));
-
-$section->addInput(new Form_Checkbox(
-	'enable_file_store',
-	'Enable File-Store',
-	'Suricata will extract and store files from application layer streams. Default is Not Checked. WARNING: Enabling file-store will consume a significant amount of disk space on a busy network!',
-	$pconfig['enable_file_store'] == 'on' ? true:false,
-	'on'
-));
-
-$section->addInput(new Form_Input(
-	'file_store_logdir',
-	'File Store Logging Directory',
-	'text',
-	base64_decode($pconfig['file_store_logdir'])
-))->setHelp('Enter directory path for saving the files extracted from application layer streams. When blank, the default path is a "filestore" sub-directory under the interface logging sub-directory in ' . SURICATALOGDIR . '.');
-
-$section->addInput(new Form_Checkbox(
-	'enable_pcap_log',
-	'Enable Packet Log',
-	'Suricata will log decoded packets for the interface in pcap-format. Default is Not Checked. This can consume a significant amount of disk space when enabled. ' .
-	'Use the Packet Log Conditional setting below to select packets for capture.',
-	$pconfig['enable_pcap_log'] == 'on' ? true:false,
-	'on'
-));
-
-$section->addInput(new Form_Select(
-	'pcap_log_conditional',
-	'Packet Log Conditional',
-	$pconfig['pcap_log_conditional'],
-	array("alerts" => "ALERTS", "all" => "ALL", "tag"=>"TAG")
-))->setHelp('Select ALERTS to capture and log only alerted packets and flows, ALL to capture and log all packets, or TAG to capture and log only flows tagged via the "tag" keyword. ' .
-			'Default is ALERTS which will only create PCAP files for alerts.');
-
-$section->addInput(new Form_Checkbox(
-	'pcap_use_stream_depth',
-	'Use Stream Depth',
-	'If Checked, packets seen after reaching stream inspection depth are ignored. Unchecked logs all packets. Default is Not Checked.',
-	$pconfig['pcap_use_stream_depth'] == 'on' ? true:false,
-	'on'
-));
-$section->addInput(new Form_Checkbox(
-	'pcap_honor_pass_rules',
-	'Honor PASS Rules',
-	'If Checked, flows in which a pass rule matched will stop being captured and logged. Default is Not Checked.',
-	$pconfig['pcap_honor_pass_rules'] == 'on' ? true:false,
-	'on'
-));
-
-$section->addInput(new Form_Input(
-	'max_pcap_log_size',
-	'Max Packet Log File Size',
-	'text',
-	$pconfig['max_pcap_log_size']
-))->setHelp('Enter maximum size in MB for a packet log file. Default is 32. When the packet log file size reaches the set limit, it will be rotated and a new one created.');
-
-$section->addInput(new Form_Input(
-	'max_pcap_log_files',
-	'Max Packet Log Files',
-	'text',
-	$pconfig['max_pcap_log_files']
-))->setHelp('Enter maximum number of packet log files to maintain. Default is 100. When the number of packet log files reaches the set limit, the oldest file will be overwritten.');
-
-$section->addInput(new Form_Checkbox(
-	'enable_verbose_logging',
-	'Enable Verbose Logging',
-	'Suricata will log additional information to the suricata.log file when starting up and shutting down. Default is Not Checked.',
-	$pconfig['enable_verbose_logging'] == 'on' ? true:false,
-	'on'
-));
-
-$form->add($section);
-
-$section = new Form_Section('EVE Output Settings');
-
-$section->addInput(new Form_Checkbox(
-	'enable_eve_log',
-	'EVE JSON Log',
-	'Suricata will output selected info in JSON format to a single file or to syslog. Default is Not Checked.',
-	$pconfig['enable_eve_log'] == 'on' ? true:false,
-	'on'
-));
-
-$section->addInput(new Form_Select(
-	'eve_output_type',
-	'EVE Output Type',
-	$pconfig['eve_output_type'],
-	array("regular" => "FILE", "syslog" => "SYSLOG", "redis"=>"Redis", "unix_dgram" => "UNIX Datagram Socket", "unix_stream" => "UNIX Stream Socket")
-))->setHelp('Select EVE log output destination. Choosing FILE is suggested and is the default value. "Redis" is used for output to a Redis server, and the UNIX Socket options output to a user-created socket.');
-
-$section->addInput(new Form_Input(
-	'eve_output_socket',
-	'EVE Output Socket Name',
-	'text',
-	base64_decode($pconfig['eve_output_socket'])
-))->setHelp('Enter the UNIX socket name where EVE logs should be output. The user is responsible for creating the socket. It is NOT created by Suricata.');
-
-$section->addInput(new Form_Select(
-	'eve_systemlog_facility',
-	'EVE Syslog Output Facility',
-	$pconfig['eve_systemlog_facility'],
-	array(  "auth" => "AUTH", "authpriv" => "AUTHPRIV", "daemon" => "DAEMON", "kern" => "KERN", "security" => "SECURITY", 
-		"syslog" => "SYSLOG", "user" => "USER", "local0" => "LOCAL0", "local1" => "LOCAL1", "local2" => "LOCAL2", 
-		"local3" => "LOCAL3", "local4" => "LOCAL4", "local5" => "LOCAL5", "local6" => "LOCAL6", "local7" => "LOCAL7" )
-))->setHelp('Select EVE syslog output facility.');
-
-$section->addInput(new Form_Select(
-	'eve_systemlog_priority',
-	'EVE Syslog Output Priority',
-	$pconfig['eve_systemlog_priority'],
-	array( "emerg" => "EMERG", "crit" => "CRIT", "alert" => "ALERT", "err" => "ERR", "warning" => "WARNING", "notice" => "NOTICE", "info" => "INFO" )
-))->setHelp('Select EVE syslog output priority.');
-
-$group = new Form_Group('EVE REDIS Server');
-
-$group->add(new Form_Input(
-	'eve_redis_server',
-	'Redis Server',
-	'text',
-	$pconfig['eve_redis_server']
-))->setHelp('Enter the Redis server IP');
-
-$group->add(new Form_Input(
-	'eve_redis_port',
-	'Port',
-	'text',
-	$pconfig['eve_redis_port']
-))->setHelp('Enter the Redis server port');
-
-$section->add($group)->addClass('eve_redis_connection');
-
-$section->addInput(new Form_Select(
-	'eve_redis_mode',
-	'EVE REDIS Mode',
-	$pconfig['eve_redis_mode'],
-	array("list"=>"List (LPUSH)","rpush"=>"List (RPUSH)","channel"=>"Channel(PUBLISH)")
-))->setHelp('Select the REDIS output mode');
-
-$section->addInput(new Form_Input(
-	'eve_redis_key',
-	'EVE REDIS Key',
-	'text',
-	$pconfig['eve_redis_key']
-))->setHelp('Enter the REDIS Key');
-
-$section->addInput(new Form_Checkbox(
-	'eve_log_alerts_xff',
-	'EVE HTTP XFF Support',
-	'Log X-Forwarded-For IP addresses.  Default is Not Checked.',
-	$pconfig['eve_log_alerts_xff'] == 'on' ? true:false,
-	'on'
-));
-$section->addInput(new Form_Checkbox(
-	'eve_log_ethernet',
-	'EVE Ethernet MAC',
-	'Log Ethernet header in events when available.  Default is Not Checked.',
-	$pconfig['eve_log_ethernet'] == 'yes' ? true:false,
-	'yes'
-));
-
-$section->addInput(new Form_Select(
-	'eve_log_alerts_xff_mode',
-	'EVE X-Forwarded-For Operational Mode',
-	$pconfig['eve_log_alerts_xff_mode'],
-	array( "extra-data" => "extra-data", "overwrite" => "overwrite" )
-))->setHelp('Select HTTP X-Forwarded-For Operation Mode. Extra-Data adds an extra field while Overwrite overwrites the existing source or destination IP. Default is extra-data.');
-
-$section->addInput(new Form_Select(
-	'eve_log_alerts_xff_deployment',
-	'EVE X-Forwarded-For Deployment',
-	$pconfig['eve_log_alerts_xff_deployment'],
-	array( "reverse" => "reverse", "forward" => "forward" )
-))->setHelp('Select HTTP X-Forwarded-For Deployment.  Reverse deployment uses the last IP address while Forward uses the first one. Default is reverse.');
-
-$section->addInput(new Form_Input(
-	'eve_log_alerts_xff_header',
-	'EVE Log Alert X-Forwarded-For Header',
-	'text',
-	$pconfig['eve_log_alerts_xff_header']
-))->setHelp('Enter header where actual IP address is reported. Default is X-Forwarded-For. If more than one IP address is present, the last one will be used.');
-
-$section->addInput(new Form_Checkbox(
-	'eve_log_alerts',
-	'EVE Log Alerts',
-	'Suricata will output Alerts via EVE',
-	$pconfig['eve_log_alerts'] == 'on' ? true:false,
-	'on'
-));
-
-$section->addInput(new Form_Select(
-	'eve_log_alerts_payload',
-	'EVE Log Alert Payload Data Formats',
-	$pconfig['eve_log_alerts_payload'],
-	array("off"=>"NO","only-base64"=>"BASE64","only-printable"=>"PRINTABLE","on"=>"BOTH")
-))->setHelp('Log the payload data with alerts.  Options are No (disable payload logging), Only Printable (lossy) format, Only Base64 encoded or Both. See Suricata documentation.');
-
-$group = new Form_Group('EVE Log Alert details');
-$group->add(new Form_Checkbox(
-	'eve_log_alerts_packet',
-	'Alert Payloads',
-	'Log a packet dump with alerts.',
-	$pconfig['eve_log_alerts_packet'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'eve_log_alerts_http',
-	'Alert Payloads',
-	'Log additional HTTP data.',
-	$pconfig['eve_log_alerts_http'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'eve_log_alerts_metadata',
-	'App Layer Metadata',
-	'Include App Layer metadata.',
-	$pconfig['eve_log_alerts_metadata'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'eve_log_alerts_verdict',
-	'Engine Verdict',
-	'Log final action taken on packet by the engine',
-	$pconfig['eve_log_alerts_verdict'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'eve_log_alerts_tagged',
-	'Tagged Packets',
-	'Log packets for rules using the "tag" keyword',
-	$pconfig['eve_log_alerts_tagged'] == 'on' ? true:false,
-	'on'
-));
-$section->add($group)->addClass('eve_log_alerts_details');
-
-$section->addInput(new Form_Checkbox(
-	'eve_log_drops',
-	'EVE Log Drops',
-	'Suricata will output Drops via EVE',
-	$pconfig['eve_log_drops'] == 'on' ? true:false,
-	'on'
-));
-
-$group = new Form_Group('EVE Log Drops Options');
-$group->add(new Form_Checkbox(
-	'eve_log_alert_drops',
-	'Alerts',
-	'Log alerts that caused drops. Default is "Checked".',
-	$pconfig['eve_log_alert_drops'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'eve_log_drops_verdict',
-	'Engine Verdicts',
-	'Log final action taken on packet by the engine',
-	$pconfig['eve_log_drops_verdict'] == 'on' ? true:false,
-	'on'
-));
+$group = new Form_Group('Home net');
 $group->add(new Form_Select(
-	'eve_log_drops_flows',
-	'EVE Drop Log Flows',
-	$pconfig['eve_log_drops_flows'],
-	array("all"=>"All","start"=>"Start")
-))->setHelp('"Start" logs only a single drop per flow direction. "All" logs each dropped pkt.');
-$section->add($group)->addClass('eve_log_drops_options');
+	'homelistname',
+	'Home Net',
+	$pconfig['homelistname'],
+	suricata_get_config_lists('passlist')
+))->setHelp('Networks Suricata protects.');
+$group->add($view_btn('btnHomeNet', '#homenet'));
+$group->setHelp('The default adds local networks, WAN addresses, gateways, VPNs and virtual IPs. Use a pass list with an alias for a custom set.');
+$section->add($group);
 
-$section->addInput(new Form_Checkbox(
-	'eve_log_anomaly',
-	'EVE Log Anomalies',
-	'Suricata will log packet anomalies such as truncated packets, packets with invalid IP/UDP/TCP length values and other events that render the packet invalid for further processing. Networks with high rates of anomalies may experience packet processing degradation.',
-	$pconfig['eve_log_anomaly'] == 'on' ? true:false,
-	'on'
-));
-$group = new Form_Group('EVE Log Anomaly Details');
-$group->add(new Form_Checkbox(
-	'eve_log_anomaly_type_decode',
-	'Decode Anomaly',
-	'Log packet decode anomaly events.',
-	$pconfig['eve_log_anomaly_type_decode'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'eve_log_anomaly_type_stream',
-	'Stream Anomaly',
-	'Log packet stream anomaly events.',
-	$pconfig['eve_log_anomaly_type_stream'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'eve_log_anomaly_type_applayer',
-	'App Layer Anomaly',
-	'Log packet applayer anomaly events.',
-	$pconfig['eve_log_anomaly_type_applayer'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'eve_log_anomaly_packethdr',
-	'Anomaly Packet Hdr',
-	'Log packet header for anomaly events.',
-	$pconfig['eve_log_anomaly_packethdr'] == 'on' ? true:false,
-	'on'
-));
-$group->setHelp('Select which details Suricata will use to enrich anomaly logging.');
-$section->add($group)->addClass('eve_log_anomaly_details');
-$group = new Form_Group('EVE Logged Traffic');
-$group->add(new Form_Checkbox(
-	'eve_log_bittorrent',
-	'BitTorrent',
-	'BitTorrent',
-	$pconfig['eve_log_bittorrent'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'eve_log_dns',
-	'DNS',
-	'DNS',
-	$pconfig['eve_log_dns'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'eve_log_ftp',
-	'FTP',
-	'FTP',
-	$pconfig['eve_log_ftp'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'eve_log_http',
-	'HTTP',
-	'HTTP',
-	$pconfig['eve_log_http'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'eve_log_http2',
-	'HTTP2',
-	'HTTP2',
-	$pconfig['eve_log_http2'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'eve_log_ikev2',
-	'IKE',
-	'IKE',
-	$pconfig['eve_log_ikev2'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'eve_log_krb5',
-	'Kerberos',
-	'Kerberos',
-	$pconfig['eve_log_krb5'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'eve_log_nfs',
-	'NFS',
-	'NFS',
-	$pconfig['eve_log_nfs'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'eve_log_pgsql',
-	'PostgreSQL',
-	'PostgreSQL',
-	$pconfig['eve_log_pgsql'] == 'on' ? true:false,
-	'on'
-));
+$group = new Form_Group('External net');
+$group->add(new Form_Select(
+	'externallistname',
+	'External Net',
+	$pconfig['externallistname'],
+	suricata_get_config_lists('passlist')
+))->setHelp('Networks outside the home net.');
+$group->add($view_btn('btnExternalNet', '#externalnet'));
+$group->setHelp('Most installations keep the default (everything that is not home net).');
+$section->add($group);
 
-$section->add($group)->addClass('eve_log_info');
-
-$group = new Form_Group(false);
-$group->add(new Form_Checkbox(
-	'eve_log_quic',
-	'QUICv1',
-	'QUICv1',
-	$pconfig['eve_log_quic'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'eve_log_rdp',
-	'RDP',
-	'RDP',
-	$pconfig['eve_log_rdp'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'eve_log_rfb',
-	'RFB',
-	'RFB',
-	$pconfig['eve_log_rfb'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'eve_log_sip',
-	'SIP',
-	'SIP',
-	$pconfig['eve_log_sip'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'eve_log_smb',
-	'SMB',
-	'SMB',
-	$pconfig['eve_log_smb'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'eve_log_smtp',
-	'SMTP',
-	'SMTP',
-	$pconfig['eve_log_smtp'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'eve_log_tftp',
-	'TFTP',
-	'TFTP',
-	$pconfig['eve_log_tftp'] == 'on' ? true:false,
-	'on'
-));
-
-// The controls below are dummy placeholders to maintain Form Group spacing.
-// There must be the same number of Form Group controls on each row for
-// consistent spacing.
-$group->add(new Form_StaticText(
-	null,
-	null
-));
-$group->add(new Form_StaticText(
-	null,
-	null
-));
-$group->setHelp('Choose the traffic types to log via EVE JSON output.');
-$section->add($group)->addClass('eve_log_info');
-
-$group = new Form_Group('EVE Logged Info');
-$group->add(new Form_Checkbox(
-	'eve_log_dhcp',
-	'DHCP Messages',
-	'DHCP Messages',
-	$pconfig['eve_log_dhcp'] == 'on' ? true:false,
-	'on'
-));
-
-$group->add(new Form_Checkbox(
-	'eve_log_drop',
-	'Dropped Traffic',
-	'Dropped Traffic',
-	$pconfig['eve_log_drop'] == 'on' ? true:false,
-	'on'
-));
-
-$group->add(new Form_Checkbox(
-	'eve_log_flow',
-	'Flows',
-	'Flows',
-	$pconfig['eve_log_flow'] == 'on' ? true:false,
-	'on'
-));
-
-$group->add(new Form_Checkbox(
-	'eve_log_mqtt',
-	'MQTT',
-	'MQTT',
-	$pconfig['eve_log_mqtt'] == 'on' ? true:false,
-	'on'
-));
-
-$group->add(new Form_Checkbox(
-	'eve_log_netflow',
-	'Net Flows',
-	'Net Flows',
-	$pconfig['eve_log_netflow'] == 'on' ? true:false,
-	'on'
-));
-
-$group->add(new Form_Checkbox(
-	'eve_log_stats',
-	'Perf Stats',
-	'Perf Stats',
-	$pconfig['eve_log_stats'] == 'on' ? true:false,
-	'on'
-));
-
-$group->add(new Form_Checkbox(
-	'eve_log_snmp',
-	'SNMP',
-	'SNMP',
-	$pconfig['eve_log_snmp'] == 'on' ? true:false,
-	'on'
-));
-
-$section->add($group)->addClass('eve_log_info');
-$group = new Form_Group(false);
-
-$group->add(new Form_Checkbox(
-	'eve_log_ssh',
-	'SSH Handshakes',
-	'SSH Handshakes',
-	$pconfig['eve_log_ssh'] == 'on' ? true:false,
-	'on'
-));
-
-$group->add(new Form_Checkbox(
-	'eve_log_tls',
-	'TLS Handshakes',
-	'TLS Handshakes',
-	$pconfig['eve_log_tls'] == 'on' ? true:false,
-	'on'
-));
-
-$group->add(new Form_Checkbox(
-	'eve_log_files',
-	'Tracked Files',
-	'Tracked Files',
-	$pconfig['eve_log_files'] == 'on' ? true:false,
-	'on'
-));
-
-// The controls below are dummy placeholders to maintain Form Group spacing.
-// There must be the same number of Form Group controls on each row for
-// consistent spacing.
-$group->add(new Form_StaticText(
-	null,
-	null
-));
-$group->add(new Form_StaticText(
-	null,
-	null
-));
-$group->add(new Form_StaticText(
-	null,
-	null
-));
-$group->add(new Form_StaticText(
-	null,
-	null
-));
-
-$group->setHelp('Choose the information to log via EVE JSON output.');
-$section->add($group)->addClass('eve_log_info');
-
-$group = new Form_Group('EVE Logged Extended');
-
-$group->add(new Form_Checkbox(
-	'eve_log_http_extended',
-	'Extended HTTP Info',
-	'Extended HTTP Info',
-	$pconfig['eve_log_http_extended'] == 'on' ? true:false,
-	'on'
-));
-
-$group->add(new Form_Checkbox(
-	'eve_log_tls_extended',
-	'Extended TLS Info',
-	'Extended TLS Info',
-	$pconfig['eve_log_tls_extended'] == 'on' ? true:false,
-	'on'
-));
-
-$group->add(new Form_Checkbox(
-	'eve_log_dhcp_extended',
-	'Extended DHCP Info',
-	'Extended DHCP Info',
-	$pconfig['eve_log_dhcp_extended'] == 'on' ? true:false,
-	'on'
-));
-
-$group->add(new Form_Checkbox(
-	'eve_log_smtp_extended',
-	'Extended SMTP Info',
-	'Extended SMTP Info',
-	$pconfig['eve_log_tls_extended'] == 'on' ? true:false,
-	'on'
-));
-
-$group->setHelp('Select which EVE logged events are supplemented with extended information.');
-$section->add($group)->addClass('eve_log_info');
-
-$section->addInput(new Form_Select(
-	'eve_log_http_extended_headers',
-	'Extended HTTP Headers',
-	explode(", ",$pconfig['eve_log_http_extended_headers']),
-	array("accept"=>"accept","accept-charset"=>"accept-charset","accept-datetime"=>"accept-datetime","accept-encoding"=>"accept-encoding","accept-language"=>"accept-language","accept-range"=>"accept-range","age"=>"age","allow"=>"allow","authorization"=>"authorization","cache-control"=>"cache-control","connection"=>"connection","content-encoding"=>"content-encoding","content-language"=>"content-language","content-length"=>"content-length","content-location"=>"content-location","content-md5"=>"content-md5","content-range"=>"content-range","content-type"=>"content-type","cookie"=>"cookie","date"=>"date","dnt"=>"dnt","etags"=>"etags","from"=>"from","last-modified"=>"last-modified","link"=>"link","location"=>"location","max-forwards"=>"max-forwards","origin"=>"origin","pragma"=>"pragma","proxy-authenticate"=>"proxy-authenticate","proxy-authorization"=>"proxy-authorization","range"=>"range","referrer"=>"referrer","refresh"=>"refresh","retry-after"=>"retry-after","server"=>"server","set-cookie"=>"set-cookie","te"=>"te","trailer"=>"trailer","transfer-encoding"=>"transfer-encoding","upgrade"=>"upgrade","vary"=>"vary","via"=>"via","warning"=>"warning","www-authenticate"=>"www-authenticate","x-authenticated-user"=>"x-authenticated-user","x-flash-version"=>"x-flash-version","x-forwarded-proto"=>"x-forwarded-proto","x-requested-with"=>"x-requested-with"),
-	true
-))->setHelp('Select HTTP headers for logging.  Use CTRL + click for multiple selections.');
-
-$section->addInput(new Form_Select(
-	'eve_log_smtp_extended_fields',
-	'Extended SMTP Fields',
-	explode(", ",$pconfig['eve_log_smtp_extended_fields']),
-	array("bcc"=>"bcc","content-md5"=>"content-md5","date"=>"date","importance"=>"importance","in-reply-to"=>"in-reply-to","message-id"=>"message-id","organization"=>"organization","priority"=>"priority","received"=>"received","references"=>"references","reply-to"=>"reply-to","sensitivity"=>"sensitivity","subject"=>"subject","user-agent"=>"user-agent","x-mailer"=>"x-mailer","x-originating-ip"=>"x-originating-ip"),
-	true
-))->setHelp('Select SMTP fields for logging.  Use CTRL + click for multiple selections.');
-
-$section->addInput(new Form_Select(
-	'eve_log_tls_extended_fields',
-	'Extended TLS Fields',
-	explode(", ",$pconfig['eve_log_tls_extended_fields']),
-	array("subject"=>"Subject","issuer"=>"Issuer","session_resumed"=>"Session Resumed","serial"=>"Serial","fingerprint"=>"Fingerprint","sni"=>"SNI (Server Name Indication)","version"=>"Version","not_before"=>"Not Before","not_after"=>"Not After","certifcate"=>"Certificate","chain"=>"Chain","ja3"=>"JA3","ja3s"=>"JA3S"),
-	true
-))->setHelp('Select TLS extended fields for logging.  Use CTRL + click for multiple selections.');
-
-$section->addInput(new Form_Checkbox(
-	'eve_log_files_magic',
-	'Enable Logging Magic for Tracked-Files',
-	'Suricata will force logging magic on all logged Tracked Files. Default is Not Checked.',
-	$pconfig['eve_log_files_magic'] == 'on' ? true:false,
-	'on'
-));
-$section->addInput(new Form_Select(
-	'eve_log_files_hash',
-	'Tracked-Files Checksum',
-	$pconfig['eve_log_files_hash'],
-	array("none" => "None", "md5" => "MD5", "sha1" => "SHA1", "sha256" => "SHA256")
-))->setHelp('Suricata will generate checksums for all logged Tracked Files using the chosen algorithm. Default is None.');
-
-$group = new Form_Group('EVE Logged Stats');
-
-$group->add(new Form_Checkbox(
-	'eve_log_stats_totals',
-	'Stats total',
-	'Log Totals',
-	$pconfig['eve_log_stats_totals'] == 'on' ? true:false,
-	'on'
-));
-
-$group->add(new Form_Checkbox(
-	'eve_log_stats_deltas',
-	'Stats deltas',
-	'Log deltas',
-	$pconfig['eve_log_stats_deltas'] == 'on' ? true:false,
-	'on'
-));
-
-$group->add(new Form_Checkbox(
-	'eve_log_stats_threads',
-	'Stats per thread',
-	'Log per thread',
-	$pconfig['eve_log_stats_threads'] == 'on' ? true:false,
-	'on'
-));
-
-$section->add($group)->addClass('eve_log_stats_details');
-
-
+$group = new Form_Group('Suppress list');
+$group->add(new Form_Select(
+	'suppresslistname',
+	'Alert Suppression and Filtering',
+	$pconfig['suppresslistname'],
+	suricata_get_config_lists('suppress')
+))->setHelp('Suppression and event filtering applied to alerts. "default" turns it off.');
+$group->add($view_btn('btnSuppressList', '#suppresslist'));
+$section->add($group);
 $form->add($section);
 
-$section = new Form_Section('Alert and Block Settings');
+/* ----------------------------------------------------------------- blocking */
+$section = new Form_Section('Blocking', 'suri-blocking');
+$section->addInput($cb('blockoffenders', 'Block offenders', 'Block hosts that trigger a Suricata alert'));
 
-$section->addInput(new Form_Checkbox(
-	'blockoffenders',
-	'Block Offenders',
-	'Checking this option will automatically block hosts that generate a Suricata alert.',
-	$pconfig['blockoffenders'] == 'on' ? true:false,
-	'on'
-));
-
-$group = new Form_Group('IPS Mode');
+$group = new Form_Group('IPS mode');
 $group->add(new Form_Select(
 	'ips_mode',
 	'IPS Mode',
 	$pconfig['ips_mode'],
 	array( "ips_mode_legacy" => "Legacy Mode", "ips_mode_inline" => "Inline Mode" )
-))->setHelp('Select blocking mode operation.  Legacy Mode inspects copies of packets while Inline Mode inserts the Suricata inspection engine ' . 
-		'into the network stack between the NIC and the OS. Default is Legacy Mode.');
-$group->setHelp('Legacy Mode uses the PCAP engine to generate copies of packets for inspection as they traverse the interface.  Some "leakage" of packets will occur before ' .
-		'Suricata can determine if the traffic matches a rule and should be blocked.  Inline mode instead intercepts and inspects packets before they are handed ' .
-		'off to the host network stack for further processing.  Packets matching DROP rules are simply discarded (dropped) and not passed to the host ' .
-		'network stack.  No leakage of packets occurs with Inline Mode.  WARNING:  Inline Mode only works with NIC drivers which properly support Netmap! ' .
-		'Supported drivers include: ' . implode(', ', $netmapifs) . '. If problems are experienced with Inline Mode, switch to Legacy Mode instead.');
+))->setHelp('Legacy inspects copies of packets; Inline sits between the NIC and the network stack.');
+$group->setHelp('Legacy mode blocks the offending host after the first matching packets have passed. Inline mode drops matching packets before they reach the host, ' .
+	'but only works with NIC drivers that support netmap (' . implode(', ', $netmapifs) . '). Switch back to Legacy if Inline causes problems.');
 $section->add($group);
 
 $section->addInput(new Form_Input(
 	'ips_netmap_threads',
-	'Netmap Threads',
+	'Netmap threads',
 	'text',
 	$pconfig['ips_netmap_threads']
-))->setHelp('Enter the number of netmap threads to use. Default is "auto" and is recommended. When set to "auto", Suricata will query the system for the number of supported netmap queues, ' . 
-	    ' and it will use a matching number of netmap theads. The NIC hosting this interface registered ' . suricata_get_supported_netmap_queues($if_real) . ' queue(s) with the kernel.');
+))->setHelp('"auto" (recommended) uses one thread per netmap queue. This NIC reports ' . suricata_get_supported_netmap_queues($if_real) . ' queue(s).');
 
-$section->addInput(new Form_Checkbox(
-	'blockoffenderskill',
-	'Kill States',
-	'Checking this option will kill firewall states for the blocked IP.  Default is Checked.',
-	$pconfig['blockoffenderskill'] == 'on' ? true:false,
-	'on'
-));
-
+$section->addInput($cb('blockoffenderskill', 'Kill states', 'Kill firewall states of a blocked IP (default)'));
 $section->addInput(new Form_Select(
 	'blockoffendersip',
-	'Which IP to Block',
+	'Which IP to block',
 	$pconfig['blockoffendersip'],
 	array( 'src' => 'SRC', 'dst' => 'DST', 'both' => 'BOTH' )
-))->setHelp('Select which IP extracted from the packet you wish to block. Choosing BOTH is suggested, and it is the default value.');
+))->setHelp('Address taken from the packet to block. BOTH is recommended.');
+$section->addInput($cb('block_drops_only', 'Block on DROP only', 'Only block for rules with the DROP action (otherwise ALERT rules block too)'));
 
-$section->addInput(new Form_Checkbox(
-	'block_drops_only',
-	'Block On DROP Only',
-	'Checking this option will insert blocks only when rule signatures having the DROP action are triggered.  When not checked, any rule action (ALERT or DROP) will generate a block of the offending host.  Default is Not Checked.',
-	$pconfig['block_drops_only'] == 'on' ? true:false,
-	'on'
-));
-
-$group = new Form_Group('IP Pass List');
+$group = new Form_Group('Pass list');
 $group->addClass('passlist');
 $list = suricata_get_config_lists('passlist');
 $list['none'] = 'none';
@@ -1779,264 +1008,405 @@ $group->add(new Form_Select(
 	'Pass List',
 	$pconfig['passlistname'],
 	$list
-))->setHelp('Choose the Pass List you want this interface to use. Addresses in a Pass List are never blocked. Select "none" to prevent use of a Pass List.');
-$group->add(new Form_Button(
-	'btnPasslist',
-	' ' . 'View List',
-	'#',
-	'fa-regular fa-file-lines'
-))->removeClass('btn-primary')->removeClass('btn-secondary')->addClass('btn-outline-secondary')->addClass('btn-sm')->setAttribute('data-bs-target', '#passlist')->setAttribute('data-bs-toggle', 'modal');
-$group->setHelp('The default Pass List adds Gateways, DNS servers, locally-attached networks, the WAN IP, VPNs and VIPs.  Create a Pass List with an alias to customize whitelisted IP addresses.  ' . 
-		'This option will only be used when block offenders is on.  Choosing "none" will disable Pass List generation.');
+))->setHelp('Addresses on the pass list are never blocked. "none" disables it.');
+$group->add($view_btn('btnPasslist', '#passlist'));
+$group->setHelp('The default pass list adds gateways, DNS servers, local networks, the WAN address, VPNs and virtual IPs.');
 $section->add($group);
 
-$section->addInput(new Form_Checkbox(
-	'passlist_debug_log',
-	'Enable Passlist Debugging Log',
-	'Checking this option will enable detailed Passlist operations logging to file ' .
-	$suricatalogdir . 'suricata_' . $if_real . $suricata_uuid . '/passlist_debug.log.  Default is Not Checked.',
-	$pconfig['passlist_debug_log'] == 'on' ? true:false,
-	'on'
-));
-
+$section->addInput($cb('passlist_debug_log', 'Pass list debug log', 'Log pass list processing to ' .
+	$suricatalogdir . 'suricata_' . $if_real . $suricata_uuid . '/passlist_debug.log'));
 $form->add($section);
 
-// Add Inline IPS rule edit warning modal pop-up
+// Inline IPS rule action warning, shown when Inline mode is selected
 $modal = new Modal('Important Information About IPS Inline Mode Blocking', 'ips_warn_dlg', 'large', 'Close');
-
 $modal->addInput(new Form_StaticText (
 	null,
-	'<span class="help-block">' . 
-	gettext('When using Inline IPS Mode blocking, you must manually change the rule action ') . 
-	gettext('from ALERT to DROP for every rule which you wish to block traffic when triggered.') . 
-	'<br/><br/>' . 
-	gettext('The default action for rules is ALERT.  This will produce alerts but will not ') . 
-	gettext('block traffic when using Inline IPS Mode for blocking. ') . 
-	'<br/><br/>' . 
-	gettext('Use the "dropsid.conf" feature on the SID MGMT tab to select rules whose action ') . 
-	gettext('should be changed from ALERT to DROP.  If you run the Snort rules and have ') . 
-	gettext('an IPS policy selected on the CATEGORIES tab, then rules defined as DROP by the ') . 
-	gettext('selected IPS policy will have their action automatically changed to DROP when the ') . 
-	gettext('"IPS Policy Mode" selector is configured for "Policy".') . 
+	'<span class="help-block">' .
+	gettext('In Inline IPS mode a rule only blocks traffic when its action is DROP. The default rule action is ALERT, which logs but does not block.') .
+	'<br/><br/>' .
+	gettext('Use dropsid.conf on the SID management page to change the action of the rules that should block. ') .
+	gettext('With Snort rules and an IPS policy selected on the Categories tab, rules the policy marks as DROP are changed automatically when "IPS Policy Mode" is set to "Policy".') .
 	'</span>'
 ));
-
 $form->add($modal);
 
-$section = new Form_Section('Performance and Detection Engine Settings');
+/* ------------------------------------------------------------------ logging */
+$section = new Form_Section('Alert logging', 'suri-logging');
+$section->addInput($cb('alertsystemlog', 'Send alerts to system log', 'Copy alerts from this interface to the firewall system log'))
+	->setHelp('syslog truncates exported messages to 480 bytes.');
+$section->addInput(new Form_Select(
+	'alertsystemlog_facility',
+	'Log facility',
+	$pconfig['alertsystemlog_facility'],
+	$syslog_facilities
+))->setHelp('Default is LOCAL1.');
+$section->addInput(new Form_Select(
+	'alertsystemlog_priority',
+	'Log priority',
+	$pconfig['alertsystemlog_priority'],
+	array( "emergency" => "EMERG", "critical" => "CRIT", "alert" => "ALERT", "error" => "ERR", "warning" => "WARNING", "notice" => "NOTICE", "info" => "INFO", "debug" => "DEBUG" )
+))->setHelp('Default is NOTICE.');
+$section->addInput($cb('enable_verbose_logging', 'Verbose logging', 'Write extra start-up and shutdown details to suricata.log'));
+$form->add($section);
+
+/* ---------------------------------------------------------------------- EVE */
+$section = new Form_Section('EVE JSON output', 'suri-eve', $sec_state);
+$section->addInput($cb('enable_eve_log', 'EVE JSON log', 'Write selected events as JSON to a file, syslog, Redis or a socket'));
+$section->addInput(new Form_Select(
+	'eve_output_type',
+	'EVE output type',
+	$pconfig['eve_output_type'],
+	array("regular" => "FILE", "syslog" => "SYSLOG", "redis"=>"Redis", "unix_dgram" => "UNIX Datagram Socket", "unix_stream" => "UNIX Stream Socket")
+))->setHelp('FILE is recommended. The UNIX socket must be created by its consumer.');
+$section->addInput(new Form_Input(
+	'eve_output_socket',
+	'EVE output socket name',
+	'text',
+	base64_decode($pconfig['eve_output_socket'])
+))->setHelp('Existing UNIX socket to write to. Suricata does not create it.');
+$section->addInput(new Form_Select(
+	'eve_systemlog_facility',
+	'EVE syslog facility',
+	$pconfig['eve_systemlog_facility'],
+	$syslog_facilities
+));
+$section->addInput(new Form_Select(
+	'eve_systemlog_priority',
+	'EVE syslog priority',
+	$pconfig['eve_systemlog_priority'],
+	array( "emerg" => "EMERG", "crit" => "CRIT", "alert" => "ALERT", "err" => "ERR", "warning" => "WARNING", "notice" => "NOTICE", "info" => "INFO" )
+));
+
+$group = new Form_Group('EVE Redis server');
+$group->add(new Form_Input(
+	'eve_redis_server',
+	'Redis Server',
+	'text',
+	$pconfig['eve_redis_server']
+))->setHelp('Redis server IP');
+$group->add(new Form_Input(
+	'eve_redis_port',
+	'Port',
+	'text',
+	$pconfig['eve_redis_port']
+))->setHelp('Port');
+$section->add($group)->addClass('eve_redis_connection');
+$section->addInput(new Form_Select(
+	'eve_redis_mode',
+	'EVE Redis mode',
+	$pconfig['eve_redis_mode'],
+	array("list"=>"List (LPUSH)","rpush"=>"List (RPUSH)","channel"=>"Channel(PUBLISH)")
+));
+$section->addInput(new Form_Input(
+	'eve_redis_key',
+	'EVE Redis key',
+	'text',
+	$pconfig['eve_redis_key']
+))->setHelp('Alphanumeric key name.');
+
+$section->addInput($cb('eve_log_alerts_xff', 'HTTP X-Forwarded-For', 'Log X-Forwarded-For addresses'));
+$section->addInput($cb('eve_log_ethernet', 'Ethernet header', 'Log the Ethernet header (MAC addresses) when available', 'yes'));
+$section->addInput(new Form_Select(
+	'eve_log_alerts_xff_mode',
+	'XFF mode',
+	$pconfig['eve_log_alerts_xff_mode'],
+	array( "extra-data" => "extra-data", "overwrite" => "overwrite" )
+))->setHelp('extra-data adds a field; overwrite replaces the source or destination IP. Default is extra-data.');
+$section->addInput(new Form_Select(
+	'eve_log_alerts_xff_deployment',
+	'XFF deployment',
+	$pconfig['eve_log_alerts_xff_deployment'],
+	array( "reverse" => "reverse", "forward" => "forward" )
+))->setHelp('reverse uses the last address in the header, forward the first. Default is reverse.');
+$section->addInput(new Form_Input(
+	'eve_log_alerts_xff_header',
+	'XFF header',
+	'text',
+	$pconfig['eve_log_alerts_xff_header']
+))->setHelp('Header that carries the client address. Default is X-Forwarded-For.');
+
+$section->addInput($cb('eve_log_alerts', 'Log alerts', 'Write alerts to EVE'));
+$section->addInput(new Form_Select(
+	'eve_log_alerts_payload',
+	'Alert payload format',
+	$pconfig['eve_log_alerts_payload'],
+	array("off"=>"NO","only-base64"=>"BASE64","only-printable"=>"PRINTABLE","on"=>"BOTH")
+))->setHelp('Log the payload with alerts as Base64, printable text (lossy) or both.');
+
+$group = new Form_Group('Alert details');
+$group->add($cb('eve_log_alerts_packet', 'Alert Payloads', 'Packet dump'));
+$group->add($cb('eve_log_alerts_http', 'Alert Payloads', 'HTTP data'));
+$group->add($cb('eve_log_alerts_metadata', 'App Layer Metadata', 'App-layer metadata'));
+$group->add($cb('eve_log_alerts_verdict', 'Engine Verdict', 'Engine verdict'));
+$group->add($cb('eve_log_alerts_tagged', 'Tagged Packets', 'Tagged packets'));
+$section->add($group)->addClass('eve_log_alerts_details');
+
+$section->addInput($cb('eve_log_drops', 'Log drops', 'Write drops to EVE'));
+$group = new Form_Group('Drop details');
+$group->add($cb('eve_log_alert_drops', 'Alerts', 'Alerts that caused drops'));
+$group->add($cb('eve_log_drops_verdict', 'Engine Verdicts', 'Engine verdict'));
+$group->add(new Form_Select(
+	'eve_log_drops_flows',
+	'EVE Drop Log Flows',
+	$pconfig['eve_log_drops_flows'],
+	array("all"=>"All","start"=>"Start")
+))->setHelp('"Start" logs one drop per flow direction, "All" every dropped packet.');
+$section->add($group)->addClass('eve_log_drops_options');
+
+$section->addInput($cb('eve_log_anomaly', 'Log anomalies', 'Log truncated or invalid packets (can slow processing on networks with many anomalies)'));
+$group = new Form_Group('Anomaly details');
+$group->add($cb('eve_log_anomaly_type_decode', 'Decode Anomaly', 'Decode'));
+$group->add($cb('eve_log_anomaly_type_stream', 'Stream Anomaly', 'Stream'));
+$group->add($cb('eve_log_anomaly_type_applayer', 'App Layer Anomaly', 'App layer'));
+$group->add($cb('eve_log_anomaly_packethdr', 'Anomaly Packet Hdr', 'Packet header'));
+$section->add($group)->addClass('eve_log_anomaly_details');
+
+$group = new Form_Group('Logged traffic');
+foreach (['eve_log_bittorrent' => 'BitTorrent', 'eve_log_dns' => 'DNS', 'eve_log_ftp' => 'FTP', 'eve_log_http' => 'HTTP',
+    'eve_log_http2' => 'HTTP2', 'eve_log_ikev2' => 'IKE', 'eve_log_krb5' => 'Kerberos', 'eve_log_nfs' => 'NFS',
+    'eve_log_pgsql' => 'PostgreSQL'] as $name => $text) {
+	$group->add($cb($name, $text, $text));
+}
+$section->add($group)->addClass('eve_log_info');
+$group = new Form_Group(false);
+foreach (['eve_log_quic' => 'QUICv1', 'eve_log_rdp' => 'RDP', 'eve_log_rfb' => 'RFB', 'eve_log_sip' => 'SIP',
+    'eve_log_smb' => 'SMB', 'eve_log_smtp' => 'SMTP', 'eve_log_tftp' => 'TFTP'] as $name => $text) {
+	$group->add($cb($name, $text, $text));
+}
+$group->setHelp('Protocols to log.');
+$section->add($group)->addClass('eve_log_info');
+
+$group = new Form_Group('Logged info');
+foreach (['eve_log_dhcp' => 'DHCP Messages', 'eve_log_drop' => 'Dropped Traffic', 'eve_log_flow' => 'Flows', 'eve_log_mqtt' => 'MQTT',
+    'eve_log_netflow' => 'Net Flows', 'eve_log_stats' => 'Perf Stats', 'eve_log_snmp' => 'SNMP'] as $name => $text) {
+	$group->add($cb($name, $text, $text));
+}
+$section->add($group)->addClass('eve_log_info');
+$group = new Form_Group(false);
+foreach (['eve_log_ssh' => 'SSH Handshakes', 'eve_log_tls' => 'TLS Handshakes', 'eve_log_files' => 'Tracked Files'] as $name => $text) {
+	$group->add($cb($name, $text, $text));
+}
+$group->setHelp('Other information to log.');
+$section->add($group)->addClass('eve_log_info');
+
+$group = new Form_Group('Extended info');
+$group->add($cb('eve_log_http_extended', 'Extended HTTP Info', 'HTTP'));
+$group->add($cb('eve_log_tls_extended', 'Extended TLS Info', 'TLS'));
+$group->add($cb('eve_log_dhcp_extended', 'Extended DHCP Info', 'DHCP'));
+// The SMTP box has always shown the TLS setting's state; kept as is.
+$group->add(new Form_Checkbox('eve_log_smtp_extended', 'Extended SMTP Info', 'SMTP', $pconfig['eve_log_tls_extended'] == 'on' ? true : false, 'on'));
+$group->setHelp('Events that get extended information.');
+$section->add($group)->addClass('eve_log_info');
+
+$section->addInput(new Form_Select(
+	'eve_log_http_extended_headers',
+	'Extended HTTP headers',
+	explode(", ",$pconfig['eve_log_http_extended_headers']),
+	array("accept"=>"accept","accept-charset"=>"accept-charset","accept-datetime"=>"accept-datetime","accept-encoding"=>"accept-encoding","accept-language"=>"accept-language","accept-range"=>"accept-range","age"=>"age","allow"=>"allow","authorization"=>"authorization","cache-control"=>"cache-control","connection"=>"connection","content-encoding"=>"content-encoding","content-language"=>"content-language","content-length"=>"content-length","content-location"=>"content-location","content-md5"=>"content-md5","content-range"=>"content-range","content-type"=>"content-type","cookie"=>"cookie","date"=>"date","dnt"=>"dnt","etags"=>"etags","from"=>"from","last-modified"=>"last-modified","link"=>"link","location"=>"location","max-forwards"=>"max-forwards","origin"=>"origin","pragma"=>"pragma","proxy-authenticate"=>"proxy-authenticate","proxy-authorization"=>"proxy-authorization","range"=>"range","referrer"=>"referrer","refresh"=>"refresh","retry-after"=>"retry-after","server"=>"server","set-cookie"=>"set-cookie","te"=>"te","trailer"=>"trailer","transfer-encoding"=>"transfer-encoding","upgrade"=>"upgrade","vary"=>"vary","via"=>"via","warning"=>"warning","www-authenticate"=>"www-authenticate","x-authenticated-user"=>"x-authenticated-user","x-flash-version"=>"x-flash-version","x-forwarded-proto"=>"x-forwarded-proto","x-requested-with"=>"x-requested-with"),
+	true
+))->setHelp('Ctrl+click to select several.');
+$section->addInput(new Form_Select(
+	'eve_log_smtp_extended_fields',
+	'Extended SMTP fields',
+	explode(", ",$pconfig['eve_log_smtp_extended_fields']),
+	array("bcc"=>"bcc","content-md5"=>"content-md5","date"=>"date","importance"=>"importance","in-reply-to"=>"in-reply-to","message-id"=>"message-id","organization"=>"organization","priority"=>"priority","received"=>"received","references"=>"references","reply-to"=>"reply-to","sensitivity"=>"sensitivity","subject"=>"subject","user-agent"=>"user-agent","x-mailer"=>"x-mailer","x-originating-ip"=>"x-originating-ip"),
+	true
+))->setHelp('Ctrl+click to select several.');
+$section->addInput(new Form_Select(
+	'eve_log_tls_extended_fields',
+	'Extended TLS fields',
+	explode(", ",$pconfig['eve_log_tls_extended_fields']),
+	array("subject"=>"Subject","issuer"=>"Issuer","session_resumed"=>"Session Resumed","serial"=>"Serial","fingerprint"=>"Fingerprint","sni"=>"SNI (Server Name Indication)","version"=>"Version","not_before"=>"Not Before","not_after"=>"Not After","certifcate"=>"Certificate","chain"=>"Chain","ja3"=>"JA3","ja3s"=>"JA3S"),
+	true
+))->setHelp('Ctrl+click to select several.');
+
+$section->addInput($cb('eve_log_files_magic', 'Tracked files magic', 'Log file magic for all tracked files'));
+$section->addInput(new Form_Select(
+	'eve_log_files_hash',
+	'Tracked files checksum',
+	$pconfig['eve_log_files_hash'],
+	array("none" => "None", "md5" => "MD5", "sha1" => "SHA1", "sha256" => "SHA256")
+))->setHelp('Checksum calculated for every tracked file. Default is None.');
+
+$group = new Form_Group('Logged stats');
+$group->add($cb('eve_log_stats_totals', 'Stats total', 'Totals'));
+$group->add($cb('eve_log_stats_deltas', 'Stats deltas', 'Deltas'));
+$group->add($cb('eve_log_stats_threads', 'Stats per thread', 'Per thread'));
+$section->add($group)->addClass('eve_log_stats_details');
+$form->add($section);
+
+/* ------------------------------------------------------------ HTTP and TLS */
+$section = new Form_Section('HTTP and TLS logs', 'suri-applogs', $sec_state);
+$section->addInput($cb('enable_http_log', 'HTTP log', 'Log decoded HTTP traffic (default)'));
+$section->addInput(new Form_Select(
+	'http_log_filetype',
+	'HTTP log file type',
+	$pconfig['http_log_filetype'],
+	$log_filetypes
+))->setHelp('Regular file, or an existing UNIX socket.');
+$section->addInput(new Form_Input(
+	'http_log_socket',
+	'HTTP log socket name',
+	'text',
+	base64_decode($pconfig['http_log_socket'])
+))->setHelp('Existing UNIX socket to write to. Suricata does not create it.');
+$section->addInput($cb('append_http_log', 'Append HTTP log', 'Append instead of clearing the log on restart (default)'));
+$section->addInput($cb('http_log_extended', 'Extended HTTP info', 'Log extended HTTP information (default)'));
+
+$section->addInput($cb('enable_tls_log', 'TLS log', 'Log TLS handshakes'));
+$section->addInput(new Form_Select(
+	'tls_log_filetype',
+	'TLS log file type',
+	$pconfig['tls_log_filetype'],
+	$log_filetypes
+))->setHelp('Regular file, or an existing UNIX socket.');
+$section->addInput(new Form_Input(
+	'tls_log_socket',
+	'TLS log socket name',
+	'text',
+	base64_decode($pconfig['tls_log_socket'])
+))->setHelp('Existing UNIX socket to write to. Suricata does not create it.');
+$section->addInput($cb('append_tls_log', 'Append TLS log', 'Append instead of clearing the log on restart (default)'));
+$section->addInput($cb('tls_session_resumption', 'TLS session resumption', 'Log transactions resumed with a session ID'));
+$section->addInput($cb('enable_tls_store', 'TLS store', 'Store TLS certificates'));
+$section->addInput($cb('tls_log_extended', 'Extended TLS info', 'Log extended TLS information such as the fingerprint (default)'));
+$form->add($section);
+
+/* --------------------------------------------------- file store and capture */
+$section = new Form_Section('File store and packet capture', 'suri-capture', $sec_state);
+$section->addInput($cb('enable_file_store', 'File store', 'Extract and store files from application-layer streams'))
+	->setHelp('Uses a lot of disk space on a busy network.');
+$section->addInput(new Form_Input(
+	'file_store_logdir',
+	'File store directory',
+	'text',
+	base64_decode($pconfig['file_store_logdir'])
+))->setHelp('Blank uses a "filestore" folder in the interface log directory under ' . SURICATALOGDIR . '.');
+$section->addInput($cb('enable_pcap_log', 'Packet log', 'Log packets in pcap format'))
+	->setHelp('Can use a lot of disk space. Choose what to capture below.');
+$section->addInput(new Form_Select(
+	'pcap_log_conditional',
+	'Capture',
+	$pconfig['pcap_log_conditional'],
+	array("alerts" => "ALERTS", "all" => "ALL", "tag"=>"TAG")
+))->setHelp('ALERTS: alerted packets and flows (default). ALL: every packet. TAG: flows tagged with the "tag" keyword.');
+$section->addInput($cb('pcap_use_stream_depth', 'Use stream depth', 'Ignore packets after the stream inspection depth is reached'));
+$section->addInput($cb('pcap_honor_pass_rules', 'Honor pass rules', 'Stop capturing flows matched by a pass rule'));
+$section->addInput(new Form_Input(
+	'max_pcap_log_size',
+	'Max packet log file size',
+	'text',
+	$pconfig['max_pcap_log_size']
+))->setHelp('MB per file before it rotates. Default is 32.');
+$section->addInput(new Form_Input(
+	'max_pcap_log_files',
+	'Max packet log files',
+	'text',
+	$pconfig['max_pcap_log_files']
+))->setHelp('Files kept before the oldest is overwritten. Default is 100.');
+$form->add($section);
+
+/* --------------------------------------------------------------- statistics */
+$section = new Form_Section('Statistics', 'suri-stats', $sec_state);
+$section->addInput($cb('enable_stats_collection', 'Stats collection', 'Collect performance statistics for this interface'));
+$section->addInput(new Form_Input(
+	'stats_upd_interval',
+	'Update interval',
+	'text',
+	$pconfig['stats_upd_interval']
+))->setHelp('Seconds. Default is 10.');
+$section->addInput($cb('enable_stats_log', 'Stats log', 'Write statistics to a CSV log file'));
+$section->addInput($cb('append_stats_log', 'Append stats log', 'Append instead of clearing the log on restart'));
+$section->addInput($cb('enable_telegraf_stats', 'Telegraf stats', 'Send statistics to Telegraf over a UNIX socket'));
+$section->addInput(new Form_Input(
+	'suricata_telegraf_unix_socket_name',
+	'Telegraf UNIX socket',
+	'text',
+	base64_decode($pconfig['suricata_telegraf_unix_socket_name'])
+))->setHelp('Full socket path as configured in the Telegraf inputs.suricata plugin. Telegraf creates the socket.');
+$form->add($section);
+
+/* -------------------------------------------------------------- performance */
+$section = new Form_Section('Performance and detection engine', 'suri-performance', $sec_state);
 $section->addInput(new Form_Select(
 	'runmode',
-	'Run Mode',
+	'Run mode',
 	$pconfig['runmode'],
 	array('autofp' => 'AutoFP', 'workers' => 'Workers', 'single' => 'Single')
-))->setHelp('Choose a Suricata run mode setting. Default is "AutoFP" and is the recommended setting for IDS-only and Legacy Blocking Mode. ' .
-		'"Workers" uses multiple worker threads, each of which processes the packets it acquires through all the decode and detect modules. ' .
-		'"Workers" runmode is preferred for Inline IPS Mode blocking because it offers superior performance in that configuration. ' .
-	    '"Single" uses only a single thread for all operations, and is intended for use only in testing or development instances.');
+))->setHelp('AutoFP (default) suits IDS and Legacy blocking. Workers performs best with Inline IPS. Single is for testing only.');
 $section->addInput(new Form_Select(
 	'autofp_scheduler',
-	'AutoFP Scheduler Type',
+	'AutoFP scheduler',
 	$pconfig['autofp_scheduler'],
 	array('hash' => 'Hash', 'ippair' => 'IP Pair')
-))->setHelp('Choose the kind of flow load balancer used by the flow pinned autofp mode.  "Hash" assigns the flow to a thread using the 5-7 tuple hash. ' . 
-	    '"IP Pair" assigns the flow to a thread using addresses only. This setting is applicable only when the Run Mode is set to "autofp".');
+))->setHelp('Flow load balancing: Hash uses the 5–7 tuple, IP Pair only the addresses.');
 $section->addInput(new Form_Input(
 	'max_pending_packets',
-	'Max Pending Packets',
+	'Max pending packets',
 	'text',
 	$pconfig['max_pending_packets']
-))->setHelp('Enter number of simultaneous packets to process. Default is 1024.<br/>This controls the number of simultaneous packets the engine can handle. ' .
-			'Setting this higher generally keeps the threads more busy. The minimum value is 1 and the maximum value is 65,000.<br />' .
-			'Warning: Setting this too high can lead to degradation and a possible system crash by exhausting available memory.');
-
+))->setHelp('Packets processed at the same time, 1–65,000. Default is 1024. Too high a value can exhaust memory.');
 $section->addInput(new Form_Select(
 	'detect_eng_profile',
-	'Detect-Engine Profile',
+	'Detect-engine profile',
 	$pconfig['detect_eng_profile'],
 	array('low' => 'Low', 'medium' => 'Medium', 'high' => 'High')
-))->setHelp('Choose a detection engine profile. Default is Medium.<br />MEDIUM is recommended for most systems because it offers a good balance between memory consumption and performance. ' .
-			'LOW uses less memory, but it offers lower performance. HIGH consumes a large amount of memory, but it offers the highest performance.');
-
+))->setHelp('Medium (default) balances memory and speed. High is fastest and uses the most memory.');
 $section->addInput(new Form_Select(
 	'mpm_algo',
-	'Multi-Pattern Matcher Algorithm',
+	'Multi-pattern matcher',
 	$pconfig['mpm_algo'],
 	array('auto' => 'Auto', 'ac' => 'AC', 'ac-bs' => 'AC-BS', 'ac-ks' => 'AC-KS', 'hs' => 'Hyperscan')
-))->setHelp('Choose a multi-pattern matcher (MPM) algorithm. Auto is the default, and is the best choice for almost all systems. Auto will use hyperscan if available.');
-
+))->setHelp('Auto (default) uses Hyperscan when available.');
 $section->addInput(new Form_Select(
 	'spm_algo',
-	' Single-Pattern Matcher Algorithm',
+	'Single-pattern matcher',
 	$pconfig['spm_algo'],
 	array('auto' => 'Auto', 'bm' => 'BM', 'hs' => 'Hyperscan')
-))->setHelp('Choose a single-pattern matcher (SPM) algorithm. Auto is the default, and is the best choice for almost all systems. Auto will use hyperscan if available.');
-
+))->setHelp('Auto (default) uses Hyperscan when available.');
 $section->addInput(new Form_Select(
 	'sgh_mpm_context',
-	'Signature Group Header MPM Context',
+	'Signature group MPM context',
 	$pconfig['sgh_mpm_context'],
 	array('auto' => 'Auto', 'full' => 'Full', 'single' => 'Single')
-))->setHelp('Choose a Signature Group Header multi-pattern matcher context. Default is Auto.<br />AUTO means Suricata selects between Full and Single based on the MPM algorithm chosen. ' .
-			'FULL means every Signature Group has its own MPM context. SINGLE means all Signature Groups share a single MPM context. Using FULL can improve performance at the expense of significant memory consumption.');
-
+))->setHelp('Auto (default) picks Full or Single from the matcher. Full can be faster but uses much more memory.');
 $section->addInput(new Form_Input(
 	'inspect_recursion_limit',
-	'Inspection Recursion Limit',
+	'Inspection recursion limit',
 	'text',
 	$pconfig['inspect_recursion_limit']
-))->setHelp('Enter limit for recursive calls in content inspection code. Default is 3000.<br />When set to 0 an internal default is used. When left blank there is no recursion limit.');
-
-$section->addInput(new Form_Checkbox(
-	'delayed_detect',
-	'Delayed Detect',
-	'Suricata will build list of signatures after packet capture threads have started. Default is Not Checked.',
-	$pconfig['delayed_detect'] == 'on' ? true:false,
-	'on'
-));
-
-$section->addInput(new Form_Checkbox(
-	'intf_promisc_mode',
-	'Promiscuous Mode',
-	'Suricata will place the monitored interface in promiscuous mode when checked. Default is Checked.',
-	$pconfig['intf_promisc_mode'] == 'on' ? true:false,
-	'on'
-));
-
+))->setHelp('Default is 3000. 0 uses the internal default; blank means no limit.');
+$section->addInput($cb('delayed_detect', 'Delayed detect', 'Build the signature list after capture threads have started'));
+$section->addInput($cb('intf_promisc_mode', 'Promiscuous mode', 'Put the interface in promiscuous mode (default)'));
 $section->addInput(new Form_Input(
 	'intf_snaplen',
-	'Interface PCAP Snaplen',
+	'PCAP snaplen',
 	'text',
 	$pconfig['intf_snaplen']
-))->setHelp('Enter value in bytes for the interface PCAP snaplen. Default is 1518.  This parameter is only valid when IDS or Legacy Mode IPS is enabled.<br />This value may need to be increased if the physical interface is passing VLAN traffic and expected alerts are not being received.');
-
+))->setHelp('Bytes, default 1518 (IDS and Legacy mode only). Increase it if the interface carries VLAN traffic and expected alerts are missing.');
 $form->add($section);
 
-$section = new Form_Section('Networks Suricata Should Inspect and Protect');
-
-$group = new Form_Group('Home Net');
-
-$group->add(new Form_Select(
-	'homelistname',
-	'Home Net',
-	$pconfig['homelistname'],
-	suricata_get_config_lists('passlist')
-))->setHelp('Choose the Home Net you want this interface to use.');
-
-$group->add(new Form_Button(
-	'btnHomeNet',
-	' ' . 'View List',
-	'#',
-	'fa-regular fa-file-lines'
-))->removeClass('btn-primary')->removeClass('btn-secondary')->addClass('btn-outline-secondary')->addClass('btn-sm')->setAttribute('data-bs-toggle', 'modal')->setAttribute('data-bs-target', '#homenet');
-
-$group->setHelp('Default Home Net adds only local networks, WAN IPs, Gateways, VPNs and VIPs.' . '<br />' .
-		'Create an Alias to hold a list of friendly IPs that the firewall cannot see or to customize the default Home Net.');
-
-$section->add($group);
-
-$group = new Form_Group('External Net');
-
-$group->add(new Form_Select(
-	'externallistname',
-	'External Net',
-	$pconfig['externallistname'],
-	suricata_get_config_lists('passlist')
-))->setHelp('Choose the External Net you want this interface to use.');
-
-$group->add(new Form_Button(
-	'btnExternalNet',
-	' ' . 'View List',
-	'#',
-	'fa-regular fa-file-lines'
-))->removeClass('btn-primary')->removeClass('btn-secondary')->addClass('btn-outline-secondary')->addClass('btn-sm')->setAttribute('data-bs-target', '#externalnet')->setAttribute('data-bs-toggle', 'modal');
-
-$group->setHelp('External Net is networks that are not Home Net.  Most users should leave this setting at default.' . '<br />' .
-		'Create a Pass List and add an Alias to it, and then assign the Pass List here for custom External Net settings.');
-
-$section->add($group);
-
-$form->add($section);
-
-// Add view HOME_NET modal pop-up
-$modal = new Modal('View HOME_NET', 'homenet', 'large', 'Close');
-
-$modal->addInput(new Form_Textarea (
-	'homenet_text',
-	'',
-	'...Loading...'
-))->removeClass('form-control')->addClass('row-fluid col-sm-10')->setAttribute('rows', '10')->setAttribute('wrap', 'off');
-$form->add($modal);
-
-// Add view EXTERNAL_NET modal pop-up
-$modal = new Modal('View EXTERNAL_NET', 'externalnet', 'large', 'Close');
-
-$modal->addInput(new Form_Textarea (
-	'externalnet_text',
-	'',
-	'...Loading...'
-))->removeClass('form-control')
-  ->addClass('row-fluid col-sm-10')
-  ->setAttribute('rows', '10')
-  ->setAttribute('wrap', 'off');
-
-$form->add($modal);
-
-// Add view PASS_LIST modal pop-up
-$modal = new Modal('View PASS LIST', 'passlist', 'large', 'Close');
-
-$modal->addInput(new Form_Textarea (
-	'passlist_text',
-	'',
-	'...Loading...'
-))->removeClass('form-control')
-  ->addClass('row-fluid col-sm-10')
-  ->setAttribute('rows', '10')
-  ->setAttribute('wrap', 'off');
-
-$form->add($modal);
-
-$section = new Form_Section('Alert Suppression and Filtering');
-$group = new Form_Group('Alert Suppression and Filtering');
-$group->add(new Form_Select(
-	'suppresslistname',
-	'Alert Suppression and Filtering',
-	$pconfig['suppresslistname'],
-	suricata_get_config_lists('suppress')
-))->setHelp('Choose the suppression or filtering file you want this interface to use. Default option disables suppression and filtering.');
-
-$group->add(new Form_Button(
-	'btnSuppressList',
-	' ' . 'View List',
-	'#',
-	'fa-regular fa-file-lines'
-))->removeClass('btn-primary')->removeClass('btn-secondary')
-  ->addClass('btn-outline-secondary btn-sm')
-  ->setAttribute('data-bs-target', '#suppresslist')
-  ->setAttribute('data-bs-toggle', 'modal');
-
-$section->add($group);
-
-$form->add($section);
-
-// Add view SUPPRESS_LIST modal pop-up
-$modal = new Modal('View Suppress List', 'suppresslist', 'large', 'Close');
-
-$modal->addInput(new Form_Textarea (
-	'suppresslist_text',
-	'',
-	'...Loading...'
-))->removeClass('form-control')->addClass('row-fluid col-sm-10')->setAttribute('rows', '10')->setAttribute('wrap', 'off');
-
-$form->add($modal);
-
-$section = new Form_Section('Arguments here will be automatically inserted into the Suricata configuration');
+/* ---------------------------------------------------------------- advanced */
+$section = new Form_Section('Advanced configuration pass-through', 'suri-advanced',
+	COLLAPSIBLE | ((!empty($input_errors) || !empty($pconfig['configpassthru'])) ? SEC_OPEN : SEC_CLOSED));
 $section->addInput(new Form_Textarea (
 	'configpassthru',
-	'Advanced Configuration Pass-Through',
+	'Pass-through',
 	base64_decode($pconfig['configpassthru'])
-))->setHelp('Enter any additional configuration parameters to add to the Suricata configuration here, separated by a newline');
-
+))->setHelp('Extra suricata.yaml parameters, one per line. They are inserted into the generated configuration.');
 $form->add($section);
+
+// List viewer pop-ups for the View list buttons
+foreach ([['View HOME_NET', 'homenet', 'homenet_text'], ['View EXTERNAL_NET', 'externalnet', 'externalnet_text'],
+    ['View PASS LIST', 'passlist', 'passlist_text'], ['View Suppress List', 'suppresslist', 'suppresslist_text']] as [$mtitle, $mid, $mfield]) {
+	$modal = new Modal($mtitle, $mid, 'large', 'Close');
+	$modal->addInput(new Form_Textarea (
+		$mfield,
+		'',
+		'...Loading...'
+	))->addClass('fs-mono')->setAttribute('rows', '12')->setAttribute('wrap', 'off');
+	$form->add($modal);
+}
 
 if (isset($id)) {
 	$form->addGlobal(new Form_Input(
@@ -2054,12 +1424,9 @@ if (isset($action)) {
 		$action
 	));
 }
+fs_form_cancel($form, '/suricata/suricata_interfaces.php');
 print($form);
 ?>
-
-<div class="infoblock">
-	<?=print_info_box('<strong>Note:</strong> Please save your settings before you attempt to start Suricata.', 'info');?>
-</div>
 
 <script type="text/javascript">
 //<![CDATA[
