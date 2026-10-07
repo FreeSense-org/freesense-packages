@@ -153,10 +153,108 @@ if ($_POST['save'])
 	}
 }
 
-$pglinks = array("", "/suricata/suricata_interfaces.php", "@self");
-$pgtitle = array("Services", "Suricata", "Blocked Hosts");
+/* ------------------------------------------------- blocked hosts and their alerts */
+
+$blocked_ips_array = suricata_get_blocked_ips();
+$src_ip_list = array();
+
+if (!empty($blocked_ips_array)) {
+	/* Change IP from presentation to network form for use as array key */
+	foreach ($blocked_ips_array as &$ip) {
+		$ip = inet_pton($ip);
+	}
+	unset($ip);
+
+	$tmpblocked = array_flip($blocked_ips_array);
+
+	foreach (glob("{$suricatalogdir}*/block.log") as $alertfile) {
+		$fd = fopen($alertfile, "r");
+		if ($fd) {
+			/*************** FORMAT for file -- BLOCK -- **************************************************************************/
+			/* Line format: timestamp  action [**] [gid:sid:rev] msg [**] [Classification: class] [Priority: pri] {proto} ip:port */
+			/**********************************************************************************************************************/
+			$buf = "";
+			while (($buf = fgets($fd)) !== FALSE) {
+				$fields = array();
+				$tmp = array();
+
+				if (empty(trim($buf)))
+					continue;
+
+				$fields['time'] = substr($buf, 0, strpos($buf, '  '));
+				try {
+					$event_tm = date_create_from_format("m/d/Y-H:i:s.u", $fields['time']);
+				} catch (Exception $e) {
+					logger(LOG_WARNING, localize_text("found invalid timestamp entry in current blocks.log, the line will be ignored and skipped."), LOG_PREFIX_PKG_SURICATA);
+					continue;
+				}
+
+				// [2] => GID, [3] => SID, [4] => REV, [5] => MSG, [6] => CLASSIFICATION, [7] = PRIORITY
+				preg_match('/\[\*{2}\]\s\[((\d+):(\d+):(\d+))\]\s(.*)\[\*{2}\]\s\[Classification:\s(.*)\]\s\[Priority:\s(\d+)\]\s/', $buf, $tmp);
+				$fields['gid'] = trim($tmp[2]);
+				$fields['sid'] = trim($tmp[3]);
+				$fields['msg'] = trim($tmp[5]);
+
+				// [1] = PROTO, [2] => IP:PORT
+				if (preg_match('/\{(.*)\}\s(.*)/', $buf, $tmp)) {
+					$fields['ip'] = trim(substr($tmp[2], 0, strrpos($tmp[2], ':')));
+					if (is_ipaddrv6($fields['ip']))
+						$fields['ip'] = inet_ntop(inet_pton($fields['ip']));
+				}
+
+				// Skip records without a usable address (old log formats)
+				if (empty($fields['ip']))
+					continue;
+				$fields['ip'] = inet_pton($fields['ip']);
+				if (isset($tmpblocked[$fields['ip']])) {
+					$src_ip_list[$fields['ip']][] = array(
+						'time' => @date_format($event_tm, "m/d/Y") . " " . @date_format($event_tm, "H:i:s"),
+						'msg' => $fields['msg'],
+						'rule' => "{$fields['gid']}:{$fields['sid']}",
+					);
+				}
+			}
+			fclose($fd);
+		}
+	}
+
+	/* Blocked addresses without a matching block.log entry are listed too */
+	foreach ($blocked_ips_array as $blocked_ip) {
+		if (!isset($src_ip_list[$blocked_ip])) {
+			$src_ip_list[$blocked_ip] = array();
+		}
+	}
+}
+
+$hosts = array();
+$counter = 0;
+foreach ($src_ip_list as $blocked_ip => $blocked) {
+	if ($counter > $bnentries)
+		break;
+	$counter++;
+	$hosts[] = array('ip' => inet_ntop($blocked_ip), 'events' => array_reverse($blocked));
+}
+
+/* ------------------------------------------------------------------ the page */
+
+$pglinks = array("", "/suricata/suricata_overview.php", "/suricata/suricata_events.php", "@self");
+$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("Events"), gettext("Blocked hosts"));
+
+fs_page_action(gettext('View settings'), '#', 'fa-sliders', 'secondary', ['data-fs-modal' => '#blocked-settings']);
+fs_page_action(gettext('Download list'), 'suricata_blocked.php?download=Download', 'fa-download', 'secondary', ['usepost' => true]);
+if (!empty($blocked_ips_array)) {
+	fs_page_action(gettext('Remove all blocks'), 'suricata_blocked.php?remove=Clear', 'fa-unlock', 'danger', [
+		'usepost' => true,
+		'data-fs-confirm' => gettext('Remove every blocked host?'),
+		'data-fs-confirm-detail' => gettext('The Suricata blocked hosts table is flushed. Hosts that trigger a blocking rule again are blocked again.'),
+		'data-fs-confirm-action' => gettext('Remove all'),
+	]);
+}
+
 include_once("head.inc");
 suricata_display_primary_navigation('events');
+
+suricata_display_section_navigation('events', 'blocked');
 
 /* refresh every 60 secs */
 if ($pconfig['brefresh'] == 'on') {
@@ -171,345 +269,195 @@ if ($savemsg) {
 	print_info_box($savemsg);
 }
 
-$tab_array = array();
-$tab_array[] = array(gettext("Interfaces"), false, "/suricata/suricata_interfaces.php");
-$tab_array[] = array(gettext("Global Settings"), false, "/suricata/suricata_global.php");
-$tab_array[] = array(gettext("Updates"), false, "/suricata/suricata_download_updates.php");
-$tab_array[] = array(gettext("Alerts"), false, "/suricata/suricata_alerts.php");
-$tab_array[] = array(gettext("Blocks"), true, "/suricata/suricata_blocked.php");
-$tab_array[] = array(gettext("Files"), false, "/suricata/suricata_files.php");
-$tab_array[] = array(gettext("Pass Lists"), false, "/suricata/suricata_passlist.php");
-$tab_array[] = array(gettext("Suppress"), false, "/suricata/suricata_suppress.php");
-$tab_array[] = array(gettext("Logs View"), false, "/suricata/suricata_logs_browser.php?instance={$instanceid}");
-$tab_array[] = array(gettext("Logs Mgmt"), false, "/suricata/suricata_logs_mgmt.php");
-$tab_array[] = array(gettext("SID Mgmt"), false, "/suricata/suricata_sid_mgmt.php");
-$tab_array[] = array(gettext("Sync"), false, "/pkg_edit.php?xml=suricata/suricata_sync.xml");
-$tab_array[] = array(gettext("IP Lists"), false, "/suricata/suricata_ip_list_mgmt.php");
-display_top_tabs($tab_array, true);
-
-
-$form = new Form(false);
-$form->setAttribute('id', 'formblock');
-
-$section = new Form_Section('Blocked Hosts Log View Settings');
-
-$group = new Form_Group('Save or Remove Hosts');
-
-$group->add(new Form_Button(
-	'download',
-	'Download',
-	null,
-	'fa-solid fa-download'
-))->removeClass('btn-secondary')->addClass('btn-info btn-sm')
-  ->setHelp('All blocked hosts will be saved');
-
-$group->add(new Form_Button(
-	'remove',
-	'Clear',
-	null,
-	'fa-solid fa-trash-can'
-))->removeClass('btn-secondary')->addClass('btn-danger btn-sm')
-  ->setHelp('All blocked hosts will be cleared');
-
-$section->add($group);
-
-$group = new Form_Group('Save Settings');
-
-$group->add(new Form_Button(
-	'save',
-	'Save',
-	null,
-	'fa-solid fa-save'
-))->removeClass('btn-secondary')->addClass('btn-success btn-sm')
-  ->setHelp('Save auto-refresh and view settings');
-
-$group->add(new Form_Checkbox(
-	'brefresh',
-	null,
-	'Refresh',
-	((config_get_path('installedpackages/suricata/alertsblocks/brefresh')=="on") || (config_get_path('installedpackages/suricata/alertsblocks/brefresh')=='')),
-	'on'
-))->setHelp('Default is ON');
-
-$group->add(new Form_Input(
-	'blertnumber',
-	'Blocked Entries',
-	'number',
-	$bnentries
-	))->setHelp('Number of blocked entries to view. Default is 500');
-
-$section->add($group);
-$form->add($section);
-
-$form->addGlobal(new Form_Input(
-	'id',
-	'id',
-	'hidden',
-	''
-));
-$form->addGlobal(new Form_Input(
-	'ip',
-	'ip',
-	'hidden',
-	''
-));
-$form->addGlobal(new Form_Input(
-	'mode',
-	'mode',
-	'hidden',
-	''
-));
-
-print($form);
-
+$sf_is_public = function ($ip) {
+	return !is_private_ip($ip) && (substr($ip, 0, 2) != 'fc') && (substr($ip, 0, 2) != 'fd');
+};
+$with_alerts = count(array_filter($hosts, function ($h) { return !empty($h['events']); }));
 ?>
-<div class="card mb-3">
-	<div class="card-header"><h2 class="h5 mb-0"><?=sprintf(gettext("Last %s Hosts Blocked by Suricata"), $bnentries)?></h2></div>
-	<div class="card-body table-responsive">
-		<div class="content table-responsive">
-			<span class="text-info"><b><?=gettext('Note: ');?></b><?=gettext('Only blocked IP addresses from Legacy Mode interfaces are shown! ' .
-			'For inline IPS mode interfaces, dropped IP addresses are ');?><span class="text-danger"><?=gettext('highlighted ');?></span>
-			<?=gettext('on the ALERTS tab.');?></span>
-		</div>
-		<table class="table table-striped table-hover table-sm sortable-theme-bootstrap" data-sortable>
+
+<style>
+.sf-reason { min-width: 16rem; overflow-wrap: anywhere; }
+.sf-reason-msg { color: var(--fs-text-strong); }
+.sf-more summary { color: var(--fs-text-muted); font-size: var(--fs-fs-sm); cursor: pointer; }
+.sf-more ul { margin: .35rem 0 0; padding-left: 1rem; font-size: var(--fs-fs-sm); }
+.sf-ip { overflow-wrap: anywhere; }
+.sf-notes { display: flex; flex-wrap: wrap; gap: .4rem 1.5rem; margin: -.5rem 0 var(--fs-sp-5); color: var(--fs-text-muted); font-size: var(--fs-fs-sm); }
+.sf-lookup dl { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: .5rem 1rem; margin: 0; }
+.sf-lookup dt { color: var(--fs-text-muted); font-weight: 500; }
+.sf-lookup dd { margin: 0; overflow-wrap: anywhere; white-space: pre-line; }
+@media (max-width: 575.98px) { .sf-lookup dl { grid-template-columns: 1fr; gap: .15rem; } .sf-lookup dd { margin-bottom: .5rem; } }
+</style>
+
+<div class="fs-tiles">
+<?php
+	fs_tile(gettext('Blocked hosts'), count($blocked_ips_array), count($blocked_ips_array) ? 'block' : null);
+	fs_tile(gettext('With alert details'), $with_alerts, null, gettext('Found in the block logs'));
+?>
+</div>
+
+<form action="/suricata/suricata_blocked.php" method="post" id="formblock">
+	<input type="hidden" name="id" id="id" value="">
+	<input type="hidden" name="ip" id="ip" value="">
+	<input type="hidden" name="mode" id="mode" value="">
+
+<div class="panel panel-default fs-table">
+<?php
+	fs_table_toolbar(array(
+		'search' => gettext('Search addresses, alerts, rules…'),
+		'noun' => gettext('hosts'),
+		'noun_one' => gettext('host'),
+		'filters' => array('family' => array(gettext('IPv4 and IPv6'), 'v4' => gettext('IPv4'), 'v6' => gettext('IPv6'))),
+	));
+?>
+	<div class="panel-body table-responsive">
+		<table class="table table-hover" data-sortable>
 			<thead>
-			   <tr>
-				<th><?=gettext("Blocked IP"); ?></th>
-				<th><?=gettext("Block Date/Time"); ?></th>
-				<th><?=gettext("Block Alert Description"); ?></th>
-				<th><?=gettext("Block Rule GID:SID"); ?></th>
-				<th><?=gettext("Remove Block"); ?></th>
-			   </tr>
-			</thead>
-		<tbody>
-		<?php
-
-		/* set the arrays */
-		$blocked_ips_array = suricata_get_blocked_ips();
-
-		/* Change IP from presentation to network form for use as array key */
-		if (!empty($blocked_ips_array)) {
-			foreach ($blocked_ips_array as &$ip) {
-				$ip = inet_pton($ip);
-			}
-
-			// Unset $blocked_ips_array reference as we are done with it
-			unset($ip);
-
-			$tmpblocked = array_flip($blocked_ips_array);
-			$src_ip_list = array();
-
-			foreach (glob("{$suricatalogdir}*/block.log") as $alertfile) {
-				$fd = fopen($alertfile, "r");
-				if ($fd) {
-
-					/*************** FORMAT for file -- BLOCK -- **************************************************************************/
-					/* Line format: timestamp  action [**] [gid:sid:rev] msg [**] [Classification: class] [Priority: pri] {proto} ip:port */
-					/*              0          1            2   3   4    5                         6                 7     8      9  10   */
-					/**********************************************************************************************************************/
-
-					$buf = "";
-					while (($buf = fgets($fd)) !== FALSE) {
-						$fields = array();
-						$tmp = array();
-
-						// Drop any invalid line read from the log
-						if (empty(trim($buf)))
-							continue;
-
-						/***************************************************************/
-						/* Parse block log entry to find the parts we want to display. */
-						/* We parse out all the fields even though we currently use    */
-						/* just a few of them.                                         */
-						/***************************************************************/
-
-						// Field 0 is the event timestamp
-						$fields['time'] = substr($buf, 0, strpos($buf, '  '));
-
-						// Create a DateTime object from the event timestamp that
-						// we can use to easily manipulate output formats.
-						try {
-							$event_tm = date_create_from_format("m/d/Y-H:i:s.u", $fields['time']);
-						} catch (Exception $e) {
-							logger(LOG_WARNING, localize_text("found invalid timestamp entry in current blocks.log, the line will be ignored and skipped."), LOG_PREFIX_PKG_SURICATA);
-							continue;
-						}
-
-						// Field 1 is the action
-						if (strpos($buf, '[') !== FALSE && strpos($buf, ']') !== FALSE)
-							$fields['action'] = substr($buf, strpos($buf, '[') + 1, strpos($buf, ']') - strpos($buf, '[') - 1);
-						else
-							$fields['action'] = null;
-
-						// The regular expression match below returns an array as follows:
-						// [2] => GID, [3] => SID, [4] => REV, [5] => MSG, [6] => CLASSIFICATION, [7] = PRIORITY
-						preg_match('/\[\*{2}\]\s\[((\d+):(\d+):(\d+))\]\s(.*)\[\*{2}\]\s\[Classification:\s(.*)\]\s\[Priority:\s(\d+)\]\s/', $buf, $tmp);
-						$fields['gid'] = trim($tmp[2]);
-						$fields['sid'] = trim($tmp[3]);
-						$fields['rev'] = trim($tmp[4]);
-						$fields['msg'] = trim($tmp[5]);
-						$fields['class'] = trim($tmp[6]);
-						$fields['priority'] = trim($tmp[7]);
-
-						// The regular expression match below looks for the PROTO, IP and PORT fields
-						// and returns an array as follows:
-						// [1] = PROTO, [2] => IP:PORT
-						if (preg_match('/\{(.*)\}\s(.*)/', $buf, $tmp)) {
-							// Get PROTO
-							$fields['proto'] = trim($tmp[1]);
-
-							// Get IP
-							$fields['ip'] = trim(substr($tmp[2], 0, strrpos($tmp[2], ':')));
-							if (is_ipaddrv6($fields['ip']))
-								$fields['ip'] = inet_ntop(inet_pton($fields['ip']));
-
-							// Get PORT
-							$fields['port'] = trim(substr($tmp[2], strrpos($tmp[2], ':') + 1));
-						}
-
-						// In the unlikely event we read an old log file and fail to parse
-						// out an IP address, just skip the record since we can't use it.
-						if (empty($fields['ip']))
-							continue;
-						$fields['ip'] = inet_pton($fields['ip']);
-						if (isset($tmpblocked[$fields['ip']])) {
-							if (!is_array($src_ip_list[$fields['ip']]))
-								$src_ip_list[$fields['ip']] = array();
-							if (!is_array($src_ip_list[$fields['ip']]['time']))
-								$src_ip_list[$fields['ip']]['time'] = array();
-							if (!is_array($src_ip_list[$fields['ip']]['msg']))
-								$src_ip_list[$fields['ip']]['msg'] = array();
-							if (!is_array($src_ip_list[$fields['ip']]['rule_id']))
-								$src_ip_list[$fields['ip']]['rule_id'] = array();
-
-							/* Time */
-							@$alert_time = date_format($event_tm, "H:i:s");
-							/* Date */
-							@$alert_date = date_format($event_tm, "m/d/Y");
-
-							$src_ip_list[$fields['ip']]['time'][] = $alert_date . " " . $alert_time;
-							$src_ip_list[$fields['ip']]['msg'][] = "{$fields['msg']}";
-							$src_ip_list[$fields['ip']]['rule_id'][] = "{$fields['gid']}:{$fields['sid']}";
-						}
-					}
-					fclose($fd);
-				}
-			}
-
-			foreach($blocked_ips_array as $blocked_ip) {
-				if (is_ipaddr($blocked_ip) && !isset($src_ip_list[$blocked_ip])) {
-					$src_ip_list[$blocked_ip] = array("N\A\n");
-				}
-			}
-
-			/* build final list, build html */
-			$counter = 0;
-			foreach($src_ip_list as $blocked_ip => $blocked) {
-				/* Reverse the 'time', 'msg', and 'rule_id' arrays to display most recent event first */
-				$blocked_time = implode("<br/>", array_reverse($blocked['time'], true));
-				$blocked_desc = implode("<br/>", array_reverse($blocked['msg'], true));
-				$blocked_ruleid = implode("<br/>", array_reverse($blocked['rule_id'], true));
-				if($counter > $bnentries)
-					break;
-				else
-					$counter++;
-
-				$block_ip_str = inet_ntop($blocked_ip);
-				/* Add zero-width space as soft-break opportunity after each colon if we have an IPv6 address */
-				$tmp_ip = str_replace(":", ":&#8203;", $block_ip_str);
-				/* Add reverse DNS lookup icons */
-				$rdns_link = "";
-				$rdns_link .= "<i class=\"fa-solid fa-search icon-pointer\" onclick=\"javascript:resolve_with_ajax('{$block_ip_str}');\" title=\"";
-				$rdns_link .= gettext("Resolve host via reverse DNS lookup") . "\" alt=\"Icon Reverse Resolve with DNS\"></i>";
-				/* Add GeoIP check icon */
-				if (!is_private_ip($block_ip_str) && (substr($block_ip_str, 0, 2) != 'fc') &&
-				    (substr($block_ip_str, 0, 2) != 'fd')) {
-					$rdns_link .= "&nbsp;&nbsp;<i class=\"fa-solid fa-globe\" onclick=\"javascript:geoip_with_ajax('{$block_ip_str}');\" title=\"";
-					$rdns_link .= gettext("Check host GeoIP data") . "\" alt=\"Icon Check host GeoIP\"></i>";
-				}
-		?>
-				<tr class="text-nowrap">
-					<td style="word-wrap:break-word; white-space:normal"><?=$tmp_ip;?>&nbsp;&nbsp;<?=$rdns_link;?></td>
-					<td><?=$blocked_time;?></td>
-					<td style="word-wrap:break-word; white-space:normal"><?=$blocked_desc;?></td>
-					<td><?=$blocked_ruleid;?></td>
-					<td><i class="fa-solid fa-times icon-pointer text-danger" onClick="$('#ip').val('<?=$block_ip_str;?>');$('#mode').val('todelete');$('#formblock').submit();"
-					 title="<?=gettext("Delete host from Blocked Table");?>"></i></td>
+				<tr>
+					<th class="fs-col-status"><?=gettext('Status')?></th>
+					<th data-fs-search><?=gettext('Host')?></th>
+					<th data-sortable-type="alpha"><?=gettext('Last blocked')?></th>
+					<th data-fs-search><?=gettext('Reason')?></th>
+					<th data-fs-search><?=gettext('Rule')?></th>
+					<th class="fs-col-actions"><span class="visually-hidden"><?=gettext('Actions')?></span></th>
 				</tr>
-		<?php
-			}
-		}
-		?>
-				</tbody>
-				<tfoot>
-					<tr>
-						<td colspan="5" style="text-align:center;" class="alert-info">
-
-<?php	if (!empty($blocked_ips_array)) {
-			if ($counter > 1)
-				print($counter . gettext(" host IP addresses are currently being blocked."));
-			else
-				print($counter . gettext(" host IP address is currently being blocked."));
-		} else {
-			print(gettext("There are currently no hosts being blocked by Suricata."));
+			</thead>
+			<tbody>
+<?php foreach ($hosts as $h):
+	$ev = $h['events'];
+	$last = $ev[0] ?? null;
+	$rules = array_values(array_unique(array_column($ev, 'rule')));
+?>
+				<tr data-fs-filter-family="<?=is_ipaddrv6($h['ip']) ? 'v6' : 'v4'?>">
+					<td><?=fs_badge('block', gettext('Blocked'))?></td>
+					<td class="fs-mono sf-ip"><?=fs_h($h['ip'])?></td>
+					<td class="fs-mono"><?=$last ? fs_h($last['time']) : '<span class="fs-muted">' . gettext('Unknown') . '</span>'?></td>
+					<td class="sf-reason">
+<?php if ($last): ?>
+						<span class="sf-reason-msg"><?=fs_h($last['msg'])?></span>
+<?php	if (count($ev) > 1): ?>
+						<details class="sf-more">
+							<summary><?=fs_h(sprintf(gettext('%d earlier events'), count($ev) - 1))?></summary>
+							<ul>
+<?php		foreach (array_slice($ev, 1) as $e): ?>
+								<li><span class="fs-mono fs-muted"><?=fs_h($e['time'])?></span> <?=fs_h($e['msg'])?> <span class="fs-mono fs-muted"><?=fs_h($e['rule'])?></span></li>
+<?php		endforeach; ?>
+							</ul>
+						</details>
+<?php	endif; ?>
+<?php else: ?>
+						<span class="fs-muted"><?=gettext('No entry in the block logs')?></span>
+<?php endif; ?>
+					</td>
+					<td><div class="fs-chips">
+<?php foreach ($rules as $r): ?>
+						<span class="fs-chip fs-chip--mono"><?=fs_h($r)?></span>
+<?php endforeach; ?>
+					</div></td>
+					<td class="fs-col-actions"><div class="fs-actions">
+						<button type="button" class="fs-action" data-sf-lookup="<?=fs_h($h['ip'])?>" data-sf-geo="<?=$sf_is_public($h['ip']) ? '1' : '0'?>" title="<?=fs_h(sprintf(gettext('Look up %s'), $h['ip']))?>" aria-label="<?=fs_h(sprintf(gettext('Look up %s'), $h['ip']))?>"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i></button>
+						<button type="submit" class="fs-action fs-action--delete" data-sf-ip="<?=fs_h($h['ip'])?>" title="<?=fs_h(sprintf(gettext('Remove block for %s'), $h['ip']))?>" aria-label="<?=fs_h(sprintf(gettext('Remove block for %s'), $h['ip']))?>"
+							data-fs-confirm="<?=fs_h(sprintf(gettext('Remove the block for %s?'), $h['ip']))?>" data-fs-confirm-detail="<?=fs_h(gettext('The address is deleted from the blocked hosts table. A new alert can block it again.'))?>" data-fs-confirm-action="<?=fs_h(gettext('Remove block'))?>"><i class="fa-solid fa-unlock" aria-hidden="true"></i></button>
+					</div></td>
+				</tr>
+<?php endforeach; ?>
+<?php
+	if (empty($hosts)) {
+		fs_empty_row(6, gettext('Suricata is not blocking any hosts.'));
 	}
 ?>
-						</td>
-					</tr>
-				</tfoot>
+			</tbody>
 		</table>
 	</div>
 </div>
+</form>
 
-<!-- The following AJAX code was borrowed from the diag_logs_filter.php -->
-<!-- file in FreeSense.  See copyright info at top of this page.          -->
+<div class="sf-notes">
+	<span><?=gettext('Only hosts blocked by Legacy mode interfaces are listed. Inline IPS mode drops packets instead; those alerts are marked on the Alerts page.')?></span>
+<?php if ($pconfig['brefresh'] == 'on'): ?>
+	<span><?=gettext('The page refreshes every 60 seconds.')?></span>
+<?php endif; ?>
+</div>
+
+<?php
+fs_modal_form_begin('blocked-settings', gettext('Blocked hosts view settings'), '/suricata/suricata_blocked.php');
+?>
+	<div class="mb-3 form-check">
+		<input class="form-check-input" type="checkbox" name="brefresh" id="brefresh" value="on"<?=($pconfig['brefresh'] == 'on' || $pconfig['brefresh'] == '') ? ' checked' : ''?>>
+		<label class="form-check-label" for="brefresh"><?=gettext('Refresh the page every 60 seconds')?></label>
+	</div>
+	<div class="mb-1">
+		<label class="form-label" for="blertnumber"><?=gettext('Hosts to show')?></label>
+		<input class="form-control" type="number" min="1" name="blertnumber" id="blertnumber" value="<?=fs_h($bnentries)?>">
+		<div class="form-text"><?=gettext('Default is 500.')?></div>
+	</div>
+<?php
+fs_modal_form_end(gettext('Save'), 'save', 'Save', 'fa-floppy-disk');
+?>
+
+<div class="modal fade" id="sf-lookup" tabindex="-1" aria-labelledby="sf-lookup-title" aria-hidden="true">
+	<div class="modal-dialog modal-dialog-centered">
+		<div class="modal-content">
+			<div class="modal-header">
+				<h2 class="modal-title" id="sf-lookup-title"><?=gettext('Host lookup')?></h2>
+				<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="<?=gettext('Close')?>"></button>
+			</div>
+			<div class="modal-body sf-lookup">
+				<dl>
+					<dt><?=gettext('Address')?></dt><dd class="fs-mono" id="sf-lookup-ip"></dd>
+					<dt><?=gettext('Reverse DNS')?></dt><dd id="sf-lookup-dns"></dd>
+					<dt><?=gettext('GeoIP')?></dt><dd id="sf-lookup-geo"></dd>
+				</dl>
+			</div>
+			<div class="modal-footer">
+				<button type="button" class="btn btn-primary" data-bs-dismiss="modal"><?=gettext('Close')?></button>
+			</div>
+		</div>
+	</div>
+</div>
+
 <script type="text/javascript">
 //<![CDATA[
-function resolve_with_ajax(ip_to_resolve) {
-	var url = "/suricata/suricata_blocked.php";
+events.push(function() {
+	var page = "/suricata/suricata_blocked.php";
+	var loading = <?=json_encode(gettext('Loading…'))?>;
 
-	$.ajax(
-		url,
-		{
-			type: 'post',
-			dataType: 'json',
-			data: {
-				resolve: ip_to_resolve,
-				},
-			complete: resolve_ip_callback
-		});
-}
+	function parse(req) {
+		try { return JSON.parse(req.responseText); } catch (e) { return {}; }
+	}
 
-function resolve_ip_callback(transport) {
-	var response = JSON.parse(transport.responseText);
-	var msg = 'IP address "' + response.resolve_ip + '" resolves to\n';
-	alert(msg + 'host "' + htmlspecialchars(response.resolve_text) + '"');
-}
+	// Remove block: the confirmed click fills the hidden fields, then the form posts
+	document.addEventListener('click', function(e) {
+		var btn = e.target.closest('button[data-sf-ip]');
+		if (!btn || e.defaultPrevented) {
+			return;
+		}
+		$('#ip').val(btn.getAttribute('data-sf-ip'));
+		$('#mode').val('todelete');
+	});
 
-function geoip_with_ajax(ip_to_check) {
-	var url = "/suricata/suricata_blocked.php";
-
-	$.ajax(
-		url,
-		{
-			type: 'post',
-			dataType: 'json',
-			data: {
-				geoip: ip_to_check,
-			      },
-			complete: geoip_callback
-		});
-}
-
-function geoip_callback(transport) {
-	var response = JSON.parse(transport.responseText);
-	alert(htmlspecialchars(response.geoip_text));
-}
-
-// From http://stackoverflow.com/questions/5499078/fastest-method-to-escape-html-tags-as-html-entities
-function htmlspecialchars(str) {
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
-}
+	// Host lookup: reverse DNS, and GeoIP for public addresses
+	document.addEventListener('click', function(e) {
+		var btn = e.target.closest('[data-sf-lookup]');
+		if (!btn) {
+			return;
+		}
+		var ip = btn.getAttribute('data-sf-lookup');
+		$('#sf-lookup-ip').text(ip);
+		$('#sf-lookup-dns').text(loading);
+		bootstrap.Modal.getOrCreateInstance(document.getElementById('sf-lookup')).show();
+		$.ajax(page, {type: 'post', dataType: 'json', data: {resolve: ip}, complete: function(req) {
+			$('#sf-lookup-dns').text(parse(req).resolve_text || <?=json_encode(gettext('Cannot resolve'))?>);
+		}});
+		if (btn.getAttribute('data-sf-geo') === '1') {
+			$('#sf-lookup-geo').text(loading);
+			$.ajax(page, {type: 'post', dataType: 'json', data: {geoip: ip}, complete: function(req) {
+				$('#sf-lookup-geo').text(parse(req).geoip_text || <?=json_encode(gettext('Not available'))?>);
+			}});
+		} else {
+			$('#sf-lookup-geo').text(<?=json_encode(gettext('Private address'))?>);
+		}
+	});
+});
 //]]>
 </script>
 

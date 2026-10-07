@@ -176,43 +176,52 @@ if ($_POST) {
 }
 
 $if_friendly = convert_friendly_interface_to_friendly_descr($pconfig['interface']);
-$pglinks = array("", "/suricata/suricata_interfaces.php", "/suricata/suricata_interfaces_edit.php?id={$id}", "@self");
-$pgtitle = array("Services", "Suricata", "Interface Settings", "{$if_friendly} - Server and Port Variables");
+$pglinks = array("", "/suricata/suricata_overview.php", "/suricata/suricata_interfaces.php", "/suricata/suricata_interfaces_edit.php?id={$id}", "@self");
+$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("Interfaces"), htmlspecialchars($pconfig['descr'] ?: $if_friendly), gettext("Variables"));
 include_once("head.inc");
-suricata_display_primary_navigation('policies');
+suricata_display_primary_navigation('interfaces');
+
+/* Interface context (same block on every per-interface Suricata page): tab bar + summary */
+$sf_tab = array('suricata_rulesets.php' => 'rulesets', 'suricata_rules.php' => 'rules', 'suricata_flow_stream.php' => 'flow_stream',
+	'suricata_app_parsers.php' => 'app_parsers', 'suricata_define_vars.php' => 'define_vars', 'suricata_ip_reputation.php' => 'ip_reputation');
+suricata_display_interface_tabs($id, $sf_tab[basename(__FILE__)] ?? '');
+$sf_rule = config_get_path("installedpackages/suricata/rule/{$id}", []);
+$sf_real = get_real_interface($sf_rule['interface'] ?? '');
+if (($sf_rule['blockoffenders'] ?? '') != 'on') {
+	$sf_mode = gettext('IDS (alerts only)');
+} elseif (($sf_rule['ips_mode'] ?? '') == 'ips_mode_inline') {
+	$sf_mode = gettext('IPS inline');
+} else {
+	$sf_mode = gettext('IPS legacy');
+}
+$sf_badges = array();
+if (($sf_rule['enable'] ?? '') != 'on') {
+	$sf_badges[] = fs_badge('disabled');
+} else {
+	$sf_badges[] = fs_badge('enabled');
+	$sf_badges[] = ($sf_real != '' && !empty($sf_rule['uuid']) && suricata_is_running($sf_rule['uuid'], $sf_real)) ? fs_badge('up', gettext('Running')) : fs_badge('down', gettext('Stopped'));
+}
+fs_summary_card(array(
+	'icon' => 'fa-shield-halved',
+	'title' => $sf_rule['descr'] ?? '',
+	'placeholder' => convert_friendly_interface_to_friendly_descr($sf_rule['interface'] ?? ''),
+	'badges' => $sf_badges,
+	'meta' => $sf_real,
+	'label' => gettext('Interface summary'),
+	'facts' => array(
+		array(gettext('Interface'), ($sf_real != '') ? convert_friendly_interface_to_friendly_descr($sf_rule['interface']) . " ({$sf_real})" : '', 'empty' => gettext('Not assigned')),
+		array(gettext('Mode'), $sf_mode),
+		array(gettext('Home net'), $sf_rule['homelistname'] ?? '', 'empty' => 'default'),
+		array(gettext('Rule sets'), '', 'chips' => array_keys(suricata_ruleset_summary($sf_rule)), 'empty' => gettext('None selected')),
+	),
+	'actions' => array(array(gettext('Alerts'), '/suricata/suricata_alerts.php?instance=' . (int)$id, 'fa-bell'), array(gettext('Edit interface'), '/suricata/suricata_interfaces_edit.php?id=' . (int)$id, 'fa-pencil')),
+));
 
 /* Display Alert message */
 if ($input_errors)
 	print_input_errors($input_errors);
 if ($savemsg)
 	print_info_box($savemsg);
-
-$tab_array = array();
-$tab_array[] = array(gettext("Interfaces"), true, "/suricata/suricata_interfaces.php");
-$tab_array[] = array(gettext("Global Settings"), false, "/suricata/suricata_global.php");
-$tab_array[] = array(gettext("Updates"), false, "/suricata/suricata_download_updates.php");
-$tab_array[] = array(gettext("Alerts"), false, "/suricata/suricata_alerts.php?instance={$id}");
-$tab_array[] = array(gettext("Blocks"), false, "/suricata/suricata_blocked.php");
-$tab_array[] = array(gettext("Files"), false, "/suricata/suricata_files.php?instance={$id}");
-$tab_array[] = array(gettext("Pass Lists"), false, "/suricata/suricata_passlist.php");
-$tab_array[] = array(gettext("Suppress"), false, "/suricata/suricata_suppress.php");
-$tab_array[] = array(gettext("Logs View"), false, "/suricata/suricata_logs_browser.php?instance={$id}");
-$tab_array[] = array(gettext("Logs Mgmt"), false, "/suricata/suricata_logs_mgmt.php");
-$tab_array[] = array(gettext("SID Mgmt"), false, "/suricata/suricata_sid_mgmt.php");
-$tab_array[] = array(gettext("Sync"), false, "/pkg_edit.php?xml=suricata/suricata_sync.xml");
-$tab_array[] = array(gettext("IP Lists"), false, "/suricata/suricata_ip_list_mgmt.php");
-display_top_tabs($tab_array, true);
-
-$tab_array = array();
-$menu_iface=($if_friendly?substr($if_friendly,0,5)." ":"Iface ");
-$tab_array[] = array($menu_iface . gettext("Settings"), false, "/suricata/suricata_interfaces_edit.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("Categories"), false, "/suricata/suricata_rulesets.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("Rules"), false, "/suricata/suricata_rules.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("Flow/Stream"), false, "/suricata/suricata_flow_stream.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("App Parsers"), false, "/suricata/suricata_app_parsers.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("Variables"), true, "/suricata/suricata_define_vars.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("IP Rep"), false, "/suricata/suricata_ip_reputation.php?id={$id}");
-display_top_tabs($tab_array, true);
 
 $form = new Form();
 
@@ -223,59 +232,36 @@ $form->addGlobal(new Form_Input(
 	$id
 ));
 
-$section = new Form_Section('Define Servers (IP variables)');
-
+$section = new Form_Section('Server variables');
 foreach ($suricata_servers as $key => $server) {
-	if (strlen($server) > 40) {
-		$server = substr($server, 0, 40) . "...";
-	}
-
 	$name = "def_" . $key;
-	$label = strtoupper($key);
-	$value = "";
-	$title = "";
-
-	if (!empty($pconfig["def_{$key}"])) {
-		$value = htmlspecialchars($pconfig["def_{$key}"]);
-		$title = trim(filter_expand_alias($pconfig["def_{$key}"]));
-	}
+	$default = (strlen($server) > 40) ? substr($server, 0, 40) . '…' : $server;
 
 	$section->addInput(new Form_Input(
 		$name,
-		$label,
+		strtoupper($key),
 		'text',
-		$pconfig[$name]
-	))->setHelp('Default value: ' . (!empty($server) ? " {$server}. Leave blank for default value." : 'not used.'));
+		$pconfig[$name],
+		['placeholder' => $default, 'autocomplete' => 'off']
+	))->setHelp(!empty($server) ? sprintf(gettext('Address alias. Empty uses the default: %s'), $default) : gettext('Address alias. Not used by default.'));
 }
 $form->add($section);
 
-$section = new Form_Section('Define Ports (port variables)');
+$section = new Form_Section('Port variables');
 foreach ($suricata_ports as $key => $server) {
-	if (strlen($server) > 40) {
-		$server = substr($server, 0, 40) . "...";
-	}
-
-	$label = strtoupper($key);
 	$name = "def_" . $key;
-	$value = "";
-	$title = "";
-
-	if (!empty($pconfig["def_{$key}"])) {
-		$value = htmlspecialchars($pconfig["def_{$key}"]);
-		$title = trim(filter_expand_alias($pconfig["def_{$key}"]));
-	}
 
 	$section->addInput(new Form_Input(
 		$name,
-		$label,
+		strtoupper($key),
 		'text',
-		$pconfig[$name]
-	))->setHelp('Default value: ' . (!empty($server) ? " {$server}. Leave blank for default value." : 'not used.'));
-
+		$pconfig[$name],
+		['placeholder' => $server, 'autocomplete' => 'off']
+	))->setHelp(!empty($server) ? sprintf(gettext('Port alias. Empty uses the default: %s'), $server) : gettext('Port alias. Not used by default.'));
 }
 $form->add($section);
 
-$section = new Form_Section('Custom Variables');
+$section = new Form_Section('Custom variables');
 $section->addClass('custom_vars');
 
 if (empty(array_get_path($pconfig, 'custom_vars/item'))) {
@@ -318,30 +304,37 @@ foreach (array_get_path($pconfig, 'custom_vars/item', []) as $item) {
 		'Variable Value',
 		'text',
 		$item['value']
-	))->setWidth(3)->setHelp((($row_index == $row_last) ? 'Value' : null));
+	))->setWidth(3)->setHelp((($row_index == $row_last) ? 'Alias' : null));
 
 	$group->add(new Form_Button(
 		'deleterow' . $row_index,
 		'Delete',
 		null,
 		'fa-solid fa-trash-can'
-	))->addClass('btn-sm btn-warning');
+	))->removeClass('btn-primary')->addClass('btn-sm btn-outline-secondary');
 
 	$section->add($group);
 	$row_index++;
 }
 $section->addInput(new Form_Button(
 	'addrow',
-	'Add',
+	'Add variable',
 	null,
 	'fa-solid fa-plus'
-))->addClass('btn-success');
+))->removeClass('btn-primary')->addClass('btn-sm btn-outline-secondary');
 
 $form->add($section);
 
 print($form);
 
 ?>
+
+<div class="sf-notes">
+	<span><?=gettext('Only aliases are accepted. Custom variable names use letters, digits and "_" and must not repeat a built-in variable.')?></span>
+</div>
+<style>
+.sf-notes { display: flex; flex-wrap: wrap; gap: .4rem 1.5rem; margin: -.5rem 0 var(--fs-sp-5); color: var(--fs-text-muted); font-size: var(--fs-fs-sm); }
+</style>
 
 <script type="text/javascript">
 //<![CDATA[

@@ -67,15 +67,6 @@ if ($_POST['action'] == 'clear') {
 	exit;
 }
 
-$pglinks = array("", "/suricata/suricata_interfaces.php", "@self");
-$pgtitle = array("Services", "Suricata", "Logs View");
-include_once("head.inc");
-suricata_display_primary_navigation('events');
-
-if ($input_errors) {
-	print_input_errors($input_errors);
-}
-
 function build_instance_list() {
 	$list = array();
 
@@ -99,176 +90,148 @@ function build_logfile_list() {
 	return($list);
 }
 
+$pglinks = array("", "/suricata/suricata_overview.php", "/suricata/suricata_events.php", "@self");
+$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("Events"), gettext("Log files"));
+include_once("head.inc");
+suricata_display_primary_navigation('events');
+
+suricata_display_section_navigation('events', 'logs');
+
+if ($input_errors) {
+	print_input_errors($input_errors);
+}
 if ($savemsg) {
 	print_info_box($savemsg);
 }
-
-$tab_array = array();
-$tab_array[] = array(gettext("Interfaces"), false, "/suricata/suricata_interfaces.php");
-$tab_array[] = array(gettext("Global Settings"), false, "/suricata/suricata_global.php");
-$tab_array[] = array(gettext("Updates"), false, "/suricata/suricata_download_updates.php");
-$tab_array[] = array(gettext("Alerts"), false, "/suricata/suricata_alerts.php?instance={$instanceid}");
-$tab_array[] = array(gettext("Blocks"), false, "/suricata/suricata_blocked.php");
-$tab_array[] = array(gettext("Files"), false, "/suricata/suricata_files.php");
-$tab_array[] = array(gettext("Pass Lists"), false, "/suricata/suricata_passlist.php");
-$tab_array[] = array(gettext("Suppress"), false, "/suricata/suricata_suppress.php");
-$tab_array[] = array(gettext("Logs View"), true, "/suricata/suricata_logs_browser.php");
-$tab_array[] = array(gettext("Logs Mgmt"), false, "/suricata/suricata_logs_mgmt.php");
-$tab_array[] = array(gettext("SID Mgmt"), false, "/suricata/suricata_sid_mgmt.php");
-$tab_array[] = array(gettext("Sync"), false, "/pkg_edit.php?xml=suricata/suricata_sync.xml");
-$tab_array[] = array(gettext("IP Lists"), false, "/suricata/suricata_ip_list_mgmt.php");
-display_top_tabs($tab_array, true);
-
-$form = new Form(false);
-
-$section = new Form_Section('Logs Browser Selections');
-
-$section->addInput(new Form_Select(
-	'instance',
-	'Instance to View',
-	$instanceid,
-	build_instance_list()
-))->setHelp('Choose which instance logs you want to view.');
-
-$section->addInput(new Form_Select(
-	'logFile',
-	'Log File to View',
-	basename($logfile),
-	build_logfile_list()
-))->setHelp('Choose which log you want to view..');
-
-// Build the HTML text to display in the StaticText control
-$staticContent = '<span style="display:none; " id="fileStatusBox">' .
-		'<strong id="fileStatus"></strong>' .
-		'</span>' .
-		'<p style="display:none;" id="filePathBox">' .
-		'<strong>' . gettext("Log File Path: ") . '</strong>' . '<span style="display:inline;" id="fbTarget"></span>' . '</p>' . 
-		'<p style="padding-right:15px; display:none;" id="fileRefreshBtn">' . 
-		'<button type="button" class="btn btn-sm btn-info" name="refresh" id="refresh" onclick="loadFile();" title="' . 
-		gettext("Refresh current display") . '"><i class="fa-solid fa-arrow-rotate-right icon-embed-btn"></i>' . gettext("Refresh") . '</button>&nbsp;&nbsp;' . 
-		'<button type="button" class="btn btn-sm btn-danger hidden no-confirm" name="fileClearBtn" id="fileClearBtn" ' . 
-		'onclick="clearFile();" title="' . gettext("Clear selected log file contents") . '"><i class="fa-solid fa-trash-can icon-embed-btn"></i>' . 
-		gettext("Clear") . '</button></p>';
-
-$section->addInput(new Form_StaticText(
-	'Status/Result',
-	$staticContent
-));
-
-$form->add($section);
-
-print($form);
 ?>
+
+<style>
+.sf-logpath { overflow-wrap: anywhere; }
+.sf-result-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-left: auto; }
+#fileStatus.is-error { color: var(--fs-block); }
+</style>
+
+<div class="fs-tool">
+	<form class="fs-tool-form" action="/suricata/suricata_logs_browser.php" method="post" id="sf-logform">
+		<div class="panel panel-default">
+			<div class="panel-heading"><h2 class="panel-title"><?=gettext('Log file')?></h2></div>
+			<div class="panel-body">
+				<div>
+					<label class="form-label" for="instance"><?=gettext('Interface')?></label>
+					<select class="form-select" name="instance" id="instance">
+<?php foreach (build_instance_list() as $k => $v): ?>
+						<option value="<?=fs_h($k)?>"<?=((string)$k === (string)$instanceid) ? ' selected' : ''?>><?=fs_h($v)?></option>
+<?php endforeach; ?>
+					</select>
+				</div>
+				<div>
+					<label class="form-label" for="logFile"><?=gettext('Log')?></label>
+					<select class="form-select" name="logFile" id="logFile">
+						<option value="" disabled<?=empty($_POST['file']) ? ' selected' : ''?>><?=gettext('Choose a log file')?></option>
+<?php foreach (build_logfile_list() as $k => $v): ?>
+						<option value="<?=fs_h($k)?>"<?=(!empty($_POST['file']) && basename($logfile) === $v) ? ' selected' : ''?>><?=fs_h($v)?></option>
+<?php endforeach; ?>
+					</select>
+					<div class="form-text help-block"><?=gettext('Only the log folder of the chosen interface is read.')?></div>
+				</div>
+			</div>
+			<div class="panel-footer">
+				<button type="button" class="btn btn-primary" id="sf-view"><i class="fa-solid fa-eye icon-embed-btn" aria-hidden="true"></i><?=gettext('View')?></button>
+			</div>
+		</div>
+	</form>
+	<div class="panel panel-default" id="fileOutput">
+		<div class="panel-heading">
+			<h2 class="panel-title"><?=gettext('Contents')?></h2>
+			<div class="sf-result-actions" id="fileRefreshBtn" hidden>
+				<button type="button" class="btn btn-sm btn-outline-secondary" id="refresh" title="<?=gettext('Refresh current display')?>"><i class="fa-solid fa-arrow-rotate-right icon-embed-btn" aria-hidden="true"></i><?=gettext('Refresh')?></button>
+				<button type="button" class="btn btn-sm btn-outline-secondary" data-fs-copy="#fileContent"><i class="fa-regular fa-copy icon-embed-btn" aria-hidden="true"></i><?=gettext('Copy')?></button>
+				<button type="button" class="btn btn-sm btn-outline-danger" id="fileClearBtn" hidden title="<?=gettext('Clear selected log file contents')?>"><i class="fa-solid fa-trash-can icon-embed-btn" aria-hidden="true"></i><?=gettext('Clear')?></button>
+			</div>
+		</div>
+		<div class="fs-tool-verdict" id="filePathBox" hidden>
+			<span id="fileStatus" role="status"></span>
+			<span class="fs-mono fs-muted sf-logpath" id="fbTarget"></span>
+		</div>
+		<pre class="fs-console" id="fileContent" hidden></pre>
+		<div class="fs-tool-empty" id="fileEmpty"><i class="fa-solid fa-file-lines" aria-hidden="true"></i><span><?=gettext('Choose an interface and a log file to view it.')?></span></div>
+	</div>
+</div>
 
 <script>
 //<![CDATA[
-	function loadFile() {
-		$("#fileStatus").html("<?=gettext("Loading file"); ?> ...");
-		$("#fileStatusBox").show(250);
-		$("#filePathBox").show(250);
-		$("#fbTarget").html("");
+events.push(function() {
+	var page = "/suricata/suricata_logs_browser.php";
 
-		$.ajax(
-				"<?=$_SERVER['SCRIPT_NAME'];?>",
-				{
-					type: 'post',
-					data: {
-						instance:  $("#instance").find('option:selected').val(),
-						action:    'load',
-						file: $("#logFile").val()
-					},
-					complete: loadComplete
-				}
-		);
+	function basename(path) {
+		return path.replace(/\\/g, '/').replace(/.*\//, '');
+	}
+
+	function showMessage(text, isError) {
+		$('#filePathBox').prop('hidden', false);
+		$('#fileStatus').text(text).toggleClass('is-error', !!isError);
+	}
+
+	function loadFile() {
+		var file = $('#logFile').val();
+		if (!file) {
+			return;
+		}
+		$('#fileEmpty').prop('hidden', true);
+		$('#fbTarget').text('');
+		showMessage(<?=json_encode(gettext('Loading file…'))?>, false);
+		$.ajax(page, {
+			type: 'post',
+			data: {instance: $('#instance').val(), action: 'load', file: file},
+			complete: loadComplete
+		});
 	}
 
 	function loadComplete(req) {
-		$("#fileContent").show(250);
-		var values = req.responseText.split("|");
+		var values = req.responseText.split('|');
 		values.shift(); values.pop();
 
-		if(values.shift() == "0") {
+		if (values.shift() == '0') {
 			var file = values.shift();
-			var fileContent = atob(values.join("|"));
-			$("#fileStatus").removeClass("text-danger");
-			$("#fileStatus").addClass("text-success");
-			$("#fileStatus").html("<?=gettext("File successfully loaded"); ?>.");
-			$("#fbTarget").removeClass("text-danger");
-			$("#fbTarget").html(file);
-			$("#fileRefreshBtn").show();
-			if (basename(file) == "sid_changes.log") {
-				$("#fileClearBtn").removeClass("hidden");
-			}
-			else {
-				$("#fileClearBtn").addClass("hidden");
-			}
-			$("#fileContent").prop("disabled", false);
-			$("#fileContent").val(fileContent);
-		}
-		else {
-			$("#fileStatus").addClass("text-danger");
-			$("#fileStatus").html(values[0]);
-			$("#fbTarget").addClass("text-danger");
-			$("#fbTarget").html("<?=gettext("Not Available"); ?>");
-			$("#fileRefreshBtn").hide();
-			$("#fileContent").val("");
-			$("#fileContent").prop("disabled", true);
+			var text = '';
+			try { text = atob(values.join('|')); } catch (e) { text = ''; }
+			showMessage(<?=json_encode(gettext('Loaded'))?>, false);
+			$('#fbTarget').text(file);
+			$('#fileRefreshBtn').prop('hidden', false);
+			$('#fileClearBtn').prop('hidden', basename(file) != 'sid_changes.log');
+			$('#fileContent').text(text).prop('hidden', false);
+		} else {
+			showMessage(values[0] || <?=json_encode(gettext('The log file could not be read.'))?>, true);
+			$('#fbTarget').text(<?=json_encode(gettext('Not available'))?>);
+			$('#fileRefreshBtn').prop('hidden', true);
+			$('#fileContent').text('').prop('hidden', true);
+			$('#fileEmpty').prop('hidden', false);
 		}
 	}
 
 	function clearFile() {
-		if (confirm("<?=gettext('Are you sure want to erase the log contents?'); ?>")) {
-			$.ajax(
-				"<?=$_SERVER['SCRIPT_NAME'];?>",
-				{
-					type: 'post',
-					data: {
-						instance:  $("#instance").find('option:selected').val(),
-						action:    'clear',
-						file: $("#logFile").val()
-					},
-				}
-			);
-			$("#fileContent").val("");
-		}
+		window.fsConfirm({
+			title: <?=json_encode(gettext('Clear the contents of sid_changes.log?'))?>,
+			detail: <?=json_encode(gettext('The log of SID changes for this interface is emptied.'))?>,
+			action: <?=json_encode(gettext('Clear'))?>,
+			returnFocus: document.getElementById('fileClearBtn')
+		}).then(function(yes) {
+			if (!yes) {
+				return;
+			}
+			$.ajax(page, {
+				type: 'post',
+				data: {instance: $('#instance').val(), action: 'clear', file: $('#logFile').val()}
+			});
+			$('#fileContent').text('');
+		});
 	}
 
-	function basename(path) {
-		return path.replace( /\\/g, '/' ).replace( /.*\//, '' );
-	}
-
-events.push(function() {
-
-    //-- Click handlers -----------------------------
-    $('#logFile').on('change', function() {
-	$("#fbTarget").html("");
-        loadFile();
-    });
-
-    $('#instance').on('change', function() {
-	$("#fbTarget").html("");
-        loadFile();
-    });
-
-    $('#refresh').on('click', function() {
-        loadFile();
-    });
-
-    //-- Show nothing on initial page load -----------
-<?php if(empty($_POST['file'])): ?>
-	document.getElementById("logFile").selectedIndex=-1;
-<?php endif; ?>
-
+	$('#logFile, #instance').on('change', loadFile);
+	$('#refresh, #sf-view').on('click', loadFile);
+	$('#fileClearBtn').on('click', clearFile);
 });
 //]]>
 </script>
 
-<div class="card mb-3" id="fileOutput">
-	<div class="card-header"><h2 class="h5 mb-0"><?=gettext('Log Contents')?></h2></div>
-		<div class="card-body">
-			<textarea id="fileContent" name="fileContent" style="width:100%;" rows="20" wrap="off" disabled></textarea>
-		</div>
-</div>
-
 <?php include("foot.inc"); ?>
-
