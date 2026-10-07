@@ -253,11 +253,56 @@ if (isset($_POST["save"])) {
 $cat_mods = suricata_sid_mgmt_auto_categories($a_nat, FALSE);
 
 $if_friendly = convert_friendly_interface_to_friendly_descr($a_nat['interface']);
-$pglinks = array("", "/suricata/suricata_interfaces.php", "/suricata/suricata_interfaces_edit.php?id={$id}", "@self");
-$pgtitle = array("Services", "Suricata", "Interface Settings", "{$if_friendly} - Categories");
+$pglinks = array("", "/suricata/suricata_overview.php", "/suricata/suricata_interfaces.php", "/suricata/suricata_interfaces_edit.php?id={$id}", "@self");
+$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("Interfaces"), htmlspecialchars($a_nat['descr'] ?: $if_friendly), gettext("Rule categories"));
 
 include_once("head.inc");
 suricata_display_primary_navigation('policies');
+
+/* Interface context (same block on every per-interface Suricata page): settings switch + summary */
+$sf_rule = config_get_path("installedpackages/suricata/rule/{$id}", []);
+$sf_real = get_real_interface($sf_rule['interface'] ?? '');
+$sf_name = convert_friendly_interface_to_friendly_descr($sf_rule['interface'] ?? '');
+echo '<nav class="fs-viewswitch" aria-label="' . fs_h(gettext('Interface settings')) . '">';
+foreach (array(
+	array('suricata_interfaces_edit.php', gettext('Settings')),
+	array('suricata_rulesets.php', gettext('Categories')),
+	array('suricata_rules.php', gettext('Rules')),
+	array('suricata_flow_stream.php', gettext('Flow & stream')),
+	array('suricata_app_parsers.php', gettext('App parsers')),
+	array('suricata_define_vars.php', gettext('Variables')),
+	array('suricata_ip_reputation.php', gettext('IP reputation')),
+) as $sf_v) {
+	echo '<a href="/suricata/' . $sf_v[0] . '?id=' . (int)$id . '"' . (($sf_v[0] === basename(__FILE__)) ? ' aria-current="page"' : '') . '>' . fs_h($sf_v[1]) . '</a>';
+}
+echo '</nav>';
+if (($sf_rule['blockoffenders'] ?? '') != 'on') {
+	$sf_mode = gettext('Detection only');
+} elseif (($sf_rule['ips_mode'] ?? '') == 'ips_mode_inline') {
+	$sf_mode = gettext('Inline IPS');
+} else {
+	$sf_mode = gettext('Legacy blocking');
+}
+$sf_running = !empty($sf_rule['uuid']) && suricata_is_running($sf_rule['uuid'], $sf_real);
+fs_summary_card(array(
+	'icon' => 'fa-shield-halved',
+	'title' => $sf_rule['descr'] ?? '',
+	'placeholder' => $sf_name,
+	'subtitle' => sprintf(gettext('Suricata on %s'), $sf_name),
+	'badges' => array(
+		fs_badge((($sf_rule['enable'] ?? '') == 'on') ? 'enabled' : 'disabled'),
+		$sf_running ? fs_badge('up', gettext('Running')) : fs_badge('down', gettext('Stopped')),
+	),
+	'meta' => $sf_real,
+	'label' => gettext('Interface summary'),
+	'facts' => array(
+		array(gettext('Mode'), $sf_mode),
+		array(gettext('Rule categories'), (string)count(array_filter(explode('||', $sf_rule['rulesets'] ?? '')))),
+		array(gettext('Home net'), (($sf_rule['homelistname'] ?? 'default') == 'default') ? gettext('Default') : $sf_rule['homelistname']),
+		array(gettext('Suppress list'), (empty($sf_rule['suppresslistname']) || $sf_rule['suppresslistname'] == 'default') ? '' : $sf_rule['suppresslistname'], 'empty' => gettext('None')),
+	),
+	'actions' => array(array(gettext('Alerts'), '/suricata/suricata_alerts.php?instance=' . (int)$id, 'fa-bell')),
+));
 
 if ($input_errors) {
 	print_input_errors($input_errors);
@@ -267,33 +312,6 @@ if ($savemsg) {
 	print_info_box($savemsg);
 }
 
-$tab_array = array();
-$tab_array[] = array(gettext("Interfaces"), true, "/suricata/suricata_interfaces.php");
-$tab_array[] = array(gettext("Global Settings"), false, "/suricata/suricata_global.php");
-$tab_array[] = array(gettext("Updates"), false, "/suricata/suricata_download_updates.php");
-$tab_array[] = array(gettext("Alerts"), false, "/suricata/suricata_alerts.php?instance={$id}");
-$tab_array[] = array(gettext("Blocks"), false, "/suricata/suricata_blocked.php");
-$tab_array[] = array(gettext("Files"), false, "/suricata/suricata_files.php?instance={$id}");
-$tab_array[] = array(gettext("Pass Lists"), false, "/suricata/suricata_passlist.php");
-$tab_array[] = array(gettext("Suppress"), false, "/suricata/suricata_suppress.php");
-$tab_array[] = array(gettext("Logs View"), false, "/suricata/suricata_logs_browser.php?instance={$id}");
-$tab_array[] = array(gettext("Logs Mgmt"), false, "/suricata/suricata_logs_mgmt.php");
-$tab_array[] = array(gettext("SID Mgmt"), false, "/suricata/suricata_sid_mgmt.php");
-$tab_array[] = array(gettext("Sync"), false, "/pkg_edit.php?xml=suricata/suricata_sync.xml");
-$tab_array[] = array(gettext("IP Lists"), false, "/suricata/suricata_ip_list_mgmt.php");
-display_top_tabs($tab_array, true);
-
-$menu_iface=($if_friendly?substr($if_friendly,0,5)." ":"Iface ");
-$tab_array = array();
-$tab_array[] = array($menu_iface . gettext("Settings"), false, "/suricata/suricata_interfaces_edit.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("Categories"), true, "/suricata/suricata_rulesets.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("Rules"), false, "/suricata/suricata_rules.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("Flow/Stream"), false, "/suricata/suricata_flow_stream.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("App Parsers"), false, "/suricata/suricata_app_parsers.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("Variables"), false, "/suricata/suricata_define_vars.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("IP Rep"), false, "/suricata/suricata_ip_reputation.php?id={$id}");
-display_top_tabs($tab_array, true);
-
 $isrulesfolderempty = glob("{$suricata_rules_dir}*.rules");
 $iscfgdirempty = array();
 
@@ -302,720 +320,348 @@ if (file_exists("{$suricatadir}suricata_{$suricata_uuid}_{$if_real}/rules/custom
 }
 
 if (empty($isrulesfolderempty)):
-	print_info_box(sprintf(gettext("# The rules directory is empty:  %s%srules%s"), '<strong>', $suricatadir,'</strong>') . "<br/><br/>" .
-		gettext("Please go to the ") . '<a href="suricata_download_updates.php"><strong>' . gettext("Updates") .
-		'</strong></a>' . gettext(" tab to download the rules configured on the ") .
-		'<a href="suricata_interfaces_global.php"><strong>' . gettext("Global") .
-		'</strong></a>' . gettext(" tab."), 'warning');
+	print_info_box(sprintf(gettext("The rules directory %s is empty."), '<strong>' . htmlspecialchars($suricatadir) . 'rules</strong>') . ' ' .
+		sprintf(gettext('Choose the rule sources on the %1$sGlobal settings%2$s page, then download them on the %3$sUpdates%4$s page.'),
+		'<a href="/suricata/suricata_global.php">', '</a>', '<a href="/suricata/suricata_download_updates.php">', '</a>'), 'warning');
 
 else:
-?>
-<form action="/suricata/suricata_rulesets.php" method="post" enctype="multipart/form-data" name="iform" id="iform" class="">
-<input type="hidden" name="id" id="id" value="<?=$id;?>" />
-<?php
 
-	$section = new Form_Section("Automatic flowbit resolution");
+/* ------------------------------------------------- collect every category row */
+
+$rows = array();
+
+/*
+ * Add one category file. $kind: 'special' (Community/Feodo/SSLBL: an auto-managed
+ * category keeps no hidden field, as before), 'snort' (locked while an IPS policy
+ * is used) or 'normal'. $missing marks a source that is enabled but not downloaded.
+ */
+$add_row = function ($file, $source, $source_key, $kind = 'normal', $label = null, $missing = false) use (&$rows, $cat_mods, $enabled_rulesets_array, $disable_vrt_rules) {
+	$row = array('file' => $file, 'label' => $label ?? $file, 'source' => $source, 'source_key' => $source_key, 'missing' => $missing, 'hidden' => false, 'disabled' => false);
+	$in = is_array($enabled_rulesets_array) && in_array($file, $enabled_rulesets_array);
+	if (isset($cat_mods[$file])) {
+		$row['auto'] = ($cat_mods[$file] == 'enabled') ? 'enabled' : 'disabled';
+		if ($kind == 'normal' && $cat_mods[$file] != 'enabled' && $cat_mods[$file] != 'disabled') {
+			$row['auto'] = null;
+		}
+		$row['hidden'] = ($kind != 'special') && $in;
+		$row['checked'] = ($row['auto'] == 'enabled');
+	} else {
+		$row['auto'] = false;
+		if ($kind == 'snort' && !empty($disable_vrt_rules)) {
+			$row['disabled'] = true;
+			$row['checked'] = false;
+		} else {
+			$row['checked'] = $in;
+		}
+	}
+	$rows[] = $row;
+};
+
+if ($snortcommunitydownload == 'on') {
+	$add_row(GPL_FILE_PREFIX . "community.rules", gettext('Snort Community'), 'community', 'special',
+	    gettext("Snort GPLv2 Community Rules (Talos-certified)"), !empty($no_community_files));
+}
+if ($feodotrackerdownload == 'on') {
+	$add_row("feodotracker.rules", gettext('Feodo Tracker'), 'feodo', 'special', gettext("Feodo Tracker Botnet C2 IP Rules"), !empty($no_feodotracker_files));
+}
+if ($sslbldownload == 'on') {
+	$add_row("sslblacklist_tls_cert.rules", gettext('ABUSE.ch SSLBL'), 'sslbl', 'special', gettext("ABUSE.ch SSL Blacklist Rules"), !empty($no_sslbl_files));
+}
+
+$emergingrules = array();
+$snortrules = array();
+if (empty($isrulesfolderempty))
+	$dh  = opendir("{$suricatadir}suricata_{$suricata_uuid}_{$if_real}/rules/");
+else
+	$dh  = opendir("{$suricata_rules_dir}");
+
+while (false !== ($filename = readdir($dh))) {
+	$filename = basename($filename);
+	if (substr($filename, -5) != "rules")
+		continue;
+	if (strstr($filename, ET_OPEN_FILE_PREFIX) && $emergingdownload == 'on')
+		$emergingrules[] = $filename;
+	else if (strstr($filename, ET_PRO_FILE_PREFIX) && $etpro == 'on')
+		$emergingrules[] = $filename;
+	else if (strstr($filename, VRT_FILE_PREFIX) && $snortdownload == 'on') {
+		$snortrules[] = $filename;
+	}
+}
+
+sort($default_rules);
+sort($emergingrules);
+sort($snortrules);
+
+foreach ($default_rules as $file) {
+	$add_row($file, gettext('Suricata events'), 'default');
+}
+foreach ($emergingrules as $file) {
+	$add_row($file, ($etpro == 'on' && $emergingdownload != 'on') ? gettext('ET Pro') : gettext('ET Open'), 'et');
+}
+foreach ($snortrules as $file) {
+	$add_row($file, gettext('Snort'), 'snort', 'snort');
+}
+
+if (($enable_extra_rules == 'on') && !empty($extra_rules)) {
+	foreach ($extra_rules as $exrule) {
+		$extrarules = array();
+		if (empty($isrulesfolderempty)) {
+			$dh  = opendir("{$suricatadir}suricata_{$suricata_uuid}_{$if_real}/rules/");
+		} else {
+			$dh  = opendir("{$suricata_rules_dir}");
+		}
+		while (false !== ($filename = readdir($dh))) {
+			$filename = basename($filename);
+			if (substr($filename, -5) != "rules") {
+				continue;
+			}
+			preg_match("/" . EXTRARULE_FILE_PREFIX . "([A-Za-z0-9_]+)/", $filename, $matches);
+			if ($exrule['name'] == $matches[1]) {
+				$extrarules[] = $filename;
+			}
+		}
+		sort($extrarules);
+		foreach ($extrarules as $file) {
+			$add_row($file, sprintf(gettext('Extra: %s'), $exrule['name']), 'extra-' . $exrule['name']);
+		}
+	}
+}
+
+$sources = array();
+foreach ($rows as $r) {
+	$sources[$r['source_key']] = $r['source'];
+}
+$count_on = count(array_filter($rows, function ($r) { return !empty($r['checked']); }));
+
+/* Notes when a configured source has no files */
+$notes = array();
+if (($emergingdownload == 'on' || $etpro == 'on') && $no_emerging_files) {
+	$notes[] = sprintf(gettext('%s rules have not been downloaded.'), $et_type);
+}
+if ($snortdownload == 'on' && $no_snort_files) {
+	$notes[] = gettext('Snort rules have not been downloaded.');
+}
+?>
+
+<style>
+.sf-cat-name { overflow-wrap: anywhere; }
+.sf-cat-name a { font-family: var(--fs-font-mono); font-size: var(--fs-fs-sm); }
+.sf-cat-label { color: var(--fs-text-muted); font-size: var(--fs-fs-sm); }
+.fs-table td.sf-col-on, .fs-table th.sf-col-on { width: 3.5rem; }
+.sf-col-on .form-check-input { margin: 0; }
+.sf-notes { display: flex; flex-wrap: wrap; gap: .4rem 1.5rem; margin: -.5rem 0 var(--fs-sp-5); color: var(--fs-text-muted); font-size: var(--fs-fs-sm); }
+</style>
+
+<form action="/suricata/suricata_rulesets.php" method="post" enctype="multipart/form-data" name="iform" id="iform">
+<input type="hidden" name="id" id="id" value="<?=(int)$id;?>" />
+<?php
+	$section = new Form_Section("Flowbit resolution");
 
 	$section->addInput(new Form_Checkbox(
 		'autoflowbits',
-		'Resolve Flowbits',
+		'Resolve flowbits',
 		'Auto-enable rules required for checked flowbits',
 		$pconfig['autoflowbits'] != 'off' ? true : false,
 		'on'
-	))->setHelp(' Default is Checked. Suricata will examine the enabled rules in your chosen rule categories for checked flowbits. ' .
-					'Any rules that set these dependent flowbits will be automatically enabled and added to the list of files in the interface rules directory.');
+	))->setHelp('Default is checked. Rules that set flowbits checked by your enabled rules are enabled automatically.');
 
-	$viewbtn = new Form_Button(
-		'View',
-		'View',
-		'suricata_rules_flowbits.php?id=' . $id . '&returl=' . urlencode($_SERVER['PHP_SELF']),
-		'fa-regular fa-file-lines'
-	);
-
-	$viewbtn->removeClass('btn-primary')->addClass('btn-success btn-sm')
-	  ->setHelp('Click to view auto-enabled rules required to satisfy flowbit dependencies' . '<br /><br />' .
-	  			'<span class="text-danger"><strong>' . gettext('Note:  ') . '</strong></span>' .
-	  			gettext('Auto-enabled rules generating unwanted alerts should have their GID:SID added to the Suppression List for the interface.'));
-
-
-	// See if we have any Auto-Flowbit rules and enable
-	// the VIEW button if we do.
-	if ($pconfig['autoflowbits'] == 'on') {
-		if (file_exists("{$suricatadir}suricata_{$suricata_uuid}_{$if_real}/rules/{$flowbit_rules_file}") &&
-		    filesize("{$suricatadir}suricata_{$suricata_uuid}_{$if_real}/rules/{$flowbit_rules_file}") > 0) {
-			$viewbtn->setAttribute('title', gettext("View flowbit-required rules"));
-		}
-		else
-			$viewbtn->setDisabled();
+	// Link to the auto-flowbit rules only when there are some
+	$flowbits_file = "{$suricatadir}suricata_{$suricata_uuid}_{$if_real}/rules/{$flowbit_rules_file}";
+	if ($pconfig['autoflowbits'] == 'on' && file_exists($flowbits_file) && filesize($flowbits_file) > 0) {
+		$viewbtn = '<a class="btn btn-sm btn-outline-secondary" href="' . fs_h('suricata_rules_flowbits.php?id=' . $id . '&returl=' . urlencode($_SERVER['PHP_SELF'])) . '" title="' . fs_h(gettext('View flowbit-required rules')) . '">'
+		    . '<i class="fa-regular fa-file-lines icon-embed-btn" aria-hidden="true"></i>' . fs_h(gettext('View flowbit rules')) . '</a>';
+	} else {
+		$viewbtn = '<span class="fs-muted">' . fs_h(($pconfig['autoflowbits'] == 'on') ? gettext('No rules were added for flowbits yet.') : gettext('Flowbit resolution is off.')) . '</span>';
 	}
-	else
-		$viewbtn->setDisabled();
 
 	$section->addInput(new Form_StaticText(
-		'View rules',
+		'Flowbit rules',
 		$viewbtn
-	));
+	))->setHelp('Rules enabled to satisfy flowbit dependencies. Suppress unwanted alerts from them on the Suppress List instead of disabling them.');
 
 	print($section);
 
 	if ($snortdownload == 'on') {
-
-		$section = new Form_Section("Snort IPS Policy selection");
+		$section = new Form_Section("Snort IPS policy");
 		$chkips = new Form_Checkbox(
 			'ips_policy_enable',
-			'Use IPS Policy',
-			'Use rules from one of three pre-defined Snort IPS policies',
+			'Use IPS policy',
+			'Use rules from one of the pre-defined Snort IPS policies',
 			($a_nat['ips_policy_enable'] == "on"),
 			'on'
 		);
-		$chkips->setHelp('<span class="text-danger"><strong>' . gettext("Note:  ") . '</strong></span>' . gettext('You must be using the Snort rules to use this option.' . '<br />' .
-					'Selecting this option disables manual selection of Snort rules categories in the list below, ' .
-						'although Emerging Threats categories may still be selected if enabled on the Global Settings tab.  ' .
-						'These will be added to the pre-defined Snort IPS policy rules from the Snort rules set.'));
+		$chkips->setHelp('Needs the Snort rules. Manual selection of Snort categories is turned off while a policy is used; Emerging Threats and other categories can still be added.');
 		$section->addInput($chkips);
 		$section->addInput(new Form_Select(
 			'ips_policy',
-			'IPS Policy Selection',
+			'IPS policy',
 			$pconfig['ips_policy'],
 			array(	'connectivity' => 'Connectivity',
 				'balanced'  => 'Balanced',
 				'security'  => 'Security',
 				'max-detect' => 'Maximum Detection')
-			))->setHelp('Connectivity blocks most major threats with few or no false positives. Balanced is a good starter policy. ' .
-						'It is speedy, has good base coverage level, and covers most threats of the day. It includes all rules in Connectivity. Security is a stringent policy. ' .
-						'It contains everything in the first two plus policy-type rules such as Flash in an Excel file.  Maximum Detection encompasses vulnerabilities from 2005 ' .
-						'or later with a CVSS score of at least 7.5 along with critical malware and exploit kit rules.  The Maximum Detection policy favors detection over rated ' .
-						'throughput. In some situations this policy can and will cause significant throughput reductions.');
+			))->setHelp('Connectivity blocks major threats with few false positives. Balanced is a good start and includes Connectivity. ' .
+						'Security is stricter and adds policy-type rules. Maximum Detection favours detection over throughput and can reduce it noticeably.');
 		$section->addInput(new Form_Select(
 			'ips_policy_mode',
-			'IPS Policy Mode',
+			'IPS policy mode',
 			$pconfig['ips_policy_mode'],
 			array(  'alert' => 'Alert',
 				'policy'  => 'Policy')
-			))->setHelp('When Policy is selected, this will automatically change the action for rules in the selected IPS Policy from their default action of alert to the action specified ' .
-					'in the policy metadata (typically drop, but may be alert for some policy rules).');
+			))->setHelp('Policy changes the action of the policy rules from alert to the action in the policy metadata (usually drop).');
 
 		print($section);
 	}
-
 ?>
 
-<div class="card mb-3">
-	<div class="card-header"><h2 class="h5 mb-0"><?=gettext("Select the rulesets (Categories) Suricata will load at startup")?></h2></div>
-	<div class="card-body">
-	<div class="table-responsive col-sm-12">
-		<table class="table-sm">
+<div class="panel panel-default fs-table">
+<?php
+	$bulk = '<button type="submit" id="selectall" name="selectall" class="btn btn-sm btn-outline-secondary" title="' . fs_h(gettext('Select every category, including the default events rules')) . '">'
+	    . '<i class="fa-regular fa-square-check icon-embed-btn" aria-hidden="true"></i>' . fs_h(gettext('Select all')) . '</button>'
+	    . '<button type="submit" id="unselectall" name="unselectall" class="btn btn-sm btn-outline-secondary" title="' . fs_h(gettext('Clear every category')) . '">'
+	    . '<i class="fa-regular fa-square icon-embed-btn" aria-hidden="true"></i>' . fs_h(gettext('Unselect all')) . '</button>';
+	$filters = array('state' => array(gettext('All states'), 'on' => gettext('Enabled'), 'off' => gettext('Not enabled'), 'auto' => gettext('Managed by SID Mgmt')));
+	if (count($sources) > 1) {
+		$filters['source'] = array(gettext('All sources')) + $sources;
+	}
+	fs_table_toolbar(array(
+		'title' => gettext('Categories'),
+		'search' => gettext('Search categories…'),
+		'noun' => gettext('categories'),
+		'noun_one' => gettext('category'),
+		'filters' => $filters,
+		'actions' => $bulk,
+	));
+?>
+	<div class="panel-body table-responsive">
+		<table class="table table-hover" data-sortable>
 			<thead>
 				<tr>
-					<th></th>
-					<th></th>
-				</tr>
-			<thead>
-			<tbody>
-				<tr>
-					<td>
-						<i class="fa-brands fa-adn text-success"></i>&nbsp;<?=gettext('- Category is auto-enabled by SID Mgmt conf files'); ?><br/>
-						<i class="fa-brands fa-adn text-danger"></i>&nbsp;<?=gettext('- Category is auto-disabled by SID Mgmt conf files'); ?>
-					</td>
-				</tr>
-			</tbody>
-		</table>
-		<nav class="action-buttons">
-			<button type="submit" id="selectall" name="selectall" class="btn btn-info btn-sm" title="<?=gettext('Add all categories to enforcing rules');?>">
-				<?=gettext('Select All');?>
-			</button>
-			<button type="submit" id="unselectall" name="unselectall" class="btn btn-warning btn-sm" title="<?=gettext('Remove all categories from enforcing rules');?>">
-				<?=gettext('Unselect All');?>
-			</button>
-			<button type="submit" id="save" name="save" class="btn btn-primary btn-sm" title="<?=gettext('Click to Save changes and rebuild rules');?>">
-				<i class="fa-solid fa-save icon-embed-btn"></i>
-				<?=gettext(' Save');?>
-			</button>
-		</nav>
-	</div>
-
-<!-- Display options for GPLv2 Community, Feodo Tracker and SSL Blacklist Rules -->
-	<div class="table-responsive col-sm-12">
-		<table class="table table-striped table-hover table-sm">
-			<thead>
-				<tr>
-					<th><?=gettext("Enabled"); ?></th>
-					<th><?=gettext('Ruleset:'); ?></th>
-					<th colspan="2">&nbsp;</th>
+					<th class="sf-col-on" data-sortable="false"><span class="visually-hidden"><?=gettext('Enabled')?></span></th>
+					<th data-fs-search><?=gettext('Category')?></th>
+					<th data-fs-search><?=gettext('Source')?></th>
+					<th><?=gettext('State')?></th>
 				</tr>
 			</thead>
 			<tbody>
-
-<!-- Process GPLv2 Community Rules if enabled -->
-	<?php	if ($no_community_files)
-				$msg_community = gettext("NOTE: Snort GPLv2 Community Rules have not been downloaded.  Perform a Rules Update to enable them.");
-			else
-				$msg_community = gettext("Snort GPLv2 Community Rules (Talos-certified)");
-	      	$community_rules_file = gettext(GPL_FILE_PREFIX . "community.rules");
-	?>
-
-	<?php if ($snortcommunitydownload == 'on'): ?>
-			<?php if (isset($cat_mods[$community_rules_file])): ?>
-				<?php if ($cat_mods[$community_rules_file] == 'enabled') : ?>
-					<tr>
-						<td>
-							<i class="fa-brands fa-adn text-success" title="<?=gettext('Auto-enabled by settings on SID Mgmt tab'); ?>"></i>
-						</td>
-						<td colspan="3">
-						<?php if ($no_community_files): ?>
-							<?php echo $msg_community; ?>
-						<?php else: ?>
-							<a href='suricata_rules.php?id=<?=$id;?>&openruleset=<?=$community_rules_file;?>'><?=$msg_community;?></a>
-						<?php endif; ?>
-						</td>
-					</tr>
-				<?php else: ?>
-					<tr>
-						<td>
-							<i class="fa-brands fa-adn text-danger" title="<?=gettext("Auto-disabled by settings on SID Mgmt tab");?>"><i>
-						</td>
-						<td colspan="3">
-						<?php if ($no_community_files): ?>
-							<?php echo $msg_community; ?>
-						<?php else: ?>
-							<a href='suricata_rules_edit.php?id=<?=$id;?>&openruleset=<?=$community_rules_file;?>' target='_blank' rel='noopener noreferrer'><?=$msg_community; ?></a>
-						<?php endif; ?>
-						</td>
-					</tr>
-				<?php endif; ?>
-			<?php elseif (in_array($community_rules_file, $enabled_rulesets_array)): ?>
-				<tr>
-					<td>
-						<input type="checkbox" name="toenable[]" value="<?=$community_rules_file;?>" checked="checked"/>
-					</td>
-					<td colspan="3">
-						<?php if ($no_community_files): ?>
-							<?php echo $msg_community; ?>
-						<?php else: ?>
-							<a href='suricata_rules.php?id=<?=$id;?>&openruleset=<?=$community_rules_file;?>'><?php echo $msg_community; ?></a>
-						<?php endif; ?>
-					</td>
-				</tr>
-			<?php else: ?>
-				<tr>
-					<td>
-						<input type="checkbox" name="toenable[]" value="<?=$community_rules_file; ?>" />
-					</td>
-					<td colspan="3">
-						<?php if ($no_community_files): ?>
-							<?php echo $msg_community; ?>
-						<?php else: ?>
-							<a href='suricata_rules_edit.php?id=<?=$id;?>&openruleset=<?=$community_rules_file;?>' target='_blank' rel='noopener noreferrer'><?=$msg_community; ?></a>
-						<?php endif; ?>
-					</td>
-				</tr>
-			<?php endif; ?>
-	<?php endif;
+<?php foreach ($rows as $r):
+	$file = $r['file'];
+	if ($r['auto'] === 'enabled') {
+		$state_key = 'auto';
+		$state = fs_badge('enabled', gettext('Auto-enabled'), gettext('Auto-enabled by settings on the SID Mgmt tab'));
+	} elseif ($r['auto'] === 'disabled' || $r['auto'] === null) {
+		$state_key = 'auto';
+		$state = fs_badge('disabled', gettext('Auto-disabled'), gettext('Auto-disabled by settings on the SID Mgmt tab'));
+	} elseif ($r['disabled']) {
+		$state_key = 'off';
+		$state = fs_badge('info', gettext('IPS policy'), gettext('Disabled because an IPS policy is selected'));
+	} else {
+		$state_key = $r['checked'] ? 'on' : 'off';
+		$state = '<span data-sf-state>' . fs_badge($r['checked'] ? 'enabled' : 'disabled', $r['checked'] ? gettext('Enabled') : gettext('Not enabled')) . '</span>';
+	}
+	if ($r['missing']) {
+		$state .= ' ' . fs_badge('warn', gettext('Not downloaded'), gettext('Perform a rules update to download this source.'));
+	}
+	$link_on = $r['checked'] && !$r['disabled'];
+	$href = $link_on ? "suricata_rules.php?id={$id}&openruleset=" . urlencode($file) : "suricata_rules_edit.php?id={$id}&openruleset=" . urlencode($file);
 ?>
-<!-- End of GPLv2 Community rules -->
-
-<!-- Process Feodo Tracker Rules if enabled -->
-	<?php if ($no_feodotracker_files)
-			$msg_feodotracker = gettext("NOTE: Feodo Tracker Botnet C2 IP Rules have not been downloaded.  Perform a Rules Update to enable them.");
-	      else
-			$msg_feodotracker = gettext("Feodo Tracker Botnet C2 IP Rules");
-		  $feodotracker_rules_file = gettext("feodotracker.rules");
-	?>
-	<?php if ($feodotrackerdownload == 'on'): ?>
-			<?php if (isset($cat_mods[$feodotracker_rules_file])): ?>
-				<?php if ($cat_mods[$feodotracker_rules_file] == 'enabled') : ?>
-					<tr>
-						<td>
-							<i class="fa-brands fa-adn text-success" title="<?=gettext('Auto-enabled by settings on SID Mgmt tab'); ?>"></i>
-						</td>
-						<td colspan="3">
-						<?php if ($no_feodotracker_files): ?>
-							<?php echo $msg_feodotracker; ?>
-						<?php else: ?>
-							<a href='suricata_rules.php?id=<?=$id;?>&openruleset=<?=$feodotracker_rules_file;?>'><?=$msg_feodotracker;?></a>
-						<?php endif; ?>
-						</td>
-					</tr>
-				<?php else: ?>
-					<tr>
-						<td>
-							<i class="fa-brands fa-adn text-danger" title="<?=gettext("Auto-disabled by settings on SID Mgmt tab");?>"><i>
-						</td>
-						<td colspan="3">
-						<?php if ($no_feodotracker_files): ?>
-							<?php echo $msg_feodotracker; ?>
-						<?php else: ?>
-							<a href='suricata_rules_edit.php?id=<?=$id;?>&openruleset=<?=$feodotracker_rules_file;?>' target='_blank' rel='noopener noreferrer'><?=$msg_feodotracker; ?></a>
-						<?php endif; ?>
-						</td>
-					</tr>
-				<?php endif; ?>
-			<?php elseif (in_array($feodotracker_rules_file, $enabled_rulesets_array)): ?>
-				<tr>
-					<td>
-						<input type="checkbox" name="toenable[]" value="<?=$feodotracker_rules_file;?>" checked="checked"/>
+				<tr data-fs-filter-state="<?=$state_key?>" data-fs-filter-source="<?=fs_h($r['source_key'])?>">
+					<td class="sf-col-on">
+<?php if ($r['auto'] !== false): ?>
+<?php	if ($r['hidden']): ?>
+						<input type="hidden" name="toenable[]" value="<?=fs_h($file)?>" />
+<?php	endif; ?>
+						<i class="fa-solid fa-robot fs-muted" title="<?=fs_h(gettext('Managed by SID Mgmt'))?>" aria-hidden="true"></i>
+<?php else: ?>
+						<input class="form-check-input" type="checkbox" name="toenable[]" value="<?=fs_h($file)?>"<?=$r['checked'] ? ' checked="checked"' : ''?><?=$r['disabled'] ? ' disabled title="' . fs_h(gettext('Disabled because an IPS Policy is selected')) . '"' : ''?> aria-label="<?=fs_h(sprintf(gettext('Enable %s'), $file))?>" />
+<?php endif; ?>
 					</td>
-					<td colspan="3">
-						<?php if ($no_feodotracker_files): ?>
-							<?php echo $msg_feodotracker; ?>
-						<?php else: ?>
-							<a href='suricata_rules.php?id=<?=$id;?>&openruleset=<?=$feodotracker_rules_file;?>'><?php echo $msg_feodotracker; ?></a>
-						<?php endif; ?>
+					<td class="sf-cat-name">
+<?php if ($r['missing']): ?>
+						<span class="fs-mono"><?=fs_h($file)?></span>
+<?php elseif ($link_on): ?>
+						<a href="<?=fs_h($href)?>" title="<?=fs_h(gettext('Manage the rules of this category'))?>"><?=fs_h($file)?></a>
+<?php else: ?>
+						<a href="<?=fs_h($href)?>" target="_blank" rel="noopener noreferrer" title="<?=fs_h(gettext('View the rules of this category'))?>"><?=fs_h($file)?></a>
+<?php endif; ?>
+<?php if ($r['label'] !== $file): ?>
+						<div class="sf-cat-label"><?=fs_h($r['label'])?></div>
+<?php endif; ?>
 					</td>
+					<td><span class="fs-chip"><?=fs_h($r['source'])?></span></td>
+					<td><?=$state?></td>
 				</tr>
-			<?php else: ?>
-				<tr>
-					<td>
-						<input type="checkbox" name="toenable[]" value="<?=$feodotracker_rules_file; ?>" />
-					</td>
-					<td colspan="3">
-						<?php if ($no_feodotracker_files): ?>
-							<?php echo $msg_feodotracker; ?>
-						<?php else: ?>
-							<a href='suricata_rules_edit.php?id=<?=$id;?>&openruleset=<?=$feodotracker_rules_file;?>' target='_blank' rel='noopener noreferrer'><?=$msg_feodotracker; ?></a>
-						<?php endif; ?>
-					</td>
-				</tr>
-			<?php endif; ?>
-	<?php endif;
+<?php endforeach; ?>
+<?php
+	if (empty($rows)) {
+		fs_empty_row(4, gettext('No rule categories are available. Enable rule sources on the Global settings page and download them.'));
+	}
 ?>
-<!-- End of Feodo Tracker rules -->
-
-<!-- Process ABUSE.ch SSL Blacklist Rules if enabled -->
-	<?php if ($no_sslbl_files)
-			$msg_sslbl = gettext("NOTE: ABUSE.ch SSL Blacklist Rules have not been downloaded.  Perform a Rules Update to enable them.");
-	      else
-			$msg_sslbl = gettext("ABUSE.ch SSL Blacklist Rules");
-		  $sslbl_rules_file = gettext("sslblacklist_tls_cert.rules");
-	?>
-	<?php if ($sslbldownload == 'on'): ?>
-			<?php if (isset($cat_mods[$sslbl_rules_file])): ?>
-				<?php if ($cat_mods[$sslbl_rules_file] == 'enabled') : ?>
-					<tr>
-						<td>
-							<i class="fa-brands fa-adn text-success" title="<?=gettext('Auto-enabled by settings on SID Mgmt tab'); ?>"></i>
-						</td>
-						<td colspan="3">
-						<?php if ($no_sslbl_files): ?>
-							<?php echo $msg_sslbl; ?>
-						<?php else: ?>
-							<a href='suricata_rules.php?id=<?=$id;?>&openruleset=<?=$sslbl_rules_file;?>'><?=$msg_sslbl;?></a>
-						<?php endif; ?>
-						</td>
-					</tr>
-				<?php else: ?>
-					<tr>
-						<td>
-							<i class="fa-brands fa-adn text-danger" title="<?=gettext("Auto-disabled by settings on SID Mgmt tab");?>"><i>
-						</td>
-						<td colspan="3">
-						<?php if ($no_sslbl_files): ?>
-							<?php echo $msg_sslbl; ?>
-						<?php else: ?>
-							<a href='suricata_rules_edit.php?id=<?=$id;?>&openruleset=<?=$sslbl_rules_file;?>' target='_blank' rel='noopener noreferrer'><?=$msg_sslbl; ?></a>
-						<?php endif; ?>
-						</td>
-					</tr>
-				<?php endif; ?>
-			<?php elseif (in_array($sslbl_rules_file, $enabled_rulesets_array)): ?>
-				<tr>
-					<td>
-						<input type="checkbox" name="toenable[]" value="<?=$sslbl_rules_file;?>" checked="checked"/>
-					</td>
-					<td colspan="3">
-						<?php if ($no_sslbl_files): ?>
-							<?php echo $msg_sslbl; ?>
-						<?php else: ?>
-							<a href='suricata_rules.php?id=<?=$id;?>&openruleset=<?=$sslbl_rules_file;?>'><?php echo $msg_sslbl; ?></a>
-						<?php endif; ?>
-					</td>
-				</tr>
-			<?php else: ?>
-				<tr>
-					<td>
-						<input type="checkbox" name="toenable[]" value="<?=$sslbl_rules_file; ?>" />
-					</td>
-					<td colspan="3">
-						<?php if ($no_sslbl_files): ?>
-							<?php echo $msg_sslbl; ?>
-						<?php else: ?>
-							<a href='suricata_rules_edit.php?id=<?=$id;?>&openruleset=<?=$sslbl_rules_file;?>' target='_blank' rel='noopener noreferrer'><?=$msg_sslbl; ?></a>
-						<?php endif; ?>
-					</td>
-				</tr>
-			<?php endif; ?>
-	<?php endif;
-?>
-<!-- End of ABUSE.ch SSL Blacklist rules -->
-
-<!-- End of processing for GPLv2, Feodo Tracker and SSL Blacklist rules, so close table tags -->
 			</tbody>
 		</table>
 	</div>
-
-<!-- Set strings for rules file state of "not enabled" or "not downloaded" -->
-			<?php if ($no_emerging_files && ($emergingdownload == 'on' || $etpro == 'on'))
-				  $msg_emerging = "have not been downloaded.";
-			      else
-				  $msg_emerging = "are not enabled.";
-			      if ($no_snort_files && $snortdownload == 'on')
-				  $msg_snort = "have not been downloaded.";
-			      else
-				  $msg_snort = "are not enabled.";
-			?>
-<!-- End of rules file state -->
-
-<!-- Write out the header row -->
-		<div class="table-responsive col-sm-12">
-			<table class="table table-striped table-hover table-sm">
-				<thead>
-					<tr>
-						<th><?=gettext("Enabled"); ?></th>
-						<th><?=gettext("Ruleset: Default Rules"); ?></th>
-					<?php if ($emergingdownload == 'on' && !$no_emerging_files): ?>
-						<th><?=gettext("Enabled"); ?></th>
-						<th><?=gettext('Ruleset: ET Open Rules');?></th>
-					<?php elseif ($etpro == 'on' && !$no_emerging_files): ?>
-						<th><?=gettext("Enabled"); ?></th>
-						<th><?=gettext('Ruleset: ET Pro Rules');?></th>
-					<?php else: ?>
-						<th colspan="2"><?=gettext("{$et_type} rules {$msg_emerging}"); ?></th>
-					<?php endif; ?>
-					<?php if ($snortdownload == 'on' && !$no_snort_files): ?>
-						<th><?=gettext("Enabled"); ?></th>
-						<th><?=gettext('Ruleset: Snort Text Rules');?></th>
-					<?php else: ?>
-						<th colspan="2"><?=gettext("Snort Rules {$msg_snort}"); ?></th>
-					<?php endif; ?>
-					</tr>
-				</thead>
-<!-- End of header row -->
-
-				<tbody>
-<?php
-
-				$emergingrules = array();
-				$snortrules = array();
-				if (empty($isrulesfolderempty))
-					$dh  = opendir("{$suricatadir}suricata_{$suricata_uuid}_{$if_real}/rules/");
-				else
-					$dh  = opendir("{$suricata_rules_dir}");
-
-				while (false !== ($filename = readdir($dh))) {
-					$filename = basename($filename);
-					if (substr($filename, -5) != "rules")
-						continue;
-					if (strstr($filename, ET_OPEN_FILE_PREFIX) && $emergingdownload == 'on')
-						$emergingrules[] = $filename;
-					else if (strstr($filename, ET_PRO_FILE_PREFIX) && $etpro == 'on')
-						$emergingrules[] = $filename;
-					else if (strstr($filename, VRT_FILE_PREFIX) && $snortdownload == 'on') {
-						$snortrules[] = $filename;
-					}
-				}
-
-				sort($default_rules);
-				sort($emergingrules);
-				sort($snortrules);
-
-				// Find the largest array to determine the max number of rows
-				$i = count($default_rules);
-				if ($i < count($emergingrules))
-					$i = count($emergingrules);
-				if ($i < count($snortrules))
-					$i = count($snortrules);
-
-				// Walk the rules file names arrays and output the
-				// the file names and associated form controls in
-				// an HTML table.
-				for ($j = 0; $j < $i; $j++) {
-					echo "<tr>\n";
-				/* Begin DEFAULT RULES */
-					if (!empty($default_rules[$j])) {
-						$file = $default_rules[$j];
-						echo "<td>";
-						if(is_array($enabled_rulesets_array)) {
-							if(in_array($file, $enabled_rulesets_array) && !isset($cat_mods[$file]))
-								$CHECKED = " checked=\"checked\"";
-							else
-								$CHECKED = "";
-						} else
-							$CHECKED = "";
-
-						// If the rule category file is covered by a SID mgmt configuration,
-						// place an appropriate icon beside the category.
-						if (isset($cat_mods[$file])) {
-							// If the category is part of the enabled rulesets array,
-							// make sure we include a hidden field to reference it
-							// so we do not unset it during a post-back.
-							if (in_array($file, $enabled_rulesets_array))
-								echo "<input type='hidden' name='toenable[]' value='{$file}' />\n";
-							if ($cat_mods[$file] == 'enabled') {
-								$CHECKED = "enabled";
-								echo "	\n<i class=\"fa-brands fa-adn text-success\" title=\"" . gettext('Auto-enabled by settings on SID Mgmt tab') . "\"></i>\n";
-							}
-							elseif ($cat_mods[$file] == 'disabled') {
-								echo "	\n<i class=\"fa-brands fa-adn text-danger\" title=\"" . gettext('Auto-disabled by settings on SID Mgmt tab') . "\"></i>\n";
-							}
-						}
-						else {
-							echo "	\n<input type=\"checkbox\" name=\"toenable[]\" value=\"{$file}\" {$CHECKED} />\n";
-						}
-						echo "</td>\n";
-						echo "<td>\n";
-						if (empty($CHECKED))
-							echo "<a href='suricata_rules_edit.php?id={$id}&openruleset=" . urlencode($file) . "' target='_blank' rel='noopener noreferrer'>{$file}</a>\n";
-						else
-							echo "<a href='suricata_rules.php?id={$id}&openruleset=" . urlencode($file) . "'>{$file}</a>\n";
-						echo "</td>\n";
-					} else
-						echo "<td colspan='2'><br/></td>\n";
-				/* End DEFAULT RULES */
-
-				/* Begin EMERGING THREATS RULES */
-					if (!empty($emergingrules[$j])) {
-						$file = $emergingrules[$j];
-						echo "<td>";
-						if(is_array($enabled_rulesets_array)) {
-							if(in_array($file, $enabled_rulesets_array) && !isset($cat_mods[$file]))
-								$CHECKED = " checked=\"checked\"";
-							else
-								$CHECKED = "";
-						} else
-							$CHECKED = "";
-
-						// If the rule category file is covered by a SID mgmt configuration,
-						// place an appropriate icon beside the category.
-						if (isset($cat_mods[$file])) {
-							// If the category is part of the enabled rulesets array,
-							// make sure we include a hidden field to reference it
-							// so we do not unset it during a post-back.
-							if (in_array($file, $enabled_rulesets_array))
-								echo "<input type='hidden' name='toenable[]' value='{$file}' />\n";
-							if ($cat_mods[$file] == 'enabled') {
-								$CHECKED = "enabled";
-								echo "	\n<i class=\"fa-brands fa-adn text-success\" title=\"" . gettext('Auto-enabled by settings on SID Mgmt tab') . "\"></i>\n";
-							}
-							elseif ($cat_mods[$file] == 'disabled') {
-								echo "	\n<i class=\"fa-brands fa-adn text-danger\" title=\"" . gettext('Auto-disabled by settings on SID Mgmt tab') . "\"></i>\n";
-							}
-						}
-						else {
-							echo "	\n<input type=\"checkbox\" name=\"toenable[]\" value=\"{$file}\" {$CHECKED} />\n";
-						}
-						echo "</td>\n";
-						echo "<td>\n";
-						if (empty($CHECKED))
-							echo "<a href='suricata_rules_edit.php?id={$id}&openruleset=" . urlencode($file) . "' target='_blank' rel='noopener noreferrer'>{$file}</a>\n";
-						else
-							echo "<a href='suricata_rules.php?id={$id}&openruleset=" . urlencode($file) . "'>{$file}</a>\n";
-						echo "</td>\n";
-					} else
-						echo "<td colspan='2'><br/></td>\n";
-				/* End EMERGING THREATS RULES */
-
-				/* Begin SNORT VRT RULES */
-					if (!empty($snortrules[$j])) {
-						$file = $snortrules[$j];
-						echo "<td>";
-						if(is_array($enabled_rulesets_array)) {
-							if (!empty($disable_vrt_rules))
-								$CHECKED = $disable_vrt_rules;
-							elseif(in_array($file, $enabled_rulesets_array) && !isset($cat_mods[$file]))
-								$CHECKED = " checked=\"checked\"";
-							else
-								$CHECKED = "";
-						} else
-							$CHECKED = "";
-						if (isset($cat_mods[$file])) {
-							if (in_array($file, $enabled_rulesets_array))
-								echo "<input type='hidden' name='toenable[]' value='{$file}' />\n";
-							if ($cat_mods[$file] == 'enabled') {
-								$CHECKED = "enabled";
-								echo "	\n<i class=\"fa-brands fa-adn text-success\" title=\"" . gettext('Auto-enabled by settings on SID Mgmt tab') . "\"></i>\n";
-							}
-							else {
-								echo "	\n<i class=\"fa-brands fa-adn text-danger\" title=\"" . gettext('Auto-disabled by settings on SID Mgmt tab') . "\"></i>\n";
-							}
-						}
-						else {
-							if ($CHECKED == "disabled") {
-								echo "	\n<input type='checkbox' name='toenable[]' value='{$file}' {$CHECKED} title='" . gettext('Disabled because an IPS Policy is selected') . "' />\n";
-							}
-							else {
-								echo "	\n<input type='checkbox' name='toenable[]' value='{$file}' {$CHECKED} />\n";
-							}
-						}
-						echo "</td>\n";
-						echo "<td>\n";
-						if (empty($CHECKED) || $CHECKED == "disabled")
-							echo "<a href='suricata_rules_edit.php?id={$id}&openruleset=" . urlencode($file) . "' target='_blank' rel='noopener noreferrer'>{$file}</a>\n";
-						else
-							echo "<a href='suricata_rules.php?id={$id}&openruleset=" . urlencode($file) . "'>{$file}</a>\n";
-						echo "</td>\n";
-					} else
-						echo "<td colspan='2'><br/></td>\n";
-				/* End SNORT VRT RULES */
-
-					echo "</tr>\n";
-				}
-			?>
-				</tbody>
-			</table>
-		</div>
-<?php
-if (($enable_extra_rules == 'on') && !empty($extra_rules)) {
-?>
-		<div class="table-responsive col-sm-12">
-			<table class="table table-striped table-hover table-sm">
-<?php
-foreach ($extra_rules as $exrule) {
-	$format = (substr($exrule['url'], strrpos($exrule['url'], 'rules')) == 'rules') ? ".rules" : ".tar.gz";
-	$rulesfilename = EXTRARULE_FILE_PREFIX . $exrule['name'] . $format;
-?>
-				<thead>
-					<tr>
-						<th><?=gettext("Enabled"); ?></th>
-						<th><?=gettext("Extra Ruleset: {$exrule['name']}");?></th>
-					</tr>
-				</thead>
-				<tbody>
-<?php
-				$extrarules = array();
-				if (empty($isrulesfolderempty)) {
-					$dh  = opendir("{$suricatadir}suricata_{$suricata_uuid}_{$if_real}/rules/");
-				} else {
-					$dh  = opendir("{$suricata_rules_dir}");
-				}
-
-				while (false !== ($filename = readdir($dh))) {
-					$filename = basename($filename);
-					if (substr($filename, -5) != "rules") {
-						continue;
-					}
-					preg_match("/" . EXTRARULE_FILE_PREFIX . "([A-Za-z0-9_]+)/", $filename, $matches);
-					if ($exrule['name'] == $matches[1]) {
-						$extrarules[] = $filename;
-					}
-				}
-
-				sort($extrarules);
-				$i = count($extrarules);
-
-				// Walk the rules file names arrays and output the
-				// the file names and associated form controls in
-				// an HTML table.
-
-				for ($j = 0; $j < $i; $j++) {
-					echo "<tr>\n";
-					if (!empty($extrarules[$j])) {
-						$file = $extrarules[$j];
-						echo "<td>";
-						if(is_array($enabled_rulesets_array)) {
-							if(in_array($file, $enabled_rulesets_array) && !isset($cat_mods[$file]))
-								$CHECKED = " checked=\"checked\"";
-							else
-								$CHECKED = "";
-						} else
-							$CHECKED = "";
-
-						// If the rule category file is covered by a SID mgmt configuration,
-						// place an appropriate icon beside the category.
-						if (isset($cat_mods[$file])) {
-							// If the category is part of the enabled rulesets array,
-							// make sure we include a hidden field to reference it
-							// so we do not unset it during a post-back.
-							if (in_array($file, $enabled_rulesets_array))
-								echo "<input type='hidden' name='toenable[]' value='{$file}' />\n";
-							if ($cat_mods[$file] == 'enabled') {
-								$CHECKED = "enabled";
-								echo "	\n<i class=\"fa-brands fa-adn text-success\" title=\"" . gettext('Auto-enabled by settings on SID Mgmt tab') . "\"></i>\n";
-							}
-							elseif ($cat_mods[$file] == 'disabled') {
-								echo "	\n<i class=\"fa-brands fa-adn text-danger\" title=\"" . gettext('Auto-disabled by settings on SID Mgmt tab') . "\"></i>\n";
-							}
-						}
-						else {
-							echo "	\n<input type=\"checkbox\" name=\"toenable[]\" value=\"{$file}\" {$CHECKED} />\n";
-						}
-						echo "</td>\n";
-						echo "<td>\n";
-						if (empty($CHECKED))
-							echo "<a href='suricata_rules_edit.php?id={$id}&openruleset=" . urlencode($file) . "' target='_blank' rel='noopener noreferrer'>{$file}</a>\n";
-						else
-							echo "<a href='suricata_rules.php?id={$id}&openruleset=" . urlencode($file) . "'>{$file}</a>\n";
-						echo "</td>\n";
-					} else
-						echo "<td colspan='2'><br/></td>\n";
-					echo "</tr>\n";
-				}
-			?>
-				</tbody>
-<?php
-}
-?>
-			</table>
-		</div>
-<?php
-}
-?>
-	</div>
 </div>
 
-<div class="table-responsive col-sm-12">
-	<nav class="action-buttons">
-		<button type="submit" id="save" name="save" class="btn btn-primary btn-sm" title="<?=gettext('Click to Save changes and rebuild rules');?>">
-			<i class="fa-solid fa-save icon-embed-btn"></i>
-			<?=gettext(' Save');?>
-		</button>
-	</nav>
+<div class="sf-notes">
+	<span><?=sprintf(gettext('%1$d of %2$d categories enabled.'), $count_on, count($rows))?></span>
+	<span><i class="fa-solid fa-robot" aria-hidden="true"></i> <?=gettext('Managed by SID Mgmt: the state comes from the SID management configuration files.')?></span>
+<?php foreach ($notes as $n): ?>
+	<span><?=fs_h($n)?></span>
+<?php endforeach; ?>
 </div>
 
+<template id="sf-badge-on"><?=fs_badge('enabled', gettext('Enabled'))?></template>
+<template id="sf-badge-off"><?=fs_badge('disabled', gettext('Not enabled'))?></template>
+
+<div class="fs-actionbar">
+	<button type="submit" id="save" name="save" class="btn btn-primary" title="<?=gettext('Save changes and rebuild the rules');?>"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save');?></button>
+</div>
 </form>
 
-<script language="javascript" type="text/javascript">
+<script type="text/javascript">
 //<![CDATA[
-
 events.push(function() {
 
-	function enable_change()
-	{
+	function enable_change() {
 		var endis = !($('#ips_policy_enable').prop('checked'));
 
 		hideInput('ips_policy', endis);
 	<?php if ($inline_ips_mode || $ips_policy_mode_enable): ?>
-			hideInput('ips_policy_mode', endis);
+		hideInput('ips_policy_mode', endis);
 	<?php else: ?>
-			hideInput('ips_policy_mode', true);
+		hideInput('ips_policy_mode', true);
 	<?php endif;?>
 
-		$('input[type="checkbox"]').each(function() {
+		$('input[name="toenable[]"][type="checkbox"]').each(function() {
 			var str = $(this).val();
 
 			if (str.substr(0,6) == "snort_") {
 				$(this).attr('disabled', !endis);
-				if (!endis) {
-					$(this).prop('title', 'Disabled because an IPS Policy is selected');
-				}
-				else {
-					$(this).prop('title', '');
-				}
+				$(this).prop('title', endis ? '' : <?=json_encode(gettext('Disabled because an IPS Policy is selected'))?>);
 			}
 		});
 	}
 
-	//------- Click handlers -----------------------------------------
-	//
-	$('#ips_policy_enable').click(function() {
+	// Keep the state badge and the state filter in step with the checkbox
+	$('input[name="toenable[]"][type="checkbox"]').on('change', function() {
+		var tr = this.closest('tr');
+		var holder = tr.querySelector('[data-sf-state]');
+		tr.setAttribute('data-fs-filter-state', this.checked ? 'on' : 'off');
+		if (holder) {
+			holder.replaceChildren(document.getElementById(this.checked ? 'sf-badge-on' : 'sf-badge-off').content.cloneNode(true));
+		}
+	});
+
+	$('#ips_policy_enable').on('click', function() {
 		enable_change();
 	});
 
 	// Set initial state of dynamic HTML form controls
 	enable_change();
-
 });
 //]]>
 </script>
 <?php
 endif;
 include("foot.inc");
+?>

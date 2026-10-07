@@ -888,14 +888,59 @@ function build_cat_list() {
 }
 
 $if_friendly = convert_friendly_interface_to_friendly_descr($pconfig['interface']);
-$pglinks = array("", "/suricata/suricata_interfaces.php", "/suricata/suricata_interfaces_edit.php?id={$id}", "@self");
-$pgtitle = array("Services", "Suricata", "Interface Settings", "{$if_friendly} - Rules");
+$pglinks = array("", "/suricata/suricata_overview.php", "/suricata/suricata_interfaces.php", "/suricata/suricata_interfaces_edit.php?id={$id}", "@self");
+$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("Interfaces"), htmlspecialchars($a_rule['descr'] ?: $if_friendly), gettext("Rules"));
 include_once("head.inc");
 suricata_display_primary_navigation('policies');
 
+/* Interface context (same block on every per-interface Suricata page): settings switch + summary */
+$sf_rule = config_get_path("installedpackages/suricata/rule/{$id}", []);
+$sf_real = get_real_interface($sf_rule['interface'] ?? '');
+$sf_name = convert_friendly_interface_to_friendly_descr($sf_rule['interface'] ?? '');
+echo '<nav class="fs-viewswitch" aria-label="' . fs_h(gettext('Interface settings')) . '">';
+foreach (array(
+	array('suricata_interfaces_edit.php', gettext('Settings')),
+	array('suricata_rulesets.php', gettext('Categories')),
+	array('suricata_rules.php', gettext('Rules')),
+	array('suricata_flow_stream.php', gettext('Flow & stream')),
+	array('suricata_app_parsers.php', gettext('App parsers')),
+	array('suricata_define_vars.php', gettext('Variables')),
+	array('suricata_ip_reputation.php', gettext('IP reputation')),
+) as $sf_v) {
+	echo '<a href="/suricata/' . $sf_v[0] . '?id=' . (int)$id . '"' . (($sf_v[0] === basename(__FILE__)) ? ' aria-current="page"' : '') . '>' . fs_h($sf_v[1]) . '</a>';
+}
+echo '</nav>';
+if (($sf_rule['blockoffenders'] ?? '') != 'on') {
+	$sf_mode = gettext('Detection only');
+} elseif (($sf_rule['ips_mode'] ?? '') == 'ips_mode_inline') {
+	$sf_mode = gettext('Inline IPS');
+} else {
+	$sf_mode = gettext('Legacy blocking');
+}
+$sf_running = !empty($sf_rule['uuid']) && suricata_is_running($sf_rule['uuid'], $sf_real);
+fs_summary_card(array(
+	'icon' => 'fa-shield-halved',
+	'title' => $sf_rule['descr'] ?? '',
+	'placeholder' => $sf_name,
+	'subtitle' => sprintf(gettext('Suricata on %s'), $sf_name),
+	'badges' => array(
+		fs_badge((($sf_rule['enable'] ?? '') == 'on') ? 'enabled' : 'disabled'),
+		$sf_running ? fs_badge('up', gettext('Running')) : fs_badge('down', gettext('Stopped')),
+	),
+	'meta' => $sf_real,
+	'label' => gettext('Interface summary'),
+	'facts' => array(
+		array(gettext('Mode'), $sf_mode),
+		array(gettext('Rule categories'), (string)count(array_filter(explode('||', $sf_rule['rulesets'] ?? '')))),
+		array(gettext('Home net'), (($sf_rule['homelistname'] ?? 'default') == 'default') ? gettext('Default') : $sf_rule['homelistname']),
+		array(gettext('Suppress list'), (empty($sf_rule['suppresslistname']) || $sf_rule['suppresslistname'] == 'default') ? '' : $sf_rule['suppresslistname'], 'empty' => gettext('None')),
+	),
+	'actions' => array(array(gettext('Alerts'), '/suricata/suricata_alerts.php?instance=' . (int)$id, 'fa-bell')),
+));
+
 if (is_subsystem_dirty('suricata_rules')) {
 	$_POST['if'] = $id . "|" . $currentruleset;
-	print_apply_box(gettext("A change has been made to a rule state or action.") . "<br/>" . gettext("Click APPLY when finished to send the changes to the running configuration."));
+	print_apply_box(gettext("A rule state or action was changed.") . "<br/>" . gettext("Apply the changes to send them to the running configuration."));
 }
 
 if ($input_errors) {
@@ -906,547 +951,301 @@ if ($savemsg) {
 	print_info_box($savemsg);
 }
 
+$can_block = ($a_rule['blockoffenders'] == 'on');
+$can_reject = ($a_rule['ips_mode'] == 'ips_mode_inline' && $can_block);
+
+/* ------------------------------------------------ build the rows of the category */
+
+$rows = array();
+$counter = $enable_cnt = $disable_cnt = $user_enable_cnt = $user_disable_cnt = $managed_count = 0;
+if ($currentruleset != 'custom.rules' && is_array($rules_map) && !empty($rules_map)) {
+	foreach ($rules_map as $k1 => $rulem) {
+		if (!is_array($rulem)) {
+			$rulem = array();
+		}
+		foreach ($rulem as $k2 => $v) {
+			$sid = $k2;
+			$gid = $k1;
+			$origin = 'default';
+			$on = true;
+
+			// Auto-managed by the SID MGMT tab feature
+			if ($v['managed'] == 1) {
+				if ($v['disabled'] == 1 && $v['state_toggled'] == 1) {
+					$origin = 'auto';
+					$on = false;
+				}
+				elseif ($v['disabled'] == 0 && $v['state_toggled'] == 1) {
+					$origin = 'auto';
+					$on = true;
+				}
+				$managed_count++;
+			}
+			// User overrides, then the default state
+			if (isset($disablesid[$gid][$sid])) {
+				$origin = 'user';
+				$on = false;
+				$disable_cnt++;
+				$user_disable_cnt++;
+			}
+			elseif (isset($enablesid[$gid][$sid])) {
+				$origin = 'user';
+				$on = true;
+				$enable_cnt++;
+				$user_enable_cnt++;
+			}
+			elseif (($v['disabled'] == 1) && ($v['state_toggled'] == 0) && (!isset($enablesid[$gid][$sid]))) {
+				$origin = 'default';
+				$on = false;
+				$disable_cnt++;
+			}
+			elseif ($v['disabled'] == 0 && $v['state_toggled'] == 0) {
+				$origin = 'default';
+				$on = true;
+				$enable_cnt++;
+			}
+
+			// Rule action
+			if ($v['noalert'] == 1) {
+				$act = 'noalert';
+			} elseif ($v['action'] == 'drop' && $can_block) {
+				$act = 'drop';
+			} elseif ($v['action'] == 'reject' && $can_reject) {
+				$act = 'reject';
+			} else {
+				$act = 'alert';
+			}
+
+			// The header of the rule (before the options) holds proto, source and destination
+			$tmp = substr($v['rule'], 0, strpos($v['rule'], "("));
+			$tmp = trim(preg_replace('/^\s*#+\s*/', '', $tmp));
+			$rule_content = preg_split('/[\s]+/', $tmp);
+
+			$rows[] = array(
+				'gid' => $gid, 'sid' => $sid, 'on' => $on, 'origin' => $origin, 'act' => $act,
+				'modified' => ($v['managed'] == 1 && $v['modified'] == 1),
+				'proto' => $rule_content[1] ?? '', 'src' => $rule_content[2] ?? '', 'sport' => $rule_content[3] ?? '',
+				'dst' => $rule_content[5] ?? '', 'dport' => $rule_content[6] ?? '',
+				'msg' => suricata_get_msg($v['rule']),
+			);
+			$counter++;
+		}
+	}
+	unset($rulem, $v);
+}
+
+$state_badges = array(
+	'on' => fs_badge('enabled', gettext('Enabled')),
+	'off' => fs_badge('disabled', gettext('Disabled')),
+);
+$origin_chips = array(
+	'default' => '<span class="fs-chip fs-chip--muted">' . fs_h(gettext('default')) . '</span>',
+	'user' => '<span class="fs-chip">' . fs_h(gettext('by user')) . '</span>',
+	'auto' => '<span class="fs-chip" title="' . fs_h(gettext('Set by the SID Mgmt configuration')) . '">' . fs_h(gettext('SID Mgmt')) . '</span>',
+);
+$action_badges = array(
+	'alert' => fs_badge('warn', gettext('Alert')),
+	'drop' => fs_badge('block', gettext('Drop')),
+	'reject' => fs_badge('reject', gettext('Reject')),
+	'noalert' => fs_badge('neutral', gettext('No alert'), gettext("Rule contains the 'noalert;' and/or 'flowbits:noalert;' options.")),
+);
 ?>
 
-<form action="/suricata/suricata_rules.php" method="post" enctype="multipart/form-data" class="" name="iform" id="iform">
-<input type='hidden' name='id' id='id' value='<?=$id;?>'/>
-<input type='hidden' name='openruleset' id='openruleset' value='<?=$currentruleset;?>'/>
+<style>
+.sf-category { width: auto; max-width: 22rem; }
+.sf-rule { min-width: 16rem; }
+.sf-rule-msg { overflow-wrap: anywhere; }
+.sf-sid { padding: 0; border: 0; background: none; color: var(--fs-coral-text); font-family: var(--fs-font-mono); font-size: var(--fs-fs-sm); }
+.sf-sid:hover, .sf-sid:focus-visible { text-decoration: underline; }
+.sf-traffic { font-family: var(--fs-font-mono); font-size: var(--fs-fs-sm); color: var(--fs-text-muted); max-width: 22rem; overflow-wrap: anywhere; }
+.sf-traffic b { color: var(--fs-text); font-weight: 500; }
+.sf-state { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .4rem; }
+tr.sf-off .sf-rule-msg, tr.sf-off .sf-traffic { color: var(--fs-text-muted); }
+.sf-more .dropdown-item { display: flex; align-items: center; gap: .5rem; }
+.sf-rule-meta { display: flex; flex-wrap: wrap; gap: .25rem 1rem; margin-bottom: .75rem; font-size: var(--fs-fs-sm); }
+.sf-choice { display: block; padding: .5rem .75rem; margin-bottom: .5rem; border: 1px solid var(--fs-border); border-radius: var(--fs-r-sm); cursor: pointer; }
+.sf-choice:has(input:checked) { border-color: var(--fs-coral-text); }
+.sf-choice input { margin-right: .5rem; }
+.sf-notes { display: flex; flex-wrap: wrap; gap: .4rem 1.5rem; margin: -.5rem 0 var(--fs-sp-5); color: var(--fs-text-muted); font-size: var(--fs-fs-sm); }
+</style>
+
+<form action="/suricata/suricata_rules.php" method="post" enctype="multipart/form-data" name="iform" id="iform">
+<input type='hidden' name='id' id='id' value='<?=(int)$id;?>'/>
+<input type='hidden' name='openruleset' id='openruleset' value='<?=fs_h($currentruleset);?>'/>
 <input type='hidden' name='sid' id='sid' value=''/>
 <input type='hidden' name='gid' id='gid' value=''/>
 
 <?php
-$tab_array = array();
-$tab_array[] = array(gettext("Interfaces"), true, "/suricata/suricata_interfaces.php");
-$tab_array[] = array(gettext("Global Settings"), false, "/suricata/suricata_global.php");
-$tab_array[] = array(gettext("Updates"), false, "/suricata/suricata_download_updates.php");
-$tab_array[] = array(gettext("Alerts"), false, "/suricata/suricata_alerts.php?instance={$id}");
-$tab_array[] = array(gettext("Blocks"), false, "/suricata/suricata_blocked.php");
-$tab_array[] = array(gettext("Files"), false, "/suricata/suricata_files.php?instance={$id}");
-$tab_array[] = array(gettext("Pass Lists"), false, "/suricata/suricata_passlist.php");
-$tab_array[] = array(gettext("Suppress"), false, "/suricata/suricata_suppress.php");
-$tab_array[] = array(gettext("Logs View"), false, "/suricata/suricata_logs_browser.php?instance={$id}");
-$tab_array[] = array(gettext("Logs Mgmt"), false, "/suricata/suricata_logs_mgmt.php");
-$tab_array[] = array(gettext("SID Mgmt"), false, "/suricata/suricata_sid_mgmt.php");
-$tab_array[] = array(gettext("Sync"), false, "/pkg_edit.php?xml=suricata/suricata_sync.xml");
-$tab_array[] = array(gettext("IP Lists"), false, "/suricata/suricata_ip_list_mgmt.php");
-display_top_tabs($tab_array, true);
-
-$menu_iface=($if_friendly?substr($if_friendly,0,5)." ":"Iface ");;
-$tab_array = array();
-$tab_array[] = array($menu_iface . gettext("Settings"), false, "/suricata/suricata_interfaces_edit.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("Categories"), false, "/suricata/suricata_rulesets.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("Rules"), true, "/suricata/suricata_rules.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("Flow/Stream"), false, "/suricata/suricata_flow_stream.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("App Parsers"), false, "/suricata/suricata_app_parsers.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("Variables"), false, "/suricata/suricata_define_vars.php?id={$id}");
-$tab_array[] = array($menu_iface . gettext("IP Rep"), false, "/suricata/suricata_ip_reputation.php?id={$id}");
-display_top_tabs($tab_array, true);
-
-$section = new Form_Section("Available Rule Categories");
-$group = new Form_Group("Category");
-$group->add(new Form_Select(
-	'selectbox',
-	'Category',
-	$currentruleset,
-	build_cat_list()
-))->setHelp("Select the rule category to view and manage.");
-
-// Don't show the VIEW ALL button when displaying Custom Rules,
-// Active Rules or any of the "User Forced" special categories.
-if ($currentruleset != 'custom.rules' && $currentruleset != 'Active Rules' && strpos($currentruleset, 'User Forced ') === FALSE) {
-	$group->add(new Form_Button(
-		'',
-		'View All',
-		'javascript:wopen(\'/suricata/suricata_rules_edit.php?id=' . $id . '&openruleset=' . $currentruleset . '\',\'FileViewer\');',
-		'fa-regular fa-file-lines'
-	))->removeClass("btn-secondary")->addClass("btn-sm btn-success")->setAttribute('title', gettext("View raw text for all rules in selected category"));
+/* Category picker (posts the form on change) and the raw view of the category */
+$picker = '<select class="form-select form-select-sm sf-category" name="selectbox" id="selectbox" aria-label="' . fs_h(gettext('Category')) . '">';
+foreach (build_cat_list() as $k => $v) {
+	$picker .= '<option value="' . fs_h($k) . '"' . (((string)$k === (string)$currentruleset) ? ' selected' : '') . '>' . fs_h($v) . '</option>';
 }
-$section->add($group);
-print($section);
-
-if ($currentruleset == 'custom.rules') :
-		$section = new Form_Section('Defined Custom Rules');
-		$section->addInput(new Form_Textarea(
-			'customrules',
-			'',
-			base64_decode($a_rule['customrules'])
-		))->addClass('row-fluid')->setRows('18')->setAttribute('wrap', 'off')->setAttribute('style', 'max-width: 100%; width: 100%;');
-		print($section);
+$picker .= '</select>';
+if ($currentruleset != 'custom.rules' && $currentruleset != 'Active Rules' && strpos($currentruleset, 'User Forced ') === FALSE) {
+	$picker .= '<a class="btn btn-sm btn-outline-secondary" href="' . fs_h('/suricata/suricata_rules_edit.php?id=' . $id . '&openruleset=' . urlencode($currentruleset)) . '" target="_blank" rel="noopener" title="' . fs_h(gettext('View raw text for all rules in selected category')) . '">'
+	    . '<i class="fa-regular fa-file-lines icon-embed-btn" aria-hidden="true"></i>' . fs_h(gettext('View all')) . '</a>';
+}
 ?>
-		<nav class="action-buttons">
-			<button type="submit" id="save" name="save" class="btn btn-primary btn-sm" title="<?=gettext('Save custom rules for this interface');?>">
-				<i class="fa-solid fa-save icon-embed-btn"></i>
-				<?=gettext('Save');?>
-			</button>
-			<button type="submit" id="cancel" name="cancel" class="btn btn-warning btn-sm" title="<?=gettext('Cancel changes and return to last page');?>">
-				<?=gettext('Cancel');?>
-			</button>
-			<button type="submit" id="clear" name="clear" class="btn btn-danger btn-sm" title="<?=gettext('Deletes all custom rules for this interface');?>">
-				<i class="fa-solid fa-trash-can icon-embed-btn"></i>
-				<?=gettext('Clear');?>
-			</button>
-		</nav>
+
+<?php if ($currentruleset == 'custom.rules'): ?>
+<div class="panel panel-default">
+	<div class="panel-heading">
+		<h2 class="panel-title"><?=gettext('Custom rules')?></h2>
+		<div class="d-flex flex-wrap gap-2 ms-auto"><?=$picker?></div>
+	</div>
+	<div class="panel-body">
+		<label class="visually-hidden" for="customrules"><?=gettext('Custom rules')?></label>
+		<textarea class="form-control fs-mono" name="customrules" id="customrules" rows="18" wrap="off" spellcheck="false"><?=htmlspecialchars(base64_decode($a_rule['customrules']))?></textarea>
+		<div class="form-text help-block"><?=gettext('One rule per line, in Suricata rule syntax. Saving rebuilds the rules of this interface and live-reloads Suricata.')?></div>
+	</div>
+</div>
+<div class="fs-actionbar">
+	<button type="submit" id="save" name="save" class="btn btn-primary" title="<?=gettext('Save custom rules for this interface');?>"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save');?></button>
+	<button type="submit" id="cancel" name="cancel" class="btn btn-outline-secondary" title="<?=gettext('Discard the edits and reload the saved rules');?>"><?=gettext('Cancel');?></button>
+	<button type="submit" id="clear" name="clear" class="btn btn-outline-danger ms-auto" title="<?=gettext('Deletes all custom rules for this interface');?>"
+		data-fs-confirm="<?=gettext('Delete all custom rules of this interface?')?>" data-fs-confirm-detail="<?=gettext('The rules are removed and the interface rules are rebuilt.')?>" data-fs-confirm-action="<?=gettext('Delete all')?>"><i class="fa-solid fa-trash-can icon-embed-btn" aria-hidden="true"></i><?=gettext('Clear');?></button>
+</div>
 
 <?php else: ?>
 
+<div class="fs-tiles">
 <?php
-$section = new Form_Section('Rule Signature ID (SID) Enable/Disable Overrides');
-$group = new Form_Group('SID Actions');
-$group->add(new Form_Button(
-	'apply',
-	'Apply',
-	null,
-	'fa-solid fa-save'
-))->setAttribute('title', gettext('Apply changes made on this tab and rebuild the interface rules'))->addClass('btn-primary btn-sm');
-$group->add(new Form_Button(
-	'resetall',
-	'Reset All',
-	null,
-	'fa-solid fa-arrow-rotate-right'
-))->setAttribute('title', gettext('Remove user overrides for all rule categories'))->addClass('btn-sm btn-warning');
-$group->add(new Form_Button(
-	'resetcategory',
-	'Reset Current',
-	null,
-	'fa-solid fa-arrow-rotate-right'
-))->setAttribute('title', gettext('Remove user overrides for only the currently selected category'))->addClass('btn-sm btn-warning');
-$group->add(new Form_Button(
-	'disable_all',
-	'Disable All',
-	null,
-	'fa-regular fa-circle-xmark'
-))->setAttribute('title', gettext('Disable all rules in the currently selected category'))->addClass('btn-sm btn-danger');
-$group->add(new Form_Button(
-	'enable_all',
-	'Enable All',
-	null,
-	'fa-regular fa-circle-check'
-))->setAttribute('title', gettext('Enable all rules in the currently selected category'))->addClass('btn-sm btn-success');
-if ($currentruleset == 'Auto-Flowbit Rules') {
-	$msg = '<b>' . gettext('Note: ') . '</b>' . gettext('You should not disable flowbit rules!  Add Suppress List entries for them instead by ');
-	$msg .= '<a href="/suricata/suricata_rules_flowbits.php?id=' . $id . '" title="' . gettext('Add Suppress List entry for Flowbit Rule') . '">';
-	$msg .= gettext('clicking here.') . '</a>';
-	$group->setHelp('When finished, click APPLY to save and send any SID state/action changes made on this tab to Suricata.<br/>' . $msg);
-}
-else {
-	$group->setHelp('When finished, click APPLY to save and send any SID state/action changes made on this tab to Suricata.');
-}
-$section->add($group);
-print($section);
-
-// ========== Start Rule filter Panel =========================================
-if ($filterrules) {
-	$section = new Form_Section("Rules View Filter", "rulesfilter", COLLAPSIBLE|SEC_OPEN);
-}
-else {
-	$section = new Form_Section("Rules View Filter", "rulesfilter", COLLAPSIBLE|SEC_CLOSED);
-}
-$group = new Form_Group('');
-$group->add(new Form_Checkbox(
-	'filterrules_enabled',
-	'Enabled Rules',
-	'Enabled Rules',
-	$filterfieldsarray['show_enabled'] == 'on' ? true:false,
-	'on'
-));
-$group->add(new Form_Checkbox(
-	'filterrules_disabled',
-	'Disabled Rules',
-	'Disabled Rules',
-	$filterfieldsarray['show_disabled'] == 'on' ? true:false,
-	'on'
-));
-
-// Show DROP and REJECT filters for Inline IPS Mode operation
-if ($a_rule['blockoffenders'] == 'on') {
-	$group->add(new Form_Checkbox(
-		'filterrules_drop',
-		'Drop Rules',
-		'Drop Rules',
-		$filterfieldsarray['show_drop'] == 'on' ? true:false,
-		'on'
-	));
-}
-if ($a_rule['ips_mode'] == 'ips_mode_inline' && $a_rule['blockoffenders'] == 'on') {
-	$group->add(new Form_Checkbox(
-		'filterrules_reject',
-		'Reject Rules',
-		'Reject Rules',
-		$filterfieldsarray['show_reject'] == 'on' ? true:false,
-		'on'
-	));
-}
-$section->add($group);
-
-// Add APPLY and CLEAR buttons
-$group = new Form_Group('');
-$group->add(new Form_Button(
-	'filterrules_submit',
-	'Apply Filter',
-	null,
-	'fa-solid fa-filter'
-))->removeClass("btn-primary")
-  ->addClass("btn-sm btn-success");
-$group->add(new Form_Button(
-	'filterrules_clear',
-	'Clear Filter',
-	null,
-	'fa-regular fa-trash-can'
-))->removeclass("btn-primary")
-  ->addClass("btn-sm btn-danger no-confirm");
-$section->add($group);
-print($section);
-// ========== End Rule filter Panel ===========================================
-
+	fs_tile(gettext('Rules'), $counter);
+	fs_tile(gettext('Enabled'), $enable_cnt, null, $user_enable_cnt ? sprintf(gettext('%d by user'), $user_enable_cnt) : null);
+	fs_tile(gettext('Disabled'), $disable_cnt, null, $user_disable_cnt ? sprintf(gettext('%d by user'), $user_disable_cnt) : null);
+	fs_tile(gettext('SID Mgmt'), $managed_count, null, gettext('Auto-managed rules'));
 ?>
+</div>
 
-<div class="card mb-3">
-	<div class="card-header"><h2 class="h5 mb-0"><?=gettext("Rule Signature ID (SID) Enable/Disable Overrides")?></h2></div>
-	<div class="card-body table-responsive">
+<div class="panel panel-default fs-table">
+<?php
+	$warn_flowbits = ($currentruleset == 'Auto-Flowbit Rules') ? gettext('Flowbit rules should not be disabled; suppress their alerts instead.') : null;
+	$more = '<div class="dropdown sf-more">'
+	    . '<button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">' . fs_h(gettext('Overrides')) . '</button>'
+	    . '<ul class="dropdown-menu dropdown-menu-end">'
+	    . '<li><button type="submit" class="dropdown-item" name="enable_all" id="enable_all" value="Enable All" title="' . fs_h(gettext('Enable all rules in the currently selected category')) . '"><i class="fa-regular fa-circle-check" aria-hidden="true"></i>' . fs_h(gettext('Enable all in category')) . '</button></li>'
+	    . '<li><button type="submit" class="dropdown-item" name="disable_all" id="disable_all" value="Disable All" title="' . fs_h(gettext('Disable all rules in the currently selected category')) . '"'
+	    . ' data-fs-confirm="' . fs_h(gettext('Disable every rule in this category?')) . '"' . ($warn_flowbits ? ' data-fs-confirm-detail="' . fs_h($warn_flowbits) . '"' : '') . ' data-fs-confirm-action="' . fs_h(gettext('Disable all')) . '"><i class="fa-regular fa-circle-xmark" aria-hidden="true"></i>' . fs_h(gettext('Disable all in category')) . '</button></li>'
+	    . '<li><hr class="dropdown-divider"></li>'
+	    . '<li><button type="submit" class="dropdown-item" name="resetcategory" id="resetcategory" value="Reset Current" title="' . fs_h(gettext('Remove user overrides for only the currently selected category')) . '"'
+	    . ' data-fs-confirm="' . fs_h(gettext('Reset the overrides of this category?')) . '" data-fs-confirm-detail="' . fs_h(gettext('State and action changes made by users in this category return to their defaults.')) . '" data-fs-confirm-action="' . fs_h(gettext('Reset')) . '"><i class="fa-solid fa-arrow-rotate-left" aria-hidden="true"></i>' . fs_h(gettext('Reset this category')) . '</button></li>'
+	    . '<li><button type="submit" class="dropdown-item" name="resetall" id="resetall" value="Reset All" title="' . fs_h(gettext('Remove user overrides for all rule categories')) . '"'
+	    . ' data-fs-confirm="' . fs_h(gettext('Reset the overrides of every category?')) . '" data-fs-confirm-detail="' . fs_h(gettext('All rule state and action changes made by users on this interface are removed.')) . '" data-fs-confirm-action="' . fs_h(gettext('Reset all')) . '"><i class="fa-solid fa-arrow-rotate-left" aria-hidden="true"></i>' . fs_h(gettext('Reset all categories')) . '</button></li>'
+	    . '<li><hr class="dropdown-divider"></li>'
+	    . '<li><button type="submit" class="dropdown-item" name="apply" id="apply" value="Apply" title="' . fs_h(gettext('Apply changes made on this tab and rebuild the interface rules')) . '"><i class="fa-solid fa-check" aria-hidden="true"></i>' . fs_h(gettext('Apply and rebuild rules')) . '</button></li>'
+	    . '</ul></div>';
 
-		<div class="content table-responsive">
-			<table>
-				<tbody>
-					<tr>
-						<td><b><?=gettext('Legend: ');?></b></td>
-						<td style="padding-left: 8px;"><i class="fa-regular fa-circle-check text-success"></i></td><td style="padding-left: 4px;"><small><?=gettext('Default Enabled');?></small></td>
-						<td style="padding-left: 8px;"><i class="fa-solid fa-check-circle text-success"></i></td><td style="padding-left: 4px;"><small><?=gettext('Enabled by user');?></small></td>
-						<td style="padding-left: 8px;"><i class="fa-brands fa-adn text-success"></i></td><td style="padding-left: 4px;"><small><?=gettext('Auto-enabled by SID Mgmt');?></small></td>
-						<td style="padding-left: 8px;"><i class="fa-brands fa-adn text-warning"></i></td><td style="padding-left: 4px;"><small><?=gettext('Action/content modified by SID Mgmt');?></small></td>
-						<td style="padding-left: 8px;"><i class="fa-solid fa-exclamation-triangle text-warning"></i></td><td style="padding-left: 4px;"><small><?=gettext('Rule action is alert');?></small></td>
-						<td style="padding-left: 8px;"><i class="fa-solid fa-exclamation-triangle text-success"></i></td><td style="padding-left: 4px;"><small><?=gettext('Rule contains noalert option');?></small></td>
-					</tr>
-					<tr>
-						<td></td>
-						<td style="padding-left: 8px;"><i class="fa-regular fa-circle-xmark text-danger"></i></td><td style="padding-left: 4px;"><small><?=gettext('Default Disabled');?></small></td>
-						<td style="padding-left: 8px;"><i class="fa-solid fa-times-circle text-danger"></i></td><td style="padding-left: 4px;"><small><?=gettext('Disabled by user');?></small></td>
-						<td style="padding-left: 8px;"><i class="fa-brands fa-adn text-danger"></i></td><td style="padding-left: 4px;"><small><?=gettext('Auto-disabled by SID Mgmt');?></small></td>
-						<td></td><td></td>
-				<?php if ($a_rule['blockoffenders'] == 'on') : ?>
-						<td style="padding-left: 8px;"><i class="fa-solid fa-thumbs-down text-danger"></i></td><td style="padding-left: 4px;"><small><?=gettext('Rule action is drop');?></small></td>
-					<?php if ($a_rule['ips_mode'] == 'ips_mode_inline') : ?>
-						<td style="padding-left: 8px;"><i class="fa-regular fa-hand text-warning"></i></td><td style="padding-left: 4px;"><small><?=gettext('Rule action is reject');?></small></td>
-					<?php else : ?>
-						<td></td><td></td>
-					<?php endif; ?>
-				<?php else : ?>
-						<td></td><td></td>
-				<?php endif; ?>
-						<td></td><td></td>
-					</tr>
-				</tbody>
-			</table>
-		</div>
+	$filters = array(
+		'state' => array(gettext('All states'), 'on' => gettext('Enabled'), 'off' => gettext('Disabled')),
+		'origin' => array(gettext('Any origin'), 'default' => gettext('Default'), 'user' => gettext('Changed by user'), 'auto' => gettext('SID Mgmt')),
+	);
+	$act_filter = array(gettext('All actions'), 'alert' => gettext('Alert'));
+	if ($can_block) {
+		$act_filter['drop'] = gettext('Drop');
+	}
+	if ($can_reject) {
+		$act_filter['reject'] = gettext('Reject');
+	}
+	$act_filter['noalert'] = gettext('No alert');
+	$filters['action'] = $act_filter;
 
-		<table style="table-layout: fixed; width: 100%;" class="table table-striped table-hover table-sm sortable-theme-bootstrap" data-sortable>
-			<colgroup>
-				<col width="5%">
-				<col width="5%">
-				<col width="4%">
-				<col width="9%">
-				<col width="5%">
-				<col width="15%">
-				<col width="12%">
-				<col width="15%">
-				<col width="12%">
-				<col>
-			</colgroup>
+	fs_table_toolbar(array(
+		'search' => gettext('Search SIDs, messages, addresses…'),
+		'noun' => gettext('rules'),
+		'noun_one' => gettext('rule'),
+		'custom' => $picker,
+		'filters' => $filters,
+		'actions' => $more,
+	));
+?>
+	<div class="panel-body table-responsive">
+		<table class="table table-hover" data-sortable>
 			<thead>
-			   <tr class="sortableHeaderRowIdentifier">
-				<th data-sortable="false"><?=gettext("State");?></th>
-				<th data-sortable="false"><?=gettext("Action");?></th>
-				<th data-sortable="true" data-sortable-type="numeric"><?=gettext("GID");?></th>
-				<th data-sortable="true" data-sortable-type="numeric"><?=gettext("SID");?></th>
-				<th data-sortable="true" data-sortable-type="alpha"><?=gettext("Proto");?></th>
-				<th data-sortable="true" data-sortable-type="alpha"><?=gettext("Source");?></th>
-				<th data-sortable="true" data-sortable-type="alpha"><?=gettext("SPort");?></th>
-				<th data-sortable="true" data-sortable-type="alpha"><?=gettext("Destination");?></th>
-				<th data-sortable="true" data-sortable-type="alpha"><?=gettext("DPort");?></th>
-				<th data-sortable="true" data-sortable-type="alpha"><?=gettext("Message");?></th>
-			   </tr>
+				<tr>
+					<th data-sortable="false"><?=gettext("State")?></th>
+					<th data-sortable="false"><?=gettext("Action")?></th>
+					<th data-fs-search data-sortable-type="numeric"><?=gettext("Rule")?></th>
+					<th data-fs-search><?=gettext("Traffic")?></th>
+					<th class="fs-col-actions"><span class="visually-hidden"><?=gettext('Actions')?></span></th>
+				</tr>
 			</thead>
 			<tbody>
-				<?php
-					$counter = $enable_cnt = $disable_cnt = $user_enable_cnt = $user_disable_cnt = $managed_count = 0;
-					if (is_array($rules_map) && !empty($rules_map)) {
-						foreach ($rules_map as $k1 => $rulem) {
-							if (!is_array($rulem)) {
-								$rulem = array();
-							}
-							foreach ($rulem as $k2 => $v) {
-								$sid = $k2;
-								$gid = $k1;
-								$ruleset = $currentruleset;
-								$style = "";
-
-								// Apply rule state and action filters if filtering is enabled
-								if ($filterrules) {
-									if (isset($filterfieldsarray['show_disabled'])) {
-										if (($v['disabled'] == 0 || isset($enablesid[$gid][$sid])) && !isset($disablesid[$gid][$sid])) {
-											continue;
-										}
-									}
-									if (isset($filterfieldsarray['show_enabled'])) {
-										if ($v['disabled'] == 1 || isset($disablesid[$gid][$sid])) {
-											continue;
-										}
-									}
-									if (isset($filterfieldsarray['show_drop']) && $v['action'] != "drop") {
-										continue;
-									}
-									if (isset($filterfieldsarray['show_reject']) && $v['action'] != "reject") {
-										continue;
-									}
-								}
-
-								// Determine which icons to display in the first column for rule state.
-								// See if the rule is auto-managed by the SID MGMT tab feature
-								if ($v['managed'] == 1) {
-									if ($v['disabled'] == 1 && $v['state_toggled'] == 1) {
-										$textss = '<span class="text-muted">';
-										$textse = '</span>';
-										$iconb_class = 'class="fa-brands fa-adn text-danger text-start"';
-										$title = gettext("Auto-disabled by settings on SID Mgmt tab");
-									}
-									elseif ($v['disabled'] == 0 && $v['state_toggled'] == 1) {
-										$textss = $textse = "";
-										$iconb_class = 'class="fa-brands fa-adn text-success text-start"';
-										$title = gettext("Auto-enabled by settings on SID Mgmt tab");
-									}
-									$managed_count++;
-								}
-								// See if the rule is in our list of user-disabled overrides
-								if (isset($disablesid[$gid][$sid])) {
-									$textss = "<span class=\"text-muted\">";
-									$textse = "</span>";
-									$disable_cnt++;
-									$user_disable_cnt++;
-									$iconb_class = 'class="fa-solid fa-times-circle text-danger text-start"';
-									$title = gettext("Disabled by user. Click to change rule state");
-								}
-								// See if the rule is in our list of user-enabled overrides
-								elseif (isset($enablesid[$gid][$sid])) {
-									$textss = $textse = "";
-									$enable_cnt++;
-									$user_enable_cnt++;
-									$iconb_class = 'class="fa-solid fa-check-circle text-success text-start"';
-									$title = gettext("Enabled by user. Click to change rules state");
-								}
-
-								// These last two checks handle normal cases of default-enabled or default disabled rules
-								// with no user overrides.
-								elseif (($v['disabled'] == 1) && ($v['state_toggled'] == 0) && (!isset($enablesid[$gid][$sid]))) {
-									$textss = "<span class=\"text-muted\">";
-									$textse = "</span>";
-									$disable_cnt++;
-									$iconb_class = 'class="fa-regular fa-circle-xmark text-danger text-start"';
-									$title = gettext("Disabled by default. Click to change rule state");
-								}
-								elseif ($v['disabled'] == 0 && $v['state_toggled'] == 0) {
-									$textss = $textse = "";
-									$enable_cnt++;
-									$iconb_class = 'class="fa-regular fa-circle-check text-success text-start"';
-									$title = gettext("Enabled by default.");
-								}
-
-								// Determine which icon to display in the second column for rule action.
-								// Default to ALERT icon.
-								$textss = $textse = "";
-								$iconact_class = 'class="fa-solid fa-exclamation-triangle text-warning text-center"';
-								$title_act = gettext("Rule will alert on traffic when triggered.");
-								if ($v['action'] == 'drop' && $a_rule['blockoffenders'] == 'on') {
-									$iconact_class = 'class="fa-solid fa-thumbs-down text-danger text-center"';
-									$title_act = gettext("Rule will drop traffic when triggered.");
-								}
-								elseif ($v['action'] == 'reject' && $a_rule['ips_mode'] == 'ips_mode_inline' && $a_rule['blockoffenders'] == 'on') {
-									$iconact_class = 'class="fa-regular fa-hand text-warning text-center"';
-									$title_act = gettext("Rule will reject traffic when triggered.");
-								}
-								if ($a_rule['blockoffenders'] == 'on') {
-									$title_act .= gettext("  Click to change rule action.");
-								}
-
-								// Rules with "noalert;" option enabled get special treatment
-								if ($v['noalert'] == 1) {
-									$iconact_class = 'class="fa-solid fa-exclamation-triangle text-success text-center"';
-									$title_act = gettext("Rule contains the 'noalert;' and/or 'flowbits:noalert;' options.");
-								}
-
-								// Pick off the first section of the rule (prior to the start of the MSG field),
-								// and then use a REGX split to isolate the remaining fields into an array.
-								$tmp = substr($v['rule'], 0, strpos($v['rule'], "("));
-								$tmp = trim(preg_replace('/^\s*#+\s*/', '', $tmp));
-								$rule_content = preg_split('/[\s]+/', $tmp);
-
-								// Create custom <span> tags for the fields we truncate so we can 
-								// have a "title" attribute for tooltips to show the full string.
-								$srcspan = add_title_attribute($textss, $rule_content[2]);
-								$srcprtspan = add_title_attribute($textss, $rule_content[3]);
-								$dstspan = add_title_attribute($textss, $rule_content[5]);
-								$dstprtspan = add_title_attribute($textss, $rule_content[6]);
-
-								$protocol = $rule_content[1];         //protocol field
-								$source = $rule_content[2];           //source field
-								$source_port = $rule_content[3];      //source port field
-								$destination = $rule_content[5];      //destination field
-								$destination_port = $rule_content[6]; //destination port field
-								$message = suricata_get_msg($v['rule']); // description field
-								$sid_tooltip = gettext("View the raw text for this rule");
-
-								// Show text of "noalert;" flagged rules in Bootstrap SUCCESS color
-								if ($v['noalert'] == 1) {
-									$tag_class = ' class="text-success" ';
-								} else {
-									$tag_class = "";
-								}
-					?>
-								<tr class="text-nowrap">
-									<td><?=$textss; ?>
-										<a id="rule_<?=$gid; ?>_<?=$sid; ?>" href="#" onClick="toggleState('<?=$sid; ?>', '<?=$gid; ?>');" 
-										<?=$iconb_class; ?> title="<?=$title; ?>"></a><?=$textse; ?>
-						<?php if ($v['managed'] == 1 && $v['modified'] == 1) : ?>
-										<i class="fa-brands fa-adn text-warning text-start" title="<?=gettext('Action or content modified by settings on SID Mgmt tab'); ?>"></i><?=$textse; ?>
-						<?php endif; ?>
-									</td>
-
-						<?php if ($a_rule['blockoffenders'] == 'on' && $v['noalert'] == 0) : ?>
-								       <td><?=$textss; ?><a id="rule_<?=$gid; ?>_<?=$sid; ?>_action" href="#" onClick="toggleAction('<?=$sid; ?>', '<?=$gid; ?>');" 
-										<?=$iconact_class; ?> title="<?=$title_act; ?>"></a><?=$textse; ?>
-								       </td>
-						<?php else : ?>
-								       <td><?=$textss; ?><i <?=$iconact_class; ?> title="<?=$title_act; ?>"></i><?=$textse; ?>
-								       </td>
-						<?php endif; ?>
-
-								       <td ondblclick="showRuleContents('<?=$gid;?>','<?=$sid;?>');">
-										<?=$textss . $gid . $textse;?>
-								       </td>
-								       <td ondblclick="showRuleContents('<?=$gid;?>','<?=$sid;?>');">
-										<a href="javascript: void(0)" 
-										onclick="showRuleContents('<?=$gid;?>','<?=$sid;?>');" 
-										title="<?=$sid_tooltip;?>"><?=$textss . $sid . $textse;?></a>
-								       </td>
-								       <td <?=$tag_class;?> ondblclick="showRuleContents('<?=$gid;?>','<?=$sid;?>');">
-										<?=$textss . $protocol . $textse;?>
-							       	       </td>
-								       <td <?=$tag_class;?> style="text-overflow: ellipsis; overflow: hidden; white-space:no-wrap" ondblclick="showRuleContents('<?=$gid;?>','<?=$sid;?>');">
-										<?=$srcspan . $source;?></span>
-								       </td>
-								       <td <?=$tag_class;?> style="text-overflow: ellipsis; overflow: hidden; white-space:no-wrap" ondblclick="showRuleContents('<?=$gid;?>','<?=$sid;?>');">
-										<?=$srcprtspan . $source_port;?></span>
-								       </td>
-								       <td <?=$tag_class;?> style="text-overflow: ellipsis; overflow: hidden; white-space:no-wrap" ondblclick="showRuleContents('<?=$gid;?>','<?=$sid;?>');">
-										<?=$dstspan . $destination;?></span>
-								       </td>
-								       <td <?=$tag_class;?> style="text-overflow: ellipsis; overflow: hidden; white-space:no-wrap" ondblclick="showRuleContents('<?=$gid;?>','<?=$sid;?>');">
-									       <?=$dstprtspan . $destination_port;?></span>
-								       </td>
-									<td <?=$tag_class;?> style="word-wrap:break-word; white-space:normal" ondblclick="showRuleContents('<?=$gid;?>','<?=$sid;?>');">
-										<?=$textss . $message . $textse;?>
-								       </td>
-								</tr>
-				<?php
-								$counter++;
-							}
-						}
-						unset($rulem, $v);
-					}
-				?>
-		    </tbody>
+<?php foreach ($rows as $r):
+	$gs = "{$r['gid']}:{$r['sid']}";
+?>
+				<tr id="rule_<?=$r['gid']?>_<?=$r['sid']?>" data-fs-filter-state="<?=$r['on'] ? 'on' : 'off'?>" data-fs-filter-origin="<?=$r['origin']?>" data-fs-filter-action="<?=$r['act']?>"<?=$r['on'] ? '' : ' class="sf-off"'?>>
+					<td><div class="sf-state"><?=$state_badges[$r['on'] ? 'on' : 'off']?><?=$origin_chips[$r['origin']]?><?=$r['modified'] ? '<span class="fs-chip is-warn" title="' . fs_h(gettext('Action or content modified by settings on SID Mgmt tab')) . '">' . fs_h(gettext('modified')) . '</span>' : ''?></div></td>
+					<td><?=$action_badges[$r['act']]?></td>
+					<td class="sf-rule" data-value="<?=fs_h($r['sid'])?>"><button type="button" class="sf-sid" data-sf-rule="<?=fs_h($gs)?>"><?=fs_h($gs)?></button><div class="sf-rule-msg"><?=fs_h($r['msg'])?></div></td>
+					<td class="sf-traffic"><b><?=fs_h($r['proto'])?></b> <?=fs_h($r['src'])?> <?=fs_h($r['sport'])?> → <?=fs_h($r['dst'])?> <?=fs_h($r['dport'])?></td>
+					<td class="fs-col-actions"><div class="fs-actions">
+						<button type="button" class="fs-action" data-sf-modal="#sid_state_selector" data-sf-gid="<?=$r['gid']?>" data-sf-sid="<?=$r['sid']?>" aria-label="<?=fs_h(sprintf(gettext('Change the state of %s'), $gs))?>" title="<?=fs_h(gettext('Change state'))?>"><i class="fa-solid <?=$r['on'] ? 'fa-toggle-on' : 'fa-toggle-off'?>" aria-hidden="true"></i></button>
+<?php if ($can_block && $r['act'] != 'noalert'): ?>
+						<button type="button" class="fs-action" data-sf-modal="#sid_action_selector" data-sf-gid="<?=$r['gid']?>" data-sf-sid="<?=$r['sid']?>" aria-label="<?=fs_h(sprintf(gettext('Change the action of %s'), $gs))?>" title="<?=fs_h($r['on'] ? gettext('Change action') : gettext('Enable the rule to change its action'))?>"<?=$r['on'] ? '' : ' disabled'?>><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>
+<?php endif; ?>
+						<button type="button" class="fs-action" data-sf-rule="<?=fs_h($gs)?>" aria-label="<?=fs_h(sprintf(gettext('Show rule %s'), $gs))?>" title="<?=fs_h(gettext('Show rule'))?>"><i class="fa-solid fa-file-lines" aria-hidden="true"></i></button>
+					</div></td>
+				</tr>
+<?php endforeach; ?>
+<?php
+	if (empty($rows)) {
+		fs_empty_row(5, gettext('This category has no rules.'));
+	}
+?>
+			</tbody>
 		</table>
 	</div>
 </div>
 
-<div class="card mb-3">
-	<div class="card-header"><h2 class="h5 mb-0"><?=gettext("Category Rules Summary")?></h2></div>
-	<div class="card-body">
-		<div class="text-info content">
-			<b><?=gettext("Total Rules: ");?></b><?=gettext($counter);?>&nbsp;&nbsp;&nbsp;&nbsp; 
-			<b><?=gettext("Default Enabled: ");?></b><?=gettext($enable_cnt);?>&nbsp;&nbsp;&nbsp;&nbsp;
-			<b><?=gettext("Default Disabled: ");?></b><?=gettext($disable_cnt);?>&nbsp;&nbsp;&nbsp;&nbsp;
-			<b><?=gettext("User Enabled: ");?></b><?=gettext($user_enable_cnt);?>&nbsp;&nbsp;&nbsp;&nbsp;
-			<b><?=gettext("User Disabled: ");?></b><?=gettext($user_disable_cnt);?>&nbsp;&nbsp;&nbsp;&nbsp;
-			<b><?=gettext("Auto-Managed: ");?></b><?=gettext($managed_count);?>
-		</div>
-	</div>
+<div class="sf-notes">
+	<span><?=gettext('State and action changes are saved at once and take effect after Apply.')?></span>
+<?php if ($warn_flowbits): ?>
+	<span><?=$warn_flowbits?> <a href="/suricata/suricata_rules_flowbits.php?id=<?=(int)$id?>"><?=gettext('Suppress flowbit rules')?></a></span>
+<?php endif; ?>
 </div>
 <?php endif;?>
 
-<!-- Modal Rule SID action selector window -->
-<div class="modal fade" role="dialog" id="sid_action_selector">
-	<div class="modal-dialog">
+<!-- Rule state selector -->
+<div class="modal fade" id="sid_state_selector" tabindex="-1" aria-labelledby="sid_state_title" aria-hidden="true">
+	<div class="modal-dialog modal-dialog-centered">
 		<div class="modal-content">
 			<div class="modal-header">
-				<button type="button" class="close" data-bs-dismiss="modal" aria-label="Close">
-					<span aria-hidden="true">&times;</span>
-				</button>
-				<h3 class="modal-title"><?=gettext("Rule Action Selection")?></h3>
+				<h2 class="modal-title" id="sid_state_title"><?=gettext("Rule state")?></h2>
+				<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="<?=gettext('Close')?>"></button>
 			</div>
 			<div class="modal-body">
-				<h4><?=gettext("Choose desired rule action from selections below: ");?></h4>
-				<label class="radio-inline">
-					<input type="radio" name="ruleActionOptions" id="action_default" value="action_default"> <span class = "label label-default">Default</span>
-				</label>
-				<label class="radio-inline">
-					<input type="radio" name="ruleActionOptions" id="action_alert" value="action_alert"> <span class = "label label-warning">ALERT</span>
-				</label>
-				<label class="radio-inline">
-					<input type="radio" name="ruleActionOptions" id="action_drop" value="action_drop"> <span class = "label label-danger">DROP</span>
-				</label>
-
-		<?php if ($a_rule['ips_mode'] == 'ips_mode_inline' && $a_rule['blockoffenders'] == 'on') : ?>
-				<label class="radio-inline">
-					<input type="radio" name="ruleActionOptions" id="action_reject" value="action_reject"> <span class = "label label-warning">REJECT</span>
-				</label>
-		<?php endif; ?>
-				<br /><br />
-					<p><?=gettext("Choosing 'Default' will return the rule action to the original value specified by the rule author.  Note this is usually ALERT.");?></p>
+				<label class="sf-choice"><input type="radio" class="form-check-input" name="ruleStateOptions" id="state_default" value="state_default"><strong><?=gettext('Default')?></strong> <span class="fs-muted"><?=gettext('The state set by the rule package author.')?></span></label>
+				<label class="sf-choice"><input type="radio" class="form-check-input" name="ruleStateOptions" id="state_enabled" value="state_enabled"><strong><?=gettext('Enabled')?></strong></label>
+				<label class="sf-choice"><input type="radio" class="form-check-input" name="ruleStateOptions" id="state_disabled" value="state_disabled"><strong><?=gettext('Disabled')?></strong></label>
 			</div>
 			<div class="modal-footer">
-				<button type="submit" class="btn btn-sm btn-primary" id="rule_action_save" name="rule_action_save" value="<?=gettext("Save");?>" title="<?=gettext("Save changes and close selector");?>">
-					<i class="fa-solid fa-save icon-embed-btn"></i>
-					<?=gettext("Save");?>
-				</button>
-				<button type="button" class="btn btn-sm btn-warning" id="cancel_sid_action" name="cancel_sid_action" value="<?=gettext("Cancel");?>" data-bs-dismiss="modal" title="<?=gettext("Abandon changes and quit selector");?>">
-					<?=gettext("Cancel");?>
-				</button>
+				<button type="button" class="btn btn-outline-secondary" id="cancel_state_action" data-bs-dismiss="modal"><?=gettext("Cancel")?></button>
+				<button type="submit" class="btn btn-primary" id="rule_state_save" name="rule_state_save" value="<?=gettext("Save")?>"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext("Save")?></button>
 			</div>
 		</div>
 	</div>
 </div>
 
-<!-- Modal Rule SID state selector window -->
-<div class="modal fade" role="dialog" id="sid_state_selector">
-	<div class="modal-dialog">
+<!-- Rule action selector -->
+<div class="modal fade" id="sid_action_selector" tabindex="-1" aria-labelledby="sid_action_title" aria-hidden="true">
+	<div class="modal-dialog modal-dialog-centered">
 		<div class="modal-content">
 			<div class="modal-header">
-				<button type="button" class="close" data-bs-dismiss="modal" aria-label="Close">
-					<span aria-hidden="true">&times;</span>
-				</button>
-				<h3 class="modal-title"><?=gettext("Rule State Selection")?></h3>
+				<h2 class="modal-title" id="sid_action_title"><?=gettext("Rule action")?></h2>
+				<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="<?=gettext('Close')?>"></button>
 			</div>
 			<div class="modal-body">
-				<h4><?=gettext("Choose desired rule state from selections below: ");?></h4>
-				<label class="radio-inline">
-					<input type="radio" name="ruleStateOptions" id="state_default" value="state_default"> <span class = "label label-default">Default</span>
-				</label>
-				<label class="radio-inline">
-					<input type="radio" name="ruleStateOptions" id="state_enabled" value="state_enabled"> <span class = "label label-success">Enabled</span>
-				</label>
-				<label class="radio-inline">
-					<input type="radio" name="ruleStateOptions" id="state_disabled" value="state_disabled"> <span class = "label label-danger">Disabled</span>
-				</label>
-				<br /><br />
-					<p><?=gettext("Choosing 'Default' will return the rule state to the original state specified by the rule package author.");?></p>
+				<label class="sf-choice"><input type="radio" class="form-check-input" name="ruleActionOptions" id="action_default" value="action_default"><strong><?=gettext('Default')?></strong> <span class="fs-muted"><?=gettext('The action set by the rule author, usually alert.')?></span></label>
+				<label class="sf-choice"><input type="radio" class="form-check-input" name="ruleActionOptions" id="action_alert" value="action_alert"><strong><?=gettext('Alert')?></strong></label>
+				<label class="sf-choice"><input type="radio" class="form-check-input" name="ruleActionOptions" id="action_drop" value="action_drop"><strong><?=gettext('Drop')?></strong></label>
+<?php if ($can_reject): ?>
+				<label class="sf-choice"><input type="radio" class="form-check-input" name="ruleActionOptions" id="action_reject" value="action_reject"><strong><?=gettext('Reject')?></strong></label>
+<?php endif; ?>
 			</div>
 			<div class="modal-footer">
-				<button type="submit" class="btn btn-sm btn-primary" id="rule_state_save" name="rule_state_save" value="<?=gettext("Save");?>" title="<?=gettext("Save changes and close selector");?>">
-					<i class="fa-solid fa-save icon-embed-btn"></i>
-					<?=gettext("Save");?>
-				</button>
-				<button type="button" class="btn btn-sm btn-warning" id="cancel_state_action" name="cancelcancel_state_action" value="<?=gettext("Cancel");?>" data-bs-dismiss="modal" title="<?=gettext("Abandon changes and quit selector");?>">
-					<?=gettext("Cancel");?>
-				</button>
+				<button type="button" class="btn btn-outline-secondary" id="cancel_sid_action" data-bs-dismiss="modal"><?=gettext("Cancel")?></button>
+				<button type="submit" class="btn btn-primary" id="rule_action_save" name="rule_action_save" value="<?=gettext("Save")?>"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext("Save")?></button>
 			</div>
 		</div>
 	</div>
@@ -1454,129 +1253,94 @@ print($section);
 
 </form>
 
-<?php
-// Create a Modal object to display text of user-clicked rules
-$form = new Form(FALSE);
-$modal = new Modal('View Rules Text', 'rulesviewer', 'large', 'Close');
-$modal->addInput(new Form_StaticText (
-	'Category',
-	'<div class="text-start" id="modal_rule_category"></div>'
-))->setHelp('<span id="modal_rule_link_text"></span><a id="modal_rule_link" target="_blank"></a>');
-$modal->addInput(new Form_Textarea (
-	'rulesviewer_text',
-	'Rule Text',
-	'...Loading...'
-))->removeClass('form-control')->addClass('row-fluid col-sm-10')->setAttribute('rows', '10')->setAttribute('wrap', 'soft');
-$form->add($modal);
-print($form);
-?>
+<div class="modal fade" id="rulesviewer" tabindex="-1" aria-labelledby="rulesviewer-title" aria-hidden="true">
+	<div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+		<div class="modal-content">
+			<div class="modal-header">
+				<h2 class="modal-title" id="rulesviewer-title"><?=gettext('Rule')?></h2>
+				<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="<?=gettext('Close')?>"></button>
+			</div>
+			<div class="modal-body">
+				<div class="sf-rule-meta">
+					<span><span class="fs-muted"><?=gettext('Category')?></span> <span class="fs-mono" id="modal_rule_category"><?=fs_h($currentruleset)?></span></span>
+					<span id="modal_rule_doc" hidden><span class="fs-muted"><?=gettext('Rule documentation')?></span> <a id="modal_rule_link" target="_blank" rel="noopener noreferrer"></a></span>
+				</div>
+				<pre class="fs-console" id="rulesviewer_text"></pre>
+			</div>
+			<div class="modal-footer">
+				<button type="button" class="btn btn-outline-secondary" data-fs-copy="#rulesviewer_text"><i class="fa-regular fa-copy icon-embed-btn" aria-hidden="true"></i><?=gettext('Copy')?></button>
+				<button type="button" class="btn btn-primary" data-bs-dismiss="modal"><?=gettext('Close')?></button>
+			</div>
+		</div>
+	</div>
+</div>
 
-<script language="javascript" type="text/javascript">
+<script type="text/javascript">
 //<![CDATA[
-
-function toggleState(sid, gid) {
-	$('#sid').val(sid);
-	$('#gid').val(gid);
-	$('#openruleset').val($('#selectbox').val());
-	$('#sid_state_selector').modal('show');
-}
-
-function toggleAction(sid, gid) {
-	if ($('#rule_'+gid+'_'+sid).hasClass('text-success')) {
-		$('#sid').val(sid);
-		$('#gid').val(gid);
-		$('#openruleset').val($('#selectbox').val());
-		$('#sid_action_selector').modal('show');
-	}
-	else {
-		alert("Rule is disabled, so changing ACTION is meaningless and thus is disabled for this rule.");
-	}
-}
-
-function wopen(url, name)
-{
-    var win = window.open(url,
-        name,
-       'location=no, menubar=no, ' +
-       'status=no, toolbar=no, scrollbars=yes, resizable=yes');
-    win.focus();
-}
-
-function showRuleContents(gid, sid) {
-		// Show the modal dialog with rule text
-		$('#rulesviewer_text').text("...Loading...");
-		$('#rulesviewer').modal('show');
-		$('#modal_rule_category').html($('#selectbox').val());
-
-		$.ajax(
-			"<?=$_SERVER['SCRIPT_NAME'];?>",
-			{
-				type: 'post',
-				data: {
-					sid:         sid,
-					gid:         gid,
-					id:	     $('#id').val(),
-					openruleset: $('#selectbox').val(),
-					action:      'loadRule'
-				},
-				complete: loadComplete
-			}
-		);
-}
-
-function loadComplete(req) {
-		var response = JSON.parse(req.responseText);
-		$('#rulesviewer_text').text(atob(response.rule_text));
-		$('#rulesviewer_text').attr('readonly', true);
-		if (response.rule_link) {
-			$('#modal_rule_link_text').text('Snort Rule Doc: ');
-			$('#modal_rule_link').attr('href', response.rule_link);
-			$('#modal_rule_link').text(response.rule_link);
-		}
-}
-
 events.push(function() {
+	var page = "/suricata/suricata_rules.php";
 
-	function go()
-	{
-		var ruleset = $('#selectbox').find('option:selected').val();
+	// State / action selectors: remember the rule, then open the modal
+	document.addEventListener('click', function(e) {
+		var btn = e.target.closest('[data-sf-modal]');
+		if (!btn || btn.disabled) {
+			return;
+		}
+		$('#sid').val(btn.getAttribute('data-sf-sid'));
+		$('#gid').val(btn.getAttribute('data-sf-gid'));
+		$('#openruleset').val($('#selectbox').val());
+		var modal = document.querySelector(btn.getAttribute('data-sf-modal'));
+		$(modal).find('input[type=radio]').prop('checked', false);
+		bootstrap.Modal.getOrCreateInstance(modal).show();
+	});
+
+	// Rule text
+	document.addEventListener('click', function(e) {
+		var btn = e.target.closest('[data-sf-rule]');
+		if (!btn) {
+			return;
+		}
+		var gs = btn.getAttribute('data-sf-rule').split(':');
+		$('#rulesviewer-title').text(<?=json_encode(gettext('Rule'))?> + ' ' + gs[0] + ':' + gs[1]);
+		$('#rulesviewer_text').text(<?=json_encode(gettext('Loading…'))?>);
+		$('#modal_rule_doc').prop('hidden', true);
+		bootstrap.Modal.getOrCreateInstance(document.getElementById('rulesviewer')).show();
+		$.ajax(page, {
+			type: 'post',
+			data: {sid: gs[1], gid: gs[0], id: $('#id').val(), openruleset: $('#selectbox').val(), action: 'loadRule'},
+			complete: function(req) {
+				var r = {};
+				try { r = JSON.parse(req.responseText); } catch (err) { r = {}; }
+				var text = '';
+				try { text = atob(r.rule_text || ''); } catch (err) { text = ''; }
+				$('#rulesviewer_text').text(text || <?=json_encode(gettext('The rule text could not be loaded.'))?>);
+				if (r.rule_link) {
+					$('#modal_rule_link').attr('href', r.rule_link).text(r.rule_link);
+					$('#modal_rule_doc').prop('hidden', false);
+				}
+			}
+		});
+	});
+
+	// Pick another category
+	$('#selectbox').on('change', function() {
+		var ruleset = $(this).val();
 		if (ruleset) {
 			$('#openruleset').val(ruleset);
-			$('#iform').submit();
+			document.getElementById('iform').submit();
 		}
+	});
+
+<?php if (!empty($anchor)): ?>
+	// Scroll the last changed SID into view
+	var row = document.getElementById(<?=json_encode($anchor)?>);
+	if (row) {
+		row.scrollIntoView({block: 'center'});
+		row.classList.add('table-active');
 	}
-
-	// ---------- Click handlers -------------------------------------------------------
-
-	$('#selectbox').on('change', function() {
-		go();
-	});
-
-	$('#filterrules_enabled').click(function() {
-		$('#filterrules_disabled').prop("checked", false);
-	});
-
-	$('#filterrules_disabled').click(function() {
-		$('#filterrules_enabled').prop("checked", false);
-	});
-
-	$('#filterrules_drop').click(function() {
-		$('#filterrules_reject').prop("checked", false);
-	});
-
-	$('#filterrules_reject').click(function() {
-		$('#filterrules_drop').prop("checked", false);
-	});
-
-	<?php if (!empty($anchor)): ?>
-		// Scroll the last enabled/disabled SID into view
-		window.location.hash = "<?=$anchor; ?>";
-		window.scrollBy(0,-60); 
-	<?php endif;?>
-
+<?php endif;?>
 });
 //]]>
 </script>
 
 <?php include("foot.inc"); ?>
-
