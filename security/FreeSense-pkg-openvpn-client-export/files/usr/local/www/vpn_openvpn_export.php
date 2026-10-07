@@ -441,7 +441,24 @@ if ($savemsg) {
 	print_info_box($savemsg, 'success');
 }
 
-fs_tabs('vpn-openvpn', 'vpn_openvpn_export.php');
+/* Core OpenVPN tabs plus the package tabs; add_package_tabs() never marks a tab active, so mark this one */
+$tab_array = array();
+$ovx_groups = function_exists('fs_tab_groups') ? fs_tab_groups() : array();
+$ovx_tabs = $ovx_groups['vpn-openvpn']['tabs'] ?? array(
+	array(gettext("Servers"), "vpn_openvpn_server.php"),
+	array(gettext("Clients"), "vpn_openvpn_client.php"),
+	array(gettext("Client Specific Overrides"), "vpn_openvpn_csc.php"),
+	array(gettext("Wizards"), "wizard.php?xml=openvpn_wizard.xml"),
+);
+foreach ($ovx_tabs as $tab) {
+	$tab_array[] = array(htmlspecialchars($tab[0]), false, htmlspecialchars($tab[1]));
+}
+add_package_tabs("OpenVPN", $tab_array);
+foreach ($tab_array as &$tab) {
+	$tab[1] = (basename((string)$tab[2]) === 'vpn_openvpn_export.php');
+}
+unset($tab);
+display_top_tabs($tab_array);
 
 $ovx_modes = function_exists('openvpn_build_mode_list') ? openvpn_build_mode_list() : array();
 ?>
@@ -455,8 +472,8 @@ $ovx_modes = function_exists('openvpn_build_mode_list') ? openvpn_build_mode_lis
 .fs-ovx-label { color: var(--fs-text-muted); font-size: var(--fs-fs-xs); font-weight: 600; white-space: nowrap; }
 .fs-ovx-label .fs-mono { font-weight: 500; }
 .fs-ovx-buttons { display: flex; flex-wrap: wrap; gap: .3rem; }
-.fs-ovx-buttons .btn { white-space: nowrap; }
-.fs-ovx-notes { margin: 0; padding: .75rem 1rem; border-top: 1px solid var(--fs-border); color: var(--fs-text-muted); font-size: var(--fs-fs-sm); }
+.fs-ovx-buttons .btn { white-space: nowrap; margin: 0; }
+.fs-ovx-notes { margin: 0; padding: .75rem 1rem .75rem 2rem;border-top: 1px solid var(--fs-border); color: var(--fs-text-muted); font-size: var(--fs-fs-sm); }
 .fs-ovx-notes li + li { margin-top: .25rem; }
 .fs-ovx-clients { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: .75rem 1.5rem; }
 .fs-ovx-clients li { font-size: var(--fs-fs-sm); }
@@ -464,8 +481,9 @@ $ovx_modes = function_exists('openvpn_build_mode_list') ? openvpn_build_mode_lis
 #users td { vertical-align: top; }
 @media (max-width: 767.98px) {
 	#users thead { display: none; }
+	#users, #users tbody { display: block; width: 100%; }
 	#users tbody tr { display: block; padding: .5rem 0; border-bottom: 1px solid var(--fs-border); }
-	#users tbody td { display: block; border: 0; padding: .25rem .75rem; }
+	#users tbody td { display: block; height: auto; border: 0; padding: .25rem .75rem; }
 	#users tbody tr.fs-empty td { text-align: center; }
 	.fs-ovx-exports { grid-template-columns: 1fr; gap: .2rem; }
 	.fs-ovx-buttons { margin-bottom: .35rem; }
