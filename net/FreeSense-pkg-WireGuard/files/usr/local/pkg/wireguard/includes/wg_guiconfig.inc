@@ -528,6 +528,11 @@ tr.wg-children > td { padding-top: 0; }
 .wg-children-box .table { margin: 0; }
 .wg-children-box .table > thead > tr > th { font-size: var(--fs-fs-xs); }
 .wg-children-box .table > tbody > tr:last-child > td { border-bottom: 0; }
+@media (max-width: 575.98px) {
+	.wg-children-box { margin-left: 0; padding-left: .5rem; }
+	.fs-table td.fs-col-actions { white-space: normal; }
+	.fs-table td.fs-col-actions .fs-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; width: calc(2 * var(--fs-hit) + 4px); }
+}
 </style>
 <?php
 }
