@@ -100,7 +100,18 @@ if ($_POST['act'] == "del") {
 	}
 }
 
-$pgtitle = array("Services", "ACME", "Account Keys");
+$a_accountkeys = config_get_path('installedpackages/acme/accountkeys/item', []);
+$custom_ids = array_column(config_get_path('installedpackages/acme/customacme/servers', []) ?: [], 'intid');
+$cert_count = [];
+foreach (config_get_path('installedpackages/acme/certificates/item', []) as $certificate) {
+	if (is_array($certificate) && !empty($certificate['acmeaccount'])) {
+		$cert_count[$certificate['acmeaccount']] = ($cert_count[$certificate['acmeaccount']] ?? 0) + 1;
+	}
+}
+
+$pgtitle = array(gettext("Services"), gettext("ACME"), gettext("Account keys"));
+$pglinks = array("", "acme_certificates.php", "@self");
+fs_page_action(gettext('Add account key'), 'acme_accountkeys_edit.php', 'fa-plus');
 include("head.inc");
 if ($input_errors) {
 	print_input_errors($input_errors);
@@ -111,119 +122,109 @@ if ($savemsg) {
 
 display_top_tabs_active($acme_tab_array['acme'], "accountkeys");
 ?>
+<style>
+.fs-acme-sub { display: block; font-size: var(--fs-fs-xs); color: var(--fs-text-muted); }
+</style>
 <form action="acme_accountkeys.php" method="post">
-	<div class="card mb-3">
-		<div class="card-header">
-			<h2 class="h5 mb-0">Account Keys</h2>
-		</div>
-		<div id="mainarea" class="table-responsive card-body">
-			<table class="table table-hover table-striped table-sm">
-				<thead>
-					<tr>
-						<th></th>
-						<th width="30%">Name</th>
-						<th width="20%">Description</th>
-						<th>ACME Server</th>
-						<th>Actions</th>
-					</tr>
-				</thead>
-				<tbody class="user-entries">
+<div class="panel panel-default fs-table">
+<?php fs_table_toolbar([
+	'title' => gettext('Account keys'),
+	'search' => gettext('Search account keys…'),
+	'noun' => gettext('account keys'),
+	'noun_one' => gettext('account key'),
+	'filters' => [
+		'kind' => [gettext('All servers'), 'production' => gettext('Production'), 'staging' => gettext('Staging'), 'custom' => gettext('Custom')],
+	],
+	'bulk' => [
+		['name' => 'del_x', 'label' => gettext('Delete'), 'icon' => 'fa-trash-can', 'variant' => 'danger',
+		 'value' => gettext('Delete selected backends'), 'confirm' => gettext('Delete the selected account keys?')],
+	],
+]); ?>
+	<div class="panel-body table-responsive">
+		<table class="table table-hover table-rowdblclickedit" data-sortable>
+			<thead>
+				<tr>
+					<th class="fs-col-select" data-sortable="false"><input type="checkbox" data-fs-select-all aria-label="<?=gettext('Select all')?>"></th>
+					<th data-fs-search><?=gettext('Name')?></th>
+					<th data-fs-search><?=gettext('ACME server')?></th>
+					<th data-fs-search><?=gettext('E-mail')?></th>
+					<th data-sortable-type="numeric"><?=gettext('Certificates')?></th>
+					<th class="fs-col-actions" data-sortable="false"><span class="visually-hidden"><?=gettext('Actions')?></span></th>
+				</tr>
+			</thead>
+			<tbody>
 <?php
-		foreach (config_get_path('installedpackages/acme/accountkeys/item', []) as $accountkey) {
-			if (empty($accountkey) || !is_array($accountkey)) {
-				continue;
-			}
-			$accountname = htmlspecialchars($accountkey['name']);
-			?>
-			<tr id="fr<?=$accountname;?>" <?=$display?> onClick="fr_toggle('<?=$accountname;?>')" ondblclick="document.location='acme_accountkeys_edit.php?id=<?=$accountname;?>';">
-				<td>
-					<input type="checkbox" id="frc<?=$accountname;?>" onClick="fr_toggle('<?=$accountname;?>')" name="rule[]" value="<?=$accountname;?>"/>
-					<a class="fa-solid fa-anchor" id="Xmove_<?=$accountname?>" title="<?=gettext("Move checked entries to here")?>"></a>
-				</td>
-				<td>
-					<?=$accountname;?>
-				</td>
-				<td>
-					<?=htmlspecialchars($accountkey['descr']);?>
-				</td>
-				<td>
-				<?php
-					echo htmlspecialchars($accountkey['acmeserver']);
-					if (array_key_exists($accountkey['acmeserver'], $a_acmeserver)) {
-						echo '<br/>' . htmlspecialchars($a_acmeserver[$accountkey['acmeserver']]['name']);
-					} else {
-
-					}
-				?>
-				</td>
-				<td class="action-icons">
-					<button style="display: none;" class="btn btn-secondary btn-sm" type="submit" id="move_<?=urlencode($accountname)?>" name="move_<?=urlencode($accountname)?>" value="move_<?=urlencode($accountname)?>"></button>
-					<a href="acme_accountkeys_edit.php?id=<?=urlencode($accountname);?>">
-						<?=acmeicon("edit", gettext("Edit"))?>
-					</a>
-					<a href="acme_accountkeys.php?act=del&amp;id=<?=$accountname;?>" usepost>
-						<?=acmeicon("delete", gettext("Delete"))?>
-					</a>
-					<a href="acme_accountkeys_edit.php?dup=<?=urlencode($accountname);?>">
-						<?=acmeicon("clone", gettext("Clone"))?>
-					</a>
-				</td>
-			</tr><?php
-		}
+$shown = 0;
+foreach ($a_accountkeys as $accountkey):
+	if (empty($accountkey) || !is_array($accountkey)) {
+		continue;
+	}
+	$shown++;
+	$name = (string)$accountkey['name'];
+	$accountname = htmlspecialchars($name);
+	$server = $accountkey['acmeserver'] ?? '';
+	$known = array_key_exists($server, $a_acmeserver);
+	$sname = $known ? $a_acmeserver[$server]['name'] : '';
+	$sshort = trim(preg_replace('/\s*\(.*$/', '', $sname));
+	$kind = in_array($server, $custom_ids, true) ? 'custom' : ((stripos($sname, 'staging') !== false || stripos($sname, 'testing') !== false) ? 'staging' : 'production');
+	$certs = $cert_count[$name] ?? 0;
 ?>
-				</tbody>
-			</table>
-		</div>
+				<tr data-fs-filter-kind="<?=$kind?>">
+					<td><input type="checkbox" id="frc<?=$accountname?>" name="rule[]" value="<?=$accountname?>" data-fs-select aria-label="<?=htmlspecialchars(sprintf(gettext('Select %s'), $name))?>"></td>
+					<td>
+						<a href="acme_accountkeys_edit.php?id=<?=htmlspecialchars(urlencode($name))?>"><strong><?=$accountname?></strong></a>
+<?php if (!empty($accountkey['descr'])): ?>
+						<span class="fs-acme-sub"><?=htmlspecialchars($accountkey['descr'])?></span>
+<?php endif; ?>
+					</td>
+					<td>
+<?php if ($known): ?>
+						<span title="<?=htmlspecialchars($sname)?>"><?=htmlspecialchars($sshort ?: $sname)?></span>
+<?php	if ($kind == 'staging'): ?>
+						<span class="fs-chip fs-chip--muted"><?=gettext('Staging')?></span>
+<?php	elseif ($kind == 'custom'): ?>
+						<span class="fs-chip fs-chip--muted"><?=gettext('Custom')?></span>
+<?php	endif; ?>
+						<span class="fs-acme-sub fs-mono"><?=htmlspecialchars($server)?></span>
+<?php else: ?>
+						<?=fs_badge('warn', gettext('Unknown server'), gettext('The ACME server stored on this key no longer exists.'))?>
+						<span class="fs-acme-sub fs-mono"><?=htmlspecialchars($server)?></span>
+<?php endif; ?>
+					</td>
+					<td><?=!empty($accountkey['email']) ? htmlspecialchars($accountkey['email']) : '<span class="fs-muted">—</span>'?></td>
+					<td data-value="<?=$certs?>"><?=$certs?></td>
+					<td class="fs-col-actions">
+						<button class="d-none" type="submit" id="move_<?=htmlspecialchars(urlencode($name))?>" name="move_<?=htmlspecialchars(urlencode($name))?>" value="move_<?=htmlspecialchars(urlencode($name))?>" tabindex="-1" aria-hidden="true"></button>
+						<?=fs_row_actions([
+							['edit', 'acme_accountkeys_edit.php?id=' . urlencode($name), $name],
+							['copy', 'acme_accountkeys_edit.php?dup=' . urlencode($name), $name],
+							['custom', '#', $name, ['icon' => 'fa-anchor', 'label' => sprintf(gettext('Move selected account keys before %s'), $name),
+							    'attrs' => ['data-acme-move' => 'move_' . urlencode($name)]]],
+							['delete', 'acme_accountkeys.php?act=del&id=' . rawurlencode($name), $name, ['thing' => gettext('account key'),
+							    'detail' => $certs ? sprintf(ngettext('%d certificate uses this key and stops renewing.', '%d certificates use this key and stop renewing.', $certs), $certs) : null]],
+						])?>
+					</td>
+				</tr>
+<?php endforeach; ?>
+<?php if ($shown == 0) {
+	fs_empty_row(6, gettext('No account keys yet. Certificates need a registered account key.'), 'acme_accountkeys_edit.php', gettext('Add account key'));
+} ?>
+			</tbody>
+		</table>
 	</div>
-	<nav class="action-buttons">
-		<a href="acme_accountkeys_edit.php" role="button" class="btn btn-sm btn-success" title="<?=gettext('Add backend to the end of the list')?>">
-			<i class="fa-solid fa-plus icon-embed-btn"></i>
-			<?=gettext("Add");?>
-		</a>
-		<button name="del_x" type="submit" class="btn btn-danger btn-sm" value="<?=gettext("Delete selected backends"); ?>" title="<?=gettext('Delete selected backends')?>">
-			<i class="fa-solid fa-trash-can icon-embed-btn no-confirm"></i>
-			<?=gettext("Delete"); ?>
-		</button>
-		<button type="submit" id="order-store" name="order-store" class="btn btn-sm btn-primary" value="store changes" disabled title="<?=gettext('Save backend order')?>">
-			<i class="fa-solid fa-save icon-embed-btn no-confirm"></i>
-			<?=gettext("Save")?>
-		</button>
-	</nav>
+</div>
 </form>
 
 <script type="text/javascript">
 //<![CDATA[
-
-function set_content(elementid, image) {
-	var item = document.getElementById(elementid);
-	item.innerHTML = image;
-}
-
 events.push(function() {
-
-	$('#clearallnotices').click(function() {
-		ajaxRequest = $.ajax({
-			url: "/index.php",
-			type: "post",
-			data: { closenotice: "all"},
-			success: function() {
-				window.location = window.location.href;
-			},
-			failure: function() {
-				alert("Error clearing notices!");
-			}
-		});
-	});
-
-	$('[id^=Xmove_]').click(function (event) {
-		$('#' + event.target.id.slice(1)).click();
-		return false;
-	});
-	$('[id^=Xmove_]').css('cursor', 'pointer');
-
-	// Check all of the rule checkboxes so that their values are posted
-	$('#order-store').click(function () {
-		$('[id^=frc]').prop('checked', true);
+	/* move the checked rows before this one (hidden move_<name> submit button) */
+	$(document).on('click', '[data-acme-move]', function (e) {
+		e.preventDefault();
+		var btn = document.getElementById(this.getAttribute('data-acme-move'));
+		if (btn) {
+			btn.click();
+		}
 	});
 });
 //]]>

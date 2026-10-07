@@ -73,7 +73,8 @@ foreach($simplefields as $stat) {
 	$pconfig[$stat] = config_get_path("installedpackages/acme/{$stat}");
 }
 
-$pgtitle = array(gettext("Services"), gettext("ACME"), gettext("General Settings"));
+$pgtitle = array(gettext("Services"), gettext("ACME"), gettext("General settings"));
+$pglinks = array("", "acme_certificates.php", "@self");
 include("head.inc");
 
 if ($input_errors) {
@@ -88,35 +89,32 @@ $counter = 0; // used by htmllist Draw() function.
 
 $form = new \Form;
 
-$section = new \Form_Section("General Settings");
+$section = new \Form_Section(gettext("Renewal"));
 
 $section->addInput(new \Form_Checkbox(
 	'enable',
-	'Cron Entry',
-	'Enable scheduled ACME certificate renewal',
+	'Scheduled renewal',
+	'Renew certificates automatically',
 	$pconfig['enable']
-))->setHelp('Configures a cron job to renew ACME certificates once a day at 03:16.%1$s' .
-	'Renews certificates when they reach their renewal threshhold ' .
-	'(e.g. 2/3 total lifetime, or the configured amount).%1$s' .
-	'Executes Post-Renew Actions configured on certificate entries upon successful renewal.', '<br/>');
+))->setHelp('A cron job runs daily at 03:16 and renews every active certificate that reached its renewal threshold ' .
+	'(2/3 of its lifetime, or the configured number of days), then runs its post-renew actions.');
 
 $section->addInput(new \Form_Checkbox(
 	'writecerts',
-	'Write Certificates',
-	'Write ACME certificates to /conf/acme/',
+	'Write certificates',
+	'Also write certificates to /conf/acme/',
 	$pconfig['writecerts']
-))->setHelp('After issue or renew, writes the resulting certificate data to files in %1$s/conf/acme/%2$s ' .
-	'using several common various formats. These files can be used by other scripts or daemons which do not integrate with the Certificate Manager.', '<tt>', '</tt>');
+))->setHelp('After an issue or renewal, writes the certificate in several common formats to %1$s/conf/acme/%2$s ' .
+	'for scripts and daemons that do not use the Certificate Manager.', '<code>', '</code>');
 
 $form->add($section);
 
-$section = new \Form_Section("Custom ACME Servers");
+$section = new \Form_Section(gettext("Custom ACME servers"));
 $section->addInput(new \Form_StaticText(
 	null,
-	sprintf(gettext(
-		'Additional ACME Servers which are not included in ACME package.%1$s%1$s' .
-		'There is no way for this package to know which features are supported by the server.%1$s%1$s' .
-		'Use at own risk. Test before deployment.'), '<br/>')
+	'<span class="form-text help-block">' . gettext('ACME servers that are not built into the package. ' .
+		'The package cannot tell which features such a server supports: test before relying on it. ' .
+		'They appear in the ACME server list of account keys.') . '</span>'
 ));
 
 if (empty($customacme)) {
@@ -131,35 +129,35 @@ $numca = count($customacme) - 1;
 $counter = 0;
 
 foreach ($customacme as $cas) {
-	$group = new \Form_Group($counter == 0 ? 'ACME Server':'');
+	$group = new \Form_Group($counter == 0 ? 'Servers' : '');
 
 	$group->add(new \Form_Input(
 		'intid' . $counter,
 		null,
 		'text',
 		$cas['intid']
-	))->setHelp(($counter == $numca) ? 'Internal ID (lowercase, under 32 chars, letters/numbers/dash only)':null);
+	))->setHelp(($counter == $numca) ? 'Internal ID<br>Lowercase letters, digits and dashes, under 32 characters.' : null);
 
 	$group->add(new \Form_Input(
 		'name' . $counter,
 		null,
 		'text',
 		$cas['name']
-	))->setHelp(($counter == $numca) ? 'Display Name':null);
+	))->setHelp(($counter == $numca) ? 'Display name' : null);
 
 	$group->add(new \Form_Input(
 		'url' . $counter,
 		null,
 		'url',
 		$cas['url']
-	))->setHelp(($counter == $numca) ? 'Server URL':null);
+	))->setHelp(($counter == $numca) ? 'Directory URL' : null);
 
 	$group->add(new \Form_Button(
 		'deleterow' . $counter,
 		'Delete',
 		null,
 		'fa-solid fa-trash-can'
-	))->addClass('btn-warning');
+	))->addClass('btn-outline-secondary');
 
 	$group->addClass('repeatable');
 	$section->add($group);
@@ -169,10 +167,10 @@ foreach ($customacme as $cas) {
 
 $form->addGlobal(new \Form_Button(
 	'addrow',
-	'Add ACME Server',
+	'Add server',
 	null,
 	'fa-solid fa-plus'
-))->addClass('btn-success');
+))->addClass('btn-outline-secondary addbtn');
 
 $form->add($section);
 

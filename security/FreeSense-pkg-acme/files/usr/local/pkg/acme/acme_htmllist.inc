@@ -125,10 +125,10 @@ class HtmlList
 					break;
 				case 'checkbox':
 					$checked = ($itemvalue == 'yes') ? " checked" : "";
-					$result .= "<input onclick='html_listitem_change(\"{$this->tablename}\",\"{$itemname}\",\"{$counter}\",this);' name='{$itemnamenr}' id='{$itemnamenr}' type='checkbox'{$checked} value='yes' />";
+					$result .= "<input class='form-check-input' onclick='html_listitem_change(\"{$this->tablename}\",\"{$itemname}\",\"{$counter}\",this);' name='{$itemnamenr}' id='{$itemnamenr}' type='checkbox'{$checked} value='yes' />";
 					break;
 				case 'textarea':
-					$result .= "<textarea class=\"form-control nowrap\" name=\"{$itemnamenr}\" id=\"{$itemnamenr}\" cols=\"{$item['size']}\" rows=\"10\" style=\"width:100%\">";
+					$result .= "<textarea class=\"form-control form-control-sm nowrap fs-mono\" name=\"{$itemnamenr}\" id=\"{$itemnamenr}\" cols=\"{$item['size']}\" rows=\"10\" style=\"width:100%\">";
 					$result .= htmlspecialchars(base64_decode($itemvalue));
 					$result .= "</textarea>";
 					break;
@@ -137,11 +137,11 @@ class HtmlList
 					break;
 				case 'password':
 					$itemvalue = htmlspecialchars($itemvalue, ENT_QUOTES);
-					$result .= "<input class=\"form-control\" name=\"{$itemnamenr}\" id=\"{$itemnamenr}\" type=\"password\" autocomplete=\"new-password\" value=\"{$itemvalue}\" />";
+					$result .= "<input class=\"form-control form-control-sm\" name=\"{$itemnamenr}\" id=\"{$itemnamenr}\" type=\"password\" autocomplete=\"new-password\" value=\"{$itemvalue}\" />";
 					break;
 				default:
 					$itemvalue = htmlspecialchars($itemvalue, ENT_QUOTES);
-					$result .= "<input class=\"form-control\" name=\"{$itemnamenr}\" id=\"{$itemnamenr}\" type=\"text\" value=\"{$itemvalue}\" />";
+					$result .= "<input class=\"form-control form-control-sm\" name=\"{$itemnamenr}\" id=\"{$itemnamenr}\" type=\"text\" value=\"{$itemvalue}\" />";
 					break;
 			}
 		} else {
@@ -184,19 +184,16 @@ class HtmlList
 		global $g, $counter;
 		$result = "";
 		$result .= "
-		<div class='card mb-3'>
-		<div class='card-header'>
-			Table
-		</div>
-		<div class='table-responsive card-body'>
-			<table id='{$tablename}' class='table table-hover table-striped table-sm'>
+		<div class='fs-acme-htmllist'>
+		<div class='table-responsive'>
+			<table id='{$tablename}' class='table table-sm fs-acme-htmltable'>
 				<thead>
 					<tr>
-						<th><!-- checkbox --></th>";
+						<th class='fs-col-select'><span class='visually-hidden'>" . gettext('Select') . "</span></th>";
 		foreach($items as $item){
 			$result .= "<th>{$item['columnheader']}</th>";
 		}
-		$result .= "<th>Actions</th>
+		$result .= "<th class='fs-col-actions'><span class='visually-hidden'>" . gettext('Actions') . "</span></th>
 		</tr>
 		</thead>
 		<tbody class='user-entries'>";
@@ -216,8 +213,8 @@ class HtmlList
 				if (!$editstate) {
 					$result .= "<tr id='tr_view_$counter' ondblclick='editRow($counter); return false;' >
 						<td>
-							<input type='checkbox' id='frvc{$counter}' onClick='fr_toggle_two({$counter},this)' name='{$tablename}_row[]' value='{$counter}'/>
-							<a class='fa-solid fa-anchor' id='Xmoveview_{$counter}' onClick='moveRowUpAboveAnchor({$counter}, \"{$tablename}\")' title='".gettext("Move checked entries to here")."'></a>
+							<input type='checkbox' class='form-check-input' id='frvc{$counter}' onClick='fr_toggle_two({$counter},this)' name='{$tablename}_row[]' value='{$counter}'/>
+							<a href='#' role='button' class='fs-acme-anchor' id='Xmoveview_{$counter}' onClick='moveRowUpAboveAnchor({$counter}, \"{$tablename}\"); return false;' aria-label='".gettext("Move checked entries here")."' title='".gettext("Move checked entries here")."'><i class='fa-solid fa-anchor' aria-hidden='true'></i></a>
 						</td>";
 
 					$leftitem = true;
@@ -236,25 +233,22 @@ class HtmlList
 					}
 					$result .= "
 					<td class='action-icons'>
-					<a onclick='editRow({$counter}); return false;'>".acmeicon('edit','edit entry')."</a>
-					<a onclick='deleteRow({$counter}, \"{$tablename}\"); return false;'>".acmeicon('delete','delete entry')."</a>
-					<a onclick='dupRow({$counter}, \"{$tablename}\"); return false;'>".acmeicon('clone','duplicate entry')."</a>
-					";
+					<div class='fs-actions'>"
+					. acme_htmllist_action("editRow({$counter});", 'edit', gettext('Edit entry'))
+					. acme_htmllist_action("dupRow({$counter}, \"{$tablename}\");", 'clone', gettext('Duplicate entry'));
 					if (empty($this->noindex)) {
-						$result .= "
-						<a onclick='moveRowUp({$counter}, \"{$tablename}\"); return false;'>".acmeicon('moveup','move row up')."</a>
-						<a onclick='moveRowDown({$counter}, \"{$tablename}\"); return false;'>".acmeicon('movedown','move row down')."</a>
-						";
+						$result .= acme_htmllist_action("moveRowUp({$counter}, \"{$tablename}\");", 'moveup', gettext('Move entry up'))
+							. acme_htmllist_action("moveRowDown({$counter}, \"{$tablename}\");", 'movedown', gettext('Move entry down'));
 					}
-					$result .= "
+					$result .= acme_htmllist_action("deleteRow({$counter}, \"{$tablename}\");", 'delete', gettext('Delete entry')) . "</div>
 					</td>";
 					$result .= "</tr>";
 				}
 				$displaystyle = $editstate ? "" : "hidden";
 				$result .= "<tr id='tr_edit_$counter' class='$displaystyle'>
 						<td>
-							<input type='checkbox' id='frec{$counter}' onClick='fr_toggle_two({$counter},this)' name='{$tablename}_row[]' value='{$counter}'/>
-							<a class='fa-solid fa-anchor' id='Xmove_{$counter}' onClick='moveRowUpAboveAnchor({$counter}, \"{$tablename}\")'  title='".gettext("Move checked entries to here")."'></a>
+							<input type='checkbox' class='form-check-input' id='frec{$counter}' onClick='fr_toggle_two({$counter},this)' name='{$tablename}_row[]' value='{$counter}'/>
+							<a href='#' role='button' class='fs-acme-anchor' id='Xmove_{$counter}' onClick='moveRowUpAboveAnchor({$counter}, \"{$tablename}\"); return false;' aria-label='".gettext("Move checked entries here")."' title='".gettext("Move checked entries here")."'><i class='fa-solid fa-anchor' aria-hidden='true'></i></a>
 						</td>";
 				foreach($items as $item){
 					$itemname = $item['name'];
@@ -271,29 +265,27 @@ class HtmlList
 				$result .= "
 		<td class='action-icons'>
 			<input name='{$tablename}_rowindex[]' id='{$tablename}_rowindex{$counter}' class='form-control hidden' value='{$counter}' />
-			<a onclick='deleteRow({$counter}, \"{$tablename}\"); return false;' >".acmeicon('delete','delete entry')."</a>
-			<a onclick='dupRow({$counter}, \"{$tablename}\"); return false;' >".acmeicon('clone','duplicate entry')."</a>
-			";
+			<div class='fs-actions'>"
+			. acme_htmllist_action("dupRow({$counter}, \"{$tablename}\");", 'clone', gettext('Duplicate entry'));
 			if (empty($this->noindex)) {
-				$result .= "
-				<a onclick='moveRowUp({$counter}, \"{$tablename}\"); return false;' >".acmeicon('moveup','move row up')."</a>
-				<a onclick='moveRowDown({$counter}, \"{$tablename}\"); return false;' >".acmeicon('movedown','move row down')."</a>
-				";
+				$result .= acme_htmllist_action("moveRowUp({$counter}, \"{$tablename}\");", 'moveup', gettext('Move entry up'))
+					. acme_htmllist_action("moveRowDown({$counter}, \"{$tablename}\");", 'movedown', gettext('Move entry down'));
 			}
-			$result .= "
+			$result .= acme_htmllist_action("deleteRow({$counter}, \"{$tablename}\");", 'delete', gettext('Delete entry')) . "</div>
 		</td>";
 				$result .= "</tr>";
 					if (isset($itemdetails)) {
 						$displayviewstyle = $editstate ? "hidden" : "";
 						$displayeditstyle = $editstate ? "" : "hidden";
 						$colspan = count($items);
+						$expand_label = htmlspecialchars(gettext('Show method settings'), ENT_QUOTES);
 						$result .= "<tr id='tr_viewdetail_$counter'>";
 						$result .= <<<EOT
 							<td>
-							<div class='$displayviewstyle' id="htmltable_{$tablename}_{$counter}_details_off" style="position:relative;float:right;width:11px;height:11px;">
-							<a onclick="htmltable_toggle_details('{$tablename}','{$counter}','htmltable_{$tablename}_{$counter}_details')">
+							<div class='$displayviewstyle fs-acme-expand' id="htmltable_{$tablename}_{$counter}_details_off">
+							<a href="#" role="button" class="fs-action" aria-label="{$expand_label}" title="{$expand_label}" onclick="htmltable_toggle_details('{$tablename}','{$counter}','htmltable_{$tablename}_{$counter}_details'); return false;">
 EOT
-							. acmeicon('expand','Expand advanced server settings') . '</a></div></td>';
+							. '<i class="fa-regular fa-square-plus" aria-hidden="true"></i></a></div></td>';
 						$result .= "<td colspan='$colspan'>";
 						$itemnr = 0;
 						$result .= "<div id='htmltable_{$tablename}_{$counter}_details_view' class='$displayviewstyle'>";
@@ -311,10 +303,7 @@ EOT
 							if (empty($itemvalue)) {
 								continue;
 							}
-							$result .= "<div style='float: left;padding-right: 2px;'>";
-							if (!$leftitem) {
-								$result .= ", ";
-							}
+							$result .= "<div class='fs-acme-detailview'>";
 							$leftitem = false;
 							$result .= $item['columnheader'] . ": ";
 							if (isset($item['customdrawcell'])) {
@@ -327,18 +316,18 @@ EOT
 						}
 						$result .= "</div>";
 						$result .= "<div id='htmltable_{$tablename}_{$counter}_details_edit' class='$displayeditstyle'>";
-						$result .= "<table class='table table-hover table-striped table-sm' style='border-collapse:collapse' border='1' cellspacing='0' >";
+						$result .= "<table class='table table-sm fs-acme-details'>";
 						foreach($itemdetails as $item) {
 							$itemname = $item['name'];
 							$result .= "<tr id='tr_edititemdetails_{$counter}_{$itemname}'>";
-							$result .= "<td style='border-right:0'>";
-							$result .= "{$item['columnheader']}: ";
+							$result .= "<td class='fs-acme-details-label'>";
+							$result .= "{$item['columnheader']}";
 							$result .= "</td>";
-							$result .= "<td style='border-left:0'>";
+							$result .= "<td>";
 							$itemvalue = $value[$itemname];
 
 							if (!empty($item['description'])) {
-								$result .= "{$item['description']}<br/>";
+								$result .= "<span class='form-text help-block'>{$item['description']}</span>";
 							}
 							if (isset($item['customdrawcell'])) {
 								$result .= $item['customdrawcell']($this, $item, $itemvalue, true, $itemname, $counter);
@@ -360,12 +349,26 @@ EOT
 		}
 		$result .= "</tbody>
 		</table>
-			<button class='btn btn-success addbtn' type='button' value='add another entry'
+		</div>
+			<button class='btn btn-sm btn-outline-secondary addbtn' type='button' value='add another entry'
 			onclick='javascript:addRowTo(\"{$tablename}\"); return false;'
-			><i class='fa-solid fa-plus icon-embed-btn'></i>Add</button>
-		</div></div>";
+			><i class='fa-solid fa-plus icon-embed-btn' aria-hidden='true'></i>" . gettext('Add entry') . "</button>
+		</div>";
 		return $result;
 	}
+}
+
+/* one icon-only row action of the list (an anchor that runs $onclick) */
+function acme_htmllist_action($onclick, $icon, $label) {
+	global $acme_icons;
+	$label = htmlspecialchars($label, ENT_QUOTES);
+	$class = ($icon == 'delete') ? 'fs-action fs-action--delete' : 'fs-action';
+	$fa = $acme_icons[$icon]['faicon'] ?? 'fa-solid fa-circle';
+	if (strpos($fa, 'fa-regular') === false && strpos($fa, 'fa-solid') === false) {
+		$fa = 'fa-solid ' . $fa;
+	}
+	$onclick = htmlspecialchars($onclick . ' return false;', ENT_QUOTES);
+	return "<a href=\"#\" role=\"button\" class=\"{$class}\" onclick=\"{$onclick}\" aria-label=\"{$label}\" title=\"{$label}\"><i class=\"{$fa}\" aria-hidden=\"true\"></i></a>";
 }
 
 function sort_index(&$a, &$b) {
@@ -378,7 +381,27 @@ function sort_index(&$a, &$b) {
 
 function acme_htmllist_js($tablename = "") {
 	global $g;
-?><script type="text/javascript">
+?><style>
+.fs-acme-htmllist { margin-top: .5rem; }
+.fs-acme-htmllist > .table-responsive { border: 1px solid var(--fs-border); border-radius: var(--fs-r-sm); }
+.fs-acme-htmltable { margin: 0; }
+.fs-acme-htmltable > thead th { font-size: var(--fs-fs-xs); color: var(--fs-text-muted); font-weight: 600; white-space: nowrap; }
+.fs-acme-htmltable > tbody > tr > td { vertical-align: middle; }
+.fs-acme-htmltable > tbody > tr > td > select, .fs-acme-htmltable > tbody > tr > td > input[type=text] { min-width: 9rem; }
+.fs-acme-htmltable .fs-actions { justify-content: flex-end; flex-wrap: nowrap; }
+.fs-acme-anchor { margin-left: .35rem; color: var(--fs-text-muted); }
+.fs-acme-anchor:hover, .fs-acme-anchor:focus-visible { color: var(--fs-text-strong); }
+.fs-acme-expand { display: inline-block; }
+.fs-acme-detailview { display: inline-block; margin-right: 1rem; font-size: var(--fs-fs-xs); color: var(--fs-text-muted); }
+.fs-acme-details { margin: .25rem 0 .5rem; background: var(--fs-surface-raised); border-radius: var(--fs-r-sm); }
+.fs-acme-details > tbody > tr > td { border-bottom-color: var(--fs-border); vertical-align: top; }
+.fs-acme-details-label { width: 13rem; padding-top: .55rem !important; font-size: var(--fs-fs-sm); color: var(--fs-text-muted); font-weight: 500; }
+.fs-acme-htmllist .addbtn { margin-top: .5rem; }
+@media (max-width: 575.98px) {
+	.fs-acme-details > tbody > tr > td { display: block; width: auto; border: 0; padding-bottom: 0; }
+	.fs-acme-details > tbody > tr { display: block; padding-bottom: .4rem; border-bottom: 1px solid var(--fs-border); }
+}
+</style><script type="text/javascript">
 	var theme = "<?=$g['theme']?>";
 
 	function html_listitem_change(tableId, fieldId, rowNr, field) {
@@ -399,15 +422,15 @@ function acme_htmllist_js($tablename = "") {
 	function createFieldHtml(tableId, field, rowId) {
 		var result = "";
 		if(field['type'] === 'textbox') {
-			result="<input name='" + tableId + field['name'] + rowId +
+			result="<input class='form-control form-control-sm' type='text' name='" + tableId + field['name'] + rowId +
 			"' id='" + tableId + field['name'] + rowId +
 			"'><\/input> ";
 		} else if(field['type'] === 'password') {
-			result="<input name='" + tableId + field['name'] + rowId +
+			result="<input class='form-control form-control-sm' autocomplete='new-password' name='" + tableId + field['name'] + rowId +
 			"' id='" + tableId + field['name'] + rowId +
 			"' type='password'\/> ";
 		} else if(field['type'] === 'textarea') {
-			result="<textarea class='form-control nowrap' cols='" + field['size'] + "' rows='15' style='width:100%' name='" + tableId + field['name'] + rowId +
+			result="<textarea class='form-control form-control-sm nowrap fs-mono' cols='" + field['size'] + "' rows='15' style='width:100%' name='" + tableId + field['name'] + rowId +
 			"' id='" + tableId + field['name'] + rowId +
 			"'><\/textarea> ";
 		} else if(field['type'] === 'select') {
@@ -423,14 +446,14 @@ function acme_htmllist_js($tablename = "") {
 				seltext += "<option value='"+fieldvalueid+"'>"+fieldvalue['name']+"<\/option>";
 			}
 
-			result="<select name='" + tableId + field['name'] + rowId +
+			result="<select class='form-select form-select-sm' name='" + tableId + field['name'] + rowId +
 			"' id='" + tableId + field['name'] + rowId + "' "+
 			"onchange='html_listitem_change(\""+tableId+"\",\""+field['name']+"\",\""+rowId+"\",this);' " +
 			">" + seltext + "<\/select> ";
 		} else if(field['type'] === 'fixedtext') {
 			result=field['text'];
 		} else {
-			result="<input type='checkbox' name='" + tableId + field['name'] + rowId +"'"+
+			result="<input class='form-check-input' type='checkbox' name='" + tableId + field['name'] + rowId +"'"+
 			"id='" + tableId + field['name'] + rowId + "' "+
 			"onclick='html_listitem_change(\""+tableId+"\",\""+field['name']+"\",\""+rowId+"\",this);' " +
 			"value='yes'><\/input> ";
@@ -456,8 +479,8 @@ function acme_htmllist_js($tablename = "") {
 
 		td = d.createElement("td");
 		td.innerHTML = "<td>"+
-				'<input type="checkbox" id="frec'+totalrows+'" onClick="fr_toggle_two('+totalrows+',this)" name="' + tableId + '_row[]" value="'+totalrows+'"/>'+
-				'<a class="fa-solid fa-anchor" id="Xmove_'+totalrows+'" onClick="moveRowUpAboveAnchor('+totalrows+', \'' + tableId + '\')"  title=\"<?=gettext("Move checked entries to here")?>\"></a>'+
+				'<input type="checkbox" class="form-check-input" id="frec'+totalrows+'" onClick="fr_toggle_two('+totalrows+',this)" name="' + tableId + '_row[]" value="'+totalrows+'"/>'+
+				'<a href="#" role="button" class="fs-acme-anchor" id="Xmove_'+totalrows+'" onClick="moveRowUpAboveAnchor('+totalrows+', \'' + tableId + '\'); return false;" aria-label="<?=gettext("Move checked entries here")?>" title="<?=gettext("Move checked entries here")?>"><i class="fa-solid fa-anchor" aria-hidden="true"><\/i><\/a>'+
 				"</td>";
 		tr.appendChild(td);
 
@@ -474,14 +497,15 @@ function acme_htmllist_js($tablename = "") {
 		// Recreate the action icons.
 		var actions = "";
 		actions += '<input name="'+tableId+'_rowindex[]" id="'+tableId+'_rowindex'+totalrows+'" class="hidden" value="'+totalrows+'" />' +
-			'<a onclick="deleteRow(' + totalrows + ", '" + tableId + "'); return false;\" ><?=acmeicon('delete','delete entry')?></a>";
-		actions += '<a onclick=\"dupRow(' + totalrows + ", '" + tableId + "'); return false;\" ><?=acmeicon('clone','duplicate entry')?></a>";
+			'<div class="fs-actions">' +
+			'<a href="#" role="button" class="fs-action" onclick="dupRow(' + totalrows + ", '" + tableId + "'); return false;\" aria-label=\"<?=gettext('Duplicate entry')?>\" title=\"<?=gettext('Duplicate entry')?>\"><i class=\"fa-regular fa-clone\" aria-hidden=\"true\"><\/i><\/a>";
 
 		var tabledefinition = htmllist_get_select_items("tabledefinition", tableId);
 		if (tabledefinition && tabledefinition['keyfield'] === "") {
-			actions += '<a onclick=\"moveRowUp(' + totalrows + ", '" + tableId + "'); return false;\" ><?=acmeicon('moveup','move row up')?></a>";
-			actions += '<a onclick=\"moveRowDown(' + totalrows + ", '" + tableId + "'); return false;\" ><?=acmeicon('movedown','move row down')?></a>";
+			actions += '<a href="#" role="button" class="fs-action" onclick="moveRowUp(' + totalrows + ", '" + tableId + "'); return false;\" aria-label=\"<?=gettext('Move entry up')?>\" title=\"<?=gettext('Move entry up')?>\"><i class=\"fa-solid fa-arrow-up\" aria-hidden=\"true\"><\/i><\/a>";
+			actions += '<a href="#" role="button" class="fs-action" onclick="moveRowDown(' + totalrows + ", '" + tableId + "'); return false;\" aria-label=\"<?=gettext('Move entry down')?>\" title=\"<?=gettext('Move entry down')?>\"><i class=\"fa-solid fa-arrow-down\" aria-hidden=\"true\"><\/i><\/a>";
 		}
+		actions += '<a href="#" role="button" class="fs-action fs-action--delete" onclick="deleteRow(' + totalrows + ", '" + tableId + "'); return false;\" aria-label=\"<?=gettext('Delete entry')?>\" title=\"<?=gettext('Delete entry')?>\"><i class=\"fa-solid fa-trash-can\" aria-hidden=\"true\"><\/i><\/a><\/div>";
 		td.innerHTML = actions;
 		tr.appendChild(td);
 		tbody.appendChild(tr); // add the edit row to the table
@@ -504,10 +528,7 @@ function acme_htmllist_js($tablename = "") {
 			ediv.setAttribute("class", "");
 
 			table = d.createElement("table");
-			table.setAttribute("class","table table-hover table-striped table-sm");
-			table.setAttribute("style","border-collapse:collapse");
-			table.setAttribute("border","1");
-			table.setAttribute("cellspacing","0");
+			table.setAttribute("class","table table-sm fs-acme-details");
 			etbody = d.createElement("tbody");
 
 			for (var i in detailitems) {
@@ -516,13 +537,12 @@ function acme_htmllist_js($tablename = "") {
 				subtr = d.createElement("tr");
 				subtr.setAttribute("id","tr_edititemdetails_" + totalrows + "_" + field['name']);
 				subtd = d.createElement("td");
-				subtd.setAttribute("style","border-right:0");
-				subtd.innerHTML = field['columnheader'] + ": ";
+				subtd.setAttribute("class","fs-acme-details-label");
+				subtd.textContent = field['columnheader'];
 				subtr.appendChild(subtd);
 				subtd = d.createElement("td");
-				subtd.setAttribute("style","border-left:0");
 				if (field['description']) {
-					fieldhtml = field['description'] + "<br/>" + fieldhtml;
+					fieldhtml = "<span class='form-text help-block'>" + field['description'] + "<\/span>" + fieldhtml;
 				}
 				subtd.innerHTML = fieldhtml;
 				subtr.appendChild(subtd);
