@@ -1785,7 +1785,7 @@ $group->add(new Form_Button(
 	' ' . 'View List',
 	'#',
 	'fa-regular fa-file-lines'
-))->removeClass('btn-primary')->addClass('btn-info')->addClass('btn-sm')->setAttribute('data-target', '#passlist')->setAttribute('data-toggle', 'modal');
+))->removeClass('btn-primary')->removeClass('btn-secondary')->addClass('btn-outline-secondary')->addClass('btn-sm')->setAttribute('data-bs-target', '#passlist')->setAttribute('data-bs-toggle', 'modal');
 $group->setHelp('The default Pass List adds Gateways, DNS servers, locally-attached networks, the WAN IP, VPNs and VIPs.  Create a Pass List with an alias to customize whitelisted IP addresses.  ' . 
 		'This option will only be used when block offenders is on.  Choosing "none" will disable Pass List generation.');
 $section->add($group);
@@ -1927,7 +1927,7 @@ $group->add(new Form_Button(
 	' ' . 'View List',
 	'#',
 	'fa-regular fa-file-lines'
-))->removeClass('btn-primary')->addClass('btn-info')->addClass('btn-sm')->setAttribute('data-toggle', 'modal')->setAttribute('data-target', '#homenet');
+))->removeClass('btn-primary')->removeClass('btn-secondary')->addClass('btn-outline-secondary')->addClass('btn-sm')->setAttribute('data-bs-toggle', 'modal')->setAttribute('data-bs-target', '#homenet');
 
 $group->setHelp('Default Home Net adds only local networks, WAN IPs, Gateways, VPNs and VIPs.' . '<br />' .
 		'Create an Alias to hold a list of friendly IPs that the firewall cannot see or to customize the default Home Net.');
@@ -1948,7 +1948,7 @@ $group->add(new Form_Button(
 	' ' . 'View List',
 	'#',
 	'fa-regular fa-file-lines'
-))->removeClass('btn-primary')->addClass('btn-info')->addClass('btn-sm')->setAttribute('data-target', '#externalnet')->setAttribute('data-toggle', 'modal');
+))->removeClass('btn-primary')->removeClass('btn-secondary')->addClass('btn-outline-secondary')->addClass('btn-sm')->setAttribute('data-bs-target', '#externalnet')->setAttribute('data-bs-toggle', 'modal');
 
 $group->setHelp('External Net is networks that are not Home Net.  Most users should leave this setting at default.' . '<br />' .
 		'Create a Pass List and add an Alias to it, and then assign the Pass List here for custom External Net settings.');
@@ -2009,10 +2009,10 @@ $group->add(new Form_Button(
 	' ' . 'View List',
 	'#',
 	'fa-regular fa-file-lines'
-))->removeClass('btn-primary')
-  ->addClass('btn-info btn-sm')
-  ->setAttribute('data-target', '#suppresslist')
-  ->setAttribute('data-toggle', 'modal');
+))->removeClass('btn-primary')->removeClass('btn-secondary')
+  ->addClass('btn-outline-secondary btn-sm')
+  ->setAttribute('data-bs-target', '#suppresslist')
+  ->setAttribute('data-bs-toggle', 'modal');
 
 $section->add($group);
 
