@@ -1,9 +1,10 @@
 <?php
 /* FreeSense Web Gateway 2.0: native policy compiler. */
 require_once('guiconfig.inc'); require_once('webgateway.inc');
-$wg_config = webgateway_config(); $pconfig = $wg_config; $input_errors=[]; $savemsg=null; $simulation=null;
+$wg_config = webgateway_config(); $pconfig = $wg_config; $input_errors=[]; $savemsg=null; $simulation=null; $sim_host='';
 if ($_POST && isset($_POST['simulate'])) {
 	$host = strtolower(trim((string)($_POST['sim_host'] ?? '')));
+	$sim_host = $host;
 	if (!is_hostname($host)) $input_errors[] = gettext('Enter a valid hostname to simulate.');
 	else {
 		$match = function($domain, $rule) { $rule=ltrim($rule,'.'); return $domain===$rule || str_ends_with($domain,'.'.$rule); };
@@ -31,18 +32,93 @@ if ($_POST && isset($_POST['simulate'])) {
 	else $input_errors=array_merge($input_errors,$validation_errors);
 }
 
-$pgtitle=[gettext('Services'),gettext('Web Gateway'),gettext('Policies')]; include('head.inc'); webgateway_display_tabs('policies');
+$pgtitle=[gettext('Services'),gettext('Web Gateway'),gettext('Policies')];
+$pglinks=['', '/webgateway/webgateway.php', '@self'];
+fs_page_action(gettext('Simulate a decision'), '#', 'fa-flask', 'secondary', ['data-fs-modal' => '#wg-simulate']);
+include('head.inc'); webgateway_display_tabs('policies');
 if($input_errors)print_input_errors($input_errors); if($savemsg)print_info_box($savemsg,'success');
+
+if ($simulation) {
+	$tls_labels = ['inspect' => gettext('Inspected'), 'splice' => gettext('Spliced (not inspected)'), 'tunnel' => gettext('Tunneled (not inspected)')];
+	fs_summary_card([
+		'icon' => 'fa-flask',
+		'title' => $sim_host,
+		'subtitle' => gettext('Simulated decision for the saved policy'),
+		'label' => gettext('Simulation result'),
+		'badges' => [($simulation['action'] === 'allow') ? fs_badge('pass', gettext('Allowed')) : fs_badge('block', gettext('Blocked'))],
+		'facts' => [
+			[gettext('Matched rule'), $simulation['rule'], 'mono' => ($simulation['rule'] !== gettext('Default policy'))],
+			[gettext('Default policy'), ($wg_config['policy_mode'] === 'allowlist') ? gettext('Restricted allowlist') : gettext('Standard access')],
+			[gettext('HTTPS'), $tls_labels[$simulation['tls']] ?? $simulation['tls']],
+		],
+	]);
+}
+
+$form = new Form(gettext('Save and apply'));
+
+$section = new Form_Section(gettext('Default access policy'), 'wg-policy-mode');
+$section->addInput(new Form_StaticText(gettext('Policy'), webgateway_choice_cards('policy_mode', 'radio', [
+	'standard' => ['icon' => 'fa-globe', 'title' => gettext('Standard access'), 'help' => gettext('Allow traffic unless a policy or feed blocks it.')],
+	'allowlist' => ['icon' => 'fa-lock', 'title' => gettext('Restricted allowlist'), 'help' => gettext('Deny traffic unless the destination is explicitly allowed.')],
+], $pconfig['policy_mode'], gettext('Default access policy'))));
+$form->add($section);
+
+$section = new Form_Section(gettext('Destinations'), 'wg-policy-destinations');
+$section->addInput(new Form_Textarea('allowed_domains_text', gettext('Always allowed'), webgateway_decode_list($pconfig['allowed_domains'])))
+	->setRows(8)
+	->addClass('fs-mono')
+	->setAttribute('placeholder', '.trusted.example.org')
+	->setHelp(gettext('One domain per line. A leading dot includes subdomains. Allow rules take precedence.'));
+$section->addInput(new Form_Textarea('blocked_domains_text', gettext('Blocked'), webgateway_decode_list($pconfig['blocked_domains'])))
+	->setRows(8)
+	->addClass('fs-mono')
+	->setAttribute('placeholder', '.tracking.example')
+	->setHelp(gettext('Enforced for HTTP and CONNECT/SNI without decrypting TLS. Active threat feeds are merged automatically.'));
+$form->add($section);
+
+$section = new Form_Section(gettext('URL and content rules'), 'wg-policy-content');
+$section->addInput(new Form_Textarea('blocked_regex_text', gettext('Blocked URL expressions'), webgateway_decode_list($pconfig['blocked_regex'])))
+	->setRows(4)
+	->addClass('fs-mono')
+	->setAttribute('placeholder', '\.(exe|scr)(\?|$)')
+	->setHelp(gettext('Regular expressions matched against the full URL, one per line.'));
+$section->addInput(new Form_Textarea('blocked_user_agents_text', gettext('Blocked user agents'), webgateway_decode_list($pconfig['blocked_user_agents'])))
+	->setRows(3)
+	->addClass('fs-mono')
+	->setHelp(gettext('Regular expressions matched against the User-Agent header.'));
+$section->addInput(new Form_Textarea('blocked_mime_types_text', gettext('Blocked response types'), webgateway_decode_list($pconfig['blocked_mime_types'])))
+	->setRows(3)
+	->addClass('fs-mono')
+	->setAttribute('placeholder', 'application/x-msdownload')
+	->setHelp(gettext('Regular expressions matched against the response MIME type.'));
+$group = new Form_Group(gettext('Transfer limits'));
+$group->add(new Form_Input('max_upload_mb', gettext('Maximum upload'), 'number', $pconfig['max_upload_mb'], ['min' => 0, 'max' => 102400]))
+	->setHelp(gettext('Maximum upload (MiB, 0 unlimited)'));
+$group->add(new Form_Input('max_download_mb', gettext('Maximum download'), 'number', $pconfig['max_download_mb'], ['min' => 0, 'max' => 102400]))
+	->setHelp(gettext('Maximum download (MiB, 0 unlimited)'));
+$group->setHelp(gettext('Full URL, MIME, upload/download and response-scanning rules see HTTPS content only when that destination is inspected.'));
+$section->add($group);
+$form->add($section);
+
+$section = new Form_Section(gettext('Media and schedules'), 'wg-policy-media');
+$section->addInput(new Form_Checkbox('youtube_restrict', gettext('YouTube'), gettext('Enable YouTube Restricted Mode policy'), $pconfig['youtube_restrict'] === 'on', 'on'))
+	->setHelp(gettext('The restriction header applies to plaintext HTTP and to HTTPS destinations that are inspected.'));
+$section->addInput(new Form_Textarea('schedules_text', gettext('Blocked schedules'), webgateway_decode_list($pconfig['schedules'])))
+	->setRows(4)
+	->addClass('fs-mono')
+	->setAttribute('placeholder', 'weekend|SA|00:00-23:59')
+	->setHelp(gettext('Format: name|days|HH:MM-HH:MM, one per line. Matching traffic is blocked before the default access policy.'));
+$form->add($section);
+
+print($form);
+
+fs_modal_form_begin('wg-simulate', gettext('Simulate a decision'), '', [], ($input_errors && isset($_POST['simulate'])) ? ['sim_host' => $sim_host] : null);
 ?>
-<form method="post">
-<div class="card mb-3"><div class="card-header"><h2 class="h5 mb-0"><i class="fa-solid fa-list-check me-2"></i><?=gettext('Default access policy')?></h2></div><div class="card-body"><div class="row g-3">
-	<?php foreach ([['standard',gettext('Standard access'),gettext('Allow traffic unless a policy or feed blocks it.')],['allowlist',gettext('Restricted allowlist'),gettext('Deny traffic unless the destination is explicitly allowed.')]] as [$value,$title,$text]): ?><div class="col-lg-6"><label class="card h-100"><div class="card-body d-flex gap-3"><input class="form-check-input" type="radio" name="policy_mode" value="<?=$value?>" <?=$pconfig['policy_mode']===$value?'checked':''?>><div><strong><?=$title?></strong><div class="text-muted"><?=$text?></div></div></div></label></div><?php endforeach; ?>
-</div></div></div>
-<div class="row g-3 mb-3"><div class="col-lg-6"><div class="card h-100 border-success"><div class="card-header"><h2 class="h5 mb-0 text-success"><i class="fa-solid fa-circle-check me-2"></i><?=gettext('Always allowed')?></h2></div><div class="card-body"><textarea class="form-control font-monospace" name="allowed_domains_text" rows="13" placeholder="updates.example.com&#10;.trusted.example.org"><?=htmlspecialchars(webgateway_decode_list($pconfig['allowed_domains']))?></textarea><div class="form-text"><?=gettext('One domain per line. A leading dot includes subdomains. Allow rules take precedence.')?></div></div></div></div>
-<div class="col-lg-6"><div class="card h-100 border-danger"><div class="card-header"><h2 class="h5 mb-0 text-danger"><i class="fa-solid fa-ban me-2"></i><?=gettext('Blocked destinations')?></h2></div><div class="card-body"><textarea class="form-control font-monospace" name="blocked_domains_text" rows="13" placeholder="example.invalid&#10;.tracking.example"><?=htmlspecialchars(webgateway_decode_list($pconfig['blocked_domains']))?></textarea><div class="form-text"><?=gettext('Enforced for HTTP and CONNECT/SNI without decrypting TLS. Active threat feeds are merged automatically.')?></div></div></div></div></div>
-<div class="row g-3 mb-3"><div class="col-lg-6"><div class="card h-100"><div class="card-header"><h2 class="h5 mb-0"><?=gettext('URL and content rules')?></h2></div><div class="card-body"><label class="form-label"><?=gettext('Blocked URL regular expressions')?></label><textarea class="form-control font-monospace mb-3" name="blocked_regex_text" rows="5" placeholder="/malware/&#10;\\.(exe|scr)(\\?|$)"><?=htmlspecialchars(webgateway_decode_list($pconfig['blocked_regex']))?></textarea><div class="row g-3"><div class="col-md-6"><label class="form-label"><?=gettext('Blocked user-agent expressions')?></label><textarea class="form-control font-monospace" name="blocked_user_agents_text" rows="4"><?=htmlspecialchars(webgateway_decode_list($pconfig['blocked_user_agents']))?></textarea></div><div class="col-md-6"><label class="form-label"><?=gettext('Blocked response MIME expressions')?></label><textarea class="form-control font-monospace" name="blocked_mime_types_text" rows="4" placeholder="application/x-msdownload"><?=htmlspecialchars(webgateway_decode_list($pconfig['blocked_mime_types']))?></textarea></div><div class="col-md-6"><label class="form-label"><?=gettext('Maximum upload (MiB, 0 unlimited)')?></label><input class="form-control" type="number" min="0" max="102400" name="max_upload_mb" value="<?=htmlspecialchars($pconfig['max_upload_mb'])?>"></div><div class="col-md-6"><label class="form-label"><?=gettext('Maximum download (MiB, 0 unlimited)')?></label><input class="form-control" type="number" min="0" max="102400" name="max_download_mb" value="<?=htmlspecialchars($pconfig['max_download_mb'])?>"></div></div><div class="alert alert-warning mt-3 mb-0"><i class="fa-solid fa-lock me-2"></i><?=gettext('Full URL, MIME, upload/download and response-scanning rules see HTTPS content only when that destination is inspected.')?></div></div></div></div>
-<div class="col-lg-6"><div class="card h-100"><div class="card-header"><h2 class="h5 mb-0"><?=gettext('Media and schedules')?></h2></div><div class="card-body"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="youtube_restrict" id="youtube_restrict" <?=$pconfig['youtube_restrict']==='on'?'checked':''?>><label class="form-check-label" for="youtube_restrict"><?=gettext('Enable YouTube Restricted Mode policy')?></label></div><div class="form-text"><?=gettext('The restriction header applies to plaintext HTTP and HTTPS destinations that are actively inspected.')?></div><hr><label class="form-label"><?=gettext('Blocked schedules')?></label><textarea class="form-control font-monospace" name="schedules_text" rows="5" placeholder="after_hours|SMTWHFA|00:00-06:00&#10;weekend|SA|00:00-23:59"><?=htmlspecialchars(webgateway_decode_list($pconfig['schedules']))?></textarea><div class="form-text"><?=gettext('Format: name|days|HH:MM-HH:MM. Matching traffic is blocked before the default access policy.')?></div></div></div></div></div>
-<button class="btn btn-primary" type="submit"><i class="fa-solid fa-floppy-disk icon-embed-btn"></i><?=gettext('Save and apply')?></button>
-</form>
-<div class="card mt-3"><div class="card-header"><h2 class="h5 mb-0"><i class="fa-solid fa-flask me-2"></i><?=gettext('Policy simulator')?></h2></div><div class="card-body"><form method="post" class="row g-3 align-items-end"><div class="col-md-8"><label class="form-label" for="sim_host"><?=gettext('Destination hostname')?></label><input class="form-control" id="sim_host" name="sim_host" placeholder="www.example.com" value="<?=htmlspecialchars($_POST['sim_host']??'')?>"></div><div class="col-md-4"><button class="btn btn-outline-info w-100" type="submit" name="simulate" value="1"><?=gettext('Simulate decision')?></button></div></form><?php if($simulation): ?><div class="alert alert-<?=$simulation['action']==='allow'?'success':'danger'?> mt-3 mb-0"><strong><?=strtoupper($simulation['action'])?></strong> · <?=gettext('Rule:')?> <?=htmlspecialchars($simulation['rule'])?> · <?=gettext('TLS:')?> <?=htmlspecialchars($simulation['tls'])?></div><?php endif; ?></div></div>
-<?php include('foot.inc'); ?>
+	<div class="mb-3">
+		<label class="form-label" for="sim_host"><?=gettext('Destination hostname')?></label>
+		<input class="form-control fs-mono" id="sim_host" name="sim_host" placeholder="www.example.com" autocomplete="off" required>
+		<div class="form-text"><?=gettext('Evaluates the saved allow, block, feed and TLS lists. Nothing is sent to the destination.')?></div>
+	</div>
+<?php
+fs_modal_form_end(gettext('Simulate'), 'simulate', '1', 'fa-flask');
+include('foot.inc');

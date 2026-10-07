@@ -3,11 +3,73 @@
 require_once('guiconfig.inc');require_once('webgateway.inc');
 $wg_config=webgateway_config();$pconfig=$wg_config;$input_errors=[];$savemsg=null;
 if($_POST){$pconfig=array_merge($wg_config,$_POST);foreach(['upstream_enable','upstream_never_direct','privacy_headers','access_log','log_anonymize'] as $f)$pconfig[$f]=isset($_POST[$f])?'on':'';$pconfig['custom_options']=webgateway_encode_list($_POST['custom_options_text']??'');if(webgateway_save_candidate($pconfig,gettext('Web Gateway cache and upstream settings changed'),$input_errors)){$savemsg=gettext('Cache, shaping and upstream settings saved and applied to Squid.');$wg_config=$pconfig=webgateway_config();}}
-$pgtitle=[gettext('Services'),gettext('Web Gateway'),gettext('Cache & Upstreams')];include('head.inc');webgateway_display_tabs('cache');if($input_errors)print_input_errors($input_errors);if($savemsg)print_info_box($savemsg,'success');
-?>
-<form method="post"><div class="card mb-3"><div class="card-header"><h2 class="h5 mb-0"><i class="fa-solid fa-database me-2"></i><?=gettext('Cache profile')?></h2></div><div class="card-body"><div class="row g-3"><div class="col-lg-4"><label class="form-label"><?=gettext('Profile')?></label><select class="form-select" name="cache_profile"><option value="disabled" <?=$pconfig['cache_profile']==='disabled'?'selected':''?>><?=gettext('Disabled (recommended default)')?></option><option value="metadata" <?=$pconfig['cache_profile']==='metadata'?'selected':''?>><?=gettext('Metadata / small objects')?></option><option value="downloads" <?=$pconfig['cache_profile']==='downloads'?'selected':''?>><?=gettext('Download-oriented')?></option></select></div><div class="col-lg-8"><div class="row g-3"><div class="col-md-4"><label class="form-label"><?=gettext('Memory (MiB)')?></label><input class="form-control" type="number" name="memory_cache_mb" value="<?=htmlspecialchars($pconfig['memory_cache_mb'])?>"></div><div class="col-md-4"><label class="form-label"><?=gettext('Disk (MiB)')?></label><input class="form-control" type="number" name="cache_size_mb" value="<?=htmlspecialchars($pconfig['cache_size_mb'])?>"></div><div class="col-md-4"><label class="form-label"><?=gettext('Maximum object (MiB)')?></label><input class="form-control" type="number" name="max_object_mb" value="<?=htmlspecialchars($pconfig['max_object_mb'])?>"></div></div></div></div></div></div>
-<div class="row g-3 mb-3"><div class="col-lg-6"><div class="card h-100"><div class="card-header"><h2 class="h5 mb-0"><i class="fa-solid fa-gauge-high me-2"></i><?=gettext('Bandwidth policy')?></h2></div><div class="card-body"><select class="form-select" name="bandwidth_profile"><option value="unlimited" <?=$pconfig['bandwidth_profile']==='unlimited'?'selected':''?>><?=gettext('Unlimited')?></option><option value="low_latency" <?=$pconfig['bandwidth_profile']==='low_latency'?'selected':''?>><?=gettext('Low-latency fairness')?></option><option value="balanced" <?=$pconfig['bandwidth_profile']==='balanced'?'selected':''?>><?=gettext('Balanced')?></option><option value="bulk" <?=$pconfig['bandwidth_profile']==='bulk'?'selected':''?>><?=gettext('Bulk transfer')?></option></select><div class="form-text"><?=gettext('Profiles compile to Squid delay pools. Ordered policy-specific quotas will build on these primitives.')?></div></div></div></div><div class="col-lg-6"><div class="card h-100"><div class="card-header"><h2 class="h5 mb-0"><?=gettext('Privacy and logs')?></h2></div><div class="card-body"><?php foreach([['privacy_headers',gettext('Remove proxy-identifying forwarding headers')],['access_log',gettext('Keep the policy-aware access log')],['log_anonymize',gettext('Anonymize client identity in reports by default')]] as [$f,$label]):?><div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" id="<?=$f?>" name="<?=$f?>" <?=$pconfig[$f]==='on'?'checked':''?>><label class="form-check-label" for="<?=$f?>"><?=$label?></label></div><?php endforeach;?></div></div></div></div>
-<div class="card mb-3"><div class="card-header"><h2 class="h5 mb-0"><i class="fa-solid fa-up-right-from-square me-2"></i><?=gettext('Parent / upstream proxy')?></h2></div><div class="card-body"><div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" id="upstream_enable" name="upstream_enable" <?=$pconfig['upstream_enable']==='on'?'checked':''?>><label class="form-check-label fw-semibold" for="upstream_enable"><?=gettext('Forward through a parent proxy')?></label></div><div class="row g-3"><div class="col-md-5"><label class="form-label"><?=gettext('Host')?></label><input class="form-control" name="upstream_host" value="<?=htmlspecialchars($pconfig['upstream_host'])?>"></div><div class="col-md-2"><label class="form-label"><?=gettext('Port')?></label><input class="form-control" type="number" name="upstream_port" value="<?=htmlspecialchars($pconfig['upstream_port'])?>"></div><div class="col-md-2"><label class="form-label"><?=gettext('Username')?></label><input class="form-control" name="upstream_user" autocomplete="off" value="<?=htmlspecialchars($pconfig['upstream_user'])?>"></div><div class="col-md-3"><label class="form-label"><?=gettext('Password')?></label><input class="form-control" type="password" name="upstream_password" autocomplete="new-password" value="<?=htmlspecialchars($pconfig['upstream_password'])?>"></div></div><div class="form-check form-switch mt-3"><input class="form-check-input" type="checkbox" id="upstream_never_direct" name="upstream_never_direct" <?=$pconfig['upstream_never_direct']==='on'?'checked':''?>><label class="form-check-label" for="upstream_never_direct"><?=gettext('Never connect directly if the parent is unavailable')?></label></div></div></div>
-<div class="card mb-3"><div class="card-header"><h2 class="h5 mb-0"><?=gettext('Expert Squid directives')?></h2></div><div class="card-body"><textarea class="form-control font-monospace" name="custom_options_text" rows="6"><?=htmlspecialchars(webgateway_decode_list($pconfig['custom_options']))?></textarea><div class="form-text"><?=gettext('Parser-tested include. FreeSense blocks directives that can replace listeners, includes, runtime identity, PID handling or terminal access policy.')?></div></div></div>
-<button class="btn btn-primary" type="submit"><i class="fa-solid fa-floppy-disk icon-embed-btn"></i><?=gettext('Save and apply')?></button></form>
-<?php include('foot.inc');?>
+$pgtitle=[gettext('Services'),gettext('Web Gateway'),gettext('Cache & upstreams')];
+$pglinks=['', '/webgateway/webgateway.php', '@self'];
+include('head.inc');webgateway_display_tabs('cache');if($input_errors)print_input_errors($input_errors);if($savemsg)print_info_box($savemsg,'success');
+
+$form = new Form(gettext('Save and apply'));
+
+$section = new Form_Section(gettext('Cache'), 'wg-cache');
+$section->addInput(new Form_Select('cache_profile', gettext('Profile'), $pconfig['cache_profile'], [
+	'disabled' => gettext('Disabled (recommended default)'),
+	'metadata' => gettext('Metadata / small objects'),
+	'downloads' => gettext('Download-oriented'),
+]));
+$group = new Form_Group(gettext('Sizes'));
+$group->add(new Form_Input('memory_cache_mb', gettext('Memory'), 'number', $pconfig['memory_cache_mb'], ['min' => 16, 'max' => 65536]))
+	->setHelp(gettext('Memory (MiB)'));
+$group->add(new Form_Input('cache_size_mb', gettext('Disk'), 'number', $pconfig['cache_size_mb'], ['min' => 64, 'max' => 1048576]))
+	->setHelp(gettext('Disk (MiB)'));
+$group->add(new Form_Input('max_object_mb', gettext('Maximum object'), 'number', $pconfig['max_object_mb'], ['min' => 1, 'max' => 10240]))
+	->setHelp(gettext('Maximum object (MiB)'));
+$section->add($group);
+$form->add($section);
+
+$section = new Form_Section(gettext('Bandwidth'), 'wg-bandwidth');
+$section->addInput(new Form_Select('bandwidth_profile', gettext('Profile'), $pconfig['bandwidth_profile'], [
+	'unlimited' => gettext('Unlimited'),
+	'low_latency' => gettext('Low-latency fairness'),
+	'balanced' => gettext('Balanced'),
+	'bulk' => gettext('Bulk transfer'),
+]))->setHelp(gettext('Profiles compile to Squid delay pools.'));
+$form->add($section);
+
+$section = new Form_Section(gettext('Privacy and logs'), 'wg-privacy');
+$section->addInput(new Form_Checkbox('privacy_headers', gettext('Forwarding headers'), gettext('Remove proxy-identifying forwarding headers'), $pconfig['privacy_headers'] === 'on', 'on'));
+$section->addInput(new Form_Checkbox('access_log', gettext('Access log'), gettext('Keep the policy-aware access log'), $pconfig['access_log'] === 'on', 'on'));
+$section->addInput(new Form_Checkbox('log_anonymize', gettext('Reports'), gettext('Anonymize client identity in reports by default'), $pconfig['log_anonymize'] === 'on', 'on'));
+$form->add($section);
+
+$section = new Form_Section(gettext('Parent proxy'), 'wg-upstream');
+$section->addInput(new Form_Checkbox('upstream_enable', gettext('Enable'), gettext('Forward through a parent proxy'), $pconfig['upstream_enable'] === 'on', 'on'));
+$group = new Form_Group(gettext('Server'));
+$group->add(new Form_Input('upstream_host', gettext('Host'), 'text', $pconfig['upstream_host']))
+	->addClass('fs-mono')
+	->setWidth(6)
+	->setHelp(gettext('Host'));
+$group->add(new Form_Input('upstream_port', gettext('Port'), 'number', $pconfig['upstream_port'], ['min' => 1, 'max' => 65535]))
+	->addClass('fs-mono')
+	->setWidth(2)
+	->setHelp(gettext('Port'));
+$section->add($group);
+$group = new Form_Group(gettext('Credentials'));
+$group->add(new Form_Input('upstream_user', gettext('Username'), 'text', $pconfig['upstream_user'], ['autocomplete' => 'off']))
+	->setWidth(4)
+	->setHelp(gettext('Username'));
+$group->add(new Form_Input('upstream_password', gettext('Password'), 'password', $pconfig['upstream_password'], ['autocomplete' => 'new-password']))
+	->setWidth(4)
+	->setHelp(gettext('Password'));
+$section->add($group);
+$section->addInput(new Form_Checkbox('upstream_never_direct', gettext('Fallback'), gettext('Never connect directly if the parent is unavailable'), $pconfig['upstream_never_direct'] === 'on', 'on'));
+$form->add($section);
+
+$custom = webgateway_decode_list($pconfig['custom_options']);
+$section = new Form_Section(gettext('Expert Squid directives'), 'wg-expert', COLLAPSIBLE | ((!empty($input_errors) || $custom !== '') ? SEC_OPEN : SEC_CLOSED));
+$section->addInput(new Form_Textarea('custom_options_text', gettext('Directives'), $custom))
+	->setRows(6)
+	->addClass('fs-mono')
+	->setHelp(gettext('Parser-tested include. FreeSense blocks directives that can replace listeners, includes, runtime identity, PID handling or terminal access policy.'));
+$form->add($section);
+
+print($form);
+include('foot.inc');

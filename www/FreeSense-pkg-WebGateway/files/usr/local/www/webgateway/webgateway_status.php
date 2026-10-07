@@ -44,6 +44,7 @@ if ($_POST && isset($_POST['service_action'])) {
 }
 
 $running = webgateway_is_running();
+$enabled = ($wg_config['enable'] === 'on');
 $log_lines = [];
 if (is_readable(WEBGATEWAY_LOG_FILE)) {
 	exec('/usr/bin/tail -n 100 ' . escapeshellarg(WEBGATEWAY_LOG_FILE), $log_lines);
@@ -53,6 +54,7 @@ $extra_networks = webgateway_lines($wg_config['additional_client_networks'] ?? '
 $listeners = webgateway_interface_listeners($wg_config);
 
 $pgtitle = [gettext('Status'), gettext('Web Gateway')];
+fs_page_action(gettext('Diagnostics'), '/webgateway/webgateway_diagnostics.php', 'fa-stethoscope', 'secondary');
 include('head.inc');
 webgateway_display_tabs('status');
 if (!empty($input_errors)) {
@@ -62,65 +64,102 @@ if ($savemsg !== null) {
 	print_info_box($savemsg, 'success');
 }
 ?>
-
-<div class="row g-3 mb-3">
-	<div class="col-md-4">
-		<div class="card h-100">
-			<div class="card-body">
-				<div class="text-uppercase text-muted small fw-semibold mb-2"><?=gettext('Service')?></div>
-				<div class="fs-4 <?= $running ? 'text-success' : 'text-danger' ?>"><i class="fa-solid <?= $running ? 'fa-circle-check' : 'fa-circle-stop' ?> me-2"></i><?= $running ? gettext('Running') : gettext('Stopped') ?></div>
-			</div>
-		</div>
-	</div>
-	<div class="col-md-4">
-		<div class="card h-100"><div class="card-body"><div class="text-uppercase text-muted small fw-semibold mb-2"><?=gettext('Policy')?></div><div class="fs-4"><?=($wg_config['policy_mode'] === 'allowlist') ? gettext('Restricted allowlist') : gettext('Standard access')?></div></div></div>
-	</div>
-	<div class="col-md-4">
-		<div class="card h-100"><div class="card-body"><div class="text-uppercase text-muted small fw-semibold mb-2"><?=gettext('TLS handling')?></div><div class="fs-4 text-info"><i class="fa-solid fa-lock me-2"></i><?=htmlspecialchars(['tunnel'=>gettext('Tunnel only'),'selective'=>gettext('Selective inspection'),'full'=>gettext('Full inspection')][$wg_config['tls_mode']])?></div></div></div>
-	</div>
+<div class="fs-tiles">
+<?php
+fs_tile(gettext('Service'), $running ? gettext('Running') : gettext('Stopped'), $running ? 'up' : ($enabled ? 'down' : 'disabled'),
+    $enabled ? gettext('Enabled') : gettext('Disabled under Listeners'));
+fs_tile(gettext('Policy'), ($wg_config['policy_mode'] === 'allowlist') ? gettext('Restricted allowlist') : gettext('Standard access'));
+fs_tile(gettext('TLS handling'), webgateway_tls_mode_label($wg_config['tls_mode']));
+fs_tile(gettext('Client networks'), count($networks) + count($extra_networks), null, sprintf(gettext('%d listeners'), count($listeners)));
+?>
 </div>
 
-<div class="card mb-3">
-	<div class="card-header"><h2 class="h5 mb-0"><i class="fa-solid fa-sliders me-2"></i><?=gettext('Service Control')?></h2></div>
-	<div class="card-body">
-		<form method="post" class="d-flex flex-wrap gap-2">
-			<button class="btn btn-success" name="service_action" value="start" type="submit" <?=($running || $wg_config['enable'] !== 'on') ? 'disabled' : ''?>><i class="fa-solid fa-play icon-embed-btn"></i><?=gettext('Start')?></button>
-			<button class="btn btn-primary" name="service_action" value="restart" type="submit" <?=($wg_config['enable'] !== 'on') ? 'disabled' : ''?>><i class="fa-solid fa-rotate icon-embed-btn"></i><?=gettext('Restart')?></button>
-			<button class="btn btn-danger" name="service_action" value="stop" type="submit" <?=!$running ? 'disabled' : ''?>><i class="fa-solid fa-stop icon-embed-btn"></i><?=gettext('Stop')?></button>
-			<button class="btn btn-outline-danger ms-auto" name="service_action" value="emergency" type="submit" onclick="return confirm('Remove Web Gateway interception rules and stop the service?')"><i class="fa-solid fa-triangle-exclamation icon-embed-btn"></i><?=gettext('Emergency disable')?></button>
+<div class="panel panel-default">
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Service control')?></h2></div>
+	<div class="panel-body wg-pad">
+		<form method="post" class="wg-service">
+			<button class="btn btn-primary" name="service_action" value="start" type="submit" <?=($running || !$enabled) ? 'disabled' : ''?>><i class="fa-solid fa-play icon-embed-btn" aria-hidden="true"></i><?=gettext('Start')?></button>
+			<button class="btn btn-outline-secondary" name="service_action" value="restart" type="submit" <?=!$enabled ? 'disabled' : ''?>><i class="fa-solid fa-rotate icon-embed-btn" aria-hidden="true"></i><?=gettext('Restart')?></button>
+			<button class="btn btn-outline-secondary" name="service_action" value="stop" type="submit" <?=!$running ? 'disabled' : ''?>><i class="fa-solid fa-stop icon-embed-btn" aria-hidden="true"></i><?=gettext('Stop')?></button>
+			<span class="fs-toolbar-spacer"></span>
+			<button class="btn btn-outline-danger" name="service_action" value="emergency" type="submit"
+				data-fs-confirm="<?=htmlspecialchars(gettext('Emergency disable the Web Gateway?'))?>"
+				data-fs-confirm-detail="<?=htmlspecialchars(gettext('Interception rules are removed, the gateway is disabled in the configuration and the proxy is stopped.'))?>"
+				data-fs-confirm-action="<?=htmlspecialchars(gettext('Emergency disable'))?>"><i class="fa-solid fa-triangle-exclamation icon-embed-btn" aria-hidden="true"></i><?=gettext('Emergency disable')?></button>
 		</form>
-		<?php if ($wg_config['enable'] !== 'on'): ?>
-		<div class="form-text mt-2"><?=gettext('The gateway is disabled. Enable it under Listeners, then Start or Restart to apply settings to Squid.')?></div>
-		<?php endif; ?>
+<?php if (!$enabled): ?>
+		<p class="fs-muted wg-service-note"><?=gettext('The gateway is disabled. Enable it under Listeners, then Start or Restart to apply settings to Squid.')?></p>
+<?php endif; ?>
 	</div>
 </div>
 
-<div class="row g-3 mb-3">
-	<div class="col-lg-6">
-		<div class="card h-100">
-			<div class="card-header"><h2 class="h5 mb-0"><?=gettext('Listeners')?></h2></div>
-			<ul class="list-group list-group-flush font-monospace">
-				<?php foreach ($listeners as $listener): ?><li class="list-group-item"><?=htmlspecialchars(substr($listener, strlen('http_port ')))?></li><?php endforeach; ?>
-				<?php if (empty($listeners)): ?><li class="list-group-item text-muted"><?=gettext('No listener interfaces selected.')?></li><?php endif; ?>
-			</ul>
-		</div>
-	</div>
-	<div class="col-lg-6">
-		<div class="card h-100">
-			<div class="card-header"><h2 class="h5 mb-0"><?=gettext('Permitted client networks')?></h2></div>
-			<ul class="list-group list-group-flush font-monospace">
-				<?php foreach (array_merge($networks, $extra_networks) as $network): ?><li class="list-group-item"><?=htmlspecialchars($network)?></li><?php endforeach; ?>
-				<?php if (empty($networks) && empty($extra_networks)): ?><li class="list-group-item text-muted"><?=gettext('No client networks detected. Select interfaces or add routed networks under Listeners.')?></li><?php endif; ?>
-			</ul>
-		</div>
+<div class="panel panel-default fs-table">
+<?php fs_table_toolbar(['title' => gettext('Listeners'), 'search' => false, 'noun' => gettext('listeners'), 'noun_one' => gettext('listener')]); ?>
+	<div class="panel-body table-responsive">
+	<table class="table table-hover">
+		<thead><tr>
+			<th><?=gettext('Type')?></th>
+			<th><?=gettext('Address')?></th>
+			<th><?=gettext('Options')?></th>
+		</tr></thead>
+		<tbody>
+<?php foreach ($listeners as $listener):
+	$parts = preg_split('/\s+/', trim($listener));
+	$kind = array_shift($parts);
+	$address = array_shift($parts);
+	$flags = array_filter($parts, function ($p) { return strpos($p, '=') === false; });
+?>
+			<tr>
+				<td><?=fs_badge('info', ($kind === 'https_port') ? 'HTTPS' : 'HTTP')?></td>
+				<td class="fs-mono"><?=htmlspecialchars((string)$address)?></td>
+				<td><div class="fs-chips"><?php if (!$flags): ?><span class="fs-chip"><?=gettext('explicit')?></span><?php endif; ?><?php foreach ($flags as $flag): ?><span class="fs-chip fs-chip--mono"><?=htmlspecialchars($flag)?></span><?php endforeach; ?></div></td>
+			</tr>
+<?php endforeach; ?>
+<?php if (empty($listeners)) fs_empty_row(3, gettext('No listener interfaces selected.'), '/webgateway/webgateway_listeners.php', gettext('Configure listeners')); ?>
+		</tbody>
+	</table>
 	</div>
 </div>
 
-<div class="card mb-3">
-	<div class="card-header d-flex justify-content-between align-items-center"><h2 class="h5 mb-0"><i class="fa-solid fa-list me-2"></i><?=gettext('Recent access log')?></h2><span class="badge bg-secondary"><?=count($log_lines)?> <?=gettext('lines')?></span></div>
-	<div class="card-body p-0">
-		<pre class="m-0 p-3 bg-dark text-light overflow-auto" style="max-height:32rem"><?php if ($wg_config['access_log'] !== 'on'): ?><?=gettext('Access logging is disabled.')?><?php elseif (empty($log_lines)): ?><?=gettext('No access records are available yet.')?><?php else: ?><?=htmlspecialchars(implode("\n", $log_lines))?><?php endif; ?></pre>
+<div class="panel panel-default fs-table">
+<?php fs_table_toolbar(['title' => gettext('Permitted client networks'), 'search' => false, 'noun' => gettext('networks'), 'noun_one' => gettext('network')]); ?>
+	<div class="panel-body table-responsive">
+	<table class="table table-hover">
+		<thead><tr>
+			<th><?=gettext('Network')?></th>
+			<th><?=gettext('Source')?></th>
+		</tr></thead>
+		<tbody>
+<?php foreach ($networks as $network): ?>
+			<tr><td class="fs-mono"><?=htmlspecialchars($network)?></td><td><?=gettext('Selected interface')?></td></tr>
+<?php endforeach; ?>
+<?php foreach ($extra_networks as $network): ?>
+			<tr><td class="fs-mono"><?=htmlspecialchars($network)?></td><td><?=gettext('Additional client network')?></td></tr>
+<?php endforeach; ?>
+<?php if (empty($networks) && empty($extra_networks)) fs_empty_row(2, gettext('No client networks detected. Select interfaces or add routed networks under Listeners.')); ?>
+		</tbody>
+	</table>
 	</div>
 </div>
 
+<div class="panel panel-default">
+	<div class="panel-heading">
+		<h2 class="panel-title"><?=gettext('Recent access log')?> <span class="fs-count"><?=count($log_lines)?></span></h2>
+<?php if ($wg_config['access_log'] === 'on' && !empty($log_lines)): ?>
+		<button type="button" class="btn btn-sm btn-outline-secondary" data-fs-copy="#wg-access-log"><i class="fa-regular fa-copy icon-embed-btn" aria-hidden="true"></i><?=gettext('Copy')?></button>
+<?php endif; ?>
+	</div>
+<?php if ($wg_config['access_log'] !== 'on'): ?>
+	<div class="fs-tool-empty"><i class="fa-solid fa-eye-slash" aria-hidden="true"></i><span><?=gettext('Access logging is disabled.')?></span></div>
+<?php elseif (empty($log_lines)): ?>
+	<div class="fs-tool-empty"><i class="fa-solid fa-list" aria-hidden="true"></i><span><?=gettext('No access records are available yet.')?></span></div>
+<?php else: ?>
+	<pre class="fs-console" id="wg-access-log"><?=htmlspecialchars(implode("\n", $log_lines))?></pre>
+<?php endif; ?>
+</div>
+<style>
+.wg-pad { padding: var(--fs-sp-3) var(--fs-sp-4); }
+.wg-service { display: flex; flex-wrap: wrap; gap: var(--fs-sp-2); align-items: center; }
+.wg-service-note { margin: var(--fs-sp-3) 0 0; font-size: var(--fs-fs-sm); }
+</style>
 <?php include('foot.inc'); ?>
