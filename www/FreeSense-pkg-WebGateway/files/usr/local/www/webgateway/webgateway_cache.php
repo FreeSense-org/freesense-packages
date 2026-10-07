@@ -2,7 +2,9 @@
 /* FreeSense Web Gateway 2.0: cache, shaping and upstream proxy. */
 require_once('guiconfig.inc');require_once('webgateway.inc');
 $wg_config=webgateway_config();$pconfig=$wg_config;$input_errors=[];$savemsg=null;
-if($_POST){$pconfig=array_merge($wg_config,$_POST);foreach(['upstream_enable','upstream_never_direct','privacy_headers','access_log','log_anonymize'] as $f)$pconfig[$f]=isset($_POST[$f])?'on':'';$pconfig['custom_options']=webgateway_encode_list($_POST['custom_options_text']??'');if(webgateway_save_candidate($pconfig,gettext('Web Gateway cache and upstream settings changed'),$input_errors)){$savemsg=gettext('Cache, shaping and upstream settings saved and applied to Squid.');$wg_config=$pconfig=webgateway_config();}}
+/* The parent-proxy password never reaches the page: it renders as the DMYPWD placeholder and an empty
+ * or unchanged placeholder keeps the stored password (only a newly typed value replaces it). */
+if($_POST){$pconfig=array_merge($wg_config,$_POST);if(!isset($_POST['upstream_password'])||$_POST['upstream_password']===''||$_POST['upstream_password']===DMYPWD)$pconfig['upstream_password']=$wg_config['upstream_password'];foreach(['upstream_enable','upstream_never_direct','privacy_headers','access_log','log_anonymize'] as $f)$pconfig[$f]=isset($_POST[$f])?'on':'';$pconfig['custom_options']=webgateway_encode_list($_POST['custom_options_text']??'');if(webgateway_save_candidate($pconfig,gettext('Web Gateway cache and upstream settings changed'),$input_errors)){$savemsg=gettext('Cache, shaping and upstream settings saved and applied to Squid.');$wg_config=$pconfig=webgateway_config();}}
 $pgtitle=[gettext('Services'),gettext('Web Gateway'),gettext('Cache & upstreams')];
 $pglinks=['', '/webgateway/webgateway.php', '@self'];
 include('head.inc');webgateway_display_tabs('cache');if($input_errors)print_input_errors($input_errors);if($savemsg)print_info_box($savemsg,'success');
@@ -56,9 +58,9 @@ $group = new Form_Group(gettext('Credentials'));
 $group->add(new Form_Input('upstream_user', gettext('Username'), 'text', $pconfig['upstream_user'], ['autocomplete' => 'off']))
 	->setWidth(4)
 	->setHelp(gettext('Username'));
-$group->add(new Form_Input('upstream_password', gettext('Password'), 'password', $pconfig['upstream_password'], ['autocomplete' => 'new-password']))
+$group->add(new Form_Input('upstream_password', gettext('Password'), 'password', ((string)$pconfig['upstream_password'] !== '') ? DMYPWD : '', ['autocomplete' => 'new-password']))
 	->setWidth(4)
-	->setHelp(gettext('Password'));
+	->setHelp(((string)$pconfig['upstream_password'] !== '') ? gettext('Password (leave unchanged to keep the stored one)') : gettext('Password'));
 $section->add($group);
 $section->addInput(new Form_Checkbox('upstream_never_direct', gettext('Fallback'), gettext('Never connect directly if the parent is unavailable'), $pconfig['upstream_never_direct'] === 'on', 'on'));
 $form->add($section);

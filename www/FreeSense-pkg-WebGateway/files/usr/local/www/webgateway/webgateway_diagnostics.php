@@ -9,16 +9,13 @@ $prepare_error = null;
 $test_output = '';
 $test_ok = false;
 
+/* Files are only (re)generated on an explicit POST; opening the tab never writes. */
 if ($_POST && isset($_POST['regenerate'])) {
 	$prepare_error = webgateway_prepare_files($wg_config);
 }
-if ($prepare_error === null) {
-	if (!is_file(WEBGATEWAY_CONF_FILE)) {
-		$prepare_error = webgateway_prepare_files($wg_config);
-	}
-	if ($prepare_error === null) {
-		$test_ok = webgateway_config_test($test_output);
-	}
+$files_missing = ($prepare_error === null) && !is_file(WEBGATEWAY_CONF_FILE);
+if (($prepare_error === null) && !$files_missing) {
+	$test_ok = webgateway_config_test($test_output);
 }
 $rendered = webgateway_render_config($wg_config);
 $rendered = preg_replace('/(login=)[^\s]+/i', '$1[redacted]', $rendered);
@@ -40,7 +37,9 @@ webgateway_display_tabs('diagnostics');
 ?>
 <div class="fs-tiles">
 <?php
-if ($prepare_error !== null) {
+if ($files_missing) {
+	fs_tile(gettext('Configuration test'), gettext('Not run'), 'warn', gettext('The generated configuration files are missing.'));
+} elseif ($prepare_error !== null) {
 	fs_tile(gettext('Configuration test'), gettext('Not run'), 'error', gettext('The configuration could not be generated.'));
 } else {
 	fs_tile(gettext('Configuration test'), $test_ok ? gettext('Accepted') : gettext('Rejected'), $test_ok ? 'pass' : 'error',
@@ -54,7 +53,21 @@ fs_tile(gettext('Required helpers'), sprintf(gettext('%1$d of %2$d'), $helpers_o
 if ($prepare_error !== null) {
 	print_callout(htmlspecialchars($prepare_error), 'danger', gettext('Configuration could not be generated'));
 }
+if ($files_missing):
 ?>
+<div class="panel panel-default wg-missing">
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Config files missing')?></h2></div>
+	<div class="panel-body">
+		<p class="wg-diag-text"><?=sprintf(gettext('The generated Squid configuration (%s) does not exist yet. Regenerate it from the saved settings to test it; the running service is not reloaded.'), '<code>' . htmlspecialchars(WEBGATEWAY_CONF_FILE) . '</code>')?></p>
+		<form method="post" class="wg-missing-form">
+			<button class="btn btn-primary" name="regenerate" value="1" type="submit"
+				data-fs-confirm="<?=htmlspecialchars(gettext('Regenerate the Web Gateway configuration?'))?>"
+				data-fs-confirm-detail="<?=htmlspecialchars(gettext('The Squid configuration files are written from the saved settings and parsed with Squid. The running service is not reloaded.'))?>"
+				data-fs-confirm-action="<?=htmlspecialchars(gettext('Regenerate configuration'))?>"><i class="fa-solid fa-arrows-rotate icon-embed-btn" aria-hidden="true"></i><?=gettext('Regenerate configuration')?></button>
+		</form>
+	</div>
+</div>
+<?php endif; ?>
 <div class="fs-tool">
 	<form method="post" class="fs-tool-form">
 		<div class="panel panel-default">
@@ -116,6 +129,8 @@ if ($prepare_error !== null) {
 </div>
 <style>
 .wg-diag-text { font-size: var(--fs-fs-sm); margin: 0; }
+.wg-missing .panel-body { display: grid; gap: var(--fs-sp-3); }
+.wg-missing-form { margin: 0; }
 .wg-pad { padding: var(--fs-sp-3) var(--fs-sp-4); }
 .wg-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--fs-sp-2); }
 .wg-checks li { display: flex; gap: var(--fs-sp-2); align-items: baseline; }
