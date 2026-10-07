@@ -53,7 +53,13 @@ $describe_schedule = function (array $t) {
 	}
 	$days = [gettext('Sunday'), gettext('Monday'), gettext('Tuesday'), gettext('Wednesday'), gettext('Thursday'), gettext('Friday'), gettext('Saturday'), gettext('Sunday')];
 	$num = fn($v) => ctype_digit($v);
-	if ($f['mday'] !== '*' || $f['month'] !== '*') {
+	if ($f['month'] !== '*') {
+		return '';
+	}
+	if ($f['mday'] !== '*') {
+		if ($num($f['mday']) && $num($f['minute']) && $num($f['hour']) && (int)$f['hour'] < 24 && $f['wday'] === '*') {
+			return sprintf(gettext('Monthly on day %1$d at %2$s'), $f['mday'], sprintf('%02d:%02d', $f['hour'], $f['minute']));
+		}
 		return '';
 	}
 	if ($f['minute'] === '*' && $f['hour'] === '*' && $f['wday'] === '*') {
@@ -159,10 +165,10 @@ if (!empty($watchdog)) {
 		<table class="table table-hover" data-sortable>
 			<thead>
 				<tr>
-					<th class="fs-col-status"><?=gettext('Status')?></th>
+					<th class="fs-col-status d-none d-sm-table-cell"><?=gettext('Status')?></th>
 					<th data-fs-search><?=gettext('Task')?></th>
 					<th data-fs-search><?=gettext('Schedule')?></th>
-					<th data-fs-search><?=gettext('Command')?></th>
+					<th data-fs-search class="d-none d-md-table-cell"><?=gettext('Command')?></th>
 					<th class="fs-col-actions"><span class="visually-hidden"><?=gettext('Actions')?></span></th>
 				</tr>
 			</thead>
@@ -173,15 +179,19 @@ if (!empty($watchdog)) {
 	$human = $describe_schedule($task);
 ?>
 				<tr data-fs-filter-state="<?=$on ? 'enabled' : 'disabled'?>"<?=$on ? '' : ' class="fs-row-disabled"'?>>
-					<td><?=$on ? fs_badge('enabled') : fs_badge('disabled')?></td>
-					<td><strong><?=htmlspecialchars($task['name'])?></strong></td>
+					<td class="d-none d-sm-table-cell"><?=$on ? fs_badge('enabled') : fs_badge('disabled')?></td>
+					<td>
+						<strong><?=htmlspecialchars($task['name'])?></strong>
+						<span class="fs-auto-sub fs-mono fs-auto-cmd d-md-none"><?=htmlspecialchars($task['command'])?></span>
+						<div class="d-sm-none mt-1"><?=$on ? fs_badge('enabled') : fs_badge('disabled')?></div>
+					</td>
 					<td data-value="<?=htmlspecialchars($cron)?>">
 						<span class="fs-mono fs-auto-cron"><?=htmlspecialchars($cron)?></span>
 <?php if ($human !== ''): ?>
 						<span class="fs-auto-sub"><?=htmlspecialchars($human)?></span>
 <?php endif; ?>
 					</td>
-					<td class="fs-mono fs-auto-cmd"><?=htmlspecialchars($task['command'])?></td>
+					<td class="fs-mono fs-auto-cmd d-none d-md-table-cell"><?=htmlspecialchars($task['command'])?></td>
 					<td class="fs-col-actions"><?=fs_row_actions([
 						['delete', 'automation.php?action=delete_task&index=' . (int)$i, (string)$task['name'], ['thing' => gettext('task'),
 						    'detail' => gettext('Its cron entry is removed right away.')]],
@@ -210,7 +220,7 @@ if (!empty($watchdog)) {
 				<tr>
 					<th class="fs-col-status"><?=gettext('Status')?></th>
 					<th><?=gettext('Service')?></th>
-					<th><?=gettext('Description')?></th>
+					<th class="d-none d-md-table-cell"><?=gettext('Description')?></th>
 					<th class="fs-col-actions"><span class="visually-hidden"><?=gettext('Actions')?></span></th>
 				</tr>
 			</thead>
@@ -219,7 +229,7 @@ if (!empty($watchdog)) {
 				<tr>
 					<td><?=!$w['known'] ? fs_badge('unknown', gettext('Not found'), gettext('No registered service has this name')) : ($w['running'] ? fs_badge('up', gettext('Running')) : fs_badge('down', gettext('Stopped')))?></td>
 					<td class="fs-mono"><?=htmlspecialchars($w['name'])?></td>
-					<td><?=($w['descr'] !== '') ? htmlspecialchars($w['descr']) : '<span class="fs-muted">—</span>'?></td>
+					<td class="d-none d-md-table-cell"><?=($w['descr'] !== '' && $w['descr'] !== $w['name']) ? htmlspecialchars($w['descr']) : '<span class="fs-muted">—</span>'?></td>
 					<td class="fs-col-actions"><?=fs_row_actions([
 						['delete', 'automation.php?action=delete_watchdog&index=' . (int)$i, $w['name'], ['thing' => gettext('watchdog for'),
 						    'detail' => gettext('The service is no longer restarted automatically.')]],
