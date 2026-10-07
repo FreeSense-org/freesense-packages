@@ -104,10 +104,10 @@ else {
 	}
 }
 
-$pglinks = array("", "/suricata/suricata_interfaces.php", "@self");
-$pgtitle = array("Services", "Suricata", "Pass Lists");
+$pglinks = array("", "/suricata/suricata_overview.php", "@self");
+$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("Pass lists"));
+fs_page_action(gettext('Add pass list'), "suricata_passlist_edit.php?id={$id_gen}", 'fa-plus');
 include_once("head.inc");
-suricata_display_primary_navigation('lists');
 
 /* Display Alert message */
 if ($input_errors) {
@@ -117,96 +117,83 @@ if ($savemsg) {
 	print_info_box($savemsg);
 }
 
-$tab_array = array();
-$tab_array[] = array(gettext("Interfaces"), false, "/suricata/suricata_interfaces.php");
-$tab_array[] = array(gettext("Global Settings"), false, "/suricata/suricata_global.php");
-$tab_array[] = array(gettext("Updates"), false, "/suricata/suricata_download_updates.php");
-$tab_array[] = array(gettext("Alerts"), false, "/suricata/suricata_alerts.php");
-$tab_array[] = array(gettext("Blocks"), false, "/suricata/suricata_blocked.php");
-$tab_array[] = array(gettext("Files"), false, "/suricata/suricata_files.php");
-$tab_array[] = array(gettext("Pass Lists"), true, "/suricata/suricata_passlist.php");
-$tab_array[] = array(gettext("Suppress"), false, "/suricata/suricata_suppress.php");
-$tab_array[] = array(gettext("Logs View"), false, "/suricata/suricata_logs_browser.php?instance={$instanceid}");
-$tab_array[] = array(gettext("Logs Mgmt"), false, "/suricata/suricata_logs_mgmt.php");
-$tab_array[] = array(gettext("SID Mgmt"), false, "/suricata/suricata_sid_mgmt.php");
-$tab_array[] = array(gettext("Sync"), false, "/pkg_edit.php?xml=suricata/suricata_sync.xml");
-$tab_array[] = array(gettext("IP Lists"), false, "/suricata/suricata_ip_list_mgmt.php");
-display_top_tabs($tab_array, true);
+suricata_display_primary_navigation('lists');
+suricata_display_section_navigation('lists', 'passlist');
 ?>
 
-<div class="card mb-3">
-	<div class="card-header"><h2 class="h5 mb-0"><?=gettext('Configured Pass Lists');?></h2></div>
-	<div class="table-responsive card-body">
-		<form action="/suricata/suricata_passlist.php" method="post">
-			<input type="hidden" name="list_id" id="list_id" value=""/>
-			<table id="maintable" class="table table-striped table-hover table-sm">
-				<thead>
-					<tr>
-						<th>&nbsp;</th>
-						<th>List Name</th>
-						<th>Assigned</th>
-						<th>Description</th>
-						<th>Actions</th>
-					</tr>
-				</thead>
-				<tbody>
-				<?php foreach ($a_passlist as $i => $list): ?>
+<form action="/suricata/suricata_passlist.php" method="post">
+<input type="hidden" name="list_id" id="list_id" value=""/>
+<div class="panel panel-default fs-table">
+<?php fs_table_toolbar([
+	'title' => gettext('Pass lists'),
+	'search' => gettext('Search pass lists…'),
+	'noun' => gettext('pass lists'),
+	'noun_one' => gettext('pass list'),
+	'filters' => ['used' => [gettext('All lists'), 'yes' => gettext('Assigned'), 'no' => gettext('Not assigned')]],
+	'bulk' => [
+		['name' => 'del_btn', 'label' => gettext('Delete'), 'icon' => 'fa-trash-can', 'variant' => 'danger',
+		 'confirm' => gettext('Delete the selected pass lists? Lists assigned to an interface are kept.')],
+	],
+]); ?>
+	<div class="panel-body table-responsive">
+		<table id="maintable" class="table table-hover table-rowdblclickedit" data-sortable>
+			<thead>
 				<tr>
-					<td>
-						<input type="checkbox" id="frc<?=$i?>" name="del[]" value="<?=$i?>" onclick="fr_bgcolor('<?=$i?>')" />
-					</td>
-					<td>
-						<?=htmlspecialchars($list['name'])?>
-					</td>
-					<td>
-						<?php suricata_is_passlist_used($list['name']) ? print(gettext("Yes")) : print(gettext("No"));?>
-					</td>
-					<td>
-						<?=htmlspecialchars($list['descr'])?>
-					</td>
-					<td>
-						<a href="suricata_passlist_edit.php?id=<?=$i?>" class="fa-solid fa-pencil fa-lg" title="<?=gettext('Edit Pass List');?>"></a>
-						<a class="fa-solid fa-trash-can no-confirm" id="Xcdel_<?=$i?>" title="<?=gettext('Delete this Pass List'); ?>"></a>
-						<button style="display: none;" class="btn btn-sm btn-warning" type="submit" id="cdel_<?=$i?>" name="cdel_<?=$i?>" value="cdel_<?=$i?>" title="<?=gettext('Delete this Pass List'); ?>">Delete Pass List</button>
-					</td>
+					<th class="fs-col-select"><input type="checkbox" data-fs-select-all aria-label="<?=gettext('Select all')?>"></th>
+					<th data-fs-search><?=gettext("Name")?></th>
+					<th><?=gettext("Assigned")?></th>
+					<th data-fs-search><?=gettext("Contents")?></th>
+					<th data-fs-search><?=gettext("Description")?></th>
+					<th class="fs-col-actions"><span class="visually-hidden"><?=gettext("Actions")?></span></th>
 				</tr>
-				<?php endforeach; ?>
-				<tr>
-					<td colspan="5" class="text-end">
-						<a href="suricata_passlist_edit.php?id=<?=$id_gen?>" role="button" class="btn btn-sm btn-success" title="<?=gettext('add a new pass list');?>">
-							<i class="fa-solid fa-plus icon-embed-btn"></i>
-							<?=gettext("Add");?>
-						</a>
-						<?php if (count($a_passlist) > 0): ?>
-							<button type="submit" name="del_btn" id="del_btn" class="btn btn-danger btn-sm" title="<?=gettext('Delete Selected Items');?>">
-								<i class="fa-solid fa-trash-can icon-embed-btn"></i>
-								<?=gettext('Delete');?>
-							</button>
-						<?php endif; ?>
+			</thead>
+			<tbody>
+<?php foreach ($a_passlist as $i => $list):
+	$used = suricata_is_passlist_used($list['name']);
+	$auto = [];
+	foreach (['localnets' => gettext('Local networks'), 'wangateips' => gettext('Gateways'), 'wandnsips' => gettext('DNS servers'),
+	    'vips' => gettext('Virtual IPs'), 'vpnips' => gettext('VPNs')] as $key => $text) {
+		if (($list[$key] ?? 'yes') == 'yes') {
+			$auto[] = $text;
+		}
+	}
+	$addrs = array_filter((array)($list['address']['item'] ?? []));
+?>
+				<tr data-fs-filter-used="<?=$used ? 'yes' : 'no'?>">
+					<td><input type="checkbox" id="frc<?=$i?>" name="del[]" value="<?=$i?>" data-fs-select aria-label="<?=htmlspecialchars(sprintf(gettext('Select %s'), $list['name']))?>"></td>
+					<td><a href="suricata_passlist_edit.php?id=<?=$i?>"><?=htmlspecialchars($list['name'])?></a></td>
+					<td><?=$used ? fs_badge('active', gettext('In use')) : fs_badge('idle', gettext('Not assigned'))?></td>
+					<td>
+						<div class="fs-chips">
+<?php foreach ($auto as $text): ?>
+							<span class="fs-chip"><?=htmlspecialchars($text)?></span>
+<?php endforeach; ?>
+<?php if ($addrs): ?>
+							<span class="fs-chip fs-chip--mono" title="<?=htmlspecialchars(implode(', ', $addrs))?>"><?=htmlspecialchars(sprintf(ngettext('%d custom entry', '%d custom entries', count($addrs)), count($addrs)))?></span>
+<?php endif; ?>
+						</div>
 					</td>
+					<td><?=htmlspecialchars($list['descr'])?></td>
+					<td class="fs-col-actions"><?=fs_row_actions([
+						['edit', "suricata_passlist_edit.php?id={$i}", $list['name']],
+						['delete', "suricata_passlist.php?cdel_{$i}=cdel_{$i}", $list['name'], [
+							'thing' => gettext('pass list'),
+							'detail' => $used ? gettext('It is assigned to a Suricata interface and cannot be deleted until it is unassigned.') : null,
+						]],
+					])?></td>
 				</tr>
-					</tbody>
-			</table>
-		</form>
+<?php endforeach; ?>
+<?php if (empty($a_passlist)) {
+	fs_empty_row(6, gettext('No pass lists yet. Interfaces use the default pass list.'), "suricata_passlist_edit.php?id={$id_gen}", gettext('Add pass list'));
+} ?>
+			</tbody>
+		</table>
+	</div>
+	<div class="panel-footer small fs-muted">
+		<i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+		<?=gettext('Hosts on a pass list are never blocked. The default list covers the WAN address and gateway, DNS servers, VPNs and local networks. Assign a custom list on the interface settings, then restart Suricata on that interface.')?>
 	</div>
 </div>
-
-<div class="infoblock">
-	<?=print_info_box('<strong>Note:</strong><ol><li>Here you can create Pass List files for your Suricata package rules. Hosts on a Pass List are never blocked by Suricata.</li><li>Add all the IP addresses or networks (in CIDR notation) you want to protect against Suricata block decisions.</li><li>The default Pass List includes the WAN IP and gateway, defined DNS servers, VPNs and locally-attached networks.</li><li>Be careful, it is very easy to get locked out of your system by altering the default settings.</li><li>To use a custom Pass List on an interface, you must manually assign the list using the drop-down control on the Interface Settings tab.</li></ol><p>Remember you must restart Suricata on the interface for changes to take effect!</p>', 'info')?>
-</div>
-
-<script type="text/javascript">
-//<![CDATA[
-
-events.push(function() {
-	$('[id^=Xcdel_]').click(function (event) {
-		if(confirm("<?=gettext('Delete this Pass List entry?')?>")) {
-			$('#' + event.target.id.slice(1)).click();
-		}
-	});
-});
-
-//]]>
-</script>
+</form>
 
 <?php include("foot.inc"); ?>

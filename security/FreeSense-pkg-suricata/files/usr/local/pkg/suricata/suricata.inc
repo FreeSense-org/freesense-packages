@@ -63,6 +63,102 @@ function suricata_display_primary_navigation($active) {
 	display_top_tabs($render, true);
 }
 
+/*
+ * Second-level navigation inside a primary tab: a segmented control
+ * (core .fs-viewswitch markup) linking the pages of one group.
+ * $group: 'lists', 'policies' or 'events'; $active: key of the current page.
+ */
+function suricata_display_section_navigation($group, $active) {
+	$rules = config_get_path('installedpackages/suricata/rule', []);
+	$groups = [
+		'lists' => [
+			'passlist' => [gettext('Pass lists'), '/suricata/suricata_passlist.php'],
+			'suppress' => [gettext('Suppress lists'), '/suricata/suricata_suppress.php'],
+			'iplists' => [gettext('IP reputation files'), '/suricata/suricata_ip_list_mgmt.php'],
+		],
+		'policies' => [
+			'rules' => [gettext('Interface rules'), !empty($rules) ? '/suricata/suricata_rulesets.php?id=0' : '/suricata/suricata_interfaces.php'],
+			'sid' => [gettext('SID management'), '/suricata/suricata_sid_mgmt.php'],
+		],
+		'events' => [
+			'events' => [gettext('Events'), '/suricata/suricata_events.php'],
+			'alerts' => [gettext('Alerts'), '/suricata/suricata_alerts.php'],
+			'blocked' => [gettext('Blocked hosts'), '/suricata/suricata_blocked.php'],
+			'files' => [gettext('Files'), '/suricata/suricata_files.php'],
+			'logs' => [gettext('Logs'), '/suricata/suricata_logs_browser.php'],
+		],
+	];
+	if (empty($groups[$group])) {
+		return;
+	}
+	echo '<nav class="fs-viewswitch" aria-label="' . htmlspecialchars(gettext('Section')) . '">';
+	foreach ($groups[$group] as $key => [$label, $href]) {
+		echo '<a href="' . htmlspecialchars($href) . '"' . (($key === $active) ? ' aria-current="page"' : '') . '>'
+		    . htmlspecialchars($label) . '</a>';
+	}
+	echo '</nav>';
+}
+
+/*
+ * Per-interface tab bar shown on the interface editor and the per-interface
+ * policy pages. $active: settings, rulesets, rules, flow_stream, app_parsers,
+ * define_vars or ip_reputation. A new (unsaved) interface only has Settings.
+ */
+function suricata_display_interface_tabs($id, $active, $is_new = false) {
+	$id = (int)$id;
+	$tabs = [
+		'settings' => [gettext('Settings'), "/suricata/suricata_interfaces_edit.php?id={$id}"],
+		'rulesets' => [gettext('Categories'), "/suricata/suricata_rulesets.php?id={$id}"],
+		'rules' => [gettext('Rules'), "/suricata/suricata_rules.php?id={$id}"],
+		'flow_stream' => [gettext('Flow/Stream'), "/suricata/suricata_flow_stream.php?id={$id}"],
+		'app_parsers' => [gettext('App parsers'), "/suricata/suricata_app_parsers.php?id={$id}"],
+		'define_vars' => [gettext('Variables'), "/suricata/suricata_define_vars.php?id={$id}"],
+		'ip_reputation' => [gettext('IP reputation'), "/suricata/suricata_ip_reputation.php?id={$id}"],
+	];
+	$render = [];
+	foreach ($tabs as $key => [$label, $href]) {
+		if ($is_new && $key !== 'settings') {
+			continue;
+		}
+		$render[] = [$label, $key === $active, $href];
+	}
+	display_top_tabs($render, true);
+}
+
+/*
+ * Group an interface's enabled rule files by source for display as chips.
+ * Returns [label => count]; IPS policy and custom rules are added as extra entries.
+ */
+function suricata_ruleset_summary($natent) {
+	$sources = [];
+	foreach (array_filter(explode('||', $natent['rulesets'] ?? '')) as $file) {
+		$file = trim($file);
+		if (strpos($file, ET_OPEN_FILE_PREFIX) === 0) {
+			$label = gettext('ET Open');
+		} elseif (strpos($file, ET_PRO_FILE_PREFIX) === 0) {
+			$label = gettext('ET Pro');
+		} elseif (strpos($file, VRT_FILE_PREFIX) === 0) {
+			$label = gettext('Snort');
+		} elseif (strpos($file, GPL_FILE_PREFIX) === 0) {
+			$label = gettext('GPLv2');
+		} elseif (strpos($file, EXTRARULE_FILE_PREFIX) === 0) {
+			$label = gettext('Extra');
+		} elseif (strpos($file, 'feodotracker') !== false || strpos($file, 'sslblacklist') !== false) {
+			$label = gettext('abuse.ch');
+		} else {
+			$label = gettext('Built-in');
+		}
+		$sources[$label] = ($sources[$label] ?? 0) + 1;
+	}
+	if (($natent['ips_policy_enable'] ?? '') === 'on' && !empty($natent['ips_policy'])) {
+		$sources[sprintf(gettext('Policy: %s'), $natent['ips_policy'])] = 0;
+	}
+	if (!empty($natent['customrules'])) {
+		$sources[gettext('Custom rules')] = 0;
+	}
+	return $sources;
+}
+
 function suricata_validate_config_file($config_path, &$output = '') {
 	if (!is_file($config_path)) {
 		$output = gettext('Generated configuration file is missing.');

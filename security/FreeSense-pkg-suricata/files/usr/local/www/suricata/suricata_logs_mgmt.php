@@ -163,10 +163,9 @@ if (isset($_POST['save']) || isset($_POST['apply'])) {
 	}
 }
 
-$pglinks = array("", "/suricata/suricata_interfaces.php", "@self");
-$pgtitle = array("Services", "Suricata", "Logs Management");
+$pglinks = array("", "/suricata/suricata_overview.php", "@self");
+$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("Log management"));
 include_once("head.inc");
-suricata_display_primary_navigation('maintenance');
 
 /* Display Alert message, under form tag or no refresh */
 if ($input_errors)
@@ -177,218 +176,192 @@ if ($savemsg) {
 	print_info_box($savemsg);
 }
 
-	$tab_array = array();
-	$tab_array[] = array(gettext("Interfaces"), false, "/suricata/suricata_interfaces.php");
-	$tab_array[] = array(gettext("Global Settings"), false, "/suricata/suricata_global.php");
-	$tab_array[] = array(gettext("Updates"), false, "/suricata/suricata_download_updates.php");
-	$tab_array[] = array(gettext("Alerts"), false, "/suricata/suricata_alerts.php");
-	$tab_array[] = array(gettext("Blocks"), false, "/suricata/suricata_blocked.php");
-	$tab_array[] = array(gettext("Files"), false, "/suricata/suricata_files.php");
-	$tab_array[] = array(gettext("Pass Lists"), false, "/suricata/suricata_passlist.php");
-	$tab_array[] = array(gettext("Suppress"), false, "/suricata/suricata_suppress.php");
-	$tab_array[] = array(gettext("Logs View"), false, "/suricata/suricata_logs_browser.php");
-	$tab_array[] = array(gettext("Logs Mgmt"), true, "/suricata/suricata_logs_mgmt.php");
-	$tab_array[] = array(gettext("SID Mgmt"), false, "/suricata/suricata_sid_mgmt.php");
-	$tab_array[] = array(gettext("Sync"), false, "/pkg_edit.php?xml=suricata/suricata_sync.xml");
-	$tab_array[] = array(gettext("IP Lists"), false, "/suricata/suricata_ip_list_mgmt.php");
-	display_top_tabs($tab_array, true);
+suricata_display_primary_navigation('maintenance');
 
 $form = new Form;
 
-$section = new Form_Section('General Settings');
+$section = new Form_Section('General', 'logs-general');
 $section->addInput(new Form_Checkbox(
 	'enable_log_mgmt',
-	'Auto Log Management',
-	'Enable automatic unattended management of Suricata logs using parameters specified below.  Default is checked.',
+	'Automatic log management',
+	'Rotate and prune Suricata logs automatically with the limits below',
 	$pconfig['enable_log_mgmt'] == 'on' ? true:false,
 	'on'
 ));
 $section->addInput(new Form_Checkbox(
 	'clearlogs',
-	'Remove Suricata Logs On Package Uninstall',
-	'Suricata log files will be removed when the Suricata package is uninstalled.  Default is not checked.',
+	'Remove logs on uninstall',
+	'Delete the Suricata log files when the package is removed',
 	$pconfig['clearlogs'] == 'on' ? true:false,
 	'on'
 ));
-$form->add($section);
-
-$section = new Form_Section("Log Directory Size Limit");
 $section->addInput(new Form_Checkbox(
 	'suricataloglimit',
-	'Log Directory Size Limit',
-	'Enable Directory Size Limit',
+	'Directory size limit',
+	'Limit the combined size of all Suricata log directories',
 	$pconfig['suricataloglimit'] == 'on' ? true:false,
 	'on'
 ));
 $section->addInput(new Form_Input(
 	'suricataloglimitsize',
-	'Log Limit Size in MB',
+	'Size limit (MB)',
 	'text',
 	$pconfig['suricataloglimitsize']
-))->setHelp('This setting imposes a hard-limit on the combined log directory size of all Suricata interfaces. '.
-			'When the size limit set is reached, rotated logs for all interfaces will be removed, and any active '.
-			'logs pruned to zero-length.   (default is 20% of available free disk space)');
+))->setHelp('When reached, rotated logs of all interfaces are removed and active logs are truncated. Default is 20% of the free disk space.');
 $form->add($section);
 
-$section = new Form_Section("Log Size and Retention Limits");
-$group = new Form_Group('alert');
+$section = new Form_Section('Log size and retention', 'logs-limits');
+$group = new Form_Group('Alerts');
 $group->add(new Form_Select(
 	'alert_log_limit_size',
 	'Max Size',
 	$pconfig['alert_log_limit_size'],
 	$log_sizes
-))->setHelp('Max Size. Default is 500 KB.');
+))->setHelp('Max size, default 500 KB.');
 $group->add(new Form_Select(
 	'alert_log_retention',
 	'Retention',
 	$pconfig['alert_log_retention'],
 	$retentions
-))->setHelp('Retention. Default is 14 DAYS.');
-$group->setHelp('Suricata alerts and event details');
+))->setHelp('Retention, default 14 DAYS.');
+$group->setHelp('Alerts and event details');
 $section->add($group);
 
-$group = new Form_Group('block');
+$group = new Form_Group('Blocks');
 $group->add(new Form_Select(
 	'block_log_limit_size',
 	'Max Size',
 	$pconfig['block_log_limit_size'],
 	$log_sizes
-))->setHelp('Max Size. Default is 500 KB.');
+))->setHelp('Max size, default 500 KB.');
 $group->add(new Form_Select(
 	'block_log_retention',
 	'Retention',
 	$pconfig['block_log_retention'],
 	$retentions
-))->setHelp('Retention. Default is 14 DAYS.');
-$group->setHelp('Suricata blocked IPs and event details');
+))->setHelp('Retention, default 14 DAYS.');
+$group->setHelp('Blocked IPs and event details');
 $section->add($group);
 
-$group = new Form_Group('eve-json');
+$group = new Form_Group('EVE JSON');
 $group->add(new Form_Select(
 	'eve_log_limit_size',
 	'Max Size',
 	$pconfig['eve_log_limit_size'],
 	$log_sizes
-))->setHelp('Max Size. Default is 5 MB.');
+))->setHelp('Max size, default 5 MB.');
 $group->add(new Form_Select(
 	'eve_log_retention',
 	'Retention',
 	$pconfig['eve_log_retention'],
 	$retentions
-))->setHelp('Retention. Default is 7 DAYS.');
-$group->setHelp('Eve-JSON (JavaScript Object Notation) data');
+))->setHelp('Retention, default 7 DAYS.');
+$group->setHelp('EVE JSON event data');
 $section->add($group);
 
-$group = new Form_Group('http');
+$group = new Form_Group('HTTP');
 $group->add(new Form_Select(
 	'http_log_limit_size',
 	'Max Size',
 	$pconfig['http_log_limit_size'],
 	$log_sizes
-))->setHelp('Max Size. Default is 1 MB.');
+))->setHelp('Max size, default 1 MB.');
 $group->add(new Form_Select(
 	'http_log_retention',
 	'Retention',
 	$pconfig['http_log_retention'],
 	$retentions
-))->setHelp('Retention. Default is 7 DAYS.');
-$group->setHelp('Captured HTTP events and session info');
+))->setHelp('Retention, default 7 DAYS.');
+$group->setHelp('HTTP events and session info');
 $section->add($group);
 
-$group = new Form_Group('sid_changes');
+$group = new Form_Group('SID changes');
 $group->add(new Form_Select(
 	'sid_changes_log_limit_size',
 	'Max Size',
 	$pconfig['sid_changes_log_limit_size'],
 	$log_sizes
-))->setHelp('Max Size. Default is 250 KB.');
+))->setHelp('Max size, default 250 KB.');
 $group->add(new Form_Select(
 	'sid_changes_log_retention',
 	'Retention',
 	$pconfig['sid_changes_log_retention'],
 	$retentions
-))->setHelp('Retention. Default is 14 DAYS.');
-$group->setHelp('Log of SID changes made by SID Mgmt conf files');
+))->setHelp('Retention, default 14 DAYS.');
+$group->setHelp('Changes made by SID management lists');
 $section->add($group);
 
-$group = new Form_Group('stats');
+$group = new Form_Group('Statistics');
 $group->add(new Form_Select(
 	'stats_log_limit_size',
 	'Max Size',
 	$pconfig['stats_log_limit_size'],
 	$log_sizes
-))->setHelp('Max Size. Default is 500 KB.');
+))->setHelp('Max size, default 500 KB.');
 $group->add(new Form_Select(
 	'stats_log_retention',
 	'Retention',
 	$pconfig['stats_log_retention'],
 	$retentions
-))->setHelp('Retention. Default is 7 DAYS.');
-$group->setHelp('Suricata performance statistics');
+))->setHelp('Retention, default 7 DAYS.');
+$group->setHelp('Performance statistics');
 $section->add($group);
 
-$group = new Form_Group('tls');
+$group = new Form_Group('TLS');
 $group->add(new Form_Select(
 	'tls_log_limit_size',
 	'Max Size',
 	$pconfig['tls_log_limit_size'],
 	$log_sizes
-))->setHelp('Max Size. Default is 500 KB.');
+))->setHelp('Max size, default 500 KB.');
 $group->add(new Form_Select(
 	'tls_log_retention',
 	'Retention',
 	$pconfig['tls_log_retention'],
 	$retentions
-))->setHelp('Retention. Default is 14 DAYS.');
-$group->setHelp('SMTP TLS handshake details');
+))->setHelp('Retention, default 14 DAYS.');
+$group->setHelp('TLS handshake details');
 $section->add($group);
 
 $section->addInput(new Form_StaticText(
 	'',
-	'Settings will be ignored for any log in the list above not enabled on the Interface Settings tab. When a log reaches the Max Size limit, '.
-	'it will be rotated and tagged with a timestamp. The Retention period determines how long rotated logs are kept before they are automatically deleted.'
+	'<span class="fs-muted small">' . gettext('Logs that are not enabled on an interface are ignored. A log that reaches its maximum size is rotated with a timestamp; rotated logs are deleted after the retention period.') . '</span>'
 ));
 
+$form->add($section);
+
+$section = new Form_Section('Captured files', 'logs-captures');
 $section->addInput(new Form_Input(
 	'file_store_limit_size',
-	'Captured Files Storage Limit',
+	'File store limit (MB)',
 	'text',
 	$pconfig['file_store_limit_size']
-))->setHelp('File Store captured files storage limit in megabytes (MB). Initial default value is 60% of the Log Directory Size Limit '.
-			'parameter configured above. This sets the maximum storage limit (disk utilization) for captured files. '.
-			'When this limit is reached, older files will purged to reduce disk consumption below the configured limit. '.
-			'Entering zero disables this check and allows unlimited storage.');
+))->setHelp('Older captured files are purged above this size. 0 means unlimited. Defaults to 60% of the directory size limit.');
 $section->addInput(new Form_Select(
 	'file_store_retention',
-	'Captured Files Retention Period',
+	'File store retention',
 	$pconfig['file_store_retention'],
 	$retentions
-))->setHelp('Choose retention period for captured files in File Store. Default is 7 days. When file capture and store is enabled, '.
-			'Suricata captures downloaded files from HTTP sessions and stores them, along with metadata, for later analysis. '.
-			'This setting determines how long files remain in the File Store folder before they are automatically deleted.');
+))->setHelp('How long files extracted from HTTP sessions are kept. Default is 7 days.');
 $section->addInput(new Form_Select(
 	'tls_certs_store_retention',
-	'Captured TLS Certs Retention Period',
+	'TLS certificate retention',
 	$pconfig['tls_certs_store_retention'],
 	$retentions
-))->setHelp('Choose retention period for captured TLS Certs. Default is 7 days. When custom rules with tls.store are enabled, Suricata captures Certificates, '.
-			'along with metadata, for later analysis. This setting determines how long files remain in the Certs folder before they are automatically deleted.');
+))->setHelp('How long certificates stored by tls.store rules are kept. Default is 7 days.');
 $section->addInput(new Form_Select(
 	'pkt_capture_file_retention',
-	'Packet Capture Files Retention Period',
+	'Packet capture retention',
 	$pconfig['pkt_capture_file_retention'],
 	$retentions
-))->setHelp('Choose retention period for PCAP files. Default is 7 days. When Packet Capture is enabled, Suricata captures packets/flows in PCAP format. '.
-			'This setting determines how long files remain in the "pcaps" sub-folder in the log directory of the interface before they are automatically deleted.');
+))->setHelp('How long PCAP files in the interface "pcaps" folder are kept. Default is 7 days.');
 $form->add($section);
 
 print($form);
 
 ?>
 
-<div class="infoblock">
-	<?=print_info_box('<strong>Note:</strong> Changing any settings on this page will affect all Suricata-configured interfaces.', 'info')?>
-</div>
+<p class="small fs-muted"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> <?=gettext('These settings apply to every Suricata interface.')?></p>
 
 <script language="JavaScript">
 //<![CDATA[

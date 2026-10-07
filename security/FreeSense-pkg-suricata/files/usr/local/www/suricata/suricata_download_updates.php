@@ -220,231 +220,149 @@ if ($_POST['view']&& $suricata_rules_upd_log_chk == 'yes') {
 if ($_POST['hide'])
 	$contents = "";
 
-$pglinks = array("", "/suricata/suricata_interfaces.php", "@self");
-$pgtitle = array("Services", "Suricata", "Updates");
+$pglinks = array("", "/suricata/suricata_overview.php", "@self");
+$pgtitle = array(gettext("Services"), gettext("Suricata"), gettext("Rule updates"));
+
+$any_enabled = !($snortdownload != 'on' && $emergingthreats != 'on' && $etpro != 'on' && $snortcommunityrules != 'on' && $feodotracker_rules != 'on' && $sslbl_rules != 'on' && $enable_extra_rules != 'on');
+if ($any_enabled) {
+	fs_page_action(gettext('Update rules'), '#', 'fa-download', 'primary', ['id' => 'update', 'title' => gettext('Check for and apply updates to the enabled rule sets')]);
+	fs_page_action(gettext('Force update'), '#', 'fa-arrows-rotate', 'secondary', ['id' => 'force', 'title' => gettext('Download all enabled rule sets again')]);
+}
 include_once("head.inc");
+
+/* Display Alert message */
+if ($input_errors) {
+	print_input_errors($input_errors);
+}
+if ($savemsg) {
+	print_info_box($savemsg);
+}
+
 suricata_display_primary_navigation('updates');
-?>
 
-<?php
-	/* Display Alert message */
-	if ($input_errors) {
-		print_input_errors($input_errors);
-	}
-
-	if ($savemsg) {
-		print_info_box($savemsg);
-	}
-?>
-
-<?php
-	$tab_array = array();
-	$tab_array[] = array(gettext("Interfaces"), false, "/suricata/suricata_interfaces.php");
-	$tab_array[] = array(gettext("Global Settings"), false, "/suricata/suricata_global.php");
-	$tab_array[] = array(gettext("Updates"), true, "/suricata/suricata_download_updates.php");
-	$tab_array[] = array(gettext("Alerts"), false, "/suricata/suricata_alerts.php");
-	$tab_array[] = array(gettext("Blocks"), false, "/suricata/suricata_blocked.php");
-	$tab_array[] = array(gettext("Files"), false, "/suricata/suricata_files.php");
-	$tab_array[] = array(gettext("Pass Lists"), false, "/suricata/suricata_passlist.php");
-	$tab_array[] = array(gettext("Suppress"), false, "/suricata/suricata_suppress.php");
-	$tab_array[] = array(gettext("Logs View"), false, "/suricata/suricata_logs_browser.php");
-	$tab_array[] = array(gettext("Logs Mgmt"), false, "/suricata/suricata_logs_mgmt.php");
-	$tab_array[] = array(gettext("SID Mgmt"), false, "/suricata/suricata_sid_mgmt.php");
-	$tab_array[] = array(gettext("Sync"), false, "/pkg_edit.php?xml=suricata/suricata_sync.xml");
-	$tab_array[] = array(gettext("IP Lists"), false, "/suricata/suricata_ip_list_mgmt.php");
-	display_top_tabs($tab_array, true);
-?>
-
-<form action="suricata_download_updates.php" enctype="multipart/form-data" class="" method="post" name="iform" id="iform">
-
-<div class="card mb-3">
-	<div class="card-header"><h2 class="h5 mb-0"><?=gettext("INSTALLED RULE SET MD5 SIGNATURES")?></h2></div>
-	<div class="card-body">
-		<div class="content table-responsive">
-			<table class="table table-striped table-sm">
-				<thead>
-					<tr>
-						<th><?=gettext("Rule Set Name/Publisher");?></th>
-						<th><?=gettext("MD5 Signature Hash");?></th>
-						<th><?=gettext("MD5 Signature Date");?></th>
-					</tr>
-				</thead>
-				<tbody>
-				<tr>
-					<td><?=$et_name;?></td>
-					<td><?=trim($emergingt_net_sig_chk_local);?></td>
-					<td><?=gettext($emergingt_net_sig_date);?></td>
-				</tr>
-				<tr>
-					<td><?=gettext("Snort Subscriber Rules");?></td>
-					<td><?=trim($snort_org_sig_chk_local);?></td>
-					<td><?=gettext($snort_org_sig_date);?></td>
-				</tr>
-				<tr>
-					<td><?=gettext("Snort GPLv2 Community Rules");?></td>
-					<td><?=trim($snort_community_sig_chk_local);?></td>
-					<td><?=gettext($snort_community_sig_sig_date);?></td>
-				</tr>
-				<tr>
-					<td><?=gettext("Feodo Tracker Botnet C2 IP Rules");?></td>
-					<td><?=trim($feodotracker_sig_chk_local);?></td>
-					<td><?=gettext($feodotracker_sig_sig_date);?></td>
-				</tr>
-				<tr>
-					<td><?=gettext("ABUSE.ch SSL Blacklist Rules");?></td>
-					<td><?=trim($sslbl_sig_chk_local);?></td>
-					<td><?=gettext($sslbl_sig_sig_date);?></td>
-				</tr>
-				</tbody>
-			</table>
-		</div>
-	</div>
-</div>
-<?php
+/* One row per rule set: [name, enabled, md5, date] */
+$sets = [
+	[$et_name, ($etpro == 'on' || $emergingthreats == 'on'), $emergingt_net_sig_chk_local, $emergingt_net_sig_date],
+	[gettext("Snort Subscriber Rules"), ($snortdownload == 'on'), $snort_org_sig_chk_local, $snort_org_sig_date],
+	[gettext("Snort GPLv2 Community Rules"), ($snortcommunityrules == 'on'), $snort_community_sig_chk_local, $snort_community_sig_sig_date],
+	[gettext("Feodo Tracker Botnet C2 IP Rules"), ($feodotracker_rules == 'on'), $feodotracker_sig_chk_local, $feodotracker_sig_sig_date],
+	[gettext("ABUSE.ch SSL Blacklist Rules"), ($sslbl_rules == 'on'), $sslbl_sig_chk_local, $sslbl_sig_sig_date],
+];
 if (($enable_extra_rules == 'on') && !empty($extra_rules)) {
-?>
-<div class="card mb-3">
-	<div class="card-header"><h2 class="h5 mb-0"><?=gettext("EXTRA RULE SET MD5 SIGNATURES")?></h2></div>
-	<div class="card-body">
-		<div class="content table-responsive">
-			<table class="table table-striped table-sm">
-				<thead>
-					<tr>
-						<th><?=gettext("Rule Set Name");?></th>
-						<th><?=gettext("MD5 Signature Hash");?></th>
-						<th><?=gettext("MD5 Signature Date");?></th>
-					</tr>
-				</thead>
-				<tbody>
-<?php
-foreach ($extra_rules as $exrule) {
-	$format = (substr($exrule['url'], strrpos($exrule['url'], 'rules')) == 'rules') ? ".rules" : ".tar.gz";
-	$rulesfilename = EXTRARULE_FILE_PREFIX . $exrule['name'] . $format;
-	if (file_exists("{$suricatadir}{$rulesfilename}.md5")) {
-		$extra_sig_chk_local = trim(file_get_contents("{$suricatadir}{$rulesfilename}.md5"));
-		$extra_sig_date = date(DATE_RFC850, filemtime("{$suricatadir}{$rulesfilename}.md5"));
-	} else {
-		$extra_sig_chk_local = 'Not Downloaded';
-		$extra_sig_date = 'Not Downloaded';
+	foreach ($extra_rules as $exrule) {
+		$format = (substr($exrule['url'], strrpos($exrule['url'], 'rules')) == 'rules') ? ".rules" : ".tar.gz";
+		$rulesfilename = EXTRARULE_FILE_PREFIX . $exrule['name'] . $format;
+		if (file_exists("{$suricatadir}{$rulesfilename}.md5")) {
+			$sets[] = [sprintf(gettext('Extra: %s'), $exrule['name']), true, trim(file_get_contents("{$suricatadir}{$rulesfilename}.md5")), date(DATE_RFC850, filemtime("{$suricatadir}{$rulesfilename}.md5"))];
+		} else {
+			$sets[] = [sprintf(gettext('Extra: %s'), $exrule['name']), true, 'Not Downloaded', 'Not Downloaded'];
+		}
 	}
+}
+$enabled_count = count(array_filter($sets, function ($s) { return $s[1]; }));
+$upd_ok = (stripos($last_rule_upd_status, 'success') !== false);
+$upd_unknown = ($last_rule_upd_status === gettext('Unknown'));
 ?>
+
+<style>
+.suri-pad { padding: 1rem; }
+</style>
+
+<div class="fs-tiles">
+<?php
+fs_tile(gettext('Last update'), $last_rule_upd_time);
+fs_tile(gettext('Result'), $last_rule_upd_status, $upd_unknown ? null : ($upd_ok ? 'pass' : 'warn'));
+fs_tile(gettext('Rule sets enabled'), $enabled_count, null, gettext('Choose rule sets under Advanced > Global settings'));
+?>
+</div>
+
+<?php if (!$any_enabled): ?>
+<?php print_callout(gettext('No rule sets are selected for download.') . ' <a href="/suricata/suricata_global.php">' . gettext('Select rule sets in the global settings') . '</a>.', 'warning'); ?>
+<?php endif; ?>
+
+<div class="panel panel-default fs-table">
+<?php fs_table_toolbar([
+	'title' => gettext('Installed rule sets'),
+	'search' => false,
+	'noun' => gettext('rule sets'),
+	'noun_one' => gettext('rule set'),
+]); ?>
+	<div class="panel-body table-responsive">
+		<table class="table table-hover">
+			<thead>
 				<tr>
-					<td><?=$exrule['name'];?></td>
-					<td><?=$extra_sig_chk_local;?></td>
-					<td><?=gettext($extra_sig_date);?></td>
+					<th class="fs-col-status"><?=gettext("Status")?></th>
+					<th><?=gettext("Rule set")?></th>
+					<th><?=gettext("MD5 signature")?></th>
+					<th><?=gettext("Signature date")?></th>
 				</tr>
-<?php
-}
+			</thead>
+			<tbody>
+<?php foreach ($sets as [$name, $on, $md5, $date]):
+	$downloaded = $on && trim($md5) !== '' && $md5 !== 'Not Downloaded';
 ?>
-				</tbody>
-			</table>
-		</div>
+				<tr<?=$on ? '' : ' class="fs-row-disabled"'?>>
+					<td><?=!$on ? fs_badge('disabled') : ($downloaded ? fs_badge('pass', gettext('Installed')) : fs_badge('warn', gettext('Not downloaded')))?></td>
+					<td><?=htmlspecialchars($name)?></td>
+					<td class="fs-mono small"><?=$downloaded ? htmlspecialchars(trim($md5)) : '<span class="fs-muted">&ndash;</span>'?></td>
+					<td class="small"><?=$downloaded ? htmlspecialchars($date) : '<span class="fs-muted">&ndash;</span>'?></td>
+				</tr>
+<?php endforeach; ?>
+			</tbody>
+		</table>
+	</div>
+	<div class="panel-footer small fs-muted">
+		<i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+		<?=gettext('The rule download sites are occasionally unavailable. If an update fails, try again later.')?>
 	</div>
 </div>
-<?php
-}
-?>
-<div class="card mb-3">
-	<div class="card-header"><h2 class="h5 mb-0"><?=gettext("UPDATE YOUR RULE SET")?></h2></div>
-	<div class="card-body">
-		<div class="content">
-			<p>
-				<strong><?=gettext("Last Update:");?></strong> <?=$last_rule_upd_time;?><br />
-				<strong><?=gettext("Result:");?></strong> <?=$last_rule_upd_status?>
-			</p>
-			<p>
-				<?php if ($snortdownload != 'on' && $emergingthreats != 'on' && $etpro != 'on' && $snortcommunityrules != 'on' && $feodotracker_rules != 'on' && $sslbl_rules != 'on' && $enable_extra_rules != 'on'): ?>
-					<br/><button class="btn btn-primary" disabled>
-						<i class="fa-solid fa-check icon-embed-btn"></i>
-						<?=gettext("Update"); ?>
-					</button>&nbsp;&nbsp;&nbsp;&nbsp;
-					<button class="btn btn-warning" disabled>
-						<i class="fa-solid fa-download icon-embed-btn"></i>
-						<?=gettext("Force"); ?>
-					</button>
-					<br/>
-					<p style="text-align:center;">
-					<span class="text-danger"><strong><?=gettext("WARNING:")?></strong></span>
-					<?=gettext('No rule types have been selected for download. ') . gettext('Visit the ') . '<a href="/suricata/suricata_global.php">Global Settings Tab</a>' . gettext(' to select rule types.'); ?></p>
-				<?php else: ?>
-					<br/>
-					<button name="update" id="update" class="btn btn-primary"
-						title="<?=gettext("Check for and apply new update to enabled rule sets"); ?>">
-						<i id="updbtn" class="fa-solid fa-check icon-embed-btn"></i>
-						<?=gettext("Update"); ?>
-					</button>&nbsp;&nbsp;&nbsp;&nbsp;
-					<button name="force" id="force" class="btn btn-warning" title="<?=gettext("Force an update of all enabled rule sets")?>">
-						<i id="forcebtn" class="fa-solid fa-download icon-embed-btn"></i>
-						<?=gettext("Force"); ?>
-					</button>
-					<br/><br/>
-				<?php endif; ?>
-			</p>
-		</div>
-	</div>
-</div>
-<div class="card mb-3">
-	<div class="card-header"><h2 class="h5 mb-0"><?=gettext("MANAGE RULE SET LOG")?></h2></div>
-	<div class="card-body">
-		<div class="content">
-			<p>
-				<?php if ($suricata_rules_upd_log_chk == 'yes'): ?>
-				<?php if (!empty($contents)): ?>
-					<button type="submit" value="<?=gettext("Hide"); ?>" name="hide" id="hide" class="btn btn-info" title="<?=gettext("Hide rules update log"); ?>">
-						<i class="fa-solid fa-xmark icon-embed-btn"></i>
-						<?=gettext("Hide"); ?>
-					</button>
-				<?php else: ?>
-					<button type="submit" value="<?=gettext("View"); ?>" name="view" id="view" class="btn btn-info" title="<?=gettext("View rules update log"); ?>">
-						<i class="fa-regular fa-file-lines icon-embed-btn"></i>
-						<?=gettext("View"); ?>
-					</button>
-				<?php endif; ?>
-					&nbsp;&nbsp;&nbsp;&nbsp;
-					<button type="submit" value="<?=gettext("Clear"); ?>" name="clear" id="clear" class="btn btn-danger" title="<?=gettext("Clear rules update log"); ?>">
-						<i class="fa-solid fa-trash-can icon-embed-btn"></i>
-						<?=gettext("Clear"); ?>
-					</button>
-					<br/>
-				<?php else: ?>
-					<button class="btn btn-info" disabled>
-						<i class="fa-regular fa-file-lines icon-embed-btn"></i>
-						<?=gettext("View Log"); ?>
-					</button><br/><?=gettext("Log is empty."); ?><br/>
-				<?php endif; ?>
-				<br/><?=gettext("The log file is limited to 1024K in size and automatically clears when the limit is exceeded."); ?><br/><br/>
-			</p>
 
-			<?php if (!empty($contents)): ?>
-				<p><?=gettext("RULE SET UPDATE LOG")?></p>
-
-				<div style="background: #eeeeee; width:100%; height:100%;" id="textareaitem">
-					<textarea style="width:100%; height:100%;" readonly wrap="off" rows="20" cols="80" name="logtext"><?=$contents?></textarea>
-				</div>
-			<?php endif; ?>
-		</div>
+<form action="suricata_download_updates.php" enctype="multipart/form-data" method="post" name="iform" id="iform">
+<div class="panel panel-default">
+	<div class="panel-heading">
+		<h2 class="panel-title"><?=gettext("Update log")?></h2>
 	</div>
+	<div class="panel-body suri-pad">
+<?php if ($suricata_rules_upd_log_chk == 'yes'): ?>
+		<div class="d-flex flex-wrap gap-2 mb-2">
+<?php if (!empty($contents)): ?>
+			<button type="submit" value="<?=gettext("Hide"); ?>" name="hide" id="hide" class="btn btn-sm btn-outline-secondary">
+				<i class="fa-solid fa-eye-slash icon-embed-btn" aria-hidden="true"></i><?=gettext("Hide log"); ?>
+			</button>
+<?php else: ?>
+			<button type="submit" value="<?=gettext("View"); ?>" name="view" id="view" class="btn btn-sm btn-outline-secondary">
+				<i class="fa-regular fa-file-lines icon-embed-btn" aria-hidden="true"></i><?=gettext("View log"); ?>
+			</button>
+<?php endif; ?>
+			<button type="submit" value="<?=gettext("Clear"); ?>" name="clear" id="clear" class="btn btn-sm btn-outline-danger"
+				data-fs-confirm="<?=gettext('Clear the rule update log?')?>" data-fs-confirm-action="<?=gettext('Clear')?>">
+				<i class="fa-solid fa-trash-can icon-embed-btn" aria-hidden="true"></i><?=gettext("Clear log"); ?>
+			</button>
+		</div>
+<?php else: ?>
+		<p class="fs-muted mb-2"><?=gettext("The update log is empty."); ?></p>
+<?php endif; ?>
+		<p class="small fs-muted mb-0"><?=gettext("The log is limited to 1024 KB and is cleared automatically when it grows larger."); ?></p>
+	</div>
+<?php if (!empty($contents)): ?>
+	<pre class="fs-console" id="suri-updlog"><?=htmlspecialchars($contents)?></pre>
+<?php endif; ?>
 </div>
 </form>
 
 <?php
 
-// Create a Modal Dialog for displaying a spinning icon "please wait" message while
-// updating the rule sets
+// "Please wait" dialog shown while the rule sets update
 $form = new Form(FALSE);
-$modal = new Modal('Rules Update Task', 'updrulesdlg', false, 'Close');
+$modal = new Modal('Updating rules', 'updrulesdlg', false, 'Close');
 $modal->addInput(new Form_StaticText (
 	null,
-	'Updating rule sets may take a while ... please wait for the process to complete.<br/><br/>This dialog will auto-close when the update is finished.<br/><br/>' .
-	'<i class="content fa fa-spinner fa-pulse fa-solid fa-lg text-center text-info"></i>'
+	'<p><i class="fa-solid fa-spinner fa-spin-pulse" aria-hidden="true"></i> ' . gettext('Updating the rule sets can take a while.') . '</p>' .
+	'<p class="fs-muted mb-0">' . gettext('This dialog closes automatically when the update has finished.') . '</p>'
 ));
 $form->add($modal);
 print $form;
 ?>
-
-<div class="infoblock">
-	<?=print_info_box('<strong>NOTE:</strong> <a href="http://www.snort.org/" target="_blank">Snort.org</a> and <a href="http://www.emergingthreats.net/" target="_blank">EmergingThreats.net</a> will go down from time to time. Please be patient.', 'info')?>
-</div>
 
 <script type="text/javascript">
 //<![CDATA[
