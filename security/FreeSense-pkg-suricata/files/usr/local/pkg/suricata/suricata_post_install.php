@@ -3,7 +3,8 @@
  * suricata_post_install.php
  *
  * part of FreeSense (https://www.freesense.org)
- * Copyright (c) 2004-2026 The FreeSense Project
+ * Copyright (c) 2019-2026 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2025-2026 The FreeSense Project
  * Copyright (c) 2005 Bill Marquette <bill.marquette@gmail.com>.
  * Copyright (c) 2003-2004 Manuel Kasper <mk@neon1.net>.
  * Copyright (c) 2009 Robert Zelaya Sr. Developer

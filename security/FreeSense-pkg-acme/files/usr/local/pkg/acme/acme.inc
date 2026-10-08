@@ -108,7 +108,7 @@ namespace { // global code
 	/* Attempt to restart a remote service via XMLRPC with the default XMLRPC settings. */
 	function acme_xmlrpc_restart_service($servicename = "webgui", $extras = array()) {
 		require_once("xmlrpc_client.inc");
-		$rpc_client = new pfsense_xmlrpc_client();
+		$rpc_client = new freesense_xmlrpc_client();
 		$execstr = "";
 		if ($servicename == "webgui") {
 			/* The GUI needs a special event to restart, it is not a traditional service. */

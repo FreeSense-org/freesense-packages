@@ -3,7 +3,8 @@
  * freeradius.inc
  *
  * part of FreeSense (https://www.freesense.org)
- * Copyright (c) 2004-2026 The FreeSense Project
+ * Copyright (c) 2015-2026 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2025-2026 The FreeSense Project
  * Copyright (c) 2013 Alexander Wilke <nachtfalkeaw@web.de>
  * Copyright (c) 2013 Marcello Coutinho
  * All rights reserved.
@@ -1132,11 +1133,14 @@ client "{$varclientshortname}" {
 EOD;
 		} // endforeach
 	} else {
+		/* Placeholder so radiusd starts without clients: localhost only,
+		 * with a random secret nobody can know. */
+		$placeholder_secret = bin2hex(random_bytes(16));
 		$conf .= <<<EOD
-client pfsense {
+client freesense {
 	ipaddr = 127.0.0.1
-	secret = pfsense
-	shortname = pfsense
+	secret = {$placeholder_secret}
+	shortname = freesense
 	limit {
 		max_connections = 16
 		lifetime = 0
@@ -2540,7 +2544,7 @@ function freeradius_do_xmlrpc_sync($sync_to_ip, $username, $password, $varsyncpo
 		}
 	}
 	$synctimeout = intval($varsynctimeout);
-	$rpc_client = new pfsense_xmlrpc_client();
+	$rpc_client = new freesense_xmlrpc_client();
 	$rpc_client->setConnectionData($sync_to_ip, $varsyncport, $username, $password, $varsyncprotocol);
 	$resp = $rpc_client->xmlrpc_method('merge_installedpackages_section', $xml, $synctimeout);
 	$resp = $rpc_client->xmlrpc_exec_php($execcmd, $synctimeout);

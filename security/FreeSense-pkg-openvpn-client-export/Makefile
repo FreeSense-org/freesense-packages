@@ -1,5 +1,5 @@
 PORTNAME=	FreeSense-pkg-openvpn-client-export
-PORTREVISION=	4
+PORTREVISION=	5
 PORTVERSION=	1.9.10
 CATEGORIES=	security
 MASTER_SITES=	# empty

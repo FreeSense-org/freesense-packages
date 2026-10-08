@@ -3,7 +3,8 @@
  * vpn_openvpn_export.php
  *
  * part of FreeSense (https://www.freesense.org)
- * Copyright (c) 2004-2026 The FreeSense Project
+ * Copyright (c) 2011-2026 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2025-2026 The FreeSense Project
  * Copyright (C) 2008 Shrew Soft Inc
  * All rights reserved.
  *
@@ -191,11 +192,11 @@ if (!empty($act)) {
 	$crtid = $_POST['crtid'];
 	$srvcfg = get_openvpnserver_by_id($srvid);
 	if ($srvid === false) {
-		pfSenseHeader("vpn_openvpn_export.php");
+		FreeSenseHeader("vpn_openvpn_export.php");
 		exit;
 	} else if (($srvcfg['mode'] != "server_user") &&
 		(($usrid === false) || ($crtid === false))) {
-		pfSenseHeader("vpn_openvpn_export.php");
+		FreeSenseHeader("vpn_openvpn_export.php");
 		exit;
 	}
 

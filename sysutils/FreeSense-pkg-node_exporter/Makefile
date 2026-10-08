@@ -2,7 +2,7 @@
 
 PORTNAME=	FreeSense-pkg-node_exporter
 PORTVERSION=	0.18.1
-PORTREVISION=	9
+PORTREVISION=	10
 CATEGORIES=	sysutils
 MASTER_SITES=	# empty
 DISTFILES=	# empty

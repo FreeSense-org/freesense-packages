@@ -3,7 +3,8 @@
  * tftp_files.php
  *
  * part of FreeSense (https://www.freesense.org)
- * Copyright (c) 2004-2026 The FreeSense Project
+ * Copyright (c) 2011-2026 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2025-2026 The FreeSense Project
  * Copyright (C) 2008 Mark J Crane
  * All rights reserved.
  *

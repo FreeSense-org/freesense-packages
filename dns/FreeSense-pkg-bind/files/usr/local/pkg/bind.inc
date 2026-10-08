@@ -3,7 +3,8 @@
  * bind.inc
  *
  * part of FreeSense (https://www.freesense.org)
- * Copyright (c) 2004-2026 The FreeSense Project
+ * Copyright (c) 2015-2026 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2025-2026 The FreeSense Project
  * Copyright (c) 2013 Juliano Oliveira
  * Copyright (c) 2013 Adriano Brancher
  * Copyright (c) 2013 Marcello Coutinho
@@ -1159,7 +1160,7 @@ function bind_do_xmlrpc_sync($sync_to_ip, $port, $protocol, $username, $password
 			$xml[$xmlkey] = array();
 		}
 	}
-	$rpc_client = new pfsense_xmlrpc_client();
+	$rpc_client = new freesense_xmlrpc_client();
 	$rpc_client->setConnectionData($sync_to_ip, $port, $username, $password, $protocol);
 	$resp = $rpc_client->xmlrpc_method('merge_installedpackages_section', $xml, $synctimeout);
 	$resp = $rpc_client->xmlrpc_exec_php($execcmd, $synctimeout);
