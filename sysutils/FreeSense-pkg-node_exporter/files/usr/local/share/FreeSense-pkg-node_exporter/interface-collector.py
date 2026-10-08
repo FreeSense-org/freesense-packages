@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import os
 import xml.etree.ElementTree as ET
 
 class simplemetric:
@@ -18,8 +19,8 @@ class simplemetric:
 		self.series.append('{name}{{{labels}}} {val}'.format(name=self.name, labels=','.join(lvs), val=val))
 
 metrics = {
-	'up': simplemetric('node_pfsense_interface_up','1 if interface is enabled, else 0.'),
-	'info': simplemetric('node_pfsense_interface_info', 'Information about the interface. Always 1.')
+	'up': simplemetric('node_freesense_interface_up','1 if interface is enabled, else 0.'),
+	'info': simplemetric('node_freesense_interface_info', 'Information about the interface. Always 1.')
 }
 
 root = ET.parse('/conf/config.xml')
@@ -35,6 +36,12 @@ for elem in root.find("interfaces"):
 	metrics['up'].add(enabled, name=pf_name)
 	metrics['info'].add(enabled, description=descr, interface=if_name, name=pf_name)
 
-textfile = open('/var/tmp/node_exporter/pfsense.prom','w')
+# Drop the file the metrics were written to under their old node_pfsense_* names.
+try:
+	os.remove('/var/tmp/node_exporter/pfsense.prom')
+except OSError:
+	pass
+
+textfile = open('/var/tmp/node_exporter/freesense.prom','w')
 textfile.write('\n'.join(str(m) for m in list(metrics.values())))
 textfile.write('\n') # Ensure trailing newline

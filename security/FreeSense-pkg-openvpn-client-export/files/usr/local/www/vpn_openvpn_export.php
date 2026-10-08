@@ -192,11 +192,11 @@ if (!empty($act)) {
 	$crtid = $_POST['crtid'];
 	$srvcfg = get_openvpnserver_by_id($srvid);
 	if ($srvid === false) {
-		pfSenseHeader("vpn_openvpn_export.php");
+		FreeSenseHeader("vpn_openvpn_export.php");
 		exit;
 	} else if (($srvcfg['mode'] != "server_user") &&
 		(($usrid === false) || ($crtid === false))) {
-		pfSenseHeader("vpn_openvpn_export.php");
+		FreeSenseHeader("vpn_openvpn_export.php");
 		exit;
 	}
 

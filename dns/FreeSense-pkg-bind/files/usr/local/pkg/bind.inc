@@ -1160,7 +1160,7 @@ function bind_do_xmlrpc_sync($sync_to_ip, $port, $protocol, $username, $password
 			$xml[$xmlkey] = array();
 		}
 	}
-	$rpc_client = new pfsense_xmlrpc_client();
+	$rpc_client = new freesense_xmlrpc_client();
 	$rpc_client->setConnectionData($sync_to_ip, $port, $username, $password, $protocol);
 	$resp = $rpc_client->xmlrpc_method('merge_installedpackages_section', $xml, $synctimeout);
 	$resp = $rpc_client->xmlrpc_exec_php($execcmd, $synctimeout);

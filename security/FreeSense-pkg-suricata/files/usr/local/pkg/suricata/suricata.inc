@@ -4138,7 +4138,7 @@ EOD;
 	$execcmd2 = "exec(\"/usr/local/bin/php-cgi -f '/tmp/suricata_sync_cmds.php' > /dev/null 2>&1 &\");";
 	
 	$synctimeout = intval($synctimeout);
-	$rpc_client = new pfsense_xmlrpc_client();
+	$rpc_client = new freesense_xmlrpc_client();
 	$rpc_client->setConnectionData($sync_to_ip, $port, $username, $password, $protocol);
 	
 	/*************************************************/
