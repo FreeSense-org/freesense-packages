@@ -3,7 +3,8 @@
  * openvpn-client-export.inc
  *
  * part of FreeSense (https://www.freesense.org)
- * Copyright (c) 2004-2026 The FreeSense Project
+ * Copyright (c) 2016-2026 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2025-2026 The FreeSense Project
  * Copyright (C) 2008 Shrew Soft Inc
  * All rights reserved.
  *

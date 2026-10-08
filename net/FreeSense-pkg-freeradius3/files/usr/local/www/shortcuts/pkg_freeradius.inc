@@ -3,7 +3,8 @@
  * pkg_freeradius.inc
  *
  * part of FreeSense (https://www.freesense.org)
- * Copyright (c) 2004-2026 The FreeSense Project
+ * Copyright (c) 2022-2026 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2025-2026 The FreeSense Project
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");

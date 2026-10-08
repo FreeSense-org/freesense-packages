@@ -3,7 +3,8 @@
  * status_traffic_totals.php
  *
  * part of FreeSense (https://www.freesense.org)
- * Copyright (c) 2004-2026 The FreeSense Project
+ * Copyright (c) 2008-2026 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2025-2026 The FreeSense Project
  * All rights reserved.
  *
  * originally part of m0n0wall (http://m0n0.ch/wall)

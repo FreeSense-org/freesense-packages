@@ -3,7 +3,8 @@
  * suricata_events.php
  *
  * part of FreeSense (https://www.freesense.org)
- * Copyright (c) 2004-2026 The FreeSense Project
+ * Copyright (c) 2006-2026 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2025-2026 The FreeSense Project
  * All rights reserved.
  *
  * Recent EVE JSON events of the Suricata interfaces (read-only).
