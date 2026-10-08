@@ -440,11 +440,7 @@ function ntopng_update_geolite2_db($account, $key) {
 	curl_setopt($ch, CURLOPT_TIMEOUT, 15);
 
 	/* User agent */
-	$user_agent = g_get('product_label') . '/' . g_get('product_version');
-	if (!config_path_enabled('system', 'do_not_send_uniqueid')) {
-		$user_agent .= ':' . system_get_uniqueid();
-	}
-	curl_setopt($ch, CURLOPT_USERAGENT, $user_agent);
+	curl_setopt($ch, CURLOPT_USERAGENT, g_get('product_label') . '/' . g_get('product_version'));
 
 	/* Maxmind account and key */
 	curl_setopt($ch, CURLOPT_USERPWD, "{$account}:{$key}");
