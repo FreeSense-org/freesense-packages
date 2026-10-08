@@ -861,7 +861,7 @@ $section->addInput(new Form_Input('monitor_username', 'Check with Username', 'te
 This is the username which will be used when connecting to MySQL/PostgreSQL server.
 				<pre>
 USE mysql;
-CREATE USER '<span id="sqlcheckusername"></span>'@'&lt;pfSenseIP&gt;';
+CREATE USER '<span id="sqlcheckusername"></span>'@'&lt;FreeSenseIP&gt;';
 FLUSH PRIVILEGES;</pre>
 EOT
 );

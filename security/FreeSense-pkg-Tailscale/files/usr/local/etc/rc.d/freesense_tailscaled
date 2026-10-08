@@ -3,7 +3,7 @@
 # PROVIDE: freesense_tailscaled
 # REQUIRE: tailscaled
 
-# part of pfSense (https://www.pfsense.org)
+# part of FreeSense (https://www.freesense.org)
 # Copyright (c) 2004-2026 The FreeSense Project
 # All rights reserved.
 #
@@ -116,7 +116,7 @@ freesense_tailscaled_poststart() {
 	tailscale_up
 
 	# reload the packet filter
-	pfsense_reload_filter
+	freesense_reload_filter
 }
 
 # rc command hook
@@ -256,9 +256,9 @@ tun_dev_add_group() {
 	return 1
 }
 
-# reload pfsense packet filter rules
-pfsense_reload_filter() {
-	debug "Reloading pfSense packet filter"
+# reload FreeSense packet filter rules
+freesense_reload_filter() {
+	debug "Reloading FreeSense packet filter"
 	/etc/rc.filter_configure_sync
 }
 

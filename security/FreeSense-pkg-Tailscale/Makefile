@@ -1,6 +1,6 @@
 PORTNAME=	FreeSense-pkg-Tailscale
 PORTVERSION=	0.1.9
-PORTREVISION=	5
+PORTREVISION=	6
 CATEGORIES=	security
 MASTER_SITES=	# empty
 DISTFILES=	# empty

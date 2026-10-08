@@ -3,7 +3,7 @@
 /*
  * haproxy_socket.sh
  *
- * part of pfSense (https://www.pfsense.org)
+ * part of FreeSense (https://www.freesense.org)
  * Copyright (c) 2004-2026 The FreeSense Project
  * Copyright (c) 2016 PiBa-NL
  * All rights reserved.

@@ -69,13 +69,8 @@ function suricata_download_geoip_file($url, $tmpfile, $user, $pwd, &$result = NU
 	// detect broken connection so it disconnects after +-10 minutes (with default TCP_KEEPIDLE and TCP_KEEPINTVL) to avoid waiting forever.
 	curl_setopt($ch, CURLOPT_TCP_KEEPALIVE, 1);
 
-	// Honor any system restrictions on sending USERAGENT info
-	if (config_get_path('system/do_not_send_host_uuid')) {
-		curl_setopt($ch, CURLOPT_USERAGENT, $g['product_name'] . '/' . $g['product_version'] . ' : ' . get_single_sysctl('kern.hostuuid'));
-	}
-	else {
-		curl_setopt($ch, CURLOPT_USERAGENT, $g['product_name'] . '/' . $g['product_version']);
-	}
+	// FreeSense: never send a host identifier in the user agent
+	curl_setopt($ch, CURLOPT_USERAGENT, $g['product_name'] . '/' . $g['product_version']);
 
 	// Use the system proxy server setttings if configured
 	set_curlproxy($ch);

@@ -3031,8 +3031,8 @@ function haproxy_find_create_certificate($certificatename) {
 
 	$new_cert = array();
 	$dn = array(
-		"organizationName" => "haproxy-pfsense",
-		"commonName"       => "haproxy-pfsense"
+		"organizationName" => "haproxy-freesense",
+		"commonName"       => "haproxy-freesense"
 	);
 	$new_cert = array();
 	ca_create($new_cert, 1024, 2000, $dn);
