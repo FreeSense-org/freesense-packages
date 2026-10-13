@@ -605,17 +605,37 @@ function wg_gen_keypair($json = false) {
 	return wg_gen_publickey($privkey, $json);
 }
 
+// Derive a public key with `wg pubkey`, passing the private key on stdin so it
+// never appears on a command line (and so in the process list).
+function wg_derive_publickey($privkey) {
+	global $wgg;
+
+	$pipes = array();
+	$proc = proc_open(array($wgg['wg'], 'pubkey'),
+	    array(0 => array('pipe', 'r'), 1 => array('pipe', 'w'), 2 => array('file', '/dev/null', 'w')),
+	    $pipes);
+	if (!is_resource($proc)) {
+		return '';
+	}
+	fwrite($pipes[0], "{$privkey}
+");
+	fclose($pipes[0]);
+	$pubkey = trim(stream_get_contents($pipes[1]));
+	fclose($pipes[1]);
+	proc_close($proc);
+
+	return $pubkey;
+}
+
 // Compose the public key from a provided private key
 function wg_gen_publickey($privkey, $json = false) {
 	global $wgg;
-
-	$s = fn($x) => $x;
 
 	$was_clamped = wg_is_key_clamped($privkey);
 
 	$privkey_clamped = wg_clamp_key($privkey);
 
-	$pubkey = exec("echo {$s(escapeshellarg($privkey))} | {$wgg['wg']} pubkey");
+	$pubkey = wg_derive_publickey($privkey);
 
 	$res = array('privkey' => $privkey, 'privkey_clamped' => $privkey_clamped, 'pubkey' => $pubkey, 'was_clamped' => $was_clamped);
 

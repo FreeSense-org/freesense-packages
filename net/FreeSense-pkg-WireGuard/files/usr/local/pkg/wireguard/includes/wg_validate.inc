@@ -205,7 +205,8 @@ function wg_validate_peer_post($pconfig, $posted_peer_idx) {
 
 	// Check pre-shared key
 	if (!empty($pconfig['presharedkey']) && !wg_is_valid_key($pconfig['presharedkey'])) {
-		$input_errors[] = "The pre-shared key ({$pconfig['presharedkey']}) is not a valid WireGuard pre-shared key.";
+		// Never echo a secret back: the message is shown on the page and may be logged.
+		$input_errors[] = gettext('The pre-shared key specified is not a valid WireGuard pre-shared key.');
 	}
 
 	// We don't want duplicate default routes, but re-saving is okay...
