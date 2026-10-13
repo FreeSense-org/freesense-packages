@@ -37,11 +37,11 @@ load_rc_config $name
 # source the tailscaled rc configuration too
 load_rc_config tailscaled
 
-# handle the --auth-key parameter
-freesense_tailscaled_up_flags="--auth-key=${freesense_tailscaled_authkey}"
+# The auth key is never part of the flags: tailscale_up() passes it through a
+# private file so it cannot appear in the system log or the process list.
 
 # handle the --login-server parameter
-freesense_tailscaled_up_flags="${freesense_tailscaled_up_flags} --login-server=${freesense_tailscaled_loginserver}"
+freesense_tailscaled_up_flags="--login-server=${freesense_tailscaled_loginserver}"
 
 # handle the --advertise-exit-node parameter
 if checkyesno freesense_tailscaled_exitnode_enable; then
@@ -136,10 +136,28 @@ freesense_tailscaled_clean() {
 
 # bring up tailscale using the generated up flags from the configuration
 tailscale_up() {
-	logger -s -t tailscale "Bringing up ${tailscale_tun_dev} with ${freesense_tailscaled_up_flags}"
-	${tailscale_bin} up ${freesense_tailscaled_up_flags} || {
-		logger -s -t "Unable to bring up ${tailscale_tun_dev}. Check authentication."
-	}
+	local _keyfile _keyflag _rc
+
+	_keyfile=""
+	_keyflag=""
+	if [ -n "${freesense_tailscaled_authkey}" ]; then
+		# mktemp(1) creates the file with mode 0600
+		_keyfile=$(/usr/bin/mktemp /tmp/tailscale-authkey.XXXXXX) || {
+			logger -s -t tailscale "Unable to create a temporary file for the auth key"
+			return 1
+		}
+		printf '%s' "${freesense_tailscaled_authkey}" > "${_keyfile}"
+		_keyflag="--auth-key=file:${_keyfile}"
+	fi
+
+	logger -s -t tailscale "Bringing up ${tailscale_tun_dev} with ${freesense_tailscaled_up_flags}${_keyflag:+ (auth key from file)}"
+	${tailscale_bin} up ${_keyflag} ${freesense_tailscaled_up_flags}
+	_rc=$?
+	[ -n "${_keyfile}" ] && /bin/rm -f "${_keyfile}"
+	if [ ${_rc} -ne 0 ]; then
+		logger -s -t tailscale "Unable to bring up ${tailscale_tun_dev}. Check authentication."
+	fi
+	return ${_rc}
 }
 
 # utility function to check if a kernel module is loaded and load it if not loaded

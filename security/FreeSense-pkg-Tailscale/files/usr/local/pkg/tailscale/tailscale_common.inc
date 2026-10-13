@@ -490,14 +490,22 @@ function tailscale_map_and_write_rcconf($var_map, $output_file)
 
 	$var_string = implode(' ', array_values($formatted_vars));
 
+	/*
+	 * The variables can hold the auth key, so the commands are never logged
+	 * (mwexec logs a failing command line unless told not to) and the file is
+	 * readable by root only.
+	 */
+
 	# first perform sanity check
 	$cmd = implode(' ', [SYSRC_BIN, '-c', '-f', $output_file, $var_string]);
-	if (mwexec($cmd) === 0)
+	if (mwexec($cmd, true) === 0)
 		return false;
 
 	# looks good, changes needed so write them out
 	$cmd = implode(' ', [SYSRC_BIN, '-f', $output_file, $var_string]);
-	return (mwexec($cmd) === 0);
+	$written = (mwexec($cmd, true) === 0);
+	@chmod($output_file, 0600);
+	return $written;
 }
 
 /*
