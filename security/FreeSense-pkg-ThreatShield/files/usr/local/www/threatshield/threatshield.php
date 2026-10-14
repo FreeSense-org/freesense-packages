@@ -2,6 +2,9 @@
 /*
  * threatshield.php
  * FreeSense Threat Shield - General Settings, DNS Engine & Advanced Protection
+ *
+ * Copyright (c) 2025-2026 The FreeSense Project.
+ * Licensed under the Apache License, Version 2.0.
  */
 
 ##|+PRIV
@@ -13,6 +16,7 @@
 
 require_once('guiconfig.inc');
 require_once('/usr/local/pkg/threatshield.inc');
+require_once('/usr/local/pkg/threatshield/threatshield_ui.inc');
 
 $input_errors = [];
 $savemsg = null;
@@ -52,6 +56,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
 	$ts_config['block_icloud_private_relay'] = isset($pconfig['block_icloud_private_relay']) ? 'on' : 'off';
 	$ts_config['catch_rogue_dns'] = isset($pconfig['catch_rogue_dns']) ? 'on' : 'off';
 	$ts_config['dns_intercept_interfaces'] = array_values(array_intersect(array_map('strval', (array)($pconfig['dns_intercept_interfaces'] ?? [])), array_keys($assigned_interfaces)));
+	$ts_config['block_dns6_bypass'] = isset($pconfig['block_dns6_bypass']) ? 'on' : 'off';
+	$ts_config['block_dot'] = isset($pconfig['block_dot']) ? 'on' : 'off';
+	$ts_config['block_doh_ips'] = isset($pconfig['block_doh_ips']) ? 'on' : 'off';
+	$ts_config['dns_redirect_exclude'] = trim($pconfig['dns_redirect_exclude'] ?? '');
+	$ts_config['ha_sync'] = isset($pconfig['ha_sync']) ? 'on' : 'off';
+	$ts_config['health_test_domain'] = threatshield_normalize_domain((string)($pconfig['health_test_domain'] ?? '')) ?? 'freesense.org';
 
 	// ECS & Rate Limiting
 	$ts_config['edns_client_subnet'] = isset($pconfig['edns_client_subnet']) ? 'on' : 'off';
@@ -66,10 +76,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
 	$ts_config['anonymize_client_ip'] = isset($pconfig['anonymize_client_ip']) ? 'on' : 'off';
 	$ts_config['ignored_domains'] = trim($pconfig['ignored_domains'] ?? '');
 
-	$input_errors = array_merge($input_errors, threatshield_validate_config($ts_config));
-
-	if (empty($input_errors) && threatshield_save_and_apply($ts_config, gettext('Updated FreeSense Threat Shield settings.'), $input_errors)) {
-		$savemsg = gettext('Threat Shield settings saved and applied successfully.');
+	$warnings = [];
+	if (threatshield_save_and_apply($ts_config, gettext('Updated FreeSense Threat Shield settings.'), $input_errors, $warnings)) {
+		threatshield_flash('ok', gettext('Threat Shield settings saved and applied.'));
+		threatshield_flash('warn', $warnings);
+		threatshield_redirect('threatshield.php');
 	}
 }
 
@@ -78,12 +89,7 @@ $pglinks = ['', '/threatshield/threatshield_status.php', '@self'];
 
 include('head.inc');
 
-if ($input_errors) {
-	print_input_errors($input_errors);
-}
-if ($savemsg) {
-	print_info_box($savemsg, 'success');
-}
+threatshield_print_messages($input_errors);
 
 threatshield_display_tabs('general');
 
@@ -165,15 +171,25 @@ $group->add(new Form_Input('blocking_ipv6', 'IPv6 sinkhole', 'text', (string)$ts
 $section->add($group);
 $form->add($section);
 
-$section = new Form_Section('Anti-evasion');
-$section->addInput($switch('block_doh_canary', 'Browser DoH', 'Tell browsers not to use their own DNS-over-HTTPS'))
-	->setHelp('Answers the canary domain use-application-dns.net, so Firefox, Chrome and Edge keep using filtered DNS.');
+$section = new Form_Section('Anti-bypass');
+$section->add($iface_group('Protected interfaces', 'dns_intercept_interfaces', array_map('strval', threatshield_normalize_list($ts_config['dns_intercept_interfaces']))))
+	->setHelp('The LAN-side interfaces whose clients must use Threat Shield. The options below apply to traffic arriving on these interfaces.');
+$section->addInput($switch('catch_rogue_dns', 'DNS redirection', 'Redirect DNS queries for other servers to Threat Shield'))
+	->setHelp('A device that asks 8.8.8.8 or any other server gets its answer from Threat Shield instead. ' .
+	    'The redirect is only loaded while Threat Shield answers, so a stopped filter never takes DNS down.');
+$section->addInput($switch('block_dns6_bypass', 'IPv6 DNS', 'Block plain DNS over IPv6 to other servers'))
+	->setHelp('Redirection works for IPv4; this stops clients from asking an outside server over IPv6 instead. Applies with DNS redirection.');
+$section->addInput($switch('block_dot', 'DNS-over-TLS', 'Block DNS-over-TLS and DNS-over-QUIC (port 853) to other servers'))
+	->setHelp('Encrypted DNS cannot be redirected, only blocked. Android "Private DNS" then falls back to the DNS of the network.');
+$section->addInput($switch('block_doh_ips', 'DNS-over-HTTPS', 'Block known public DNS-over-HTTPS servers'))
+	->setHelp('Blocks connections to the addresses of well-known DoH resolvers (a list on the Blocklists page, updated daily). The upstream queries of Threat Shield itself are not affected.');
+$section->addInput($switch('block_doh_canary', 'Browser DoH canary', 'Tell browsers not to use their own DNS-over-HTTPS'))
+	->setHelp('Answers the canary domain use-application-dns.net, so Firefox keeps using filtered DNS.');
 $section->addInput($switch('block_icloud_private_relay', 'iCloud Private Relay', 'Block Apple iCloud Private Relay'))
 	->setHelp('Stops Apple devices from routing around the firewall policy through mask.icloud.com.');
-$section->addInput($switch('catch_rogue_dns', 'DNS redirection', 'Redirect hard-coded DNS servers to Threat Shield'))
-	->setHelp('A NAT rule sends DNS queries to other servers (for example a TV asking 8.8.8.8) to Threat Shield.');
-$section->add($iface_group('Redirect on', 'dns_intercept_interfaces', array_map('strval', threatshield_normalize_list($ts_config['dns_intercept_interfaces']))))
-	->setHelp('DNS is only redirected on the interfaces selected here.');
+$section->addInput(new Form_Textarea('dns_redirect_exclude', 'Exceptions', (string)$ts_config['dns_redirect_exclude']))
+	->setRows(2)->addClass('fs-mono')->setAttribute('placeholder', "192.0.2.53" . chr(10) . "198.51.100.0/28")
+	->setHelp('Devices or networks that may use other DNS servers directly, for example a second DNS server or a test machine. One IP address or network per line.');
 $form->add($section);
 
 $section = new Form_Section('Query log');
@@ -204,6 +220,13 @@ $group->add(new Form_Input('cache_ttl_max', 'Maximum TTL', 'number', (string)$ts
 $section->add($group);
 $section->addInput($switch('cache_optimistic', 'Optimistic cache', 'Answer from expired cache entries while refreshing them'))
 	->setHelp('Keeps frequent lookups instant; the record is refreshed in the background.');
+$form->add($section);
+
+$section = new Form_Section('High availability and checks', 'ts-ha', $state);
+$section->addInput($switch('ha_sync', 'HA sync', 'Copy these settings to the HA peer'))
+	->setHelp('Uses the XMLRPC sync under System > High Availability. Turn this on on both nodes. A pause and the DNS Resolver hand-over stay per node.');
+$section->addInput(new Form_Input('health_test_domain', 'Health check domain', 'text', (string)$ts_config['health_test_domain']))
+	->addClass('fs-mono')->setHelp('A domain the health checks resolve to prove that upstream DNS works.');
 $form->add($section);
 
 $section = new Form_Section('Rate limiting and client subnet', 'ts-ratelimit', $state);

@@ -1,248 +1,399 @@
 <?php
 /*
  * threatshield_feeds.php
- * FreeSense Threat Shield - DNS Threat Blocklists & Automated Schedule
+ * FreeSense Threat Shield - DNS block lists, allowlist lists and IP lists
+ *
+ * Copyright (c) 2025-2026 The FreeSense Project.
+ * Licensed under the Apache License, Version 2.0.
  */
 
 ##|+PRIV
 ##|*IDENT=page-services-threatshield
 ##|*NAME=Services: Threat Shield Feeds
-##|*DESCR=Manage Threat Shield DNS threat blocklists and automated updates
+##|*DESCR=Manage Threat Shield DNS and IP lists and their updates
 ##|*MATCH=threatshield/threatshield_feeds.php*
 ##|-PRIV
 
 require_once('guiconfig.inc');
 require_once('/usr/local/pkg/threatshield.inc');
+require_once('/usr/local/pkg/threatshield/threatshield_ui.inc');
+
+$cfg = threatshield_config();
+$view = fs_view_param(['dns', 'allow', 'ip'], 'dns');
+$self = 'threatshield_feeds.php?view=' . $view;
+$intervals = ['6hours' => gettext('Every 6 hours'), '12hours' => gettext('Every 12 hours'), 'daily' => gettext('Daily (recommended)'), 'weekly' => gettext('Weekly')];
+$directions = ['in' => gettext('Inbound: block sources on WAN'), 'out' => gettext('Outbound: block LAN clients connecting to them'), 'both' => gettext('Both directions')];
+$assigned = threatshield_assigned_interfaces();
+
+/* the list of the current view, and the config key it lives in */
+$list_key = ($view === 'ip') ? 'ip_feeds' : 'feeds';
+$in_view = function (array $feed) use ($view): bool {
+	if ($view === 'ip') return true;
+	return (($feed['kind'] ?? 'block') === 'allow') === ($view === 'allow');
+};
 
 $input_errors = [];
-$savemsg = null;
-$ts_config = threatshield_config();
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-	if (isset($_POST['save_feeds'])) {
-		$ts_config['feed_update_interval'] = $_POST['feed_update_interval'] ?? 'daily';
-
-		// Update enabled statuses
-		if (!empty($ts_config['feeds']) && is_array($ts_config['feeds'])) {
-			foreach ($ts_config['feeds'] as $idx => &$feed) {
-				$feed['enabled'] = isset($_POST["feed_enable_{$idx}"]) ? 'on' : 'off';
-			}
-			unset($feed);
+	$list = threatshield_normalize_list($cfg[$list_key] ?? []);
+	$find = function (string $id) use ($list): ?int {
+		foreach ($list as $i => $f) {
+			if (is_array($f) && (string)($f['id'] ?? '') === $id) return $i;
 		}
-
-		if (threatshield_save_and_apply($ts_config, gettext('Updated Threat Shield feed settings.'), $input_errors)) $savemsg = gettext('Feed settings saved successfully.');
-	} elseif (isset($_POST['add_feed'])) {
-		$name = trim($_POST['new_name'] ?? '');
-		$url = trim($_POST['new_url'] ?? '');
-		$cat = trim($_POST['new_category'] ?? 'Custom');
-
-		if ($name === '' || $url === '') {
-			$input_errors[] = gettext('A feed name and valid URL must be provided.');
-		} elseif (!filter_var($url, FILTER_VALIDATE_URL) || strtolower((string)parse_url($url, PHP_URL_SCHEME)) !== 'https') {
-			$input_errors[] = gettext('The entered feed URL must be a valid HTTPS URL.');
+		return null;
+	};
+	$changed = false;
+	$message = '';
+	if (isset($_POST['save_feed'])) {
+		$name = trim((string)($_POST['feed_name'] ?? ''));
+		$url = trim((string)($_POST['feed_url'] ?? ''));
+		$id = (string)($_POST['feed_id'] ?? '');
+		if ($name === '' || !filter_var($url, FILTER_VALIDATE_URL) || strtolower((string)parse_url($url, PHP_URL_SCHEME)) !== 'https') {
+			$input_errors[] = gettext('A list needs a name and an HTTPS URL.');
 		} else {
-			$ts_config['feeds'][] = [
-				'name' => $name,
-				'url' => $url,
-				'enabled' => 'on',
-				'category' => $cat
-			];
-			if (threatshield_save_and_apply($ts_config, gettext('Added a Threat Shield feed.'), $input_errors)) $savemsg = sprintf(gettext('Feed "%s" added and applied.'), htmlspecialchars($name));
+			$i = ($id !== '') ? $find($id) : null;
+			$feed = ($i !== null) ? $list[$i] : ['enabled' => 'on', 'preset' => ''];
+			$feed['name'] = $name;
+			if (($feed['url'] ?? '') !== $url) $feed['preset'] = '';
+			$feed['url'] = $url;
+			if ($view === 'ip') {
+				$feed['id'] = $feed['id'] ?? ('c' . substr(md5($url), 0, 7));
+				$feed['kind'] = 'threat';
+				$feed['direction'] = array_key_exists($_POST['feed_direction'] ?? '', $directions) ? $_POST['feed_direction'] : 'in';
+				$feed['log'] = isset($_POST['feed_log']) ? 'on' : 'off';
+			} else {
+				$feed['id'] = $feed['id'] ?? substr(md5($url), 0, 8);
+				$feed['kind'] = ($view === 'allow') ? 'allow' : 'block';
+				$feed['category'] = trim((string)($_POST['feed_category'] ?? '')) ?: gettext('Custom');
+			}
+			if ($i === null && $find((string)$feed['id']) !== null) {
+				$input_errors[] = gettext('This list is already configured.');
+			} else {
+				if ($i === null) $list[] = $feed; else $list[$i] = $feed;
+				$changed = true;
+				$message = sprintf(gettext('List "%s" saved.'), $name);
+				if ($view !== 'ip') $cfg['feed_level'] = 'custom';
+			}
 		}
-	} elseif (isset($_POST['delete_feed'])) {
-		$del_idx = (int)$_POST['delete_feed'];
-		if (isset($ts_config['feeds'][$del_idx])) {
-			$name = $ts_config['feeds'][$del_idx]['name'];
-			array_splice($ts_config['feeds'], $del_idx, 1);
-			if (threatshield_save_and_apply($ts_config, gettext('Deleted a Threat Shield feed.'), $input_errors)) $savemsg = sprintf(gettext('Feed "%s" deleted.'), htmlspecialchars($name));
+	} elseif (isset($_POST['add_preset'])) {
+		$preset = (string)$_POST['add_preset'];
+		$feed = ($view === 'ip') ? threatshield_ipfeed_from_catalog($preset, true) : threatshield_feed_from_catalog($preset, true);
+		if ($feed !== null && $find((string)$feed['id']) === null) {
+			$list[] = $feed;
+			$changed = true;
+			$message = sprintf(gettext('List "%s" added.'), $feed['name']);
+			if ($view !== 'ip') $cfg['feed_level'] = 'custom';
 		}
+	} elseif (isset($_POST['set_level']) && array_key_exists($_POST['set_level'], threatshield_feed_levels())) {
+		$list = threatshield_apply_feed_level($list, (string)$_POST['set_level']);
+		$cfg['feed_level'] = (string)$_POST['set_level'];
+		$changed = true;
+		$message = sprintf(gettext('Protection level set to %s.'), threatshield_feed_levels()[$cfg['feed_level']][0]);
+	} elseif (isset($_POST['toggle']) || isset($_POST['delete'])) {
+		$i = $find((string)($_POST['toggle'] ?? $_POST['delete']));
+		if ($i !== null) {
+			$name = (string)($list[$i]['name'] ?? '');
+			if (isset($_POST['delete'])) {
+				array_splice($list, $i, 1);
+				$message = sprintf(gettext('List "%s" deleted.'), $name);
+			} else {
+				$list[$i]['enabled'] = (($list[$i]['enabled'] ?? 'off') === 'on') ? 'off' : 'on';
+				$message = sprintf(($list[$i]['enabled'] === 'on') ? gettext('List "%s" turned on.') : gettext('List "%s" turned off.'), $name);
+			}
+			$changed = true;
+			if ($view !== 'ip') $cfg['feed_level'] = 'custom';
+		}
+	} elseif (isset($_POST['bulk_on']) || isset($_POST['bulk_off']) || isset($_POST['bulk_delete'])) {
+		$ids = array_map('strval', (array)($_POST['sel'] ?? []));
+		$keep = [];
+		foreach ($list as $f) {
+			$selected = is_array($f) && in_array((string)($f['id'] ?? ''), $ids, true);
+			if ($selected && isset($_POST['bulk_delete'])) continue;
+			if ($selected) $f['enabled'] = isset($_POST['bulk_on']) ? 'on' : 'off';
+			$keep[] = $f;
+		}
+		$list = $keep;
+		$changed = !empty($ids);
+		$message = sprintf(gettext('%d lists changed.'), count($ids));
+		if ($view !== 'ip') $cfg['feed_level'] = 'custom';
+	} elseif (isset($_POST['save_options'])) {
+		if ($view === 'ip') {
+			$cfg['ipbl_enable'] = isset($_POST['ipbl_enable']) ? 'on' : 'off';
+			$cfg['ipbl_update_interval'] = array_key_exists($_POST['ipbl_update_interval'] ?? '', $intervals) ? $_POST['ipbl_update_interval'] : 'daily';
+			$cfg['ipbl_wan_interfaces'] = array_values(array_intersect(array_map('strval', (array)($_POST['ipbl_wan_interfaces'] ?? [])), array_keys($assigned)));
+			$cfg['ipbl_lan_interfaces'] = array_values(array_intersect(array_map('strval', (array)($_POST['ipbl_lan_interfaces'] ?? [])), array_keys($assigned)));
+		} else {
+			$cfg['feed_update_interval'] = array_key_exists($_POST['feed_update_interval'] ?? '', $intervals) ? $_POST['feed_update_interval'] : 'daily';
+		}
+		$changed = true;
+		$message = gettext('Update settings saved.');
 	} elseif (isset($_POST['update_now'])) {
-		mwexec_bg('/usr/local/sbin/freesense-threatshield-update feeds force');
-		$savemsg = gettext('Feed download started in background.');
+		mwexec_bg(THREATSHIELD_UPDATER . (($view === 'ip') ? ' ipfeeds force' : ' feeds force'));
+		threatshield_flash('ok', gettext('Download started in the background; the status column updates when it finishes.'));
 	}
+	if ($changed && empty($input_errors)) {
+		$cfg[$list_key] = $list;
+		threatshield_apply($cfg, gettext('Threat Shield: updated the lists'), $message);
+	}
+	if (empty($input_errors)) threatshield_redirect($self);
 }
 
-$feeds = threatshield_normalize_list($ts_config['feeds'] ?? []);
-$last_update = threatshield_last_update('feeds');
-$categories = [];
-$enabled_count = 0;
-foreach ($feeds as $f) {
-	$categories[(string)($f['category'] ?? 'General')] = (string)($f['category'] ?? 'General');
-	if (($f['enabled'] ?? '') === 'on') $enabled_count++;
-}
-ksort($categories);
+$health = threatshield_feed_health($cfg);
+$feeds = array_values(array_filter(threatshield_normalize_list($cfg[$list_key] ?? []), fn($f) => is_array($f) && $in_view($f)));
+$present = array_filter(array_map(fn($f) => (string)($f['preset'] ?? ''), $feeds));
+$catalog = ($view === 'ip') ? threatshield_ipfeed_catalog() : array_filter(threatshield_feed_catalog(), fn($c) => ($c['kind'] === 'allow') === ($view === 'allow'));
+$available = array_diff_key($catalog, array_flip($present));
+$enabled_count = count(array_filter($feeds, fn($f) => ($f['enabled'] ?? '') === 'on'));
+$rules_total = 0;
+foreach ($feeds as $f) $rules_total += (int)($health[(string)$f['url']]['rules'] ?? $health[(string)$f['url']]['entries'] ?? 0);
+$last = threatshield_last_update(($view === 'ip') ? 'ipfeeds' : 'feeds');
 
-$pgtitle = [gettext('Services'), gettext('Threat Shield'), gettext('Feeds')];
+$pgtitle = [gettext('Services'), gettext('Threat Shield'), gettext('Blocklists')];
 $pglinks = ['', '/threatshield/threatshield_status.php', '@self'];
 
-fs_page_action(gettext('Add feed'), '#', 'fa-plus', 'primary', ['data-fs-modal' => '#feed-add']);
-fs_page_action(gettext('Download now'), 'threatshield_feeds.php?update_now=1', 'fa-cloud-arrow-down', 'secondary', ['usepost' => true]);
+fs_page_action(gettext('Add list'), '#', 'fa-plus', 'primary', ['data-fs-modal' => '#feed-edit']);
+if ($view === 'dns') {
+	fs_page_action(gettext('Protection level'), '#', 'fa-sliders', 'secondary', ['data-fs-modal' => '#level-pick']);
+}
+fs_page_action(gettext('Download now'), $self . '&update_now=1', 'fa-cloud-arrow-down', 'secondary', ['usepost' => true]);
 
 include('head.inc');
-
-if ($input_errors) {
-	print_input_errors($input_errors);
-}
-if ($savemsg) {
-	print_info_box($savemsg, 'success');
-}
-
+threatshield_print_messages($input_errors);
 threatshield_display_tabs('feeds');
+fs_view_switch(['dns' => gettext('DNS block lists'), 'allow' => gettext('Allowlist lists'), 'ip' => gettext('IP lists')], $view);
+
+if ($view === 'ip' && ($cfg['ipbl_enable'] ?? 'off') !== 'on') {
+	print_callout(htmlspecialchars(gettext('IP blocking is off: these lists only take effect after you turn it on below. The DoH resolver lists are used by "Block known DNS-over-HTTPS servers" in Settings.')), 'info');
+} elseif ($view === 'allow') {
+	print_callout(htmlspecialchars(gettext('Lists of domains that must never be blocked, maintained by others. For your own exceptions use the Allowlist tab.')), 'info');
+}
 ?>
 
 <div class="fs-tiles">
 <?php
-fs_tile(gettext('Enabled feeds'), sprintf(gettext('%1$d of %2$d'), $enabled_count, count($feeds)));
-fs_tile(gettext('Last download'), threatshield_age($last_update), null, ($last_update > 0) ? date('Y-m-d H:i', $last_update) : null);
+fs_tile(gettext('Lists in use'), sprintf(gettext('%1$d of %2$d'), $enabled_count, count($feeds)));
+fs_tile(($view === 'ip') ? gettext('Addresses loaded') : gettext('Rules loaded'), number_format($rules_total));
+if ($view === 'dns') {
+	$levels = threatshield_feed_levels();
+	fs_tile(gettext('Protection level'), ($cfg['feed_level'] ?? 'custom') === 'custom' ? gettext('Custom') : $levels[$cfg['feed_level']][0]);
+}
+fs_tile(gettext('Last download'), threatshield_age($last), null, ($last > 0) ? date('Y-m-d H:i', $last) : null);
 ?>
 </div>
 
-<form method="post" action="threatshield_feeds.php" id="ts-feeds-form">
+<form method="post" action="<?=htmlspecialchars($self)?>">
 <div class="panel panel-default fs-table">
 <?php fs_table_toolbar([
-	'title' => gettext('Blocklists'),
-	'search' => gettext('Search feeds…'),
-	'noun' => gettext('feeds'),
-	'noun_one' => gettext('feed'),
-	'filters' => (count($categories) > 1) ? ['category' => array_merge([gettext('All categories')], $categories)] : [],
+	'title' => ($view === 'ip') ? gettext('IP lists') : (($view === 'allow') ? gettext('Allowlist lists') : gettext('DNS block lists')),
+	'search' => gettext('Search lists…'),
+	'noun' => gettext('lists'),
+	'noun_one' => gettext('list'),
+	'bulk' => [
+		['name' => 'bulk_on', 'label' => gettext('Turn on'), 'icon' => 'fa-toggle-on', 'value' => '1'],
+		['name' => 'bulk_off', 'label' => gettext('Turn off'), 'icon' => 'fa-toggle-off', 'value' => '1'],
+		['name' => 'bulk_delete', 'label' => gettext('Delete'), 'icon' => 'fa-trash-can', 'variant' => 'danger', 'value' => '1',
+		 'confirm' => gettext('Delete the selected lists?')],
+	],
 ]); ?>
 	<div class="panel-body table-responsive">
-		<table class="table table-hover ts-feeds">
+		<table class="table table-hover" data-sortable>
 			<thead>
 				<tr>
-					<th class="ts-col-switch"><?=gettext('On')?></th>
+					<th class="fs-col-select"><input type="checkbox" data-fs-select-all aria-label="<?=gettext('Select all')?>"></th>
+					<th class="fs-col-status"><?=gettext('Status')?></th>
 					<th data-fs-search><?=gettext('Name')?></th>
 					<th data-fs-search><?=gettext('Source')?></th>
-					<th><?=gettext('Cached copy')?></th>
-					<th class="fs-col-actions"><span class="visually-hidden"><?=gettext('Actions')?></span></th>
+					<th class="ts-num"><?=($view === 'ip') ? gettext('Addresses') : gettext('Rules')?></th>
+					<th><?=gettext('Downloaded')?></th>
+					<th class="fs-col-actions" data-sortable="false"><span class="visually-hidden"><?=gettext('Actions')?></span></th>
 				</tr>
 			</thead>
 			<tbody>
 <?php
-foreach ($feeds as $idx => $f):
+$state_badge = [
+	'ok' => ['pass', gettext('OK')], 'pending' => ['pending', gettext('Waiting')], 'failing' => ['error', gettext('Failing')],
+	'stale' => ['warn', gettext('Outdated')], 'empty' => ['warn', gettext('No rules')],
+];
+foreach ($feeds as $f):
+	$id = (string)($f['id'] ?? '');
 	$name = (string)($f['name'] ?? '');
 	$url = (string)($f['url'] ?? '');
-	$category = (string)($f['category'] ?? 'General');
 	$on = (($f['enabled'] ?? '') === 'on');
-	$cache = ($url !== '') ? threatshield_feed_path($url) : '';
-	$cached = ($cache !== '' && is_file($cache));
+	$h = $health[$url] ?? ['state' => 'pending'];
+	[$badge, $badge_label] = $on ? ($state_badge[$h['state']] ?? $state_badge['pending']) : ['disabled', gettext('Off')];
+	$count = ($view === 'ip') ? ($h['entries'] ?? null) : ($h['rules'] ?? null);
+	$fill = ['feed_id' => $id, 'feed_name' => $name, 'feed_url' => $url, 'feed_category' => (string)($f['category'] ?? ''),
+	    'feed_direction' => (string)($f['direction'] ?? 'in'), 'feed_log' => (($f['log'] ?? 'on') === 'on')];
 ?>
-				<tr data-fs-filter-category="<?=htmlspecialchars($category)?>"<?=$on ? '' : ' class="fs-row-disabled"'?>>
-					<td class="ts-col-switch">
-						<div class="form-check form-switch">
-							<input class="form-check-input" type="checkbox" role="switch" name="feed_enable_<?=(int)$idx?>" id="feed_enable_<?=(int)$idx?>"<?=$on ? ' checked' : ''?>
-							    aria-label="<?=htmlspecialchars(sprintf(gettext('Use %s'), $name))?>">
-						</div>
+				<tr<?=$on ? '' : ' class="fs-row-disabled"'?>>
+					<td><input type="checkbox" name="sel[]" value="<?=htmlspecialchars($id)?>" data-fs-select aria-label="<?=htmlspecialchars(sprintf(gettext('Select %s'), $name))?>"></td>
+					<td><?=fs_badge($badge, $badge_label, (string)($h['error'] ?? ''))?></td>
+					<td>
+						<strong><?=htmlspecialchars($name)?></strong>
+<?php	if ($view === 'ip'): ?>
+						<span class="fs-chip"><?=htmlspecialchars((($f['kind'] ?? '') === 'doh') ? gettext('DoH resolvers') : ($directions[$f['direction'] ?? 'in'] ?? ''))?></span>
+<?php	elseif (($f['category'] ?? '') !== ''): ?>
+						<span class="fs-chip"><?=htmlspecialchars((string)$f['category'])?></span>
+<?php	endif; ?>
+<?php	if (!empty($h['error'])): ?>
+						<div class="small text-danger"><?=htmlspecialchars((string)$h['error'])?></div>
+<?php	endif; ?>
 					</td>
-					<td class="ts-name"><strong><?=htmlspecialchars($name)?></strong> <span class="fs-chip"><?=htmlspecialchars($category)?></span></td>
-					<td class="fs-mono small ts-url"><?=htmlspecialchars($url)?></td>
+					<td class="fs-mono small ts-break"><?=htmlspecialchars($url)?></td>
+					<td class="ts-num"><?=($count === null) ? '<span class="fs-muted">–</span>' : number_format((int)$count)?></td>
 					<td class="ts-nowrap">
-<?php	if ($cached): ?>
-						<?=htmlspecialchars(format_bytes((int)filesize($cache)))?>
-						<div class="fs-muted small"><?=htmlspecialchars(threatshield_age((int)filemtime($cache)))?></div>
+<?php	if (!empty($h['last_success'])): ?>
+						<?=htmlspecialchars(threatshield_age((int)$h['last_success']))?>
+						<div class="fs-muted small"><?=htmlspecialchars(format_bytes((int)($h['bytes'] ?? 0)))?></div>
 <?php	else: ?>
-						<span class="fs-muted"><?=gettext('Not downloaded')?></span>
+						<span class="fs-muted"><?=gettext('Not yet')?></span>
 <?php	endif; ?>
 					</td>
 					<td class="fs-col-actions"><?=fs_row_actions([
-						['delete', 'threatshield_feeds.php?delete_feed=' . (int)$idx, $name, [
-							'thing' => gettext('feed'),
-							'detail' => gettext('Its domains are no longer blocked after the change is applied.'),
-						]],
+						['edit', '#', $name, ['attrs' => ['data-fs-modal' => '#feed-edit', 'data-fs-fill' => json_encode($fill), 'data-fs-modal-title' => sprintf(gettext('Edit “%s”'), $name)]]],
+						['toggle', $self . '&toggle=' . rawurlencode($id), $name, ['enabled' => $on]],
+						['delete', $self . '&delete=' . rawurlencode($id), $name, ['thing' => gettext('list')]],
 					])?></td>
 				</tr>
 <?php
 endforeach;
 if (empty($feeds)) {
-	fs_empty_row(5, gettext('No feeds configured.'));
+	fs_empty_row(7, gettext('No lists here yet. Add one from the catalog below.'));
 }
 ?>
 			</tbody>
 		</table>
 	</div>
-	<div class="panel-footer small fs-muted">
-		<i class="fa-solid fa-circle-info" aria-hidden="true"></i>
-		<?=gettext('Feeds are downloaded and merged in the background; DNS keeps answering meanwhile. Switch a feed off to keep it in the list without using it.')?>
+</div>
+</form>
+
+<?php if (!empty($available)): ?>
+<div class="panel panel-default fs-table">
+<?php fs_table_toolbar(['title' => gettext('Catalog'), 'search' => false, 'noun' => gettext('lists')]); ?>
+	<div class="panel-body table-responsive">
+		<table class="table table-hover">
+			<tbody>
+<?php	foreach ($available as $preset => $c): ?>
+				<tr>
+					<td><strong><?=htmlspecialchars($c['name'])?></strong>
+<?php		if (!empty($c['levels'])): ?>
+						<span class="fs-chip"><?=htmlspecialchars(implode(', ', array_map(fn($l) => threatshield_feed_levels()[$l][0], $c['levels'])))?></span>
+<?php		endif; ?>
+						<div class="fs-mono small fs-muted ts-break"><?=htmlspecialchars($c['url'])?></div></td>
+					<td class="ts-nowrap text-end"><a class="btn btn-sm btn-outline-secondary" usepost href="<?=htmlspecialchars($self . '&add_preset=' . rawurlencode($preset))?>">
+						<i class="fa-solid fa-plus icon-embed-btn" aria-hidden="true"></i><?=gettext('Add')?></a></td>
+				</tr>
+<?php	endforeach; ?>
+			</tbody>
+		</table>
 	</div>
 </div>
+<?php endif; ?>
 
+<form method="post" action="<?=htmlspecialchars($self)?>" class="ts-options">
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Automatic updates')?></h2></div>
+	<div class="panel-heading"><h2 class="panel-title"><?=($view === 'ip') ? gettext('IP blocking') : gettext('Automatic updates')?></h2></div>
 	<div class="panel-body">
+<?php if ($view === 'ip'): ?>
 		<div class="form-group">
-			<label class="col-sm-2 control-label" for="feed_update_interval"><?=gettext('Download')?></label>
+			<label class="col-sm-2 control-label"><?=gettext('IP blocking')?></label>
 			<div class="col-sm-10">
-				<select name="feed_update_interval" id="feed_update_interval" class="form-select ts-interval">
-<?php foreach (['6hours' => gettext('Every 6 hours'), '12hours' => gettext('Every 12 hours'), 'daily' => gettext('Daily at 03:00 UTC (recommended)'), 'weekly' => gettext('Weekly')] as $value => $text): ?>
-					<option value="<?=$value?>"<?=(($ts_config['feed_update_interval'] ?? '') === $value) ? ' selected' : ''?>><?=htmlspecialchars($text)?></option>
-<?php endforeach; ?>
+				<label class="form-check"><input class="form-check-input" type="checkbox" name="ipbl_enable"<?=(($cfg['ipbl_enable'] ?? 'off') === 'on') ? ' checked' : ''?>> <?=gettext('Block the addresses of the lists that are turned on')?></label>
+				<span class="form-text help-block"><?=gettext('Private, local and firewall addresses are never blocked; entries on the IP allowlist are cut out of every list.')?></span>
+			</div>
+		</div>
+		<div class="form-group">
+			<label class="col-sm-2 control-label"><?=gettext('Inbound on')?></label>
+			<div class="col-sm-10"><?=threatshield_iface_checks('ipbl_wan_interfaces', $assigned, array_map('strval', threatshield_normalize_list($cfg['ipbl_wan_interfaces'] ?? [])))?>
+				<span class="form-text help-block"><?=gettext('WAN interfaces where listed sources are dropped.')?></span></div>
+		</div>
+		<div class="form-group">
+			<label class="col-sm-2 control-label"><?=gettext('Outbound from')?></label>
+			<div class="col-sm-10"><?=threatshield_iface_checks('ipbl_lan_interfaces', $assigned, array_map('strval', threatshield_normalize_list($cfg['ipbl_lan_interfaces'] ?? [])))?>
+				<span class="form-text help-block"><?=gettext('LAN interfaces whose clients may not connect to listed addresses (botnet control servers, for example).')?></span></div>
+		</div>
+<?php endif; ?>
+		<div class="form-group">
+			<label class="col-sm-2 control-label" for="interval"><?=gettext('Download')?></label>
+			<div class="col-sm-10">
+				<select name="<?=($view === 'ip') ? 'ipbl_update_interval' : 'feed_update_interval'?>" id="interval" class="form-select ts-interval">
+<?php	$current = (string)($cfg[($view === 'ip') ? 'ipbl_update_interval' : 'feed_update_interval'] ?? 'daily');
+	foreach ($intervals as $value => $text): ?>
+					<option value="<?=$value?>"<?=($current === $value) ? ' selected' : ''?>><?=htmlspecialchars($text)?></option>
+<?php	endforeach; ?>
 				</select>
-				<span class="form-text help-block"><?=gettext('How often the enabled feeds are downloaded again.')?></span>
+				<span class="form-text help-block"><?=gettext('Lists are downloaded in the background; filtering keeps working with the previous copy if a download fails.')?></span>
 			</div>
 		</div>
 	</div>
 </div>
-
 <div class="fs-actionbar fs-actionbar--plain">
-	<button type="submit" name="save_feeds" value="1" class="btn btn-primary"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save')?></button>
-	<span class="ts-dirty fs-muted small" hidden><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i><?=gettext('Changes are not saved yet.')?></span>
+	<button type="submit" name="save_options" value="1" class="btn btn-primary"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save')?></button>
 </div>
 </form>
 
 <?php
-fs_modal_form_begin('feed-add', gettext('Add feed'), 'threatshield_feeds.php', [], $input_errors && isset($_POST['add_feed'])
-    ? ['new_name' => (string)($_POST['new_name'] ?? ''), 'new_category' => (string)($_POST['new_category'] ?? ''), 'new_url' => (string)($_POST['new_url'] ?? '')]
+fs_modal_form_begin('feed-edit', gettext('Add list'), $self, [], ($input_errors && isset($_POST['save_feed']))
+    ? ['feed_id' => (string)($_POST['feed_id'] ?? ''), 'feed_name' => (string)($_POST['feed_name'] ?? ''), 'feed_url' => (string)($_POST['feed_url'] ?? ''),
+       'feed_category' => (string)($_POST['feed_category'] ?? '')]
     : null);
 ?>
+	<input type="hidden" name="feed_id" value="">
 	<div class="mb-3">
-		<label class="form-label" for="new_name"><?=gettext('Name')?></label>
-		<input type="text" class="form-control" id="new_name" name="new_name" placeholder="<?=gettext('Custom malware list')?>" required>
+		<label class="form-label" for="feed_name"><?=gettext('Name')?></label>
+		<input type="text" class="form-control" id="feed_name" name="feed_name" required>
 	</div>
 	<div class="mb-3">
-		<label class="form-label" for="new_category"><?=gettext('Category')?></label>
-		<input type="text" class="form-control" id="new_category" name="new_category" value="Custom" list="ts-feed-categories">
-		<datalist id="ts-feed-categories">
-<?php foreach ($categories as $c): ?>
-			<option value="<?=htmlspecialchars($c)?>"></option>
-<?php endforeach; ?>
-		</datalist>
+		<label class="form-label" for="feed_url"><?=gettext('URL')?></label>
+		<input type="url" class="form-control fs-mono" id="feed_url" name="feed_url" placeholder="https://…" required>
+		<div class="form-text"><?=($view === 'ip') ? gettext('HTTPS only. One IP address or network per line; text after # or ; is ignored.') : gettext('HTTPS only. Hosts files and AdGuard / Adblock Plus lists are supported.')?></div>
 	</div>
+<?php if ($view === 'ip'): ?>
 	<div class="mb-3">
-		<label class="form-label" for="new_url"><?=gettext('URL')?></label>
-		<input type="url" class="form-control fs-mono" id="new_url" name="new_url" placeholder="https://…" required>
-		<div class="form-text"><?=gettext('HTTPS only. Hosts files and AdGuard / Adblock Plus lists are supported.')?></div>
+		<label class="form-label" for="feed_direction"><?=gettext('Direction')?></label>
+		<select class="form-select" id="feed_direction" name="feed_direction">
+<?php	foreach ($directions as $value => $text): ?>
+			<option value="<?=$value?>"><?=htmlspecialchars($text)?></option>
+<?php	endforeach; ?>
+		</select>
 	</div>
+	<label class="form-check"><input class="form-check-input" type="checkbox" name="feed_log" checked> <?=gettext('Log blocked packets')?></label>
+<?php else: ?>
+	<div class="mb-3">
+		<label class="form-label" for="feed_category"><?=gettext('Category')?></label>
+		<input type="text" class="form-control" id="feed_category" name="feed_category" placeholder="<?=gettext('Custom')?>">
+	</div>
+<?php endif; ?>
 <?php
-fs_modal_form_end(gettext('Add feed'), 'add_feed', '1', 'fa-plus');
-?>
+fs_modal_form_end(gettext('Save list'), 'save_feed', '1', 'fa-floppy-disk');
 
+if ($view === 'dns'):
+	fs_modal_form_begin('level-pick', gettext('Protection level'), $self);
+	$level_now = (string)($cfg['feed_level'] ?? 'custom');
+?>
+	<p class="fs-muted"><?=gettext('Turns the curated lists for a level on and the others off. Lists you added yourself are kept as they are.')?></p>
+	<div class="ts-levels">
+<?php	foreach (threatshield_feed_levels() as $level => [$label, $text]):
+		$names = array_map(fn($c) => $c['name'], array_filter(threatshield_feed_catalog(), fn($c) => in_array($level, $c['levels'], true)));
+?>
+		<button type="submit" name="set_level" value="<?=$level?>" class="ts-level<?=($level === $level_now) ? ' is-current' : ''?>">
+			<strong><?=htmlspecialchars($label)?><?=($level === $level_now) ? ' · ' . gettext('current') : ''?></strong>
+			<span class="fs-muted small"><?=htmlspecialchars($text)?></span>
+			<span class="small"><?=htmlspecialchars(implode(', ', $names))?></span>
+		</button>
+<?php	endforeach; ?>
+	</div>
+	</div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal"><?=gettext('Cancel')?></button></div></form></div></div></div>
+<?php
+endif;
+threatshield_ui_styles();
+?>
 <style>
-.ts-feeds .ts-col-switch { width: 3.5rem; }
-.ts-feeds .ts-col-switch .form-check { margin: 0; min-height: 0; }
-.ts-feeds .ts-name { min-width: 11rem; }
-.ts-feeds .ts-name .fs-chip { margin-left: var(--fs-sp-1); }
-.ts-feeds .ts-url { word-break: break-all; min-width: 14rem; }
-.ts-feeds .ts-nowrap { white-space: nowrap; }
 .ts-interval { max-width: 24rem; }
-.ts-dirty { display: inline-flex; align-items: center; gap: .4rem; margin-left: var(--fs-sp-3); }
-.ts-dirty > i { color: var(--fs-coral); }
+.ts-levels { display: flex; flex-direction: column; gap: var(--fs-sp-2); }
+.ts-level { display: flex; flex-direction: column; gap: .2rem; text-align: left; padding: var(--fs-sp-3); border: 1px solid var(--fs-border);
+	border-radius: var(--fs-r-md); background: var(--fs-surface); color: inherit; }
+.ts-level:hover, .ts-level:focus-visible { border-color: var(--fs-coral); }
+.ts-level.is-current { border-color: color-mix(in srgb, var(--fs-pass) 50%, transparent); background: color-mix(in srgb, var(--fs-pass) 8%, transparent); }
 </style>
-<script>
-//<![CDATA[
-events.push(function () {
-	var form = document.getElementById('ts-feeds-form');
-	var note = form.querySelector('.ts-dirty');
-	form.addEventListener('change', function (e) {
-		if (!e.target.name) {
-			return;    /* list search and filter are not settings */
-		}
-		if (e.target.matches('input[name^="feed_enable_"]')) {
-			e.target.closest('tr').classList.toggle('fs-row-disabled', !e.target.checked);
-		}
-		note.hidden = false;
-	});
-});
-//]]>
-</script>
 
 <?php include('foot.inc'); ?>
