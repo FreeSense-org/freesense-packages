@@ -1,3 +1,5 @@
-FreeSense Threat Shield is a unified high-performance DNS filtering,
-automated threat-feed synchronization, and native GeoIP country blocking
-security package for the FreeSense firewall appliance.
+FreeSense Threat Shield blocks ads, trackers and malware for the whole
+network with DNS filtering (AdGuard Home), an easy allowlist, anti-bypass
+rules for DNS-over-HTTPS/TLS, IP threat lists, GeoIP country policies and
+inbound protection for exposed services: DNSBL reputation checks with a
+cache and pf flood limits. A health panel checks that every part works.

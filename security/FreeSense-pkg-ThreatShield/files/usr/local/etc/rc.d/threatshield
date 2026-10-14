@@ -22,6 +22,7 @@ command_args="-f -P ${threatshield_pidfile} -t ${name} /usr/local/bin/AdGuardHom
 pidfile="${threatshield_pidfile}"
 
 start_precmd="threatshield_prestart"
+start_postcmd="threatshield_poststart"
 stop_postcmd="threatshield_poststop"
 
 threatshield_prestart()
@@ -30,6 +31,13 @@ threatshield_prestart()
 	if [ ! -f "${threatshield_config}" ]; then
 		/usr/local/bin/php -r "require_once('/usr/local/pkg/threatshield.inc'); threatshield_sync_config();"
 	fi
+}
+
+# At boot the firewall loads before this service answers, so the DNS
+# redirect is held back; load it once AdGuard Home answers.
+threatshield_poststart()
+{
+	/usr/sbin/daemon -f /usr/local/sbin/freesense-threatshield-update reconcile
 }
 
 threatshield_poststop()
