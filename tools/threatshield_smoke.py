@@ -24,7 +24,14 @@ def main() -> int:
         "files/usr/local/etc/rc.d/threatshield",
         "files/usr/local/pkg/threatshield.inc",
         "files/usr/local/pkg/threatshield.xml",
-        "files/usr/local/pkg/threatshield_sync.php",
+        "files/usr/local/etc/rc.d/threatshield_dnsbl",
+        "files/usr/local/pkg/threatshield/threatshield_catalog.inc",
+        "files/usr/local/pkg/threatshield/threatshield_dnsbl.inc",
+        "files/usr/local/pkg/threatshield/threatshield_dnsbl_daemon.php",
+        "files/usr/local/pkg/threatshield/threatshield_health.inc",
+        "files/usr/local/pkg/threatshield/threatshield_lib.inc",
+        "files/usr/local/pkg/threatshield/threatshield_pf.inc",
+        "files/usr/local/pkg/threatshield/threatshield_ui.inc",
         "files/usr/local/pkg/threatshield_update.php",
         "files/usr/local/sbin/freesense-threatshield-update",
         "files/usr/local/share/FreeSense-pkg-ThreatShield/info.xml",
@@ -38,6 +45,9 @@ def main() -> int:
         "files/usr/local/www/threatshield/threatshield_rules.php",
         "files/usr/local/www/threatshield/threatshield_clients.php",
         "files/usr/local/www/threatshield/threatshield_rewrites.php",
+        "files/usr/local/www/threatshield/threatshield_allowlist.php",
+        "files/usr/local/www/threatshield/threatshield_inbound.php",
+        "files/usr/local/www/threatshield/threatshield_ajax.php",
     }
 
     for relative in sorted(required):
@@ -49,6 +59,9 @@ def main() -> int:
         return 1
 
     integration = (PORT / "files/usr/local/pkg/threatshield.inc").read_text(encoding="utf-8")
+    pf_builder = (PORT / "files/usr/local/pkg/threatshield/threatshield_pf.inc").read_text(encoding="utf-8")
+    library = (PORT / "files/usr/local/pkg/threatshield/threatshield_lib.inc").read_text(encoding="utf-8")
+    health = (PORT / "files/usr/local/pkg/threatshield/threatshield_health.inc").read_text(encoding="utf-8")
     updater = (PORT / "files/usr/local/pkg/threatshield_update.php").read_text(encoding="utf-8")
     manifest = (PORT / "pkg-plist").read_text(encoding="utf-8")
     makefile = (PORT / "Makefile").read_text(encoding="utf-8")
@@ -71,6 +84,13 @@ def main() -> int:
         "transactional save": "function threatshield_save_and_apply",
         "resolver mode manager": "function threatshield_manage_unbound",
         "policy-bound GeoIP rules": "geoip_policies",
+        "HA sync send hook": "function threatshield_plugin_xmlrpc_send",
+        "HA sync receive hook": "function threatshield_plugin_xmlrpc_recv(",
+        "HA sync done hook": "function threatshield_plugin_xmlrpc_recv_done",
+        "AdGuard Home validates the config before it is used": "--check-config",
+        "configuration migration": "function threatshield_migrate_config",
+        "allowlist feeds generated": "whitelist_filters:{$whitelist_filters_yaml}",
+        "allowlist wins over block rules": "threatshield_allowlist_rules(",
         "rogue DNS interface binding": "dns_intercept_interfaces",
         "configured management API port": "$api_port = (int)(threatshield_config()['http_port'] ?? 3000)",
         "PF port-range normalization": "function threatshield_pf_port_spec",
@@ -108,21 +128,39 @@ def main() -> int:
         errors.append("ThreatShield writes generated configuration non-atomically")
     if "rate_limit_subnet_len_ipv4: 24" in integration:
         errors.append("rate-limit IPv4 subnet setting is hard-coded")
-    if "table <{$table}> persist file" not in integration:
-        errors.append("GeoIP policies do not declare their PF table")
+    # FreeSense asks packages for 'nat', 'pfearly' and 'filter' rules only
+    # (filter.inc discover_pkg_rules); answering any other type loads nothing.
+    if "$type !== 'nat' && $type !== 'pfearly'" not in integration or "threatshield_removing" not in integration or "$type !== 'rules'" in integration:
+        errors.append("rule hook does not answer the rule types the firewall asks for")
+    if "table <{$name}> persist file" not in pf_builder or "($ctx['ensure'])($file, $name)" not in pf_builder:
+        errors.append("pf tables are not declared from files that are guaranteed to exist")
+    if "log (to pflog1)" not in pf_builder:
+        errors.append("DNSBL checks do not log to the dedicated pflog1 interface")
+    if "overload <' . THREATSHIELD_T_FLOOD . '> flush global" not in pf_builder:
+        errors.append("flood limits do not feed the flood table")
+    if re.search(r"block out[^\n]*THREATSHIELD_T_DOH", pf_builder):
+        errors.append("DoH addresses must be blocked inbound on LAN, not outbound (it would block the upstreams)")
+    if pf_builder.count('from <" . THREATSHIELD_T_ALLOW') != 1:
+        errors.append("the IP allowlist may only pass traffic in owned-port rules")
+    if "empty($ctx['healthy'])" not in pf_builder:
+        errors.append("the DNS redirect is not held back while the listener is down")
+    if "127.255.255." not in library:
+        errors.append("DNSBL error answers (127.255.255.x) are not treated as failures")
+    if "function threatshield_preflight" not in health or "function threatshield_reconcile" not in health:
+        errors.append("pre-flight checks or self-repair are missing")
     if "define('THREATSHIELD_FILTER_DIR', '/var/db/threatshield/data/userfilters')" not in integration:
         errors.append("downloaded filters are not stored in AdGuard Home's safe userfilters directory")
-    if "threatshield_feed_path($source_url)" not in integration or "function threatshield_feed_path" not in integration:
+    if "threatshield_feed_path((string)$feed['url'])" not in integration or "function threatshield_feed_path" not in integration:
         errors.append("generated filters do not reference the downloader's local files")
     if "safe_fs_patterns:" not in integration:
         errors.append("generated filters do not allowlist the package's local filter directory")
-    if "filtering/refresh', 'POST', ['whitelist' => false]" not in updater:
+    if "filtering/refresh', 'POST', ['whitelist' => ($kind === 'allow')]" not in updater:
         errors.append("updater does not call AdGuard Home's supported local-filter refresh endpoint")
     if "ltrim($endpoint, '/') === 'filtering/refresh'" not in integration:
         errors.append("filter refresh does not have a dedicated long API timeout")
     if "filtering/refresh_filters" in updater:
         errors.append("updater calls a nonexistent AdGuard Home filter refresh endpoint")
-    if "service threatshield onestart" not in integration or "service threatshield onerestart" not in integration:
+    if "'start' => 'onestart'" not in integration or "'restart' => 'onerestart'" not in integration:
         errors.append("service control does not use FreeBSD's explicit one* actions")
     if "threatshield_sync_config" in install_script:
         errors.append("package installer bypasses rc.packages and invokes ThreatShield sync twice")
@@ -150,6 +188,27 @@ def main() -> int:
 
     if "threatshield" not in package_xml:
         errors.append("package XML missing package declaration")
+    if "<name>threatshield_dnsbl</name>" not in package_xml or "onestart" not in package_xml:
+        errors.append("package XML must declare both services with explicit start commands")
+
+    # Every installed file is listed in pkg-plist and the other way round.
+    files_root = PORT / "files"
+    shipped = set()
+    for path in files_root.rglob("*"):
+        if not path.is_file() or path.name in ("pkg-install.in", "pkg-deinstall.in"):
+            continue
+        rel = path.relative_to(files_root).as_posix()
+        shipped.add("/" + rel if rel.startswith("etc/inc/") else rel.removeprefix("usr/local/"))
+    listed = {line.strip() for line in manifest.splitlines() if line.strip() and not line.startswith("@")}
+    for missing in sorted(shipped - listed):
+        errors.append(f"pkg-plist does not list {missing}")
+    for extra in sorted(listed - shipped):
+        errors.append(f"pkg-plist lists a file that does not exist: {extra}")
+
+    privileges = (PORT / "files/etc/inc/priv/threatshield.priv.inc").read_text(encoding="utf-8")
+    for page in sorted(PORT.glob("files/usr/local/www/threatshield/*.php")):
+        if f"threatshield/{page.name}*" not in privileges:
+            errors.append(f"privilege list does not cover {page.name}")
 
     for page in PORT.glob("files/usr/local/www/threatshield/*.php"):
         page_text = page.read_text(encoding="utf-8", errors="replace")
