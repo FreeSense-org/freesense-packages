@@ -40,25 +40,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 			threatshield_flash('warn', $message);
 		}
 	} elseif (isset($_POST['block'])) {
-		$d = threatshield_normalize_domain($domain);
-		if ($d === null) {
-			threatshield_flash('error', gettext('The selected domain is invalid.'));
+		if (threatshield_block_domain($cfg, $domain, $message)) {
+			threatshield_apply($cfg, gettext('Threat Shield: blocked a domain from the query log'), $message);
 		} else {
-			$rule = "||{$d}^";
-			$rules = array_map('trim', threatshield_lines((string)($cfg['custom_rules'] ?? '')));
-			if (in_array($rule, $rules, true)) {
-				threatshield_flash('warn', sprintf(gettext('%s is already blocked by a custom rule.'), $d));
-			} else {
-				/* a block rule would lose against an allowlist entry; drop that first */
-				$list = threatshield_normalize_list($cfg['allowlist'] ?? []);
-				$found = threatshield_allowlist_find($list, $d);
-				if ($found !== null && $list[$found]['domain'] === $d) {
-					array_splice($list, $found, 1);
-					$cfg['allowlist'] = $list;
-				}
-				$cfg['custom_rules'] = trim(implode("\n", $rules) . "\n" . $rule);
-				threatshield_apply($cfg, gettext('Threat Shield: blocked a domain from the query log'), sprintf(gettext('%s is blocked with its subdomains.'), $d));
-			}
+			threatshield_flash('warn', $message);
 		}
 	}
 	threatshield_redirect($self);

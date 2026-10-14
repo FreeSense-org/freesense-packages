@@ -21,8 +21,17 @@ require_once('/usr/local/pkg/threatshield/threatshield_ui.inc');
 header('Cache-Control: no-store');
 switch ($_GET['what'] ?? '') {
 	case 'health':
+		$checks = threatshield_health(!empty($_GET['deep']));
+		if (($_GET['format'] ?? '') === 'json') {
+			$counts = ['ok' => 0, 'warn' => 0, 'fail' => 0, 'skip' => 0];
+			foreach ($checks as $c) $counts[$c['state']] = ($counts[$c['state']] ?? 0) + 1;
+			header('Content-Type: application/json');
+			echo json_encode(['worst' => threatshield_health_worst($checks), 'counts' => $counts, 'total' => count($checks),
+			    'html' => threatshield_health_html($checks)]);
+			break;
+		}
 		header('Content-Type: text/html; charset=utf-8');
-		echo threatshield_health_html(threatshield_health(!empty($_GET['deep'])));
+		echo threatshield_health_html($checks);
 		break;
 	default:
 		http_response_code(404);

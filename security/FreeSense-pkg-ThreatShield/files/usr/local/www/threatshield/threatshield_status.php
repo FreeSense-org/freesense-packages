@@ -1,7 +1,8 @@
 <?php
 /*
  * threatshield_status.php
- * FreeSense Threat Shield - Overview: quick setup, health, pause, numbers and top lists
+ * FreeSense Threat Shield - Overview: one summary, a health pill, a small live
+ * map, the key numbers and one explorer instead of stacked tables
  *
  * Copyright (c) 2025-2026 The FreeSense Project.
  * Licensed under the Apache License, Version 2.0.
@@ -50,42 +51,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 		} else {
 			threatshield_flash('warn', $message);
 		}
+	} elseif (isset($_POST['block'])) {
+		$message = null;
+		if (threatshield_block_domain($cfg, (string)$_POST['block'], $message)) {
+			threatshield_apply($cfg, gettext('Threat Shield: blocked a domain from the overview'), $message);
+		} else {
+			threatshield_flash('warn', $message);
+		}
 	} elseif (isset($_POST['action']) && $_POST['action'] === 'restart') {
 		threatshield_flash('ok', threatshield_run_fix('restart'));
 	} elseif (isset($_POST['action']) && $_POST['action'] === 'update_feeds') {
 		threatshield_flash('ok', threatshield_run_fix('update_feeds'));
 	}
 	@unlink(THREATSHIELD_CACHE_DIR . '/health.json');
-	threatshield_redirect($self);
+	threatshield_redirect($self . (isset($_POST['unblock']) || isset($_POST['block']) ? '#explore' : ''));
 }
 
 $enabled = ($cfg['enable'] ?? 'off') === 'on';
 $running = threatshield_is_running();
 $pause = threatshield_pause_state();
-$stats = threatshield_get_stats();
-$dhcp_hosts = threatshield_get_dhcp_hostnames();
 $labels = threatshield_label_counters();
 $dnsbl = threatshield_dnsbl_status();
+$stats = $running ? threatshield_get_stats() : [];
 
 $total_queries = (int)($stats['num_dns_queries'] ?? 0);
 $blocked_queries = (int)($stats['num_blocked_filtering'] ?? 0);
 $blocked_pct = ($total_queries > 0) ? round(($blocked_queries / $total_queries) * 100, 1) : 0;
 $latency = round((float)($stats['avg_processing_time'] ?? 0) * 1000, 1);
-
-/* AdGuard Home returns top lists as [{"name": count}, ...]; older builds as
- * [{"name": ..., "count": ...}]. Normalise both to [label, count]. */
-$top_rows = function ($list) {
-	$rows = [];
-	foreach ((array)$list as $item) {
-		$name = is_array($item) ? ($item['name'] ?? key($item)) : $item;
-		$count = is_array($item) ? ($item['count'] ?? current($item)) : 1;
-		$rows[] = [(string)$name, (int)$count];
-	}
-	return $rows;
-};
-$top_queried = $top_rows($stats['top_queried_domains'] ?? []);
-$top_blocked = $top_rows($stats['top_blocked_domains'] ?? []);
-$top_clients = $top_rows($stats['top_clients'] ?? []);
 
 $mode_labels = [
 	'primary' => gettext('Primary DNS'),
@@ -116,6 +108,7 @@ foreach ([
 ] as $key => $label) {
 	if (($cfg[$key] ?? 'off') === 'on') $protection[] = $label;
 }
+$show_map = $enabled && ($cfg['map_overview'] ?? 'on') === 'on' && isAllowedPage('threatshield/threatshield_map.php');
 
 $pgtitle = [gettext('Services'), gettext('Threat Shield'), gettext('Overview')];
 $pglinks = ['', '/threatshield/threatshield_status.php', '@self'];
@@ -131,6 +124,9 @@ if ($enabled) {
 }
 
 include('head.inc');
+if ($show_map) {
+	echo '<link rel="stylesheet" href="/threatshield/assets/threatshield_map.css?v=' . (int)@filemtime('/usr/local/www/threatshield/assets/threatshield_map.css') . '">';
+}
 
 threatshield_print_messages();
 threatshield_display_tabs('status');
@@ -153,27 +149,44 @@ if (!$enabled):
 	</div>
 </div>
 <?php
-elseif ($pause['active']):
+else:
+	/* header controls: health pill and pause menu */
+	$health_pill = '<button type="button" class="ts-pill" data-ts-pill aria-expanded="false" aria-controls="ts-health-panel">'
+	    . '<i class="ts-pill-dot" aria-hidden="true"></i><span data-ts-pill-text>' . htmlspecialchars(gettext('Checking…')) . '</span>'
+	    . '<i class="fa-solid fa-chevron-down ts-pill-chev" aria-hidden="true"></i></button>';
 	ob_start();
+	if ($pause['active']):
 ?>
-	<form method="post" action="<?=$self?>" class="ts-inline-form">
-		<?=($pause['until'] > 0) ? htmlspecialchars(sprintf(gettext('Blocking is paused until %s; every domain resolves.'), date('H:i', $pause['until']))) : htmlspecialchars(gettext('Blocking is paused until you resume it; every domain resolves.'))?>
-		<button type="submit" name="resume" value="1" class="btn btn-sm btn-primary"><i class="fa-solid fa-play icon-embed-btn" aria-hidden="true"></i><?=gettext('Resume now')?></button>
+	<form method="post" action="<?=$self?>" class="ts-inline">
+		<span class="ts-paused"><?=htmlspecialchars(($pause['until'] > 0) ? sprintf(gettext('Paused until %s'), date('H:i', $pause['until'])) : gettext('Paused'))?></span>
+		<button type="submit" name="resume" value="1" class="btn btn-sm btn-primary"><i class="fa-solid fa-play icon-embed-btn" aria-hidden="true"></i><?=gettext('Resume')?></button>
 	</form>
 <?php
-	print_callout(ob_get_clean(), 'warning', gettext('Blocking paused'));
-elseif (!$running):
-	print_callout(htmlspecialchars(gettext('Threat Shield is enabled but not running, so there are no live numbers. See the checks below.')), 'warning');
-endif;
+	else:
+?>
+	<div class="dropdown ts-inline">
+		<button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false"<?=$running ? '' : ' disabled'?>>
+			<i class="fa-solid fa-pause icon-embed-btn" aria-hidden="true"></i><?=gettext('Pause')?></button>
+		<form method="post" action="<?=$self?>" class="dropdown-menu dropdown-menu-end ts-pause-menu">
+			<h6 class="dropdown-header"><?=gettext('Let every domain resolve for')?></h6>
+<?php	foreach ([5 => gettext('5 minutes'), 30 => gettext('30 minutes'), 60 => gettext('1 hour'), 240 => gettext('4 hours'), 0 => gettext('Until I resume')] as $m => $label): ?>
+			<button type="submit" name="pause" value="<?=$m?>" class="dropdown-item"><?=htmlspecialchars($label)?></button>
+<?php	endforeach; ?>
+			<p class="ts-pause-note"><?=gettext('IP lists, GeoIP and inbound protection keep working.')?></p>
+		</form>
+	</div>
+<?php
+	endif;
+	$pause_html = ob_get_clean();
 
-if ($enabled):
 	fs_summary_card([
 		'icon' => 'fa-shield-halved',
 		'title' => gettext('Threat Shield'),
 		'subtitle' => gettext('DNS filtering, IP reputation and country policy'),
 		'badges' => [
-			fs_badge('enabled'),
 			$running ? ($pause['active'] ? fs_badge('pending', gettext('Paused')) : fs_badge('up', gettext('Protecting'))) : fs_badge('down', gettext('Stopped')),
+			$health_pill,
+			$pause_html,
 		],
 		'label' => gettext('Threat Shield summary'),
 		'facts' => [
@@ -188,106 +201,79 @@ if ($enabled):
 		'actions' => [[gettext('Settings'), 'threatshield.php', 'fa-sliders']],
 	]);
 ?>
-<div class="ts-overview-grid">
-	<div class="panel panel-default">
-		<div class="panel-heading"><h2 class="panel-title"><?=gettext('Health')?></h2>
-			<a class="btn btn-sm btn-link ts-recheck" href="threatshield_ajax.php?what=health&amp;deep=1" data-ts-health-deep><?=gettext('Run all checks')?></a>
-		</div>
-		<div class="panel-body p-0" id="ts-health" data-ts-health="threatshield_ajax.php?what=health">
-			<p class="ts-health-loading fs-muted"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> <?=gettext('Checking…')?></p>
-			<noscript><?=threatshield_health_html(threatshield_health())?></noscript>
-		</div>
+<div class="panel panel-default ts-health-panel" id="ts-health-panel" hidden>
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Health checks')?></h2>
+		<a class="btn btn-sm btn-link" href="threatshield_ajax.php?what=health&amp;deep=1" data-ts-health-deep><?=gettext('Run all checks, including upstream servers')?></a>
 	</div>
-	<div class="panel panel-default">
-		<div class="panel-heading"><h2 class="panel-title"><?=gettext('Pause blocking')?></h2></div>
-		<div class="panel-body">
-			<p class="fs-muted small"><?=gettext('Lets every domain resolve for a while, for example to test whether Threat Shield breaks a site. IP lists, GeoIP and inbound protection keep working.')?></p>
-			<form method="post" action="<?=$self?>" class="ts-pause">
-<?php	foreach ([5 => gettext('5 min'), 30 => gettext('30 min'), 60 => gettext('1 hour'), 240 => gettext('4 hours'), 0 => gettext('Until resumed')] as $m => $label): ?>
-				<button type="submit" name="pause" value="<?=$m?>" class="btn btn-sm btn-outline-secondary"<?=($running && !$pause['active']) ? '' : ' disabled'?>><?=htmlspecialchars($label)?></button>
-<?php	endforeach; ?>
-<?php	if ($pause['active']): ?>
-				<button type="submit" name="resume" value="1" class="btn btn-sm btn-primary"><?=gettext('Resume')?></button>
-<?php	endif; ?>
-			</form>
-		</div>
+	<div class="panel-body p-0" data-ts-health-body>
+		<noscript><?=threatshield_health_html(threatshield_health())?></noscript>
 	</div>
 </div>
 
-<div class="fs-tiles">
+<?php if ($show_map): ?>
+<div class="panel panel-default ts-mini">
+	<div class="ts-mini-head">
+		<h2 class="panel-title"><?=gettext('Threat map')?> <span class="fs-muted"><?=gettext('last hour')?></span></h2>
+		<span class="tsm-key tsm-key--block"><span><?=gettext('Blocked')?> <b data-ts-mini="block">0</b></span></span>
+		<span class="tsm-key tsm-key--pass"><span><?=gettext('Allowed')?> <b data-ts-mini="pass">0</b></span></span>
+		<span class="tsm-key tsm-key--dns"><span><?=gettext('DNS blocked')?> <b data-ts-mini="dns">0</b></span></span>
+		<span class="ts-mini-links">
+			<a class="btn btn-sm btn-link" href="threatshield_map.php"><?=gettext('Open map')?></a>
+			<a class="btn btn-sm btn-link" href="threatshield_map.php?view=kiosk" target="_blank"><i class="fa-solid fa-expand icon-embed-btn" aria-hidden="true"></i><?=gettext('Full screen')?></a>
+		</span>
+	</div>
+	<div id="ts-mini-map"></div>
+</div>
+<?php endif; ?>
+
+<div class="fs-tiles ts-tiles">
 <?php
-	fs_tile(gettext('DNS queries (24 h)'), number_format($total_queries), null, sprintf(gettext('Average %s ms'), $latency));
-	fs_tile(gettext('Blocked by DNS'), number_format($blocked_queries), null, sprintf(gettext('%s %% of all queries'), $blocked_pct));
-	fs_tile(gettext('Blocked by IP lists & GeoIP'), number_format(threatshield_label_sum($labels, 'ThreatShield IP list') + threatshield_label_sum($labels, 'ThreatShield GeoIP')),
+	$tile = function (string $view, string $label, string $value, ?string $state, string $hint) {
+		echo '<a class="ts-tile" href="#explore" data-ts-goto="' . $view . '">';
+		fs_tile($label, $value, $state, $hint);
+		echo '</a>';
+	};
+	$tile('queried_domains', gettext('DNS queries'), number_format($total_queries), null, sprintf(gettext('Average %s ms'), $latency));
+	$tile('blocked_domains', gettext('Blocked by DNS'), number_format($blocked_queries), null, sprintf(gettext('%s %% of all queries'), $blocked_pct));
+	$tile('sources', gettext('Blocked by IP lists & GeoIP'), number_format(threatshield_label_sum($labels, 'ThreatShield IP list') + threatshield_label_sum($labels, 'ThreatShield GeoIP')),
 	    null, gettext('Packets since the last filter reload'));
-	fs_tile(gettext('Bypass attempts stopped'), number_format(threatshield_label_sum($labels, 'ThreatShield anti-bypass')), null, gettext('DoT, DoH and IPv6 DNS'));
+	$tile('rules', gettext('Bypass attempts stopped'), number_format(threatshield_label_sum($labels, 'ThreatShield anti-bypass')), null, gettext('DoT, DoH and IPv6 DNS'));
 	if (!empty($inbound)) {
-		fs_tile(gettext('Sources blocked by reputation'), number_format((int)($dnsbl['cached_listed'] ?? 0)),
+		$tile('countries', gettext('Sources blocked by reputation'), number_format((int)($dnsbl['cached_listed'] ?? 0)),
 		    (($dnsbl['breaker'] ?? 'closed') === 'open') ? 'degraded' : null, sprintf(gettext('%s lookups'), number_format((int)($dnsbl['lookups'] ?? 0))));
 	}
 ?>
 </div>
 
 <?php
-/* one compact ranking card: label column, share bar, count */
-$ranking = function ($title, $noun, array $rows, $empty, $kind) use ($dhcp_hosts, $self) {
-	$max = 0;
-	foreach ($rows as $r) $max = max($max, $r[1]);
+	$views = [
+		'blocked_domains' => gettext('Blocked domains'), 'queried_domains' => gettext('Queried domains'), 'clients' => gettext('Clients'),
+		'sources' => gettext('Blocked sources'), 'countries' => gettext('Countries'), 'networks' => gettext('Networks'),
+		'ports' => gettext('Ports'), 'rules' => gettext('Rules'),
+	];
 ?>
-	<div class="panel panel-default fs-table ts-rank">
-<?php	fs_table_toolbar(['title' => $title, 'search' => false, 'noun' => $noun]); ?>
-		<div class="panel-body table-responsive">
-			<table class="table table-hover">
-				<thead>
-					<tr>
-						<th><?=($kind === 'client') ? gettext('Client') : gettext('Domain')?></th>
-						<th class="ts-rank-count"><?=($kind === 'blocked') ? gettext('Hits') : gettext('Queries')?></th>
-<?php	if ($kind === 'blocked'): ?>
-						<th class="fs-col-actions"><span class="visually-hidden"><?=gettext('Actions')?></span></th>
-<?php	endif; ?>
-					</tr>
-				</thead>
-				<tbody>
-<?php	foreach ($rows as list($name, $count)):
-		$share = ($max > 0) ? max(2, (int)round($count / $max * 100)) : 0;
-?>
-					<tr>
-						<td class="ts-rank-name">
-							<span class="fs-mono"><?=htmlspecialchars($name)?></span>
-<?php		if ($kind === 'client' && isset($dhcp_hosts[$name])): ?>
-							<span class="fs-muted small"><?=htmlspecialchars((string)$dhcp_hosts[$name])?></span>
-<?php		endif; ?>
-							<span class="ts-bar<?=($kind === 'blocked') ? ' ts-bar--block' : ''?>" aria-hidden="true"><span style="width: <?=$share?>%"></span></span>
-						</td>
-						<td class="ts-rank-count"><?=number_format($count)?></td>
-<?php		if ($kind === 'blocked'): ?>
-						<td class="fs-col-actions"><?=fs_row_actions([['custom', $self . '?unblock=' . rawurlencode($name), $name, [
-							'icon' => 'fa-solid fa-circle-check', 'post' => true, 'label' => sprintf(gettext('Unblock %s'), $name),
-							'confirm' => sprintf(gettext('Always allow “%s”?'), $name),
-							'detail' => gettext('It is added to the allowlist with its subdomains and applied at once.'),
-							'confirm_action' => gettext('Unblock')]]])?></td>
-<?php		endif; ?>
-					</tr>
-<?php	endforeach;
-	if (empty($rows)) {
-		fs_empty_row(($kind === 'blocked') ? 3 : 2, $empty);
-	}
-?>
-				</tbody>
-			</table>
-		</div>
+<div class="panel panel-default ts-explore" id="explore">
+	<div class="ts-explore-bar">
+		<nav class="fs-viewswitch" aria-label="<?=gettext('Show')?>" data-ts-views>
+<?php	foreach ($views as $k => $l): ?>
+			<a href="#explore" data-v="<?=$k?>"><?=htmlspecialchars($l)?></a>
+<?php	endforeach; ?>
+		</nav>
+		<span class="ts-explore-tools">
+			<select class="form-select form-select-sm" data-ts-window aria-label="<?=gettext('Time window')?>">
+				<option value="1h"><?=gettext('Last hour')?></option>
+				<option value="24h" selected><?=gettext('Last 24 hours')?></option>
+				<option value="7d"><?=gettext('Last 7 days')?></option>
+			</select>
+			<span class="fs-search"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+				<input type="search" class="form-control" data-ts-q placeholder="<?=gettext('Filter…')?>" aria-label="<?=gettext('Filter the list')?>"></span>
+		</span>
 	</div>
-<?php
-};
-?>
-<div class="ts-rank-grid">
-<?php
-	$ranking(gettext('Top blocked domains'), gettext('domains'), $top_blocked, gettext('No blocked domains recorded yet.'), 'blocked');
-	$ranking(gettext('Top queried domains'), gettext('domains'), $top_queried, gettext('No queries recorded yet.'), 'queried');
-?>
+	<ol class="ts-explore-list" data-ts-rows aria-live="polite"></ol>
+	<div class="panel-footer small fs-muted ts-explore-foot"><span data-ts-note></span><button type="button" class="btn btn-sm btn-link" data-ts-more hidden></button></div>
 </div>
+<form method="post" action="<?=$self?>" id="ts-explore-act" hidden><input type="hidden" name="" value=""></form>
 <?php
-	$ranking(gettext('Top clients'), gettext('clients'), $top_clients, gettext('No client traffic recorded yet.'), 'client');
 endif;
 
 threatshield_ui_styles();
@@ -299,50 +285,278 @@ threatshield_ui_styles();
 .ts-quick-text h2 { margin: 0 0 var(--fs-sp-2); font-size: var(--fs-fs-lg); }
 .ts-quick-form { display: flex; flex-direction: column; gap: var(--fs-sp-2); align-items: flex-start; margin: var(--fs-sp-3) 0; }
 .ts-quick-form .form-check { margin: 0; font-weight: 400; }
-.ts-inline-form { display: flex; flex-wrap: wrap; align-items: center; gap: var(--fs-sp-3); }
-.ts-overview-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 var(--fs-sp-4); }
-@media (min-width: 992px) { .ts-overview-grid { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); } }
-.ts-overview-grid .panel-heading { display: flex; align-items: center; justify-content: space-between; }
-.ts-health-loading { padding: var(--fs-sp-3) var(--fs-sp-4); margin: 0; }
-.ts-pause { display: flex; flex-wrap: wrap; gap: var(--fs-sp-2); }
-.ts-rank-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 var(--fs-sp-4); }
-@media (min-width: 992px) { .ts-rank-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.ts-rank-name { word-break: break-all; }
-.ts-rank-name .fs-muted { margin-left: var(--fs-sp-2); word-break: normal; }
-.ts-rank-count { width: 7rem; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.ts-bar { display: block; height: 3px; margin-top: .3rem; border-radius: 2px; background: color-mix(in srgb, var(--fs-border) 60%, transparent); }
-.ts-bar > span { display: block; height: 100%; border-radius: 2px; background: var(--fs-series-1); }
-.ts-bar--block > span { background: var(--fs-block); }
 @media (max-width: 575px) { .ts-quick .panel-body { flex-direction: column; } }
+
+/* header controls */
+.ts-inline { display: inline-flex; align-items: center; gap: var(--fs-sp-2); }
+.ts-paused { font-size: var(--fs-fs-sm); color: var(--fs-warn); font-weight: 600; }
+.ts-pill { display: inline-flex; align-items: center; gap: .4rem; height: 1.6rem; padding: 0 .6rem; border: 1px solid var(--fs-border);
+	border-radius: 999px; background: var(--fs-surface-raised); color: var(--fs-text); font-size: var(--fs-fs-sm); cursor: pointer; }
+.ts-pill:hover { border-color: var(--fs-text-muted); }
+.ts-pill-dot { width: .55rem; height: .55rem; border-radius: 50%; background: var(--fs-text-muted); }
+.ts-pill[data-state="ok"] .ts-pill-dot { background: var(--fs-pass); }
+.ts-pill[data-state="warn"] .ts-pill-dot { background: var(--fs-warn); }
+.ts-pill[data-state="fail"] .ts-pill-dot { background: var(--fs-block); }
+.ts-pill[data-state="fail"] { border-color: color-mix(in srgb, var(--fs-block) 50%, transparent); }
+.ts-pill-chev { font-size: .65rem; color: var(--fs-text-muted); transition: transform .15s; }
+.ts-pill[aria-expanded="true"] .ts-pill-chev { transform: rotate(180deg); }
+.ts-pause-menu { min-width: 14rem; }
+.ts-pause-note { margin: .4rem 1rem .2rem; font-size: var(--fs-fs-xs); color: var(--fs-text-muted); }
+
+/* health: compact two-column checklist */
+.ts-health-panel .panel-heading { display: flex; align-items: center; justify-content: space-between; }
+@media (min-width: 992px) {
+	.ts-health-panel .ts-health { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	.ts-health-panel .ts-health li:nth-child(2) { border-top: 0; }
+}
+.ts-health-panel .ts-health li { padding: .4rem var(--fs-sp-4); }
+.ts-health-panel .ts-health .fs-badge { flex-basis: 5rem; }
+
+/* mini map */
+.ts-mini { overflow: hidden; }
+.ts-mini-head { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem 1rem; padding: .6rem var(--fs-sp-4); border-bottom: 1px solid var(--fs-border); }
+.ts-mini-head .panel-title { margin: 0 .5rem 0 0; }
+.ts-mini-head .panel-title .fs-muted { font-weight: 400; font-size: var(--fs-fs-sm); }
+.ts-mini-head .tsm-key { font-size: var(--fs-fs-sm); }
+.ts-mini-head .tsm-key b { color: var(--fs-text); font-variant-numeric: tabular-nums; }
+.ts-mini-links { margin-left: auto; }
+#ts-mini-map { border-radius: 0; }
+
+/* tiles as shortcuts into the explorer */
+.ts-tiles .ts-tile { display: block; color: inherit; text-decoration: none; border-radius: var(--fs-r-md); }
+.ts-tiles .ts-tile .fs-tile { height: 100%; transition: border-color .15s; }
+.ts-tiles .ts-tile:hover .fs-tile, .ts-tiles .ts-tile:focus-visible .fs-tile { border-color: var(--fs-coral); }
+.ts-tiles .ts-tile.is-current .fs-tile { box-shadow: inset 0 -2px 0 var(--fs-coral); }
+
+/* explorer */
+.ts-explore-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--fs-sp-2) var(--fs-sp-3); padding: .6rem var(--fs-sp-4); border-bottom: 1px solid var(--fs-border); }
+.ts-explore-bar .fs-viewswitch { margin: 0; flex-wrap: wrap; }
+.ts-explore-tools { display: flex; align-items: center; gap: var(--fs-sp-2); margin-left: auto; }
+.ts-explore-tools .form-select { width: auto; }
+.ts-explore-tools .fs-search { width: 14rem; }
+.ts-explore-list { list-style: none; margin: 0; padding: 0; counter-reset: ts-rank; }
+.ts-explore-list li { position: relative; display: grid; grid-template-columns: 2rem minmax(0, 1fr) 7rem 2.5rem; align-items: center; gap: var(--fs-sp-3);
+	min-height: 2.4rem; padding: .3rem var(--fs-sp-4); border-top: 1px solid var(--fs-border); counter-increment: ts-rank; }
+.ts-explore-list li:first-child { border-top: 0; }
+.ts-explore-list li::before { content: counter(ts-rank); color: var(--fs-text-muted); font-size: var(--fs-fs-sm); font-variant-numeric: tabular-nums; }
+.ts-explore-list li.ts-none::before { content: none; }
+.ts-explore-list li.ts-none { display: block; color: var(--fs-text-muted); padding: var(--fs-sp-3) var(--fs-sp-4); }
+.ts-x-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ts-x-label small { margin-left: .5rem; color: var(--fs-text-muted); }
+.ts-x-count { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.ts-x-bar { position: absolute; left: calc(var(--fs-sp-4) + 2rem + var(--fs-sp-3)); right: calc(var(--fs-sp-4) + 2.5rem + 7rem + 2 * var(--fs-sp-3)); bottom: .25rem; height: 3px;
+	border-radius: 2px; background: color-mix(in srgb, var(--fs-border) 60%, transparent); }
+.ts-x-bar > span { display: block; height: 100%; border-radius: 2px; background: var(--fs-series-1); }
+.ts-x-block .ts-x-bar > span { background: var(--fs-block); }
+.ts-x-act { justify-self: end; }
+.ts-explore-list:not(.is-all) li:nth-child(n+11) { display: none; }
+.ts-explore-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--fs-sp-3); }
+.ts-x-act .btn { padding: .1rem .4rem; }
+@media (max-width: 767px) {
+	.ts-explore-tools { margin-left: 0; width: 100%; }
+	.ts-explore-tools .fs-search { flex: 1 1 auto; width: auto; }
+	.ts-explore-list li { grid-template-columns: 1.5rem minmax(0, 1fr) 4.5rem 2.2rem; }
+}
 </style>
+<?php if ($show_map): ?>
+<script src="/threatshield/assets/ts-world.js?v=<?=(int)@filemtime('/usr/local/www/threatshield/assets/ts-world.js')?>"></script>
+<script src="/threatshield/assets/threatshield_map.js?v=<?=(int)@filemtime('/usr/local/www/threatshield/assets/threatshield_map.js')?>"></script>
+<?php endif; ?>
 <script>
 //<![CDATA[
 events.push(function () {
-	var box = document.getElementById('ts-health');
+	var T = <?=json_encode([
+		'checking' => gettext('Checking…'), 'ok' => gettext('All %d checks passed'), 'warn' => gettext('%d need attention'),
+		'fail' => gettext('%d problems'), 'failed' => gettext('Checks could not run'), 'unblock' => gettext('Unblock'), 'block' => gettext('Block'),
+		'details' => gettext('Details'), 'none' => gettext('Nothing in this period.'), 'nomatch' => gettext('Nothing matches the filter.'),
+		'unblockConfirm' => gettext('Always allow “%s”? It is added to the allowlist with its subdomains.'),
+		'more' => gettext('Show all %d'), 'less' => gettext('Show top 10'),
+		'blockConfirm' => gettext('Block “%s” and its subdomains?'),
+	])?>;
+
+	/* ------------------------------------------------ health pill */
+	var pill = document.querySelector('[data-ts-pill]');
+	var panel = document.getElementById('ts-health-panel');
+	function loadHealth(url) {
+		if (!pill) {
+			return;
+		}
+		pill.removeAttribute('data-state');
+		pill.querySelector('[data-ts-pill-text]').textContent = T.checking;
+		fetch(url, {credentials: 'same-origin'}).then(function (r) {
+			return r.ok ? r.json() : Promise.reject(r.status);
+		}).then(function (j) {
+			var bad = (j.counts.warn || 0) + (j.counts.fail || 0);
+			pill.setAttribute('data-state', j.worst);
+			pill.querySelector('[data-ts-pill-text]').textContent = (j.worst === 'ok') ? T.ok.replace('%d', j.total)
+				: (j.worst === 'fail' ? T.fail.replace('%d', j.counts.fail) : T.warn.replace('%d', bad));
+			panel.querySelector('[data-ts-health-body]').innerHTML = j.html;
+			if (j.worst !== 'ok') {
+				panel.hidden = false;
+				pill.setAttribute('aria-expanded', 'true');
+			}
+		}).catch(function () {
+			pill.setAttribute('data-state', 'warn');
+			pill.querySelector('[data-ts-pill-text]').textContent = T.failed;
+		});
+	}
+	if (pill) {
+		pill.addEventListener('click', function () {
+			panel.hidden = !panel.hidden;
+			pill.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
+		});
+		loadHealth('threatshield_ajax.php?what=health&format=json');
+		var deep = document.querySelector('[data-ts-health-deep]');
+		deep.addEventListener('click', function (e) {
+			e.preventDefault();
+			loadHealth(deep.getAttribute('href') + '&format=json');
+		});
+	}
+
+	/* -------------------------------------------------- mini map */
+	var mini = document.getElementById('ts-mini-map');
+	if (mini && window.TSMap) {
+		var t = <?=json_encode(['geoOff' => '<p>' . htmlspecialchars(gettext('Turn on location data in the map settings to see where connections come from.')) . '</p><a class="btn btn-sm btn-primary" href="threatshield_map.php">' . htmlspecialchars(gettext('Open the threat map')) . '</a>',
+		    'geoMissing' => htmlspecialchars(gettext('The location database is downloading.')), 'noHome' => '', 'hits' => gettext('%d connections')])?>;
+		var map = new TSMap(mini, {data: '/threatshield/threatshield_map_data.php', mode: 'mini', lite: true, poll: 5000, window: '1h',
+			style: <?=json_encode((string)$cfg['map_style'] === 'hacker' ? 'hacker' : 'freesense')?>, animations: <?=json_encode((string)$cfg['map_animations'])?>,
+			mask: <?=json_encode(($cfg['map_mask_ips'] ?? 'off') === 'on')?>, t: t});
+		map.on(function (d) {
+			if (!d.counters) {
+				return;
+			}
+			var c = d.counters, set = function (k, v) {
+				var el = document.querySelector('[data-ts-mini="' + k + '"]');
+				if (el) {
+					el.textContent = (+v || 0).toLocaleString();
+				}
+			};
+			set('block', (c.block || 0) + (c.listed || 0));
+			set('pass', (c.pass || 0) + (c.clean || 0));
+			set('dns', c.dns_block || 0);
+		});
+	}
+
+	/* --------------------------------------------------- explorer */
+	var box = document.getElementById('explore');
 	if (!box) {
 		return;
 	}
-	function load(url) {
-		box.setAttribute('aria-busy', 'true');
+	var nav = box.querySelector('[data-ts-views]'), list = box.querySelector('[data-ts-rows]'), note = box.querySelector('[data-ts-note]');
+	var win = box.querySelector('[data-ts-window]'), q = box.querySelector('[data-ts-q]');
+	var actForm = document.getElementById('ts-explore-act');
+	var more = box.querySelector('[data-ts-more]');
+	more.addEventListener('click', function () {
+		var all = list.classList.toggle('is-all');
+		more.textContent = all ? T.less : T.more.replace('%d', list.children.length);
+	});
+	var view = 'blocked_domains', timer = null;
+	try {
+		view = localStorage.getItem('ts-explore-view') || view;
+	} catch (e) { /* storage blocked */ }
+	if (!nav.querySelector('[data-v="' + view + '"]')) {
+		view = 'blocked_domains';
+	}
+	function esc(s) {
+		var d = document.createElement('div');
+		d.textContent = s == null ? '' : String(s);
+		return d.innerHTML;
+	}
+	function select(v) {
+		view = v;
+		try {
+			localStorage.setItem('ts-explore-view', v);
+		} catch (e) { /* storage blocked */ }
+		nav.querySelectorAll('a').forEach(function (a) {
+			if (a.getAttribute('data-v') === v) {
+				a.setAttribute('aria-current', 'page');
+			} else {
+				a.removeAttribute('aria-current');
+			}
+		});
+		document.querySelectorAll('[data-ts-goto]').forEach(function (t) {
+			t.classList.toggle('is-current', t.getAttribute('data-ts-goto') === v);
+		});
+		/* the DNS statistics have their own period */
+		win.disabled = ['blocked_domains', 'queried_domains', 'clients'].indexOf(v) >= 0;
+		load();
+	}
+	function act(name, value, confirmText, button) {
+		var go = function () {
+			var input = actForm.querySelector('input[type="hidden"]:not([name="__csrf_magic"])');
+			input.name = name;
+			input.value = value;
+			actForm.submit();
+		};
+		var question = confirmText.replace('%s', value);
+		if (window.fsConfirm) {
+			window.fsConfirm({title: question, action: name === 'unblock' ? T.unblock : T.block, returnFocus: button}).then(function (ok) {
+				if (ok) {
+					go();
+				}
+			});
+		} else if (window.confirm(question)) {
+			go();
+		}
+	}
+	function load() {
+		list.setAttribute('aria-busy', 'true');
+		var url = '/threatshield/threatshield_map_data.php?what=explore&view=' + view + '&window=' + win.value + '&q=' + encodeURIComponent(q.value.trim());
 		fetch(url, {credentials: 'same-origin'}).then(function (r) {
-			return r.ok ? r.text() : Promise.reject(r.status);
-		}).then(function (html) {
-			box.innerHTML = html;
-		}).catch(function () {
-			box.innerHTML = '<p class="ts-health-loading fs-muted"><?=gettext('The checks could not be loaded. Reload the page to try again.')?></p>';
+			return r.json();
+		}).then(function (j) {
+			var max = 0;
+			j.rows.forEach(function (r) {
+				max = Math.max(max, r.n);
+			});
+			var blocks = ['blocked_domains', 'sources', 'countries', 'networks', 'ports', 'rules'].indexOf(view) >= 0;
+			list.innerHTML = j.rows.length ? j.rows.map(function (r) {
+				var action = '';
+				if (view === 'blocked_domains') {
+					action = '<button type="button" class="btn btn-sm btn-outline-secondary" data-act="unblock" data-val="' + esc(r.label) + '" title="' + esc(T.unblock) + '"><i class="fa-solid fa-circle-check" aria-hidden="true"></i><span class="visually-hidden">' + esc(T.unblock) + '</span></button>';
+				} else if (view === 'queried_domains') {
+					action = '<button type="button" class="btn btn-sm btn-outline-secondary" data-act="block" data-val="' + esc(r.label) + '" title="' + esc(T.block) + '"><i class="fa-solid fa-ban" aria-hidden="true"></i><span class="visually-hidden">' + esc(T.block) + '</span></button>';
+				} else if (r.ip) {
+					action = '<a class="btn btn-sm btn-outline-secondary" href="threatshield_map.php?ip=' + encodeURIComponent(r.ip) + '" title="' + esc(T.details) + '"><i class="fa-solid fa-location-dot" aria-hidden="true"></i><span class="visually-hidden">' + esc(T.details) + '</span></a>';
+				}
+				var share = max ? Math.max(2, Math.round(r.n / max * 100)) : 0;
+				return '<li class="' + (blocks ? 'ts-x-block' : '') + '"><span class="ts-x-label' + (r.ip || view.indexOf('domains') > 0 ? ' fs-mono' : '') + '">' + esc(r.label) +
+					(r.sub ? '<small>' + esc(r.sub) + '</small>' : '') + '</span><span class="ts-x-count">' + r.n.toLocaleString() + '</span><span class="ts-x-act">' + action +
+					'</span><span class="ts-x-bar" aria-hidden="true"><span style="width:' + share + '%"></span></span></li>';
+			}).join('') : '<li class="ts-none">' + esc(q.value.trim() ? T.nomatch : T.none) + '</li>';
+			note.textContent = j.note || '';
+			more.hidden = j.rows.length <= 10;
+			list.classList.remove('is-all');
+			more.textContent = T.more.replace('%d', j.rows.length);
+			list.querySelectorAll('[data-act]').forEach(function (b) {
+				b.addEventListener('click', function () {
+					var a = b.getAttribute('data-act');
+					act(a, b.getAttribute('data-val'), a === 'unblock' ? T.unblockConfirm : T.blockConfirm, b);
+				});
+			});
 		}).finally(function () {
-			box.removeAttribute('aria-busy');
+			list.removeAttribute('aria-busy');
 		});
 	}
-	load(box.getAttribute('data-ts-health'));
-	var deep = document.querySelector('[data-ts-health-deep]');
-	if (deep) {
-		deep.addEventListener('click', function (e) {
+	nav.querySelectorAll('a').forEach(function (a) {
+		a.addEventListener('click', function (e) {
 			e.preventDefault();
-			box.innerHTML = '<p class="ts-health-loading fs-muted"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> <?=gettext('Checking, including the upstream servers…')?></p>';
-			load(deep.getAttribute('href'));
+			select(a.getAttribute('data-v'));
 		});
-	}
+	});
+	document.querySelectorAll('[data-ts-goto]').forEach(function (t) {
+		t.addEventListener('click', function (e) {
+			e.preventDefault();
+			select(t.getAttribute('data-ts-goto'));
+			box.scrollIntoView({behavior: 'smooth', block: 'start'});
+		});
+	});
+	win.addEventListener('change', load);
+	q.addEventListener('input', function () {
+		clearTimeout(timer);
+		timer = setTimeout(load, 250);
+	});
+	select(view);
 });
 //]]>
 </script>

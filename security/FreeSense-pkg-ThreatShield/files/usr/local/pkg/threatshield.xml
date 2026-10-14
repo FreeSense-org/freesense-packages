@@ -20,6 +20,13 @@
 		<group>security</group>
 		<url>/threatshield/threatshield_status.php</url>
 	</menu>
+	<menu>
+		<name>Threat Map</name>
+		<tooltiptext>Live map of blocked and allowed connections</tooltiptext>
+		<section>Status</section>
+		<group>security</group>
+		<url>/threatshield/threatshield_map.php</url>
+	</menu>
 	<service>
 		<name>threatshield</name>
 		<rcfile>threatshield</rcfile>
