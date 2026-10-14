@@ -20,6 +20,7 @@ if (!defined('THREATSHIELD_MAP_DB')) define('THREATSHIELD_MAP_DB', '/var/db/thre
 if (!defined('THREATSHIELD_MAP_STATE')) define('THREATSHIELD_MAP_STATE', '/var/db/threatshield/map_state.json');
 if (!defined('THREATSHIELD_MAP_LOCK')) define('THREATSHIELD_MAP_LOCK', '/var/run/threatshield_map.lock');
 if (!defined('THREATSHIELD_MAP_RULES')) define('THREATSHIELD_MAP_RULES', '/var/db/threatshield/cache/map_rules.json');
+if (!defined('THREATSHIELD_MAP_SECRET')) define('THREATSHIELD_MAP_SECRET', '/var/db/threatshield/map_secret');
 if (!defined('THREATSHIELD_FILTER_LOG')) define('THREATSHIELD_FILTER_LOG', '/var/log/filter.log');
 if (!defined('THREATSHIELD_DNSBL_RECENT')) define('THREATSHIELD_DNSBL_RECENT', '/var/run/threatshield_dnsbl.recent.json');
 
@@ -77,9 +78,17 @@ function threatshield_map_parse_pf_rules(string $out): array {
 	$idx = ['t' => [], 'n' => []];
 	foreach (explode("\n", $out) as $line) {
 		if (!preg_match('/^@(\d+)\s/', $line, $m)) continue;
-		$label = preg_match('/\slabel "([^"]*)"/', $line, $l) ? $l[1] : '';
-		if (str_starts_with($label, 'descr=')) $label = substr($label, 6);
-		if ($label === '' || str_starts_with($label, 'id:')) {
+		/* base rules carry several labels: id=, s=, gw=, tags= and descr= */
+		preg_match_all('/\slabel "([^"]*)"/', $line, $ls);
+		$label = '';
+		foreach ($ls[1] as $l) {
+			if (str_starts_with($l, 'descr=')) {
+				$label = substr($l, 6);
+				break;
+			}
+			if ($label === '' && !preg_match('/^(id|s|gw|tags)=|^id:/', $l)) $label = $l;
+		}
+		if ($label === '') {
 			$label = preg_match('/^@\d+\s+(pass|block)/', $line, $a) ? (($a[1] === 'pass') ? 'Pass rule' : 'Block rule') : '';
 		}
 		$idx['n'][(int)$m[1]] = $label;
@@ -463,13 +472,29 @@ function threatshield_map_events(SQLite3 $db, int $after, int $since, array $f, 
 	return array_reverse($rows);
 }
 
+/* Keeps the /24 or /48 network. */
 function threatshield_map_mask(string $ip): string {
-	if (strpos($ip, ':') !== false) {
-		$parts = explode(':', $ip);
-		return implode(':', array_slice($parts, 0, 3)) . '::x';
+	$bin = @inet_pton($ip);
+	if ($bin === false) return 'x';
+	if (strlen($bin) === 4) return implode('.', array_slice(unpack('C4', $bin), 0, 3)) . '.x';
+	return inet_ntop(substr($bin, 0, 6) . str_repeat("\0", 10)) . 'x';
+}
+
+/* Stable handle for an address that does not reveal it (masked views open
+ * the IP card by this); keyed per install so it can't be brute-forced. */
+function threatshield_map_ip_id(string $ip): string {
+	static $key = null;
+	if ($key === null) {
+		$file = THREATSHIELD_MAP_SECRET;
+		$key = (string)@file_get_contents($file);
+		if (strlen($key) < 32) {
+			$key = bin2hex(random_bytes(32));
+			safe_mkdir(dirname($file), 0750);
+			@file_put_contents($file, $key, LOCK_EX);
+			@chmod($file, 0600);
+		}
 	}
-	$p = explode('.', $ip);
-	return (count($p) === 4) ? "{$p[0]}.{$p[1]}.{$p[2]}.x" : $ip;
+	return substr(hash_hmac('sha256', $ip, $key), 0, 16);
 }
 
 function threatshield_map_event_json(array $r, bool $mask): array {
@@ -479,7 +504,7 @@ function threatshield_map_event_json(array $r, bool $mask): array {
 	$pos = ($ip !== '' && $r['cc'] !== '') ? threatshield_geo_position($ip, (string)$r['cc']) : null;
 	return [
 		'seq' => (int)$r['seq'], 't' => (int)$r['t'], 'a' => (string)$r['a'], 'k' => (string)$r['k'], 'flow' => (string)$r['flow'],
-		'ip' => ($mask && $ip !== '') ? threatshield_map_mask($ip) : $ip, 'id' => ($ip !== '') ? substr(md5($ip), 0, 10) : '',
+		'ip' => ($mask && $ip !== '') ? threatshield_map_mask($ip) : $ip, 'id' => ($ip !== '') ? threatshield_map_ip_id($ip) : '',
 		'cc' => (string)$r['cc'], 'asn' => (int)$r['asn'], 'org' => ($geo && (int)$r['asn'] > 0) ? $geo->asn_name((int)$r['asn']) : '',
 		'p' => $pos, 'proto' => (string)$r['proto'], 'port' => (int)$r['port'], 'if' => (string)$r['iface'],
 		'rule' => (string)$r['rule'], 'pol' => (string)$r['pol'],
@@ -496,7 +521,7 @@ function threatshield_map_dots(SQLite3 $db, int $since, array $f, bool $mask, in
 	while ($res && ($r = $res->fetchArray(SQLITE3_ASSOC))) {
 		$pos = threatshield_geo_position((string)$r['ip'], (string)$r['cc']);
 		if ($pos === null) continue;
-		$out[] = ['ip' => $mask ? threatshield_map_mask((string)$r['ip']) : (string)$r['ip'], 'id' => substr(md5((string)$r['ip']), 0, 10),
+		$out[] = ['ip' => $mask ? threatshield_map_mask((string)$r['ip']) : (string)$r['ip'], 'id' => threatshield_map_ip_id((string)$r['ip']),
 		    'cc' => (string)$r['cc'], 'a' => (string)$r['a'], 'n' => (int)$r['n'], 'last' => (int)$r['last'], 'p' => $pos];
 	}
 	return $out;
@@ -554,7 +579,7 @@ function threatshield_map_summary(SQLite3 $db, int $since, array $f, bool $mask,
 		'bucket' => $bucket,
 		'top' => [
 			'countries' => array_map(fn($r) => ['cc' => (string)$r[0], 'name' => $name($r[0]), 'n' => (int)$r[1]], $countries),
-			'ips' => array_map(fn($r) => ['ip' => $mask ? threatshield_map_mask((string)$r[0]) : (string)$r[0], 'id' => substr(md5((string)$r[0]), 0, 10),
+			'ips' => array_map(fn($r) => ['ip' => $mask ? threatshield_map_mask((string)$r[0]) : (string)$r[0], 'id' => threatshield_map_ip_id((string)$r[0]),
 			    'n' => (int)$r[1], 'cc' => (string)$r[2], 'asn' => (int)$r[3], 'org' => $geo ? $geo->asn_name((int)$r[3]) : ''], $ips),
 			'asns' => array_map(fn($r) => ['asn' => (int)$r[0], 'org' => $geo ? $geo->asn_name((int)$r[0]) : '', 'n' => (int)$r[1]], $asns),
 			'rules' => array_map(fn($r) => ['rule' => (string)$r[0], 'n' => (int)$r[1]], $rules),
@@ -643,8 +668,19 @@ function threatshield_map_ip_info(string $ip, array $cfg): array {
 			if ($rc === 0) $info['tables'][] = $t;
 			$o = [];
 		}
-		$states = (string)@shell_exec('/sbin/pfctl -ss 2>/dev/null | grep -cF ' . escapeshellarg(' ' . $ip . ':'));
-		$info['states'] = (int)trim($states);
+		/* pf prints "a.b.c.d:port" and "v6[port]"; count once per minute
+		 * at most, the state table can be large */
+		$cache = THREATSHIELD_CACHE_DIR . '/map_states.txt';
+		if (!is_file($cache) || time() - filemtime($cache) > 60) {
+			mwexec('/sbin/pfctl -ss > ' . escapeshellarg($cache . '.tmp') . ' 2>/dev/null && /bin/mv ' . escapeshellarg($cache . '.tmp') . ' ' . escapeshellarg($cache), true);
+		}
+		$needle = (strpos($ip, ':') !== false) ? ' ' . $ip . '[' : ' ' . $ip . ':';
+		$info['states'] = 0;
+		$fh = @fopen($cache, 'r');
+		while ($fh && ($line = fgets($fh)) !== false) {
+			if (strpos($line, $needle) !== false) $info['states']++;
+		}
+		if ($fh) fclose($fh);
 	}
 	if (function_exists('threatshield_ip_allow_entries')) {
 		foreach (threatshield_ip_allow_entries($cfg) as $cidr) {

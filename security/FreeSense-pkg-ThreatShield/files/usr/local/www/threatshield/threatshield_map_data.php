@@ -184,12 +184,12 @@ if ($what === 'ptr') {
 if ($what === 'ip') {
 	$ip = (string)($_GET['ip'] ?? '');
 	/* masked screens identify a source by id only */
-	if (!filter_var($ip, FILTER_VALIDATE_IP) && preg_match('/^[0-9a-f]{10}$/', (string)($_GET['id'] ?? ''))) {
+	if (!filter_var($ip, FILTER_VALIDATE_IP) && preg_match('/^[0-9a-f]{16}$/', (string)($_GET['id'] ?? ''))) {
 		$db = threatshield_map_db();
 		$st = $db ? $db->prepare('SELECT DISTINCT ip FROM events WHERE ip != \'\' ORDER BY seq DESC LIMIT 5000') : null;
 		$res = $st ? $st->execute() : null;
 		while ($res && ($r = $res->fetchArray(SQLITE3_NUM))) {
-			if (substr(md5((string)$r[0]), 0, 10) === $_GET['id']) { $ip = (string)$r[0]; break; }
+			if (hash_equals(threatshield_map_ip_id((string)$r[0]), (string)$_GET['id'])) { $ip = (string)$r[0]; break; }
 		}
 		if ($db) $db->close();
 	}

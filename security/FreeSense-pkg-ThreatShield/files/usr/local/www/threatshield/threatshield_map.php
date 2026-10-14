@@ -43,7 +43,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 		if (threatshield_apply($cfg, gettext('Threat Shield: turned on map locations'), gettext('Location data is downloading; the map fills in within a minute.'))) {
 			mwexec_bg(THREATSHIELD_UPDATER . ' geodb force');
 		}
-		threatshield_redirect((string)($_POST['back'] ?? $self));
+		$back = (string)($_POST['back'] ?? '');
+		threatshield_redirect(preg_match('/^threatshield_[a-z_]+\.php(\?[\w=&%.-]*)?$/', $back) ? $back : $self);
 	}
 	if (isset($_POST['save_map'])) {
 		$old_geo = $cfg['map_geodb'];
@@ -82,7 +83,7 @@ $asset = function (string $file): string {
 $geo_button = $can_configure ? '<form method="post" action="' . $self . '"><input type="hidden" name="back" value="' . htmlspecialchars($_SERVER['REQUEST_URI'] ?? $self) . '">'
     . '<button type="submit" name="enable_geodb" value="1" class="btn btn-sm btn-primary">' . htmlspecialchars(gettext('Turn on map locations')) . '</button></form>' : '';
 $js_text = [
-	'details' => gettext('Address details'), 'close' => gettext('Close'), 'loading' => gettext('Loading…'), 'noPtr' => gettext('No host name'),
+	'details' => gettext('Address details'), 'close' => gettext('Close'), 'loading' => gettext('Loading…'), 'cardFailed' => gettext('The details could not be loaded.'), 'noPtr' => gettext('No host name'),
 	'hits' => gettext('%d connections'), 'nothing' => gettext('Nothing yet'), 'blocked' => gettext('Blocked'), 'allowed' => gettext('Allowed'),
 	'blockedConn' => gettext('blocked connections'), 'paused' => gettext('Blocking paused'), 'protecting' => gettext('Protecting'), 'stopped' => gettext('Stopped'),
 	'health' => gettext('Health'), 'h_ok' => gettext('all checks passed'), 'h_warn' => gettext('needs attention'), 'h_fail' => gettext('problem'), 'h_unknown' => gettext('not checked yet'),

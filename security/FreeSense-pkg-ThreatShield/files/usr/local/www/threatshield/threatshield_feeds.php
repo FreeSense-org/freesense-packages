@@ -57,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 			$feed['url'] = $url;
 			if ($view === 'ip') {
 				$feed['id'] = $feed['id'] ?? ('c' . substr(md5($url), 0, 7));
-				$feed['kind'] = 'threat';
+				$feed['kind'] = (($feed['kind'] ?? '') === 'doh') ? 'doh' : 'threat';
 				$feed['direction'] = array_key_exists($_POST['feed_direction'] ?? '', $directions) ? $_POST['feed_direction'] : 'in';
 				$feed['log'] = isset($_POST['feed_log']) ? 'on' : 'off';
 			} else {

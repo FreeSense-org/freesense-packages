@@ -159,10 +159,13 @@ function threatshield_pf_early_rules(array $cfg, array $ctx): string {
 	/* C. GeoIP country policies */
 	if (($cfg['geoip_enable'] ?? 'off') === 'on') {
 		$family = (($cfg['geoip_ipv6'] ?? 'off') === 'on') ? '' : ' inet';
+		$seen = [];
 		foreach (threatshield_pf_list($cfg['geoip_policies'] ?? []) as $policy) {
 			if (!is_array($policy) || ($policy['enable'] ?? 'on') !== 'on' || empty(threatshield_pf_list($policy['countries'] ?? []))) continue;
-			$id = preg_replace('/[^a-z0-9_]/', '', strtolower((string)($policy['id'] ?? 'default'))) ?: 'default';
-			$table = 'freesense_geoip_' . substr($id, 0, 15);
+			$id = threatshield_geoip_policy_id($policy);
+			if (isset($seen[$id])) continue;    // two policies would share one table
+			$seen[$id] = true;
+			$table = 'freesense_geoip_' . $id;
 			$declare($table, "{$db}/geoip/{$id}.cidrs");
 			$proto = in_array(($policy['protocol'] ?? 'any'), ['tcp', 'udp'], true) ? ' proto ' . $policy['protocol'] : '';
 			$ports = ($proto !== '') ? threatshield_pf_ports((string)($policy['ports'] ?? 'any')) : '';
@@ -171,12 +174,13 @@ function threatshield_pf_early_rules(array $cfg, array $ctx): string {
 			foreach (threatshield_pf_list($policy['interfaces'] ?? []) as $friendly) {
 				$real = threatshield_pf_real($ctx, (string)$friendly);
 				if ($real === null) continue;
+				/* "allow selected" blocks everything outside the list, both ways */
+				$match = (($policy['action'] ?? 'block_selected') === 'allow_selected') ? "! <{$table}>" : "<{$table}>";
 				if ($direction === 'in' || $direction === 'both') {
-					$source = (($policy['action'] ?? 'block_selected') === 'allow_selected') ? "! <{$table}>" : "<{$table}>";
-					$rules .= "block in log quick on {$real}{$family}{$proto} from {$source} to any{$port} label \"ThreatShield GeoIP {$id} inbound\"\n";
+					$rules .= "block in log quick on {$real}{$family}{$proto} from {$match} to any{$port} label \"ThreatShield GeoIP {$id} inbound\"\n";
 				}
 				if ($direction === 'out' || $direction === 'both') {
-					$rules .= "block out log quick on {$real}{$family}{$proto} from any to <{$table}>{$port} label \"ThreatShield GeoIP {$id} outbound\"\n";
+					$rules .= "block out log quick on {$real}{$family}{$proto} from any to {$match}{$port} label \"ThreatShield GeoIP {$id} outbound\"\n";
 				}
 			}
 		}

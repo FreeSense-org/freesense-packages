@@ -347,7 +347,13 @@
 			}, this.o.poll);
 			return;
 		}
-		if (this.inflight) {
+		/* a replay owns the queue; live events resume when it ends */
+		if (this.inflight || this.replaying) {
+			if (this.replaying) {
+				this.timer = setTimeout(function () {
+					self.poll();
+				}, this.o.poll);
+			}
 			return;
 		}
 		this.inflight = true;
@@ -708,10 +714,15 @@
 		this.drawer.hidden = false;
 		var q = this.o.mask ? 'id=' + encodeURIComponent(d.id) + '&mask=1' : 'ip=' + encodeURIComponent(d.ip);
 		fetch(this.o.data + '?what=ip&' + q, {credentials: 'same-origin'}).then(function (r) {
+			if (!r.ok) {
+				throw new Error(String(r.status));
+			}
 			return r.text();
 		}).then(function (html) {
 			body.innerHTML = html;
 			self.wireCard(body);
+		}).catch(function () {
+			body.innerHTML = '<p class="tsm-note is-error">' + esc(self.t.cardFailed || 'The details could not be loaded.') + '</p>';
 		});
 	};
 
@@ -1107,7 +1118,12 @@
 		if (msg && this.o.alerts.sound && Date.now() - this.alerted > 60000) {
 			this.alerted = Date.now();
 			try {
-				var ac = new (global.AudioContext || global.webkitAudioContext)(), o = ac.createOscillator(), g = ac.createGain();
+				/* one context for the page: browsers cap how many may exist */
+				this.ac = this.ac || new (global.AudioContext || global.webkitAudioContext)();
+				var ac = this.ac, o = ac.createOscillator(), g = ac.createGain();
+				if (ac.state === 'suspended') {
+					ac.resume();
+				}
 				o.frequency.value = 880;
 				g.gain.value = 0.05;
 				o.connect(g).connect(ac.destination);

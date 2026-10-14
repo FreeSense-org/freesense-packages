@@ -39,6 +39,20 @@ function threatshield_dnsbl_static_known(array $cfg): array {
 	return array_values(array_unique(array_merge(threatshield_protected_ranges(), threatshield_local_networks(), threatshield_ip_allow_entries($cfg))));
 }
 
+/* The daemon writes known*.txt; until it runs (or while it is down) the
+ * allowlist and local ranges must still pass a "deny on failure" policy. */
+function threatshield_dnsbl_seed_known(array $cfg): void {
+	$static = threatshield_dnsbl_static_known($cfg);
+	foreach (['known.txt' => THREATSHIELD_T_KNOWN, 'known_f.txt' => THREATSHIELD_T_KNOWNF] as $name => $table) {
+		$file = THREATSHIELD_DNSBL_DIR . '/' . $name;
+		$have = is_file($file) ? array_values(array_filter(array_map('trim', (array)@file($file)))) : [];
+		$all = array_values(array_unique(array_merge($static, $have)));
+		if (is_file($file) && count($all) === count(array_unique($have))) continue;
+		threatshield_write_table_file($file, $all);
+		threatshield_pfctl_replace($table, $file);
+	}
+}
+
 function threatshield_dnsbl_status(): array {
 	$s = is_file(THREATSHIELD_DNSBL_STATUS) ? json_decode((string)@file_get_contents(THREATSHIELD_DNSBL_STATUS), true) : null;
 	return is_array($s) ? $s : [];

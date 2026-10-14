@@ -134,8 +134,7 @@ switch ($mode) {
 	case 'map-collect':
 		if (($cfg['enable'] ?? 'off') === 'on') {
 			threatshield_map_collect($cfg, true);
-			if ((int)date('i') === 7) threatshield_map_prune($cfg);    // hourly
-		}
+			}
 		exit(0);
 	case 'map-prune':
 		threatshield_map_prune($cfg);
@@ -144,15 +143,22 @@ switch ($mode) {
 		$kind = (string)($cfg['map_geodb'] ?? 'off');
 		if ($kind === 'off' && !$force) exit(0);
 		$meta = json_decode((string)@file_get_contents(THREATSHIELD_GEO_DIR . '/meta.json'), true);
-		$fresh = is_array($meta) && ($meta['month'] ?? '') === gmdate('Y-m') && (($meta['asn'] ?? false) || $kind !== 'country_asn');
-		if ($fresh && !$force) exit(0);
+		$have = is_array($meta) ? (string)($meta['month'] ?? '') : '';
+		$complete = $have !== '' && (($meta['asn'] ?? false) || $kind !== 'country_asn');
+		if ($complete && $have === gmdate('Y-m') && !$force) exit(0);
+		/* DB-IP publishes early in the month; until then only look for a
+		 * newer file instead of fetching last month's copy again every night */
+		$newer = array_values(array_filter(threatshield_geo_dbip_urls('country', time()),
+		    fn($u) => !preg_match('/(\d{4}-\d{2})\.csv\.gz$/', $u, $m) || $m[1] > $have));
+		if ($complete && !$force && empty($newer)) exit(0);
 		echo "[ThreatShield] Updating the IP location database (DB-IP Lite)...\n";
 		$tmpdir = THREATSHIELD_DB_DIR . '/geodb.download';
 		safe_mkdir($tmpdir, 0750);
 		$files = [];
 		foreach (($kind === 'country_asn') ? ['country', 'asn'] : ['country'] as $part) {
 			$error = 'no download';
-			foreach (threatshield_geo_dbip_urls($part, time()) as $url) {
+			$urls = ($part === 'country' && $complete && !$force) ? $newer : threatshield_geo_dbip_urls($part, time());
+			foreach ($urls as $url) {
 				$dest = $tmpdir . '/' . basename($url);
 				$error = threatshield_fetch("DB-IP {$part}", $url, $dest);
 				if ($error === null && (string)@file_get_contents($dest, false, null, 0, 2) !== "\x1f\x8b") $error = 'not a gzip file';
@@ -215,9 +221,12 @@ if (($mode === 'all' || $mode === 'ipfeeds') && ($force || threatshield_interval
 	foreach (threatshield_active_ipfeeds($cfg) as $feed) {
 		$url = (string)$feed['url'];
 		$dest = threatshield_ipfeed_raw_path($feed);
-		$error = threatshield_fetch((string)($feed['name'] ?? $url), $url, $dest);
-		$entries = ($error === null) ? count(threatshield_parse_ip_list((string)file_get_contents($dest))) : -1;
+		/* keep the last good copy until the new one proves to hold addresses */
+		$error = threatshield_fetch((string)($feed['name'] ?? $url), $url, $dest . '.new');
+		$entries = ($error === null) ? count(threatshield_parse_ip_list((string)file_get_contents($dest . '.new'))) : -1;
 		if ($entries === 0) $error = 'no IP addresses in the list';
+		if ($error === null && !@rename($dest . '.new', $dest)) $error = 'cannot replace the cached copy';
+		@unlink($dest . '.new');
 		threatshield_record_status($url, $error, $dest, $entries);
 		$any = $any || $error === null;
 	}
