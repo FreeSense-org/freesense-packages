@@ -27,6 +27,7 @@ $day_labels = ['mon' => gettext('Monday'), 'tue' => gettext('Tuesday'), 'wed' =>
 $filtering_labels = ['inherit' => gettext('Use the global settings'), 'on' => gettext('Always filter'), 'off' => gettext('No filtering')];
 $profiles = threatshield_normalize_list($cfg['clients'] ?? []);
 $edit = $_GET['edit'] ?? ($_POST['profile_index'] ?? null);
+$edit = ($edit === null) ? null : (string)$edit;
 $input_errors = [];
 
 /* schedule fields posted as sched_<day>_on/start/end */
@@ -43,7 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 	$changed = false;
 	$message = '';
 	if (isset($_POST['save_profile'])) {
-		$index = ($edit === 'new' || $edit === null || !isset($profiles[(int)$edit])) ? null : (int)$edit;
+		$index = ($edit === null || !ctype_digit($edit) || !isset($profiles[(int)$edit])) ? null : (int)$edit;
 		$ids = array_values(array_filter(array_map('trim', preg_split('/[\s,]+/', (string)($_POST['profile_ids'] ?? '')))));
 		$p = [
 			'name' => trim((string)($_POST['profile_name'] ?? '')),
@@ -59,9 +60,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 		} else {
 			if ($index === null) $profiles[] = $p; else $profiles[$index] = $p;
 			$cfg['clients'] = $profiles;
-			$errors = [];
-			if (threatshield_save_and_apply($cfg, gettext('Threat Shield: saved a client profile'), $errors)) {
+			$errors = $warnings = [];
+			if (threatshield_save_and_apply($cfg, gettext('Threat Shield: saved a client profile'), $errors, $warnings)) {
 				threatshield_flash('ok', sprintf(gettext('Profile "%s" saved.'), $p['name']));
+				threatshield_flash('warn', $warnings);
 				threatshield_redirect('threatshield_clients.php?view=profiles');
 			}
 			$input_errors = $errors;

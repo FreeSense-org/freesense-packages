@@ -32,6 +32,9 @@ const TSD_FILES_SECS = 15;
 const TSD_SWEEP_SECS = 30;
 const TSD_STATUS_SECS = 5;
 const TSD_PROBE_SECS = 15;
+const TSD_KILLS_PER_FLUSH = 100;    // pfctl -k runs per second at most
+const TSD_KILLS_PENDING = 2000;     // older states just time out
+const TSD_FAIL_MAX = 20000;         // failed sources held at once
 
 final class ThreatShieldDnsbl {
 	private array $cfg = [];
@@ -62,6 +65,8 @@ final class ThreatShieldDnsbl {
 	private ?SQLite3 $db = null;
 	private $tcpdump = null;
 	private $pipe = null;
+	private int $backoff = 1;       // seconds before tcpdump is restarted
+	private int $retry_at = 0;
 	private float $tokens = 0;
 	private float $last_refill = 0;
 	private ?int $fail_since = null;
@@ -70,7 +75,7 @@ final class ThreatShieldDnsbl {
 	private string $last_error = '';
 	private bool $reload = false;
 	private bool $stop = false;
-	private array $stats = ['lookups' => 0, 'listed' => 0, 'clean' => 0, 'failures' => 0, 'cache_hits' => 0,
+	private array $stats = ['lookups' => 0, 'listed' => 0, 'clean' => 0, 'failures' => 0, 'cache_hits' => 0, 'dropped_fail' => 0,
 	    'dropped_ingest' => 0, 'dropped_queue' => 0, 'per_zone' => []];
 	private array $recent = [];     // lookup timestamps for the qps figure
 	private array $verdicts = [];   // newest fresh verdicts for the threat map
@@ -97,9 +102,14 @@ final class ThreatShieldDnsbl {
 			if ($now - $timers['files'] >= TSD_FILES_SECS) { $this->write_files(); $timers['files'] = $now; }
 			if ($now - $timers['sweep'] >= TSD_SWEEP_SECS) { $this->sweep(); $timers['sweep'] = $now; }
 			if ($now - $timers['status'] >= TSD_STATUS_SECS) { $this->write_status(); $timers['status'] = $now; }
-			if ($this->tcpdump !== null && !proc_get_status($this->tcpdump)['running']) {
-				$this->last_error = 'tcpdump exited; restarting';
+			if ($this->tcpdump !== null && is_resource($this->pipe) && !proc_get_status($this->tcpdump)['running']) $this->close_input();
+			/* tcpdump stopped (pflog1 missing, killed): restart it, waiting
+			 * longer each time so a lasting failure doesn't spin */
+			if (!is_resource($this->pipe) && $now >= $this->retry_at) {
+				$this->last_error = 'tcpdump on pflog1 stopped; restarting';
 				$this->open_tcpdump();
+				$this->retry_at = $now + $this->backoff;
+				$this->backoff = min(60, $this->backoff * 2);
 			}
 		}
 		$this->flush_pf();
@@ -170,8 +180,18 @@ final class ThreatShieldDnsbl {
 		logger(LOG_INFO, sprintf('Threat Shield DNSBL: %d zones via %s:%d, %d cached verdicts', count($this->zones), $this->server, $this->port, count($this->known) + count($this->bad)));
 	}
 
-	private function open_tcpdump(): void {
+	private function close_input(): void {
 		if (is_resource($this->pipe)) fclose($this->pipe);
+		$this->pipe = null;
+	}
+
+	private function open_tcpdump(): void {
+		$this->close_input();
+		if ($this->tcpdump !== null) {
+			@proc_terminate($this->tcpdump);
+			@proc_close($this->tcpdump);
+			$this->tcpdump = null;
+		}
 		/* Tests feed tcpdump-formatted lines through a FIFO instead. */
 		$input = (string)getenv('THREATSHIELD_DNSBL_INPUT');
 		if ($input !== '' && file_exists($input)) {
@@ -213,9 +233,11 @@ final class ThreatShieldDnsbl {
 				$this->stats['dropped_ingest']++;
 				continue;
 			}
+			$this->backoff = 1;
 			$ip = threatshield_dnsbl_pflog_source($line);
 			if ($ip !== null) $this->observe($ip);
 		}
+		if (feof($this->pipe)) $this->close_input();
 	}
 
 	/* A new source showed up on a protected port. */
@@ -408,7 +430,7 @@ final class ThreatShieldDnsbl {
 			unset($this->known[$ip], $this->fail[$ip]);
 			$this->queue_pf('add', THREATSHIELD_T_BAD, $ip);
 			foreach ([THREATSHIELD_T_KNOWN, THREATSHIELD_T_KNOWNF, THREATSHIELD_T_FAIL] as $t) $this->queue_pf('delete', $t, $ip);
-			if ($this->kill_on_listed) $this->pending['kill'][$ip] = true;
+			if ($this->kill_on_listed) $this->queue_kill($ip);
 			if ($fresh) $this->stats['listed']++;
 		} elseif ($verdict === 'clean') {
 			$this->known[$ip] = $expires;
@@ -418,11 +440,18 @@ final class ThreatShieldDnsbl {
 			$this->queue_pf('delete', THREATSHIELD_T_FAIL, $ip);
 			if ($fresh) $this->stats['clean']++;
 		} else {
+			/* A spoofed flood while the resolver is down would otherwise grow
+			 * this without limit; past the cap a source stays unverified:
+			 * greylisting keeps dropping it, a background check lets it by. */
+			if (!isset($this->fail[$ip]) && count($this->fail) >= $this->fail_max()) {
+				$this->stats['dropped_fail']++;
+				return;
+			}
 			$this->fail[$ip] = $expires;
 			$this->queue_pf('add', THREATSHIELD_T_KNOWNF, $ip);
 			if ($this->deny_fail_table) {
 				$this->queue_pf('add', THREATSHIELD_T_FAIL, $ip);
-				$this->pending['kill'][$ip] = true;
+				$this->queue_kill($ip);
 			}
 			$this->stats['failures']++;
 		}
@@ -443,6 +472,14 @@ final class ThreatShieldDnsbl {
 		}
 	}
 
+	private function fail_max(): int {
+		return max(1000, min($this->cache_max, TSD_FAIL_MAX));
+	}
+
+	private function queue_kill(string $ip): void {
+		if (count($this->pending['kill']) < TSD_KILLS_PENDING) $this->pending['kill'][$ip] = true;
+	}
+
 	private function queue_pf(string $op, string $table, string $ip): void {
 		$other = ($op === 'add') ? 'delete' : 'add';
 		unset($this->pending[$other][$table][$ip]);
@@ -457,10 +494,11 @@ final class ThreatShieldDnsbl {
 				}
 			}
 		}
-		foreach (array_keys($this->pending['kill']) as $ip) {
+		foreach (array_slice(array_keys($this->pending['kill']), 0, TSD_KILLS_PER_FLUSH) as $ip) {
 			mwexec('/sbin/pfctl -k ' . escapeshellarg($ip), true);
+			unset($this->pending['kill'][$ip]);
 		}
-		$this->pending = ['add' => [], 'delete' => [], 'kill' => []];
+		$this->pending['add'] = $this->pending['delete'] = [];
 	}
 
 	/* The table files survive filter reloads and reboots. */
@@ -503,15 +541,26 @@ final class ThreatShieldDnsbl {
 				$this->files_dirty = true;
 			}
 		}
-		foreach (['known', 'bad'] as $map) {
-			if (count($this->{$map}) > $this->cache_max) {
-				asort($this->{$map});
-				$this->{$map} = array_slice($this->{$map}, count($this->{$map}) - $this->cache_max, null, true);
-				$this->files_dirty = true;
+		/* over the limit: the entries expiring first go, from pf as well */
+		$limits = ['known' => [$this->cache_max, [THREATSHIELD_T_KNOWN, THREATSHIELD_T_KNOWNF]], 'bad' => [$this->cache_max, [THREATSHIELD_T_BAD]],
+		    'fail' => [$this->fail_max(), [THREATSHIELD_T_KNOWNF, THREATSHIELD_T_FAIL]]];
+		foreach ($limits as $map => [$max, $tables]) {
+			$over = count($this->{$map}) - $max;
+			if ($over <= 0) continue;
+			asort($this->{$map});
+			foreach (array_slice(array_keys($this->{$map}), 0, $over) as $ip) {
+				unset($this->{$map}[$ip]);
+				foreach ($tables as $t) {
+					if ($map === 'fail' && $t === THREATSHIELD_T_KNOWNF && isset($this->known[$ip])) continue;
+					$this->queue_pf('delete', $t, $ip);
+				}
 			}
+			$this->files_dirty = true;
 		}
 		if ($this->db !== null) {
 			$this->db->exec('DELETE FROM verdicts WHERE expires <= ' . $now);
+			/* the cache file keeps at most twice what memory holds */
+			$this->db->exec('DELETE FROM verdicts WHERE ip IN (SELECT ip FROM verdicts ORDER BY checked DESC LIMIT -1 OFFSET ' . ($this->cache_max * 2) . ')');
 		}
 		$this->recent = array_values(array_filter($this->recent, fn($t) => $t > $now - 60));
 		/* a filter reload re-reads the files; make sure pf still has what we hold */

@@ -466,6 +466,11 @@ function threatshield_pf_ident(string $value, int $max = 12): string {
 	return substr(preg_replace('/[^a-z0-9]/', '', strtolower($value)), 0, $max);
 }
 
+/* GeoIP policy id as used in table names (31 characters), labels and files */
+function threatshield_geoip_policy_id(array $policy): string {
+	return substr(preg_replace('/[^a-z0-9_]/', '', strtolower((string)($policy['id'] ?? 'default'))), 0, 15) ?: 'default';
+}
+
 function threatshield_valid_ifname(string $value): bool {
 	return (bool)preg_match('/^[A-Za-z0-9_.:-]{1,32}$/', $value);
 }

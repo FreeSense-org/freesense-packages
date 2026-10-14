@@ -434,6 +434,9 @@ function threatshield_validate_config(array $cfg): array {
 			!in_array(($policy['protocol'] ?? ''), ['any','tcp','udp'], true)) {
 			$errors[] = gettext('Every GeoIP policy needs countries, interfaces, a valid action, direction, and protocol.'); break;
 		}
+		if (!preg_match('/^[a-z0-9_]{1,15}$/', (string)($policy['id'] ?? 'default'))) {
+			$errors[] = gettext('A GeoIP policy ID may only use a-z, 0-9 and _ (up to 15 characters).'); break;
+		}
 		$policy_ifs = array_map('strval', threatshield_normalize_list($policy['interfaces']));
 		if (!empty(array_diff($policy_ifs, $assigned))) {
 			$errors[] = gettext('A GeoIP policy references an unassigned interface.'); break;
@@ -1324,6 +1327,7 @@ function threatshield_update_ip_tables(?array $cfg = null): void {
 	// allowlist (trusted sources) doesn't apply; protected ranges still do.
 	threatshield_write_table_file(THREATSHIELD_IP_DIR . '/doh.txt', threatshield_build_table_lines($doh, [], $protected));
 	threatshield_pfctl_replace(THREATSHIELD_T_DOH, THREATSHIELD_IP_DIR . '/doh.txt');
+	if (threatshield_dnsbl_wanted($cfg)) threatshield_dnsbl_seed_known($cfg);
 }
 
 function threatshield_remove_config(): void {
@@ -1364,6 +1368,7 @@ function threatshield_cron_jobs(): array {
 		[THREATSHIELD_UPDATER . ' health', '*/5', '*'],
 		[THREATSHIELD_UPDATER . ' geodb', '51', '3'],
 		[THREATSHIELD_UPDATER . ' map-collect', '*', '*'],
+		[THREATSHIELD_UPDATER . ' map-prune', '7', '*'],
 		[THREATSHIELD_UPDATER . ' flood-expire', '*', '*'],
 	];
 }
@@ -1377,6 +1382,7 @@ function threatshield_install_cron(?array $cfg = null): void {
 	$map = ($cfg['enable'] ?? 'off') === 'on' && ($cfg['map_background'] ?? 'on') === 'on';
 	foreach (threatshield_cron_jobs() as [$command, $minute, $hour]) {
 		$wanted = (!str_ends_with($command, 'flood-expire') || $flood) && (!str_ends_with($command, 'map-collect') || $map)
+		    && (!str_ends_with($command, 'map-prune') || ($cfg['enable'] ?? 'off') === 'on')
 		    && (!str_ends_with($command, 'geodb') || ($cfg['map_geodb'] ?? 'off') !== 'off');
 		install_cron_job($command, $wanted, $minute, $hour, '*', '*', '*', 'root');
 	}
@@ -1414,7 +1420,10 @@ function threatshield_rule_context(array $cfg, string $type): array {
 	if ($type === 'nat') $ctx['healthy'] = threatshield_listener_healthy($cfg);
 	if ($type === 'pfearly') {
 		$ctx['dnsbl_up'] = threatshield_dnsbl_running();
-		if (threatshield_dnsbl_wanted($cfg)) threatshield_ensure_pflog1();
+		if (threatshield_dnsbl_wanted($cfg)) {
+			threatshield_ensure_pflog1();
+			threatshield_dnsbl_seed_known($cfg);
+		}
 		threatshield_dump_flood_table();
 	}
 	return $ctx;
@@ -1446,6 +1455,14 @@ function threatshield_dump_flood_table(): void {
 function threatshield_generate_rules(string $type): string {
 	if ($type !== 'nat' && $type !== 'pfearly') return '';
 	if (!empty($GLOBALS['threatshield_removing'])) return '';
+	/* The firewall writes this file when it rejects our rules and never
+	 * removes it; start each reload clean (nat and pfearly run in the same
+	 * process, so a rejection in either one is kept). */
+	static $cleared = false;
+	if (!$cleared) {
+		@unlink('/tmp/rules.packages.threatshield');
+		$cleared = true;
+	}
 	$cfg = threatshield_config();
 	if (($cfg['enable'] ?? 'off') !== 'on') return '';
 	$ctx = threatshield_rule_context($cfg, $type);
@@ -1473,7 +1490,7 @@ function threatshield_update_geoip(?array $cfg = null): void {
 	$protected = array_merge(threatshield_protected_ranges(), threatshield_local_networks());
 	foreach (threatshield_normalize_list($cfg['geoip_policies'] ?? []) as $policy) {
 		if (!is_array($policy) || ($policy['enable'] ?? 'on') !== 'on') continue;
-		$id = preg_replace('/[^a-z0-9_]/', '', strtolower((string)($policy['id'] ?? 'default'))) ?: 'default';
+		$id = threatshield_geoip_policy_id($policy);
 		$cidrs = [];
 		foreach (threatshield_normalize_list($policy['countries'] ?? []) as $cc) {
 			$cc_clean = strtoupper(preg_replace('/[^A-Za-z]/', '', (string)$cc));

@@ -40,7 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 	$changed = false;
 	$message = '';
 	if (isset($_POST['save_policy'])) {
-		$index = ($edit === 'new' || $edit === null || !isset($policies[(int)$edit])) ? null : (int)$edit;
+		$index = ($edit === null || !ctype_digit($edit) || !isset($policies[(int)$edit])) ? null : (int)$edit;
 		$p = ($index !== null) ? $policies[$index] : $blank_policy;
 		$p['name'] = trim((string)($_POST['name'] ?? ''));
 		$p['enable'] = isset($_POST['enable']) ? 'on' : 'off';
@@ -160,6 +160,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 			$changed = true;
 		}
 		$message = (string)$m;
+	} elseif (isset($_POST['check'])) {
+		/* answered on this page below; a lookup sends the address out, so
+		 * it needs a POST with the CSRF token */
 	} elseif (isset($_POST['release'])) {
 		$ok = threatshield_flood_release((string)$_POST['release'], (string)($_POST['table'] ?? THREATSHIELD_T_FLOOD));
 		threatshield_flash($ok ? 'ok' : 'error', $ok ? sprintf(gettext('%s released.'), (string)$_POST['release']) : gettext('The address could not be released.'));
@@ -167,12 +170,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 	if ($changed && empty($input_errors)) {
 		threatshield_apply($cfg, gettext('Threat Shield: updated inbound protection'), $message);
 	}
-	if (empty($input_errors) && !isset($_POST['save_policy'])) threatshield_redirect($self);
+	if (empty($input_errors) && !isset($_POST['save_policy']) && !isset($_POST['check'])) threatshield_redirect($self);
 }
 
 $editing = ($edit !== null);
 if ($editing && $pconfig === null) {
-	$pconfig = ($edit !== 'new' && isset($policies[(int)$edit])) ? $policies[(int)$edit] + $blank_policy : $blank_policy;
+	$pconfig = (ctype_digit($edit) && isset($policies[(int)$edit])) ? $policies[(int)$edit] + $blank_policy : $blank_policy;
 }
 $status = threatshield_dnsbl_status();
 
@@ -496,7 +499,7 @@ else:
 	$total = 0;
 	$rows = threatshield_dnsbl_rows($verdict, $search, 50, $page * 50, $total);
 	$flood = threatshield_flood_entries();
-	$check_ip = trim((string)($_GET['check'] ?? ''));
+	$check_ip = trim((string)($_POST['check'] ?? ''));
 	$check = ($check_ip !== '') ? threatshield_dnsbl_lookup($check_ip, $cfg) : null;
 ?>
 <div class="fs-tiles">
@@ -512,8 +515,7 @@ else:
 <div class="panel panel-default">
 	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Check an address')?></h2></div>
 	<div class="panel-body ts-pad">
-		<form method="get" action="threatshield_inbound.php" class="ts-log-filter">
-			<input type="hidden" name="view" value="activity">
+		<form method="post" action="threatshield_inbound.php?view=activity" class="ts-log-filter">
 			<input type="text" class="form-control fs-mono ts-check-ip" name="check" value="<?=htmlspecialchars($check_ip)?>" placeholder="198.51.100.7" aria-label="<?=gettext('IP address')?>" required>
 			<button type="submit" class="btn btn-sm btn-outline-secondary"><i class="fa-solid fa-magnifying-glass icon-embed-btn" aria-hidden="true"></i><?=gettext('Look up now')?></button>
 			<span class="form-text"><?=gettext('Asks every enabled zone directly, without the cache, and does not change any verdict.')?></span>

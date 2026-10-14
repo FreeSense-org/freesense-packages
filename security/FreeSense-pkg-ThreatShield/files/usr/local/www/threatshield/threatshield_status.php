@@ -375,6 +375,21 @@ events.push(function () {
 	])?>;
 
 	/* ------------------------------------------------ health pill */
+	/* forms that arrive with fetch() miss the token csrf-magic adds at page load */
+	function addToken(root) {
+		if (!window.csrfMagicName || !window.csrfMagicToken) {
+			return;
+		}
+		root.querySelectorAll('form[method="post"], form[method="POST"]').forEach(function (f) {
+			if (!f.querySelector('input[name="' + window.csrfMagicName + '"]')) {
+				var i = document.createElement('input');
+				i.type = 'hidden';
+				i.name = window.csrfMagicName;
+				i.value = window.csrfMagicToken;
+				f.appendChild(i);
+			}
+		});
+	}
 	var pill = document.querySelector('[data-ts-pill]');
 	var panel = document.getElementById('ts-health-panel');
 	function loadHealth(url) {
@@ -391,6 +406,7 @@ events.push(function () {
 			pill.querySelector('[data-ts-pill-text]').textContent = (j.worst === 'ok') ? T.ok.replace('%d', j.total)
 				: (j.worst === 'fail' ? T.fail.replace('%d', j.counts.fail) : T.warn.replace('%d', bad));
 			panel.querySelector('[data-ts-health-body]').innerHTML = j.html;
+			addToken(panel);
 			if (j.worst !== 'ok') {
 				panel.hidden = false;
 				pill.setAttribute('aria-expanded', 'true');

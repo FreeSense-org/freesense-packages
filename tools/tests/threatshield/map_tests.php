@@ -164,3 +164,31 @@ same('events search', 1, count(threatshield_map_events($db, 0, time() - 3600, ['
 same('dots per source (located only)', 3, count(threatshield_map_dots($db, time() - 3600, [], false)));
 same('mask IPv6', '2001:db8:1::x', threatshield_map_mask('2001:db8:1:2::5'));
 $db->close();
+
+/* ------------------------------------------------------------- audit fixes */
+same('mask short IPv6', ['2a01::x', 'fe80::x', '::x', 'x'], [threatshield_map_mask('2a01::5'), threatshield_map_mask('fe80::1'), threatshield_map_mask('::1'), threatshield_map_mask('nonsense')]);
+same('mask IPv4', '203.0.113.x', threatshield_map_mask('203.0.113.77'));
+$id = threatshield_map_ip_id('198.51.100.7');
+check('ip id is 16 hex characters', (bool)preg_match('/^[0-9a-f]{16}$/', $id));
+same('ip id is stable', $id, threatshield_map_ip_id('198.51.100.7'));
+check('ip id is not a plain hash', $id !== substr(md5('198.51.100.7'), 0, 16) && $id !== substr(hash('sha256', '198.51.100.7'), 0, 16));
+$base = "@12 pass in quick on vtnet1 inet from 192.0.2.0/24 to any flags S/SA keep state label \"id=1700000103\" label \"tags=user_rule\" label \"descr=Allow web\" ridentifier 1700000103\n"
+    . "@13 block drop in log quick on vtnet0 all label \"id=1700000104\" label \"tags=user_rule\" ridentifier 1700000104\n";
+$idx = threatshield_map_parse_pf_rules($base);
+same('rule index prefers descr=', 'Allow web', $idx['t']['1700000103']);
+same('rule index skips id= and tags=', 'Block rule', $idx['t']['1700000104']);
+
+$c = threatshield_config();
+$c['geoip_enable'] = 'on';
+$c['geoip_policies'] = [
+	['id' => 'allowonly', 'enable' => 'on', 'countries' => ['DK'], 'interfaces' => ['wan'], 'action' => 'allow_selected', 'direction' => 'both', 'protocol' => 'any'],
+	['id' => 'allowonly', 'enable' => 'on', 'countries' => ['SE'], 'interfaces' => ['wan'], 'action' => 'block_selected', 'direction' => 'in', 'protocol' => 'any'],
+	['id' => 'a_very_long_policy_identifier', 'enable' => 'on', 'countries' => ['NO'], 'interfaces' => ['wan'], 'action' => 'block_selected', 'direction' => 'in', 'protocol' => 'any'],
+];
+$early = threatshield_pf_early_rules($c, ts_test_ctx());
+check('allow selected blocks the rest outbound', strpos($early, 'from any to ! <freesense_geoip_allowonly> label "ThreatShield GeoIP allowonly outbound"') !== false);
+check('allow selected blocks the rest inbound', strpos($early, 'from ! <freesense_geoip_allowonly> to any label "ThreatShield GeoIP allowonly inbound"') !== false);
+same('duplicate GeoIP id is used once', 2, substr_count($early, 'ThreatShield GeoIP allowonly '));
+check('long GeoIP id is cut to 15', strpos($early, '<freesense_geoip_a_very_long_pol>') !== false && strpos($early, 'GeoIP a_very_long_pol inbound') !== false);
+$c['geoip_policies'][0]['id'] = 'Bad-ID';
+check('invalid GeoIP id is refused', in_array(gettext('A GeoIP policy ID may only use a-z, 0-9 and _ (up to 15 characters).'), threatshield_validate_config($c), true));

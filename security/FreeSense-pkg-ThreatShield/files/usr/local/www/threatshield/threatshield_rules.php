@@ -59,9 +59,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 		}
 	}
 	if ($changed && empty($input_errors)) {
-		$errors = [];
-		if (threatshield_save_and_apply($cfg, gettext('Threat Shield: updated DNS rules'), $errors)) {
+		$errors = $warnings = [];
+		if (threatshield_save_and_apply($cfg, gettext('Threat Shield: updated DNS rules'), $errors, $warnings)) {
 			threatshield_flash('ok', $message);
+			threatshield_flash('warn', $warnings);
 		} else {
 			$input_errors = $errors;
 		}
