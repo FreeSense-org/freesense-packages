@@ -160,6 +160,12 @@ def main() -> int:
     status = (PORT / "files/usr/local/www/threatshield/threatshield_status.php").read_text(encoding="utf-8")
     if "<?=$client_ip?>" in querylog or "<?=$hostname?>" in querylog or "<?=$ip?>" in status:
         errors.append("Threat Shield status pages render unescaped client-controlled values")
+    # AdGuard Home's querylog reports block-list hits as FilteredBlackList.
+    if "'FilteredBlackList'" not in querylog or "'FilteredBlocked'" in querylog:
+        errors.append("query log does not recognise AdGuard Home's blocked reasons")
+    # Browsers submit textareas with CRLF; older systems drop CR from config.xml.
+    if 'str_replace(["\\r\\n", "\\r"], "\\n"' not in integration:
+        errors.append("stored settings do not normalize CRLF line breaks")
 
     if errors:
         print("Threat Shield smoke check failed:", file=sys.stderr)

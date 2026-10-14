@@ -47,7 +47,9 @@ $running = threatshield_is_running();
 $raw_log = threatshield_api_request('querylog?limit=100');
 $entries = $raw_log['data'] ?? [];
 $dhcp_hosts = threatshield_get_dhcp_hostnames();
-$blocked_reasons = ['FilteredBlocked', 'BlockedParental', 'BlockedSafeBrowsing'];
+/* AdGuard Home filtering reasons (internal/filtering Reason). Safe search answers with a rewrite. */
+$blocked_reasons = ['FilteredBlackList', 'FilteredSafeBrowsing', 'FilteredParental', 'FilteredInvalid', 'FilteredBlockedService'];
+$rewrite_reasons = ['Rewrite', 'RewriteEtcHosts', 'RewriteRule', 'FilteredSafeSearch'];
 
 $search = trim($_GET['search'] ?? '');
 $filter_status = $_GET['filter'] ?? 'all';
@@ -84,7 +86,7 @@ $latency_sum = 0.0;
 foreach ($entries as $e) {
 	$reason = $e['reason'] ?? '';
 	if (in_array($reason, $blocked_reasons, true)) $count_blocked++;
-	elseif ($reason === 'Rewrite') $count_rewritten++;
+	elseif (in_array($reason, $rewrite_reasons, true)) $count_rewritten++;
 	$latency_sum += (float)($e['elapsedMs'] ?? 0);
 }
 $filtered = ($search !== '' || $filter_status !== 'all');
@@ -207,7 +209,7 @@ foreach ($entries as $e):
 					<td>
 <?php	if ($is_blocked): ?>
 						<?=fs_badge('block', gettext('Blocked'), (string)$reason)?>
-<?php	elseif ($reason === 'Rewrite'): ?>
+<?php	elseif (in_array($reason, $rewrite_reasons, true)): ?>
 						<?=fs_badge('info', gettext('Rewritten'))?>
 <?php	else: ?>
 						<?=fs_badge('pass', gettext('Allowed'))?>

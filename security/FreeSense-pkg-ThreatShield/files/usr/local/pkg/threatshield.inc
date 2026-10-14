@@ -240,7 +240,10 @@ function threatshield_config_for_storage(array $candidate): array {
 		} elseif (is_array($v)) {
 			$clean[$k] = threatshield_storage_value($v);
 		} elseif (is_scalar($v)) {
-			$clean[$k] = (string)$v;
+			// Browsers submit textareas with CRLF. Store LF only: older system
+			// releases drop CR line breaks from config.xml, so the saved value never
+			// matched the persisted one and every save was rolled back.
+			$clean[$k] = str_replace(["\r\n", "\r"], "\n", (string)$v);
 		}
 	}
 	return $clean;
