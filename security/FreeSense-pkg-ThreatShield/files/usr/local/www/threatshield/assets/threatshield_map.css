@@ -336,8 +336,10 @@ body.tsk {
 .tsk-mapbox .tsm { position: absolute; inset: 0; height: auto !important; border-radius: 0; }
 .tsk-kpibar { grid-column: 1 / -1; }
 .tsk-col { display: flex; flex-direction: column; gap: .75rem; min-height: 0; overflow: hidden; }
-.tsk-col > .tsk-box { flex: 0 1 auto; }
-.tsk-col > .tsk-grow { flex: 1 1 0; }
+/* side columns share the height: each panel shrinks in proportion to its
+ * content (lists are cut, never a panel), so 900 px screens keep every one */
+.tsk-col > .tsk-box { flex: 1 1 auto; min-height: 4.5rem; overflow: hidden; }
+.tsk-col .tsm-rank ul { -webkit-mask-image: linear-gradient(to bottom, #000 85%, transparent); mask-image: linear-gradient(to bottom, #000 85%, transparent); }
 .tsk-bottom { display: flex; gap: .75rem; min-height: 0; }
 .tsk-bottom > .tsk-box { flex: 1 1 0; }
 .tsk-bottom > .tsk-feed { flex: 2 1 0; }
