@@ -2,6 +2,9 @@
 /*
  * threatshield_geoip.php
  * FreeSense Threat Shield - Native GeoIP & Country Protection
+ *
+ * Copyright (c) 2025-2026 The FreeSense Project.
+ * Licensed under the Apache License, Version 2.0.
  */
 
 ##|+PRIV
@@ -13,6 +16,7 @@
 
 require_once('guiconfig.inc');
 require_once('/usr/local/pkg/threatshield.inc');
+require_once('/usr/local/pkg/threatshield/threatshield_ui.inc');
 
 $input_errors = [];
 $savemsg = null;
@@ -67,6 +71,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 		$ts_config['geoip_enable'] = isset($_POST['geoip_enable']) ? 'on' : 'off';
 		$ts_config['geoip_countries'] = array_map('strtoupper', (array)($_POST['countries'] ?? []));
 		$ts_config['geoip_update_interval'] = in_array($_POST['geoip_update_interval'] ?? '', ['6hours','12hours','daily','weekly'], true) ? $_POST['geoip_update_interval'] : 'weekly';
+		$ts_config['geoip_ipv6'] = isset($_POST['geoip_ipv6']) ? 'on' : 'off';
 		$ts_config['geoip_policies'] = [[
 			'id' => 'default', 'enable' => $ts_config['geoip_enable'],
 			'action' => in_array($_POST['geoip_action'] ?? '', ['block_selected','allow_selected'], true) ? $_POST['geoip_action'] : 'block_selected',
@@ -75,10 +80,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 			'protocol' => in_array($_POST['geoip_protocol'] ?? '', ['any','tcp','udp'], true) ? $_POST['geoip_protocol'] : 'any',
 			'ports' => trim((string)($_POST['geoip_ports'] ?? 'any')) ?: 'any', 'countries' => $ts_config['geoip_countries'],
 		]];
-		if (threatshield_save_and_apply($ts_config, gettext('Updated Threat Shield GeoIP settings.'), $input_errors)) $savemsg = gettext('GeoIP country protection settings saved and applied to PF kernel tables.');
+		$warnings = [];
+		if (threatshield_save_and_apply($ts_config, gettext('Updated Threat Shield GeoIP settings.'), $input_errors, $warnings)) {
+			threatshield_flash('ok', gettext('GeoIP country policy saved and loaded into the firewall.'));
+			threatshield_flash('warn', $warnings);
+			threatshield_redirect('threatshield_geoip.php');
+		}
 	} elseif (isset($_POST['update_geoip_now'])) {
-		mwexec_bg('/usr/local/sbin/freesense-threatshield-update geoip force');
-		$savemsg = gettext('GeoIP Country CIDR database download started in background.');
+		mwexec_bg(THREATSHIELD_UPDATER . ' geoip force');
+		threatshield_flash('ok', gettext('Country lists are downloading in the background.'));
+		threatshield_redirect('threatshield_geoip.php');
 	}
 }
 
@@ -99,12 +110,7 @@ fs_page_action(gettext('Update database'), 'threatshield_geoip.php?update_geoip_
 
 include('head.inc');
 
-if ($input_errors) {
-	print_input_errors($input_errors);
-}
-if ($savemsg) {
-	print_info_box($savemsg, 'success');
-}
+threatshield_print_messages($input_errors);
 
 threatshield_display_tabs('geoip');
 
@@ -121,6 +127,7 @@ fs_summary_card([
 		[gettext('Interfaces'), '', 'chips' => array_map(function ($k) use ($interfaces) { return $interfaces[$k] ?? strtoupper($k); }, $policy_ifs), 'empty' => gettext('None')],
 		[gettext('Traffic'), ($protocol_labels[$policy['protocol'] ?? 'any'] ?? '') . ' / ' . ((strtolower($ports) === 'any') ? gettext('any port') : $ports)],
 		[gettext('Database'), threatshield_age($last_update), 'note' => ($last_update > 0) ? date('Y-m-d H:i', $last_update) : ''],
+		[gettext('Addresses'), (($ts_config['geoip_ipv6'] ?? 'off') === 'on') ? gettext('IPv4 and IPv6') : gettext('IPv4 only')],
 	],
 ]);
 
@@ -146,7 +153,7 @@ $section = new Form_Section('Policy');
 $section->addInput(new Form_Checkbox('geoip_enable', 'Enable', 'Enforce the country policy', $geo_on, 'on'))
 	->setHelp('Adds firewall rules for the selected countries on the chosen interfaces, protocol and ports.');
 $section->addInput(new Form_Select('geoip_action', 'Action', $policy['action'] ?? 'block_selected', $action_labels))
-	->setHelp('"Allow only" blocks every country that is not selected.');
+	->setHelp('"Allow only" blocks every country that is not selected, on WAN interfaces only. Private and local addresses and the IP allowlist always stay allowed.');
 $section->addInput(new Form_Select('geoip_direction', 'Direction', $policy['direction'] ?? 'in', $direction_labels));
 $group = new Form_MultiCheckboxGroup('Interfaces');
 $group->addClass('notoggleall');
@@ -169,6 +176,8 @@ $section->addInput(new Form_Select('geoip_update_interval', 'Update database', (
 	'daily' => gettext('Daily'),
 	'weekly' => gettext('Weekly'),
 ]))->setHelp('How often the country network lists are downloaded again.');
+$section->addInput(new Form_Checkbox('geoip_ipv6', 'IPv6', 'Also apply the policy to IPv6 addresses', ($ts_config['geoip_ipv6'] ?? 'off') === 'on', 'on'))
+	->setHelp('Without this, only IPv4 traffic is filtered by country. Addresses on the IP allowlist (Allowlist tab) are never blocked by country.');
 $form->add($section);
 
 ob_start();

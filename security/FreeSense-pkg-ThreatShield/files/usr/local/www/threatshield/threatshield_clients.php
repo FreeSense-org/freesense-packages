@@ -1,7 +1,10 @@
 <?php
 /*
  * threatshield_clients.php
- * FreeSense Threat Shield - Client Profiles & Blocked Services
+ * FreeSense Threat Shield - client profiles, blocked services and schedules
+ *
+ * Copyright (c) 2025-2026 The FreeSense Project.
+ * Licensed under the Apache License, Version 2.0.
  */
 
 ##|+PRIV
@@ -13,272 +16,374 @@
 
 require_once('guiconfig.inc');
 require_once('/usr/local/pkg/threatshield.inc');
+require_once('/usr/local/pkg/threatshield/threatshield_ui.inc');
 
+$cfg = threatshield_config();
+$view = fs_view_param(['profiles', 'services', 'known'], 'profiles');
+$self = 'threatshield_clients.php?view=' . $view;
+$catalog = threatshield_services_info();
+$day_labels = ['mon' => gettext('Monday'), 'tue' => gettext('Tuesday'), 'wed' => gettext('Wednesday'), 'thu' => gettext('Thursday'),
+    'fri' => gettext('Friday'), 'sat' => gettext('Saturday'), 'sun' => gettext('Sunday')];
+$filtering_labels = ['inherit' => gettext('Use the global settings'), 'on' => gettext('Always filter'), 'off' => gettext('No filtering')];
+$profiles = threatshield_normalize_list($cfg['clients'] ?? []);
+$edit = $_GET['edit'] ?? ($_POST['profile_index'] ?? null);
 $input_errors = [];
-$savemsg = null;
-$ts_config = threatshield_config();
 
-$services_catalog = [
-	'tiktok' => ['name' => 'TikTok', 'category' => 'Social Media', 'icon' => 'video'],
-	'discord' => ['name' => 'Discord', 'category' => 'Chat & Voice', 'icon' => 'comments'],
-	'youtube' => ['name' => 'YouTube', 'category' => 'Video Streaming', 'icon' => 'play'],
-	'facebook' => ['name' => 'Facebook & Messenger', 'category' => 'Social Media', 'icon' => 'users'],
-	'instagram' => ['name' => 'Instagram', 'category' => 'Social Media', 'icon' => 'camera'],
-	'roblox' => ['name' => 'Roblox', 'category' => 'Online Gaming', 'icon' => 'gamepad'],
-	'steam' => ['name' => 'Steam', 'category' => 'Online Gaming', 'icon' => 'gamepad'],
-	'netflix' => ['name' => 'Netflix', 'category' => 'Video Streaming', 'icon' => 'tv'],
-	'twitter' => ['name' => 'X (Twitter)', 'category' => 'Social Media', 'icon' => 'hashtag'],
-	'twitch' => ['name' => 'Twitch', 'category' => 'Live Streaming', 'icon' => 'tv'],
-	'reddit' => ['name' => 'Reddit', 'category' => 'Social Media', 'icon' => 'comments'],
-	'epic_games' => ['name' => 'Epic Games', 'category' => 'Online Gaming', 'icon' => 'gamepad'],
-	'snapchat' => ['name' => 'Snapchat', 'category' => 'Social Media', 'icon' => 'camera'],
-	'telegram' => ['name' => 'Telegram', 'category' => 'Chat & Voice', 'icon' => 'paper-plane']
-];
+/* schedule fields posted as sched_<day>_on/start/end */
+$read_schedule = function (): array {
+	$days = [];
+	foreach (threatshield_schedule_days() as $d) {
+		if (!isset($_POST["sched_{$d}_on"])) continue;
+		$days[] = ['day' => $d, 'start' => trim((string)($_POST["sched_{$d}_start"] ?? '')), 'end' => trim((string)($_POST["sched_{$d}_end"] ?? ''))];
+	}
+	return $days;
+};
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_services'])) {
-	$ts_config['blocked_services'] = array_values(array_intersect(array_map('strval', (array)($_POST['blocked_services'] ?? [])), $services_catalog ? array_keys($services_catalog) : []));
-	if (threatshield_save_and_apply($ts_config, gettext('Updated Threat Shield blocked services.'), $input_errors)) $savemsg = gettext('Blocked services updated and applied.');
-} elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_profile'])) {
-	$name = trim((string)($_POST['profile_name'] ?? ''));
-	$ids = array_values(array_filter(array_map('trim', preg_split('/[\s,]+/', (string)($_POST['profile_ids'] ?? '')))));
-	if ($name === '' || empty($ids) || count($ids) > 20) {
-		$input_errors[] = gettext('A profile needs a name and one or more client IP addresses or hostnames.');
-	} else {
-		$ts_config['clients'][] = ['name' => $name, 'ids' => $ids, 'filtering' => in_array($_POST['profile_filtering'] ?? '', ['on','off','inherit'], true) ? $_POST['profile_filtering'] : 'inherit', 'blocked_services' => array_values(array_intersect(array_map('strval', (array)($_POST['profile_services'] ?? [])), array_keys($services_catalog)))];
-		if (threatshield_save_and_apply($ts_config, gettext('Added a Threat Shield client profile.'), $input_errors)) $savemsg = gettext('Client profile added and applied.');
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+	$changed = false;
+	$message = '';
+	if (isset($_POST['save_profile'])) {
+		$index = ($edit === 'new' || $edit === null || !isset($profiles[(int)$edit])) ? null : (int)$edit;
+		$ids = array_values(array_filter(array_map('trim', preg_split('/[\s,]+/', (string)($_POST['profile_ids'] ?? '')))));
+		$p = [
+			'name' => trim((string)($_POST['profile_name'] ?? '')),
+			'ids' => $ids,
+			'filtering' => array_key_exists($_POST['profile_filtering'] ?? '', $filtering_labels) ? $_POST['profile_filtering'] : 'inherit',
+			'blocked_services' => array_values(array_intersect(array_map('strval', (array)($_POST['services'] ?? [])), array_keys($catalog))),
+			'schedule_enable' => isset($_POST['schedule_enable']) ? 'on' : 'off',
+			'schedule_tz' => trim((string)($_POST['schedule_tz'] ?? 'Local')) ?: 'Local',
+			'schedule_days' => $read_schedule(),
+		];
+		if ($p['name'] === '' || empty($ids) || count($ids) > 20) {
+			$input_errors[] = gettext('A profile needs a name and 1 to 20 client IP addresses, networks or host names.');
+		} else {
+			if ($index === null) $profiles[] = $p; else $profiles[$index] = $p;
+			$cfg['clients'] = $profiles;
+			$errors = [];
+			if (threatshield_save_and_apply($cfg, gettext('Threat Shield: saved a client profile'), $errors)) {
+				threatshield_flash('ok', sprintf(gettext('Profile "%s" saved.'), $p['name']));
+				threatshield_redirect('threatshield_clients.php?view=profiles');
+			}
+			$input_errors = $errors;
+		}
+	} elseif (isset($_POST['delete_profile'])) {
+		$i = (int)$_POST['delete_profile'];
+		if (isset($profiles[$i])) {
+			$message = sprintf(gettext('Profile "%s" deleted.'), (string)($profiles[$i]['name'] ?? ''));
+			array_splice($profiles, $i, 1);
+			$cfg['clients'] = $profiles;
+			$changed = true;
+		}
+	} elseif (isset($_POST['save_services'])) {
+		$cfg['blocked_services'] = array_values(array_intersect(array_map('strval', (array)($_POST['services'] ?? [])), array_keys($catalog)));
+		$cfg['services_schedule_enable'] = isset($_POST['schedule_enable']) ? 'on' : 'off';
+		$cfg['services_schedule_tz'] = trim((string)($_POST['schedule_tz'] ?? 'Local')) ?: 'Local';
+		$cfg['services_schedule_days'] = $read_schedule();
+		$changed = true;
+		$message = gettext('Blocked services saved.');
 	}
-} elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_profile'])) {
-	$index = (int)$_POST['delete_profile'];
-	if (isset($ts_config['clients'][$index])) {
-		array_splice($ts_config['clients'], $index, 1);
-		if (threatshield_save_and_apply($ts_config, gettext('Deleted a Threat Shield client profile.'), $input_errors)) $savemsg = gettext('Client profile deleted.');
-	}
+	if ($changed) threatshield_apply($cfg, gettext('Threat Shield: updated clients and services'), $message);
+	if (empty($input_errors)) threatshield_redirect($self);
 }
 
-$blocked_set = array_flip($ts_config['blocked_services'] ?? []);
-$dhcp_hosts = threatshield_get_dhcp_hostnames();
-$profiles = threatshield_normalize_list($ts_config['clients']);
-
-/* which profile (if any) matches a client by address or host name */
-$profile_for = function ($ip, $host) use ($profiles) {
-	foreach ($profiles as $p) {
-		$ids = array_map('strtolower', array_map('strval', threatshield_normalize_list($p['ids'] ?? [])));
-		if (in_array(strtolower($ip), $ids, true) || ($host !== '' && in_array(strtolower($host), $ids, true))) {
-			return (string)($p['name'] ?? '');
-		}
-	}
-	return null;
+/* services grid with search, grouped by category; $selected = ids */
+$services_grid = function (array $selected) use ($catalog): void {
+	$groups = [];
+	foreach ($catalog as $id => [$name, $group, $icon]) $groups[$group][$id] = [$name, $icon];
+	ksort($groups);
+?>
+	<div class="ts-svc-tools">
+		<div class="fs-search"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+			<input type="search" class="form-control" data-ts-svc-search placeholder="<?=gettext('Search services…')?>" aria-label="<?=gettext('Search services')?>"></div>
+		<label class="form-check"><input class="form-check-input" type="checkbox" data-ts-svc-only> <?=gettext('Blocked only')?></label>
+		<span class="fs-muted small" data-ts-svc-count></span>
+	</div>
+<?php	foreach ($groups as $group => $items): ?>
+	<fieldset class="ts-svc-group">
+		<legend><?=htmlspecialchars(gettext($group))?></legend>
+		<div class="ts-services">
+<?php		foreach ($items as $id => [$name, $icon]): ?>
+			<label class="ts-service" data-ts-svc="<?=htmlspecialchars(strtolower($name . ' ' . $id))?>">
+				<span class="ts-service-icon"><i class="fa-solid fa-<?=htmlspecialchars($icon)?>" aria-hidden="true"></i></span>
+				<span class="ts-service-name"><?=htmlspecialchars($name)?></span>
+				<span class="form-check form-switch"><input class="form-check-input" type="checkbox" role="switch" name="services[]" value="<?=htmlspecialchars($id)?>"<?=in_array($id, $selected, true) ? ' checked' : ''?>></span>
+			</label>
+<?php		endforeach; ?>
+		</div>
+	</fieldset>
+<?php	endforeach;
 };
-$filtering_labels = ['inherit' => gettext('Global setting'), 'on' => gettext('Always on'), 'off' => gettext('Off')];
 
-$pgtitle = [gettext('Services'), gettext('Threat Shield'), gettext('Clients')];
-$pglinks = ['', '/threatshield/threatshield_status.php', '@self'];
+/* the unblock schedule: one row per day */
+$schedule_editor = function (bool $enabled, string $tz, array $days, string $help) use ($day_labels): void {
+	$by_day = [];
+	foreach ($days as $d) if (is_array($d)) $by_day[(string)($d['day'] ?? '')] = $d;
+?>
+	<label class="form-check mb-2"><input class="form-check-input" type="checkbox" name="schedule_enable" data-ts-sched-toggle<?=$enabled ? ' checked' : ''?>> <?=htmlspecialchars($help)?></label>
+	<div class="ts-sched" data-ts-sched<?=$enabled ? '' : ' hidden'?>>
+<?php	foreach ($day_labels as $d => $label):
+		$row = $by_day[$d] ?? null;
+?>
+		<div class="ts-sched-row">
+			<label class="form-check"><input class="form-check-input" type="checkbox" name="sched_<?=$d?>_on"<?=($row !== null) ? ' checked' : ''?>> <?=htmlspecialchars($label)?></label>
+			<input type="time" class="form-control form-control-sm" name="sched_<?=$d?>_start" value="<?=htmlspecialchars((string)($row['start'] ?? '16:00'))?>" aria-label="<?=htmlspecialchars(sprintf(gettext('%s from'), $label))?>">
+			<span class="fs-muted">–</span>
+			<input type="text" class="form-control form-control-sm fs-mono" name="sched_<?=$d?>_end" value="<?=htmlspecialchars((string)($row['end'] ?? '20:00'))?>" pattern="([01]\d|2[0-3]):[0-5]\d|24:00" aria-label="<?=htmlspecialchars(sprintf(gettext('%s until'), $label))?>">
+		</div>
+<?php	endforeach; ?>
+		<div class="ts-sched-tz">
+			<label class="form-label" for="schedule_tz"><?=gettext('Time zone')?></label>
+			<input type="text" class="form-control form-control-sm fs-mono" id="schedule_tz" name="schedule_tz" value="<?=htmlspecialchars($tz)?>" placeholder="Local">
+			<span class="form-text"><?=gettext('"Local" uses the firewall time zone, or an IANA name such as Europe/Copenhagen. Use 24:00 for the end of the day.')?></span>
+		</div>
+	</div>
+<?php
+};
 
-fs_page_action(gettext('Add profile'), '#', 'fa-plus', 'primary', ['data-fs-modal' => '#profile-add']);
+$pgtitle = [gettext('Services'), gettext('Threat Shield'), gettext('Clients & services')];
+$pglinks = ['', '/threatshield/threatshield_status.php', 'threatshield_clients.php'];
+$editing = ($edit !== null);
+if ($editing) {
+	$pgtitle[] = ($edit === 'new') ? gettext('Add profile') : gettext('Edit profile');
+	$pglinks[] = '@self';
+} elseif ($view === 'profiles') {
+	fs_page_action(gettext('Add profile'), 'threatshield_clients.php?view=profiles&edit=new', 'fa-plus');
+}
 
 include('head.inc');
-
-if ($input_errors) print_input_errors($input_errors);
-
-if ($savemsg) {
-	print_info_box($savemsg, 'success');
-}
-
+threatshield_print_messages($input_errors);
 threatshield_display_tabs('clients');
-?>
 
+if ($editing):
+	$p = ($edit !== 'new' && isset($profiles[(int)$edit])) ? $profiles[(int)$edit] : ['name' => '', 'ids' => [], 'filtering' => 'inherit', 'blocked_services' => []];
+	if (!empty($input_errors) && isset($_POST['save_profile'])) {
+		$p = ['name' => $_POST['profile_name'] ?? '', 'ids' => preg_split('/[\s,]+/', (string)($_POST['profile_ids'] ?? '')), 'filtering' => $_POST['profile_filtering'] ?? 'inherit',
+		    'blocked_services' => (array)($_POST['services'] ?? []), 'schedule_enable' => isset($_POST['schedule_enable']) ? 'on' : 'off',
+		    'schedule_tz' => $_POST['schedule_tz'] ?? 'Local', 'schedule_days' => $read_schedule()];
+	}
+?>
+<form method="post" action="threatshield_clients.php?view=profiles&amp;edit=<?=htmlspecialchars(rawurlencode((string)$edit))?>">
+<input type="hidden" name="profile_index" value="<?=htmlspecialchars((string)$edit)?>">
+<div class="panel panel-default">
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Profile')?></h2></div>
+	<div class="panel-body ts-pad">
+		<div class="mb-3"><label class="form-label" for="profile_name"><?=gettext('Name')?></label>
+			<input class="form-control" id="profile_name" name="profile_name" value="<?=htmlspecialchars((string)$p['name'])?>" placeholder="<?=gettext('Kids tablets')?>" required></div>
+		<div class="mb-3"><label class="form-label" for="profile_ids"><?=gettext('Clients')?></label>
+			<input class="form-control fs-mono" id="profile_ids" name="profile_ids" value="<?=htmlspecialchars(implode(', ', array_map('strval', threatshield_normalize_list($p['ids'] ?? []))))?>" placeholder="192.168.1.20, 192.168.1.32/28, child-tablet" required>
+			<div class="form-text"><?=gettext('Up to 20 IP addresses, networks or DHCP host names, separated by commas or spaces.')?></div></div>
+		<div class="mb-0"><label class="form-label" for="profile_filtering"><?=gettext('Filtering')?></label>
+			<select class="form-select" id="profile_filtering" name="profile_filtering">
+<?php	foreach ($filtering_labels as $k => $label): ?>
+				<option value="<?=$k?>"<?=(($p['filtering'] ?? 'inherit') === $k) ? ' selected' : ''?>><?=htmlspecialchars($label)?></option>
+<?php	endforeach; ?>
+			</select>
+			<div class="form-text"><?=gettext('"Always filter" keeps the global safe browsing, parental control and SafeSearch settings. "No filtering" exempts these clients from every block list.')?></div></div>
+	</div>
+</div>
+<div class="panel panel-default">
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Blocked services for this profile')?></h2></div>
+	<div class="panel-body ts-pad">
+		<p class="fs-muted"><?=gettext('With none selected and no schedule, the network-wide services apply.')?></p>
+<?php	$services_grid(array_map('strval', threatshield_normalize_list($p['blocked_services'] ?? []))); ?>
+	</div>
+</div>
+<div class="panel panel-default">
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Unblock schedule')?></h2></div>
+	<div class="panel-body ts-pad">
+<?php	$schedule_editor(($p['schedule_enable'] ?? 'off') === 'on', (string)($p['schedule_tz'] ?? 'Local'), threatshield_normalize_list($p['schedule_days'] ?? []),
+	    gettext('Allow the blocked services during set hours, for example gaming from 18:00 to 20:00')); ?>
+	</div>
+</div>
+<div class="fs-actionbar">
+	<button type="submit" name="save_profile" value="1" class="btn btn-primary"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save')?></button>
+	<a class="btn btn-outline-secondary" href="threatshield_clients.php?view=profiles"><?=gettext('Cancel')?></a>
+</div>
+</form>
+<?php
+else:
+	fs_view_switch(['profiles' => gettext('Profiles'), 'services' => gettext('Blocked services'), 'known' => gettext('Known clients')], $view);
+	$dhcp_hosts = threatshield_get_dhcp_hostnames();
+
+	if ($view === 'profiles'):
+?>
 <div class="panel panel-default fs-table">
-<?php fs_table_toolbar([
-	'title' => gettext('Client profiles'),
-	'search' => gettext('Search profiles…'),
-	'noun' => gettext('profiles'),
-	'noun_one' => gettext('profile'),
-]); ?>
+<?php fs_table_toolbar(['title' => gettext('Client profiles'), 'search' => gettext('Search profiles…'), 'noun' => gettext('profiles'), 'noun_one' => gettext('profile')]); ?>
 	<div class="panel-body table-responsive">
-		<table class="table table-hover">
+		<table class="table table-hover table-rowdblclickedit">
 			<thead>
 				<tr>
 					<th data-fs-search><?=gettext('Name')?></th>
 					<th data-fs-search><?=gettext('Clients')?></th>
 					<th><?=gettext('Filtering')?></th>
 					<th data-fs-search><?=gettext('Blocked services')?></th>
+					<th><?=gettext('Schedule')?></th>
 					<th class="fs-col-actions"><span class="visually-hidden"><?=gettext('Actions')?></span></th>
 				</tr>
 			</thead>
 			<tbody>
-<?php
-foreach ($profiles as $idx => $profile):
-	$pname = (string)($profile['name'] ?? gettext('Profile'));
-	$filtering = (string)($profile['filtering'] ?? 'inherit');
-	$svcs = threatshield_normalize_list($profile['blocked_services'] ?? []);
+<?php	foreach ($profiles as $i => $p):
+		$pname = (string)($p['name'] ?? gettext('Profile'));
+		$filtering = (string)($p['filtering'] ?? 'inherit');
+		$svcs = threatshield_normalize_list($p['blocked_services'] ?? []);
+		$days = threatshield_normalize_list($p['schedule_days'] ?? []);
 ?>
 				<tr>
-					<td><strong><?=htmlspecialchars($pname)?></strong></td>
-					<td><span class="fs-chips"><?php foreach (threatshield_normalize_list($profile['ids'] ?? []) as $id): ?><span class="fs-chip fs-chip--mono"><?=htmlspecialchars((string)$id)?></span><?php endforeach; ?></span></td>
-					<td><?=($filtering === 'on') ? fs_badge('enabled', $filtering_labels['on']) : (($filtering === 'off') ? fs_badge('disabled', $filtering_labels['off']) : fs_badge('neutral', $filtering_labels['inherit']))?></td>
-					<td>
-<?php	if (empty($svcs)): ?>
-						<span class="fs-muted"><?=gettext('None')?></span>
-<?php	else: ?>
-						<span class="fs-chips"><?php foreach ($svcs as $svc): ?><span class="fs-chip"><?=htmlspecialchars($services_catalog[$svc]['name'] ?? (string)$svc)?></span><?php endforeach; ?></span>
-<?php	endif; ?>
-					</td>
+					<td><a href="threatshield_clients.php?view=profiles&amp;edit=<?=(int)$i?>"><strong><?=htmlspecialchars($pname)?></strong></a></td>
+					<td><span class="fs-chips"><?php foreach (threatshield_normalize_list($p['ids'] ?? []) as $id): ?><span class="fs-chip fs-chip--mono"><?=htmlspecialchars((string)$id)?></span><?php endforeach; ?></span></td>
+					<td><?=($filtering === 'on') ? fs_badge('enabled', gettext('Always')) : (($filtering === 'off') ? fs_badge('disabled', gettext('Off')) : fs_badge('neutral', gettext('Global')))?></td>
+					<td><?=empty($svcs) ? '<span class="fs-muted">' . gettext('Network-wide') . '</span>' : htmlspecialchars(implode(', ', array_map(fn($s) => $catalog[$s][0] ?? $s, array_slice($svcs, 0, 5))) . ((count($svcs) > 5) ? ' +' . (count($svcs) - 5) : ''))?></td>
+					<td><?=(($p['schedule_enable'] ?? 'off') === 'on' && !empty($days)) ? htmlspecialchars(sprintf(gettext('%d days'), count($days))) : '<span class="fs-muted">' . gettext('None') . '</span>'?></td>
 					<td class="fs-col-actions"><?=fs_row_actions([
-						['delete', 'threatshield_clients.php?delete_profile=' . (int)$idx, $pname, [
-							'thing' => gettext('profile'),
-							'detail' => gettext('Its clients fall back to the global filtering and service settings.'),
-						]],
+						['edit', 'threatshield_clients.php?view=profiles&edit=' . (int)$i, $pname],
+						['delete', $self . '&delete_profile=' . (int)$i, $pname, ['thing' => gettext('profile'), 'detail' => gettext('Its clients fall back to the global filtering and service settings.')]],
 					])?></td>
 				</tr>
-<?php
-endforeach;
-if (empty($profiles)) {
-	fs_empty_row(5, gettext('No client profiles yet. Every client uses the global settings.'));
-}
+<?php	endforeach;
+	if (empty($profiles)) fs_empty_row(6, gettext('No client profiles yet. Every client uses the global settings.'), 'threatshield_clients.php?view=profiles&edit=new', gettext('Add profile'));
 ?>
 			</tbody>
 		</table>
 	</div>
 	<div class="panel-footer small fs-muted">
 		<i class="fa-solid fa-circle-info" aria-hidden="true"></i>
-		<?=gettext('Profiles override the global filtering and blocked services for matching clients. Use fixed IP addresses or DHCP host names.')?>
+		<?=gettext('Profiles override filtering and blocked services for matching clients. Use fixed addresses or DHCP host names.')?>
 	</div>
 </div>
-
-<form method="post" action="threatshield_clients.php" id="ts-services-form">
+<?php
+	elseif ($view === 'services'):
+?>
+<form method="post" action="<?=htmlspecialchars($self)?>">
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Blocked services for the whole network')?> <span class="fs-count" id="ts-svc-count"><?=count(array_intersect_key($blocked_set, $services_catalog))?></span></h2></div>
-	<div class="panel-body ts-services-body">
-		<p class="fs-muted"><?=gettext('Turn on a service to block its domains and content networks for every client without a profile.')?></p>
-		<div class="ts-services">
-<?php foreach ($services_catalog as $key => $info): ?>
-			<label class="ts-service" for="svc_<?=$key?>">
-				<span class="ts-service-icon"><i class="fa-solid fa-<?=$info['icon']?>" aria-hidden="true"></i></span>
-				<span class="ts-service-text">
-					<span class="ts-service-name"><?=htmlspecialchars($info['name'])?></span>
-					<span class="fs-muted small"><?=htmlspecialchars(gettext($info['category']))?></span>
-				</span>
-				<span class="form-check form-switch">
-					<input class="form-check-input" type="checkbox" role="switch" name="blocked_services[]" value="<?=$key?>" id="svc_<?=$key?>"<?=isset($blocked_set[$key]) ? ' checked' : ''?>>
-				</span>
-			</label>
-<?php endforeach; ?>
-		</div>
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Blocked for the whole network')?> <span class="fs-count" data-ts-svc-total><?=count(threatshield_normalize_list($cfg['blocked_services'] ?? []))?></span></h2></div>
+	<div class="panel-body ts-pad">
+		<p class="fs-muted"><?=gettext('Blocks the domains of these services for every client without its own profile.')?></p>
+<?php	$services_grid(array_map('strval', threatshield_normalize_list($cfg['blocked_services'] ?? []))); ?>
+	</div>
+</div>
+<div class="panel panel-default">
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Unblock schedule')?></h2></div>
+	<div class="panel-body ts-pad">
+<?php	$schedule_editor(($cfg['services_schedule_enable'] ?? 'off') === 'on', (string)($cfg['services_schedule_tz'] ?? 'Local'), threatshield_normalize_list($cfg['services_schedule_days'] ?? []),
+	    gettext('Allow the blocked services during set hours, for example social media during lunch')); ?>
 	</div>
 </div>
 <div class="fs-actionbar fs-actionbar--plain">
-	<button type="submit" name="save_services" value="1" class="btn btn-primary"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save blocked services')?></button>
-	<span class="ts-dirty fs-muted small" hidden><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i><?=gettext('Changes are not saved yet.')?></span>
+	<button type="submit" name="save_services" value="1" class="btn btn-primary"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save')?></button>
 </div>
 </form>
-
+<?php
+	else:
+		$profile_for = function ($ip, $host) use ($profiles) {
+			foreach ($profiles as $p) {
+				$ids = array_map('strtolower', array_map('strval', threatshield_normalize_list($p['ids'] ?? [])));
+				if (in_array(strtolower($ip), $ids, true) || ($host !== '' && in_array(strtolower($host), $ids, true))) return (string)($p['name'] ?? '');
+				foreach ($ids as $id) {
+					if (strpos($id, '/') !== false && threatshield_cidr_contains($id, $ip)) return (string)($p['name'] ?? '');
+				}
+			}
+			return null;
+		};
+?>
 <div class="panel panel-default fs-table">
-<?php fs_table_toolbar([
-	'title' => gettext('Known LAN clients'),
-	'search' => gettext('Search clients…'),
-	'noun' => gettext('clients'),
-	'noun_one' => gettext('client'),
-	'filters' => ['policy' => [gettext('All policies'), 'profile' => gettext('With profile'), 'global' => gettext('Global settings')]],
-]); ?>
+<?php fs_table_toolbar(['title' => gettext('Known LAN clients'), 'search' => gettext('Search clients…'), 'noun' => gettext('clients'), 'noun_one' => gettext('client'),
+	'filters' => ['policy' => [gettext('All policies'), 'profile' => gettext('With profile'), 'global' => gettext('Global settings')]]]); ?>
 	<div class="panel-body table-responsive">
 		<table class="table table-hover" data-sortable>
-			<thead>
-				<tr>
-					<th data-fs-search><?=gettext('IP address')?></th>
-					<th data-fs-search><?=gettext('Host name')?></th>
-					<th data-fs-search><?=gettext('Policy')?></th>
-				</tr>
-			</thead>
+			<thead><tr><th data-fs-search><?=gettext('IP address')?></th><th data-fs-search><?=gettext('Host name')?></th><th data-fs-search><?=gettext('Policy')?></th></tr></thead>
 			<tbody>
-<?php
-foreach ($dhcp_hosts as $ip => $host):
-	$match = $profile_for((string)$ip, (string)$host);
+<?php		foreach ($dhcp_hosts as $ip => $host):
+			$match = $profile_for((string)$ip, (string)$host);
 ?>
 				<tr data-fs-filter-policy="<?=($match !== null) ? 'profile' : 'global'?>">
 					<td class="fs-mono"><?=htmlspecialchars((string)$ip)?></td>
 					<td><?=htmlspecialchars((string)$host)?></td>
 					<td><?=($match !== null) ? fs_badge('info', sprintf(gettext('Profile: %s'), $match)) : fs_badge('neutral', gettext('Global settings'))?></td>
 				</tr>
-<?php
-endforeach;
-if (empty($dhcp_hosts)) {
-	fs_empty_row(3, gettext('No DHCP leases or static mappings with a host name found.'));
-}
+<?php		endforeach;
+		if (empty($dhcp_hosts)) fs_empty_row(3, gettext('No DHCP leases or static mappings with a host name found.'));
 ?>
 			</tbody>
 		</table>
 	</div>
-	<div class="panel-footer small fs-muted">
-		<i class="fa-solid fa-circle-info" aria-hidden="true"></i>
-		<?=gettext('Taken from DHCP leases and static mappings that have a host name.')?>
-	</div>
 </div>
-
 <?php
-fs_modal_form_begin('profile-add', gettext('Add client profile'), 'threatshield_clients.php', [], ($input_errors && isset($_POST['add_profile']))
-    ? ['profile_name' => (string)($_POST['profile_name'] ?? ''), 'profile_ids' => (string)($_POST['profile_ids'] ?? ''),
-       'profile_filtering' => (string)($_POST['profile_filtering'] ?? 'inherit')]
-    : null);
+	endif;
+endif;
+threatshield_ui_styles();
 ?>
-	<div class="mb-3">
-		<label class="form-label" for="profile_name"><?=gettext('Name')?></label>
-		<input class="form-control" id="profile_name" name="profile_name" placeholder="<?=gettext('Kids tablets')?>" required>
-	</div>
-	<div class="mb-3">
-		<label class="form-label" for="profile_ids"><?=gettext('Clients')?></label>
-		<input class="form-control fs-mono" id="profile_ids" name="profile_ids" placeholder="192.168.1.20, child-tablet" required>
-		<div class="form-text"><?=gettext('Up to 20 IP addresses or host names, separated by commas or spaces.')?></div>
-	</div>
-	<div class="mb-3">
-		<label class="form-label" for="profile_filtering"><?=gettext('Filtering')?></label>
-		<select class="form-select" id="profile_filtering" name="profile_filtering">
-			<option value="inherit"><?=gettext('Use the global setting')?></option>
-			<option value="on"><?=gettext('Always on')?></option>
-			<option value="off"><?=gettext('Off')?></option>
-		</select>
-	</div>
-	<fieldset class="mb-0">
-		<legend class="form-label"><?=gettext('Blocked services')?></legend>
-		<div class="ts-profile-services">
-<?php foreach ($services_catalog as $key => $info): ?>
-			<label class="form-check">
-				<input class="form-check-input" type="checkbox" name="profile_services[]" value="<?=$key?>"> <?=htmlspecialchars($info['name'])?>
-			</label>
-<?php endforeach; ?>
-		</div>
-	</fieldset>
-<?php
-fs_modal_form_end(gettext('Add profile'), 'add_profile', '1', 'fa-plus');
-?>
-
 <style>
-.ts-services-body { padding: var(--fs-sp-3) var(--fs-sp-4) var(--fs-sp-4); }
-.ts-services { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: var(--fs-sp-2); }
-.ts-service { display: flex; align-items: center; gap: var(--fs-sp-3); margin: 0; padding: var(--fs-sp-2) var(--fs-sp-3);
+.ts-pad { padding: var(--fs-sp-3) var(--fs-sp-4) var(--fs-sp-4); }
+.ts-svc-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--fs-sp-3); margin-bottom: var(--fs-sp-3); }
+.ts-svc-tools .fs-search { flex: 0 1 20rem; }
+.ts-svc-tools .form-check { margin: 0; font-weight: 400; }
+.ts-svc-group { margin-bottom: var(--fs-sp-3); }
+.ts-svc-group legend { font-size: var(--fs-fs-sm); font-weight: 600; color: var(--fs-text-muted); margin-bottom: var(--fs-sp-2); }
+.ts-services { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: var(--fs-sp-2); }
+.ts-service { display: flex; align-items: center; gap: var(--fs-sp-2); margin: 0; padding: var(--fs-sp-1) var(--fs-sp-2);
 	border: 1px solid var(--fs-border); border-radius: var(--fs-r-md); cursor: pointer; font-weight: 400; }
 .ts-service:hover { background: var(--fs-surface-raised); }
 .ts-service:has(input:checked) { border-color: color-mix(in srgb, var(--fs-block) 50%, transparent); background: color-mix(in srgb, var(--fs-block) 8%, transparent); }
-.ts-service-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 2rem; height: 2rem;
-	border-radius: var(--fs-r-sm); background: var(--fs-surface-raised); color: var(--fs-text-muted); }
-.ts-service-text { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
-.ts-service-name { font-weight: 600; color: var(--fs-text-strong); }
+.ts-service-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 1.75rem; height: 1.75rem;
+	border-radius: var(--fs-r-sm); background: var(--fs-surface-raised); color: var(--fs-text-muted); font-size: .8rem; }
+.ts-service-name { flex: 1 1 auto; min-width: 0; font-weight: 600; color: var(--fs-text-strong); }
 .ts-service .form-switch { margin: 0; min-height: 0; }
-.ts-profile-services { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 var(--fs-sp-3); }
-.ts-profile-services .form-check { margin: 0; font-weight: 400; }
-.ts-dirty { display: inline-flex; align-items: center; gap: .4rem; margin-left: var(--fs-sp-3); }
-.ts-dirty > i { color: var(--fs-coral); }
-@media (max-width: 575px) { .ts-services { grid-template-columns: minmax(0, 1fr); } }
+.ts-sched { display: flex; flex-direction: column; gap: var(--fs-sp-1); }
+.ts-sched-row { display: grid; grid-template-columns: 9rem 8rem auto 6rem; align-items: center; gap: var(--fs-sp-2); }
+.ts-sched-row .form-check { margin: 0; font-weight: 400; }
+.ts-sched-tz { max-width: 26rem; margin-top: var(--fs-sp-2); }
+@media (max-width: 575px) { .ts-services { grid-template-columns: minmax(0, 1fr); } .ts-sched-row { grid-template-columns: 1fr 1fr; } }
 </style>
 <script>
 //<![CDATA[
 events.push(function () {
-	var form = document.getElementById('ts-services-form');
-	form.addEventListener('change', function () {
-		form.querySelector('.ts-dirty').hidden = false;
-		document.getElementById('ts-svc-count').textContent = form.querySelectorAll('input[name="blocked_services[]"]:checked').length;
-	});
+	var search = document.querySelector('[data-ts-svc-search]');
+	var only = document.querySelector('[data-ts-svc-only]');
+	var count = document.querySelector('[data-ts-svc-count]');
+	function filter() {
+		var q = search ? search.value.trim().toLowerCase() : '';
+		var shown = 0;
+		document.querySelectorAll('.ts-svc-group').forEach(function (group) {
+			var visible = 0;
+			group.querySelectorAll('[data-ts-svc]').forEach(function (item) {
+				var on = item.querySelector('input').checked;
+				var show = (q === '' || item.getAttribute('data-ts-svc').indexOf(q) !== -1) && (!only || !only.checked || on);
+				item.hidden = !show;
+				if (show) {
+					visible++;
+				}
+			});
+			group.hidden = (visible === 0);
+			shown += visible;
+		});
+		var checked = document.querySelectorAll('input[name="services[]"]:checked').length;
+		if (count) {
+			count.textContent = checked + ' <?=gettext('blocked')?>';
+		}
+		var total = document.querySelector('[data-ts-svc-total]');
+		if (total) {
+			total.textContent = checked;
+		}
+	}
+	if (search) {
+		search.addEventListener('input', filter);
+		if (only) {
+			only.addEventListener('change', filter);
+		}
+		document.addEventListener('change', function (e) {
+			if (e.target.name === 'services[]') {
+				filter();
+			}
+		});
+		filter();
+	}
+	var toggle = document.querySelector('[data-ts-sched-toggle]');
+	if (toggle) {
+		toggle.addEventListener('change', function () {
+			document.querySelector('[data-ts-sched]').hidden = !toggle.checked;
+		});
+	}
 });
 //]]>
 </script>
-
 <?php include('foot.inc'); ?>
