@@ -3,7 +3,7 @@
 	<package>
 		<name>ThreatShield</name>
 		<website>https://freesense.org/</website>
-		<descr><![CDATA[Unified DNS filtering, automated threat-intelligence feeds, and native GeoIP country blocking for FreeSense. Replaces legacy pfBlocker with high-performance DNS-over-HTTPS/TLS/QUIC, interactive threat inspectors, and wire-speed PF kernel table enforcement.]]></descr>
+		<descr><![CDATA[Network-wide ad, tracker and malware blocking with an easy allowlist, anti-bypass rules, IP threat lists, GeoIP country policies and inbound DNSBL reputation and flood protection, with a health panel and one-switch setup.]]></descr>
 		<version>%%PKGVERSION%%</version>
 		<configurationfile>threatshield.xml</configurationfile>
 	</package>

@@ -8,14 +8,14 @@
 	<include_file>/usr/local/pkg/threatshield.inc</include_file>
 	<menu>
 		<name>Threat Shield</name>
-		<tooltiptext>Unified DNS Filtering and GeoIP Country Protection</tooltiptext>
+		<tooltiptext>DNS ad and threat blocking, IP reputation and GeoIP country protection</tooltiptext>
 		<section>Services</section>
 		<group>security</group>
 		<url>/threatshield/threatshield.php</url>
 	</menu>
 	<menu>
 		<name>Threat Shield Status</name>
-		<tooltiptext>Threat Shield live query logs and threat statistics</tooltiptext>
+		<tooltiptext>Threat Shield health, statistics and query log</tooltiptext>
 		<section>Status</section>
 		<group>security</group>
 		<url>/threatshield/threatshield_status.php</url>
@@ -24,7 +24,21 @@
 		<name>threatshield</name>
 		<rcfile>threatshield</rcfile>
 		<executable>AdGuardHome</executable>
-		<description>FreeSense Threat Shield DNS &amp; GeoIP Engine</description>
+		<startcmd>mwexec('/usr/local/etc/rc.d/threatshield onestart');</startcmd>
+		<stopcmd>mwexec('/usr/local/etc/rc.d/threatshield onestop');</stopcmd>
+		<restartcmd>mwexec('/usr/local/etc/rc.d/threatshield onerestart');</restartcmd>
+		<description>FreeSense Threat Shield DNS filter</description>
+		<starts_on_sync></starts_on_sync>
+	</service>
+	<service>
+		<name>threatshield_dnsbl</name>
+		<rcfile>threatshield_dnsbl</rcfile>
+		<executable>php</executable>
+		<custom_php_service_status_command>is_pid_running('/var/run/threatshield_dnsbl.pid')</custom_php_service_status_command>
+		<startcmd>mwexec('/usr/local/etc/rc.d/threatshield_dnsbl onestart');</startcmd>
+		<stopcmd>mwexec('/usr/local/etc/rc.d/threatshield_dnsbl onestop');</stopcmd>
+		<restartcmd>mwexec('/usr/local/etc/rc.d/threatshield_dnsbl onerestart');</restartcmd>
+		<description>FreeSense Threat Shield inbound reputation checks</description>
 		<starts_on_sync></starts_on_sync>
 	</service>
 	<plugins>

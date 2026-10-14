@@ -1,0 +1,49 @@
+#!/bin/sh
+#
+# PROVIDE: threatshield_dnsbl
+# REQUIRE: NETWORKING SERVERS DAEMON threatshield
+# KEYWORD: shutdown
+
+. /etc/rc.subr
+
+name="threatshield_dnsbl"
+rcvar="threatshield_dnsbl_enable"
+
+load_rc_config $name
+
+: ${threatshield_dnsbl_enable:="NO"}
+: ${threatshield_dnsbl_pidfile:="/var/run/threatshield_dnsbl.pid"}
+
+command="/usr/sbin/daemon"
+command_args="-f -p ${threatshield_dnsbl_pidfile} -t ${name} /usr/local/bin/php -f /usr/local/pkg/threatshield/threatshield_dnsbl_daemon.php"
+pidfile="${threatshield_dnsbl_pidfile}"
+procname="/usr/local/bin/php"
+sig_reload="HUP"
+extra_commands="reload"
+
+start_precmd="threatshield_dnsbl_prestart"
+stop_postcmd="threatshield_dnsbl_poststop"
+
+# The pid file names the PHP process itself (-p), so SIGHUP reloads it.
+# pflog1 carries only the packets of sources waiting for a reputation check;
+# the firewall log reads pflog0.  FreeBSD 16 provides pflog0..N-1 as BPF taps
+# (net.pflog.if_count) without an interface; older releases clone pflog1.
+threatshield_dnsbl_prestart()
+{
+	mkdir -p /var/db/threatshield/dnsbl
+	if [ "$(/sbin/sysctl -n net.pflog.if_count 2>/dev/null || echo 0)" -ge 2 ]; then
+		return 0
+	fi
+	if ! /sbin/ifconfig pflog1 >/dev/null 2>&1; then
+		/sbin/ifconfig pflog1 create || return 1
+		touch /var/db/threatshield/dnsbl/pflog1.created
+	fi
+	/sbin/ifconfig pflog1 up
+}
+
+threatshield_dnsbl_poststop()
+{
+	rm -f "${threatshield_dnsbl_pidfile}"
+}
+
+run_rc_command "$1"
