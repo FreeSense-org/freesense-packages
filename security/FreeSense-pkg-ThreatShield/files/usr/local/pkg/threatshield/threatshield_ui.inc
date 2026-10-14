@@ -58,6 +58,17 @@ function threatshield_apply(array $cfg, string $description, string $success): b
 	return $ok;
 }
 
+/*
+ * The CSRF token field for a form built as a string. The WebUI adds the token
+ * only to forms in the page's own HTML; forms that scripts insert later (the
+ * health list, the map's location button) must carry it themselves, or the
+ * post ends on the CSRF warning page.
+ */
+function threatshield_csrf_input(): string {
+	if (!function_exists('csrf_get_tokens')) return '';
+	return '<input type="hidden" name="__csrf_magic" value="' . htmlspecialchars(csrf_get_tokens()) . '">';
+}
+
 /* The health checklist (also served by threatshield_ajax.php). */
 function threatshield_health_html(array $checks): string {
 	$states = ['ok' => 'pass', 'warn' => 'warn', 'fail' => 'error', 'skip' => 'neutral'];
@@ -76,7 +87,7 @@ function threatshield_health_html(array $checks): string {
 			$html .= '<a class="btn btn-sm btn-outline-secondary" href="threatshield.php">' . htmlspecialchars(gettext('Settings')) . '</a>';
 		} elseif (isset($fixes[$c['fix']]) && $c['state'] !== 'ok') {
 			/* a form, not a usepost link: this list is loaded after the page */
-			$html .= '<form method="post" action="threatshield_status.php"><button type="submit" class="btn btn-sm btn-outline-secondary" name="fix" value="'
+			$html .= '<form method="post" action="threatshield_status.php">' . threatshield_csrf_input() . '<button type="submit" class="btn btn-sm btn-outline-secondary" name="fix" value="'
 			    . htmlspecialchars($c['fix']) . '">' . htmlspecialchars($fixes[$c['fix']]) . '</button></form>';
 		}
 		$html .= '</li>';

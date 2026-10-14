@@ -225,6 +225,21 @@ def main() -> int:
     # Browsers submit textareas with CRLF; older systems drop CR from config.xml.
     if 'str_replace(["\\r\\n", "\\r"], "\\n"' not in integration:
         errors.append("stored settings do not normalize CRLF line breaks")
+    # A Save & Apply stops AdGuard Home; the 5-minute self-repair must not start
+    # it meanwhile, and an "already running" start is not a failed apply.
+    health = (PORT / "files/usr/local/pkg/threatshield/threatshield_health.inc").read_text(encoding="utf-8")
+    if "threatshield_apply_lock(true)" not in integration or "threatshield_apply_lock(false)" not in health:
+        errors.append("the self-repair can race a Save & Apply (no shared apply lock)")
+    if "return $should_run && $running();" not in integration:
+        errors.append("a start that finds the daemon already running fails the apply")
+    # Forms that scripts insert after the page loaded get no automatic CSRF token.
+    ui = (PORT / "files/usr/local/pkg/threatshield/threatshield_ui.inc").read_text(encoding="utf-8")
+    map_page = (PORT / "files/usr/local/www/threatshield/threatshield_map.php").read_text(encoding="utf-8")
+    if ui.count("threatshield_csrf_input()") < 2 or "threatshield_csrf_input()" not in map_page:
+        errors.append("forms built as strings (health fixes, map locations) post without a CSRF token")
+    map_data = (PORT / "files/usr/local/www/threatshield/threatshield_map_data.php").read_text(encoding="utf-8")
+    if "!empty($GLOBALS['session_opencounter'])" not in map_data:
+        errors.append("the threat map data closes a session it never opened (log warning on every poll)")
 
     if errors:
         print("Threat Shield smoke check failed:", file=sys.stderr)

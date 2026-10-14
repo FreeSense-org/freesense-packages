@@ -25,8 +25,16 @@
 require_once('guiconfig.inc');
 require_once('/usr/local/pkg/threatshield.inc');
 
-/* concurrent map screens must not wait for each other on the session lock */
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') phpsession_end();
+/* concurrent map screens must not wait for each other on the session lock.
+ * phpsession_end() only for a session the session manager holds open: ending
+ * one it already closed logs "closed more often than opened!" on every poll. */
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+	if (!empty($GLOBALS['session_opencounter'])) {
+		phpsession_end();
+	} elseif (session_status() === PHP_SESSION_ACTIVE) {
+		session_write_close();
+	}
+}
 header('Cache-Control: no-store');
 
 $cfg = threatshield_config();

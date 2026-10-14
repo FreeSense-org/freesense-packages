@@ -768,7 +768,11 @@ function threatshield_service_control(string $action, string $service = 'threats
 	$command = "/usr/sbin/service {$service} {$commands[$action]}";
 	$should_run = ($action !== 'stop');
 	$running = ($service === 'threatshield') ? 'threatshield_is_running' : 'threatshield_dnsbl_running';
-	if (mwexec($command) !== 0) return false;
+	if (mwexec($command) !== 0) {
+		// "already running" is what a start wants, also when something
+		// else started the daemon a moment earlier.
+		return $should_run && $running();
+	}
 	// The rc wrapper can return before the daemon has finished binding its
 	// sockets.  Do not report a successful Save & Apply until its pid is alive.
 	for ($check = 0; $check < 20; $check++) {
@@ -1137,7 +1141,46 @@ function threatshield_write_yaml(string $yaml): bool {
 	return true;
 }
 
+/*
+ * Held while a configuration is applied. The 5-minute self-repair
+ * (threatshield_reconcile()) skips its run meanwhile: it used to see AdGuard
+ * Home stopped by the apply, start it, and make the apply's own start fail.
+ */
+define('THREATSHIELD_APPLY_LOCK', '/var/run/threatshield-apply.lock');
+
+/* The lock (a file handle), false when it is held elsewhere, null when it can't be used.
+ * $wait waits up to two minutes for another apply, then goes ahead without it. */
+function threatshield_apply_lock(bool $wait) {
+	$fp = @fopen(THREATSHIELD_APPLY_LOCK, 'c');
+	if ($fp === false) return null;
+	for ($i = 0; !flock($fp, LOCK_EX | LOCK_NB); $i++) {
+		if (!$wait || ($i >= 480)) {
+			fclose($fp);
+			if ($wait) logger(LOG_WARNING, 'Threat Shield: another apply still runs after two minutes; applying anyway.');
+			return $wait ? null : false;
+		}
+		usleep(250000);
+	}
+	return $fp;
+}
+
+function threatshield_apply_unlock($fp): void {
+	if (is_resource($fp)) {
+		flock($fp, LOCK_UN);
+		fclose($fp);
+	}
+}
+
 function threatshield_sync_config(): bool {
+	$lock = threatshield_apply_lock(true);
+	try {
+		return threatshield_sync_config_locked();
+	} finally {
+		threatshield_apply_unlock($lock);
+	}
+}
+
+function threatshield_sync_config_locked(): bool {
 	threatshield_persist_migration();
 	$cfg = threatshield_config();
 	$enabled = ($cfg['enable'] ?? 'off') === 'on';
