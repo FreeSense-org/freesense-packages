@@ -1,9 +1,10 @@
 FreeSense
-Copyright 2026 The FreeSense contributors
+Copyright 2025-2026 The FreeSense Project
 
 This product is a derivative work of pfSense® CE.
 Portions Copyright 2004-2026 Rubicon Communications, LLC (Netgate).
 Portions Copyright 2004-2016 Electric Sheep Fencing, LLC.
+Portions Copyright 2004-2013 BSD Perimeter.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use these files except in compliance with the License.
@@ -31,3 +32,91 @@ Netgate. The pfSense name and marks are used here only to accurately identify th
 upstream project from which FreeSense is derived, and are not used as FreeSense's
 own branding.
 
+================================================================================
+Copyright notices in the source code
+================================================================================
+
+Every source file keeps the copyright lines of the work it is based on. The
+lines below are all the distinct copyright lines that appear in the headers of
+the files in this repository, each listed once (the year ranges differ from
+file to file). Files written for FreeSense carry only the FreeSense line.
+
+Project and upstream organizations:
+
+  Copyright (c) 2004-2013 BSD Perimeter
+  Copyright (c) 2004-2026 Rubicon Communications, LLC (Netgate)
+  Copyright (c) 2006-2026 Rubicon Communications, LLC (Netgate)
+  Copyright (c) 2008-2026 Rubicon Communications, LLC (Netgate)
+  Copyright (c) 2009-2026 Rubicon Communications, LLC (Netgate)
+  Copyright (c) 2010-2026 Rubicon Communications, LLC (Netgate)
+  Copyright (c) 2011-2026 Rubicon Communications, LLC (Netgate)
+  Copyright (c) 2012-2026 Rubicon Communications, LLC (Netgate)
+  Copyright (c) 2013-2016 Electric Sheep Fencing
+  Copyright (c) 2013-2026 Rubicon Communications, LLC (Netgate)
+  Copyright (c) 2014-2024 Rubicon Communications, LLC (Netgate)
+  Copyright (c) 2014-2026 Rubicon Communications, LLC (Netgate)
+  Copyright (c) 2015-2026 Rubicon Communications, LLC (Netgate)
+  Copyright (c) 2016-2026 Rubicon Communications, LLC (Netgate)
+  Copyright (c) 2017-2026 Rubicon Communications, LLC (Netgate)
+  Copyright (c) 2018-2026 Rubicon Communications, LLC (Netgate)
+  Copyright (c) 2019-2026 Rubicon Communications, LLC (Netgate)
+  Copyright (c) 2021-2026 Rubicon Communications, LLC (Netgate)
+  Copyright (c) 2022-2026 Rubicon Communications, LLC (Netgate)
+  Copyright (c) 2023-2026 Rubicon Communications, LLC (Netgate)
+  Copyright (c) 2025-2026 The FreeSense Project
+  Copyright (c) 2026 The FreeSense Project
+
+Other copyright holders of upstream code:
+
+  Copyright (c) 2013 Adriano Brancher
+  Copyright (c) 2013 Alexander Wilke <nachtfalkeaw@web.de>
+  Copyright (c) 2020 Ascrod
+  Copyright (c) 2008 Bill Marquette
+  Copyright (c) 2005 Bill Marquette
+  Copyright (c) 2005 Bill Marquette <bill.marquette@gmail.com>
+  Copyright (c) 2023 Bill Meeks
+  Copyright (c) 2014-2020 Bill Meeks
+  Copyright (c) 2025 Bill Meeks
+  Copyright (c) 2024 Bill Meeks
+  Copyright (c) 2013 Danilo G. Baio
+  Copyright (c) 2012 davidshimjs
+  Copyright (c) 2025 Denny Page
+  Copyright (c) 2025, Denny Page
+  Copyright (c) 2018 Denny Page
+  Copyright (c) 2024-2025 Denny Page
+  Copyright (c) 2016 Denny Page
+  Copyright (c) 2016-2024 Denny Page
+  Copyright (c) 2016-2017 Denny Page
+  Copyright (c) 2016 Denny Page <dennypage@me.com>
+  Copyright (c) 2020 Dirk Henrici (https://github.com/towalink)
+  Copyright (c) 2015 ESF, LLC
+  Copyright (c) 2013 Juliano Oliveira
+  Copyright (c) 2009 Kazuhiko Arase
+  Copyright (c) 2012 Lance Leger
+  Copyright (c) 2003-2004 Manuel Kasper
+  Copyright (c) 2003-2004 Manuel Kasper <mk@neon1.net>
+  Copyright (c) 2003-2006 Manuel Kasper <mk@neon1.net>
+  Copyright (c) 2013 Marcello Coutinho
+  Copyright (c) 2011 Marcello Coutinho
+  Copyright (c) 2013 Marcello Coutinho (revocation list code)
+  Copyright (c) 2013 Marcello Coutinho <marcellocoutinho@gmail.com>
+  Copyright (c) 2011 Marcello Coutinho <marcellocoutinho@gmail.com>
+  Copyright (c) 2008 Mark J Crane
+  Copyright (c) 2010 Nick Buraglio <nick@buraglio.com>
+  Copyright (c) 2021, Oracle and/or its affiliates
+  Copyright (c) 2013-2016 PiBa-NL
+  Copyright (c) 2016 PiBa-NL
+  Copyright (c) 2013 PiBa-NL
+  Copyright (c) 2013-2015 PiBa-NL
+  Copyright (c) 2014 PiBa-NL
+  Copyright (c) 2017 PiBa-NL
+  Copyright (c) 2021 R. Christian McDonald
+  Copyright (c) 2021 R. Christian McDonald (https://github.com/rcmcdonald91)
+  Copyright (c) 2008 Remco Hoef <remcoverhoef@pfsense.com>
+  Copyright (c) 2009 Robert Zelaya Sr. Developer
+  Copyright (c) 2016 Sander Peterse <sander.peterse88@gmail.com>
+  Copyright (c) 2008 Shrew Soft Inc
+  Copyright (c) 2016 Stefan Seidel
+  Copyright (c) 2011 Thomas Schaefer - Tomschaefer.org
+  Copyright (c) 2021 Vajonam
+  Copyright (c) 2016 Voleatech GmbH
