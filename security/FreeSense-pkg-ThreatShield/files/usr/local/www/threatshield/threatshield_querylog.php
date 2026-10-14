@@ -24,7 +24,8 @@ $statuses = ['all' => gettext('All queries'), 'blocked' => gettext('Blocked'), '
     'rewritten' => gettext('Rewritten'), 'processed' => gettext('Answered normally')];
 $search = trim((string)($_GET['search'] ?? ''));
 $status = array_key_exists($_GET['status'] ?? '', $statuses) ? $_GET['status'] : 'all';
-$limit = in_array((int)($_GET['limit'] ?? 50), [50, 100, 250], true) ? (int)$_GET['limit'] : 50;
+$limit = (int)($_GET['limit'] ?? 50);
+if (!in_array($limit, [50, 100, 250], true)) $limit = 50;
 $older = (string)($_GET['older_than'] ?? '');
 if ($older !== '' && !preg_match('/^[0-9T:.+\-Z]{10,40}$/', $older)) $older = '';
 $query = array_filter(['search' => $search, 'status' => ($status !== 'all') ? $status : '', 'limit' => ($limit !== 50) ? (string)$limit : ''], 'strlen');
