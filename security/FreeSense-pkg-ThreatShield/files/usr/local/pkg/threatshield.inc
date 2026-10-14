@@ -42,7 +42,7 @@ define('THREATSHIELD_PROBE_BLOCKED', 'blocked.threatshield.test');
 function threatshield_list_fields(): array {
 	return ['interfaces', 'feeds', 'geoip_countries', 'blocked_services', 'rewrites', 'clients', 'geoip_policies',
 	    'dns_intercept_interfaces', 'allowlist', 'ip_allowlist', 'ip_feeds', 'ipbl_wan_interfaces', 'ipbl_lan_interfaces',
-	    'services_schedule_days', 'dnsbl_zones', 'inbound_policies'];
+	    'services_schedule_days', 'dnsbl_zones', 'inbound_policies', 'map_panels'];
 }
 
 function threatshield_assigned_interfaces(): array {
@@ -240,6 +240,27 @@ function threatshield_default_config(): array {
 		'inbound_policies' => [],
 		'flood_release_secs' => '3600',
 		'health_test_domain' => 'freesense.org',
+		/* threat map */
+		'map_overview' => 'on',
+		'map_geodb' => 'off',               // off | country | country_asn (DB-IP Lite, monthly)
+		'map_location' => 'auto',           // auto (time zone) | manual
+		'map_lat' => '',
+		'map_lon' => '',
+		'map_background' => 'on',
+		'map_dns' => 'on',
+		'map_log_allowed' => 'off',
+		'map_retention_days' => '7',
+		'map_style' => 'freesense',         // freesense | pro | hacker
+		'map_theme' => 'auto',              // auto | light | dark (full screen)
+		'map_window' => '1h',
+		'map_animations' => 'full',         // full | reduced | off
+		'map_mask_ips' => 'off',
+		'map_layout' => 'wall',             // map | side | wall (full screen)
+		'map_panels' => ['kpis', 'mix', 'timeline', 'countries', 'sources', 'ports', 'feed', 'spotlight', 'status'],
+		'map_alerts' => 'on',
+		'map_alert_factor' => '4',
+		'map_alert_sound' => 'off',
+		'map_title' => '',
 	];
 }
 
@@ -559,6 +580,28 @@ function threatshield_validate_inbound(array $cfg, array $assigned, array $wan):
 			}
 		}
 	}
+
+	/* threat map */
+	$choices = ['map_geodb' => ['off', 'country', 'country_asn'], 'map_location' => ['auto', 'manual'], 'map_style' => ['freesense', 'pro', 'hacker'],
+	    'map_theme' => ['auto', 'light', 'dark'], 'map_window' => array_keys(THREATSHIELD_MAP_WINDOWS), 'map_animations' => ['full', 'reduced', 'off'],
+	    'map_layout' => ['map', 'side', 'wall']];
+	foreach ($choices as $key => $allowed) {
+		if (isset($cfg[$key]) && !in_array((string)$cfg[$key], $allowed, true)) $errors[] = sprintf(gettext('Invalid threat map setting: %s.'), $key);
+	}
+	if (($cfg['map_location'] ?? 'auto') === 'manual') {
+		$lat = (string)($cfg['map_lat'] ?? '');
+		$lon = (string)($cfg['map_lon'] ?? '');
+		if (!is_numeric($lat) || !is_numeric($lon) || abs((float)$lat) > 90 || abs((float)$lon) > 180) {
+			$errors[] = gettext('Enter the firewall location as latitude (-90 to 90) and longitude (-180 to 180).');
+		}
+	}
+	foreach (['map_retention_days' => [1, 30], 'map_alert_factor' => [2, 50]] as $key => [$min, $max]) {
+		$v = (string)($cfg[$key] ?? $min);
+		if (!ctype_digit($v) || (int)$v < $min || (int)$v > $max) $errors[] = sprintf(gettext('%1$s must be between %2$d and %3$d.'), $key, $min, $max);
+	}
+	if (strlen((string)($cfg['map_title'] ?? '')) > 60) $errors[] = gettext('The threat map title can be 60 characters at most.');
+	$panels = ['kpis', 'mix', 'timeline', 'countries', 'sources', 'ports', 'feed', 'spotlight', 'status', 'asns', 'rules', 'domains'];
+	if (!empty(array_diff(array_map('strval', threatshield_normalize_list($cfg['map_panels'] ?? [])), $panels))) $errors[] = gettext('Unknown threat map panel.');
 	return $errors;
 }
 
@@ -1319,6 +1362,8 @@ function threatshield_cron_jobs(): array {
 		[THREATSHIELD_UPDATER . ' geoip', '43', '*'],
 		[THREATSHIELD_UPDATER . ' ipfeeds', '29', '*'],
 		[THREATSHIELD_UPDATER . ' health', '*/5', '*'],
+		[THREATSHIELD_UPDATER . ' geodb', '51', '3'],
+		[THREATSHIELD_UPDATER . ' map-collect', '*', '*'],
 		[THREATSHIELD_UPDATER . ' flood-expire', '*', '*'],
 	];
 }
@@ -1329,8 +1374,10 @@ function threatshield_install_cron(?array $cfg = null): void {
 	foreach (threatshield_normalize_list($cfg['inbound_policies'] ?? []) as $p) {
 		if (is_array($p) && ($p['enable'] ?? 'on') === 'on' && threatshield_pf_policy_has_flood($p)) $flood = true;
 	}
+	$map = ($cfg['enable'] ?? 'off') === 'on' && ($cfg['map_background'] ?? 'on') === 'on';
 	foreach (threatshield_cron_jobs() as [$command, $minute, $hour]) {
-		$wanted = !str_ends_with($command, 'flood-expire') || $flood;
+		$wanted = (!str_ends_with($command, 'flood-expire') || $flood) && (!str_ends_with($command, 'map-collect') || $map)
+		    && (!str_ends_with($command, 'geodb') || ($cfg['map_geodb'] ?? 'off') !== 'off');
 		install_cron_job($command, $wanted, $minute, $hour, '*', '*', '*', 'root');
 	}
 }
@@ -1347,6 +1394,7 @@ function threatshield_rule_context(array $cfg, string $type): array {
 	$ctx = ['ifmap' => [], 'gw4' => [], 'gw6' => [], 'db' => THREATSHIELD_DB_DIR,
 	    'replyto' => !config_path_enabled('system', 'disablereplyto'),
 	    'aliases' => threatshield_alias_names(), 'healthy' => false, 'dnsbl_up' => false,
+	    'log_pass' => (($cfg['map_log_allowed'] ?? 'off') === 'on'),
 	    /* pf keeps the contents of an existing persist table when the ruleset
 	     * reloads, so "persist file" alone would leave a flushed or once-empty
 	     * table empty; load every table from its file before the rules load. */
@@ -1617,6 +1665,31 @@ function threatshield_allowlist_add(array &$cfg, string $domain, bool $subdomain
 	return true;
 }
 
+/* Blocks a domain and its subdomains with a custom rule; an allowlist entry
+ * for exactly this domain is removed, since it would win over the rule. */
+function threatshield_block_domain(array &$cfg, string $domain, ?string &$message = null): bool {
+	$d = threatshield_normalize_domain($domain);
+	if ($d === null) {
+		$message = gettext('The selected domain is invalid.');
+		return false;
+	}
+	$rule = "||{$d}^";
+	$rules = array_map('trim', threatshield_lines((string)($cfg['custom_rules'] ?? '')));
+	if (in_array($rule, $rules, true)) {
+		$message = sprintf(gettext('%s is already blocked by a custom rule.'), $d);
+		return false;
+	}
+	$list = threatshield_normalize_list($cfg['allowlist'] ?? []);
+	$found = threatshield_allowlist_find($list, $d);
+	if ($found !== null && ($list[$found]['domain'] ?? '') === $d) {
+		array_splice($list, $found, 1);
+		$cfg['allowlist'] = $list;
+	}
+	$cfg['custom_rules'] = trim(implode("\n", $rules) . "\n" . $rule);
+	$message = sprintf(gettext('%s is blocked with its subdomains.'), $d);
+	return true;
+}
+
 function threatshield_ip_allowlist_add(array &$cfg, string $address, string $source, string $comment = '', ?string &$message = null): bool {
 	$normalized = threatshield_cidr_normalize($address);
 	if ($normalized === null) {
@@ -1701,6 +1774,7 @@ function threatshield_age(int $timestamp): string {
 function threatshield_display_tabs(string $active_tab): void {
 	$tabs = [
 		[gettext('Overview'), $active_tab === 'status', '/threatshield/threatshield_status.php'],
+		[gettext('Threat map'), $active_tab === 'map', '/threatshield/threatshield_map.php'],
 		[gettext('Settings'), $active_tab === 'general', '/threatshield/threatshield.php'],
 		[gettext('Blocklists'), $active_tab === 'feeds', '/threatshield/threatshield_feeds.php'],
 		[gettext('Allowlist'), $active_tab === 'allowlist', '/threatshield/threatshield_allowlist.php'],
@@ -1715,3 +1789,4 @@ function threatshield_display_tabs(string $active_tab): void {
 
 require_once(__DIR__ . '/threatshield/threatshield_health.inc');
 require_once(__DIR__ . '/threatshield/threatshield_dnsbl.inc');
+require_once(__DIR__ . '/threatshield/threatshield_map.inc');

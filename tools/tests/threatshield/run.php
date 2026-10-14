@@ -244,5 +244,8 @@ same('ha recv takes the peer rules', '||peer.example^', $r['installedpackages/th
 $peer['ha_sync'] = 'off';
 same('ha recv ignores peers without sync', [], threatshield_plugin_xmlrpc_recv(['installedpackages' => ['threatshield' => $peer]]));
 
+/* ------------------------------------------------------------ threat map */
+require __DIR__ . '/map_tests.php';
+
 echo ($failures === 0) ? "Threat Shield unit tests passed: {$count} checks.\n" : "Threat Shield unit tests: {$failures} of {$count} checks failed.\n";
 exit($failures === 0 ? 0 : 1);
