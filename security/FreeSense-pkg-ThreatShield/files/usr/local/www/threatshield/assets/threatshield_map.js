@@ -229,11 +229,11 @@
 			this.root.style.height = h + 'px';
 		}
 		/* contain the map in the box, centred; the small banner crops the
-		 * polar rows (the top 15 % and bottom 10 %) to stay low */
+		 * polar rows (the top 6 % and bottom 14 %) to stay low */
 		var s = Math.min(w / W.w, h / W.h), oy;
 		if (this.o.mode === 'mini') {
-			s = Math.min(w / W.w, h / (W.h * 0.75));
-			oy = -W.h * s * 0.15 + (h - W.h * s * 0.75) / 2;
+			s = Math.min(w / W.w, h / (W.h * 0.8));
+			oy = -W.h * s * 0.06 + (h - W.h * s * 0.8) / 2;
 		} else {
 			oy = (h - W.h * s) / 2;
 		}
