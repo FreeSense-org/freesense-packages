@@ -34,6 +34,7 @@ jobs:
           python3 tools/boundary_audit.py
           python3 tools/catalog_audit.py --source freesense-src $MODE
           python3 tools/webgateway_smoke.py
+          python3 tools/threatshield_smoke.py
           test ! -e security/openvpn-client-export/distinfo
           grep -Fq '${COPYTREE_SHARE}' security/openvpn-client-export/Makefile
           grep -Eq '^DISTFILES=[[:space:]]*$' security/openvpn-client-export/Makefile
@@ -57,5 +58,7 @@ jobs:
           sudo apt-get install -yq php-cli
           find . -type f \( -name '*.php' -o -name '*.inc' \) \
             ! -path './freesense-src/*' -print0 | xargs -0 -r -n1 php -l
-          find . -type f \( -name 'pkg-install.in' -o -name 'pkg-deinstall.in' \) \
+          find . -type f \( -name 'pkg-install.in' -o -name 'pkg-deinstall.in' -o -path '*/files/usr/local/etc/rc.d/*' \) \
             ! -path './freesense-src/*' -print0 | xargs -0 -r -n1 sh -n
+      - name: Threat Shield unit tests
+        run: php tools/tests/threatshield/run.php

@@ -1,0 +1,206 @@
+# FreeSense Threat Shield Generated Configuration
+# Do not edit manually - managed via FreeSense WebUI
+http:
+  address: 127.0.0.1:3000
+  session_ttl: 720h
+  pprof:
+    port: 6060
+    enabled: false
+auth_attempts: 5
+block_auth_min: 15
+http_proxy: ""
+language: en
+theme: auto
+users: []
+
+dns:
+  bind_hosts:
+    - "127.0.0.1"
+    - "192.0.2.1"
+  port: 53
+  upstream_dns:
+    - "https://dns.quad9.net/dns-query"
+    - "https://cloudflare-dns.com/dns-query"
+    - "[/home.arpa/]127.0.0.1:5335"
+    - "[/in-addr.arpa/]127.0.0.1:5335"
+    - "[/ip6.arpa/]127.0.0.1:5335"
+  upstream_dns_file: ""
+  bootstrap_dns:
+    - "9.9.9.9"
+    - "1.1.1.1"
+  fallback_dns:
+    - "9.9.9.9"
+    - "1.1.1.1"
+  fastest_timeout: 1s
+  ratelimit: 0
+  ratelimit_subnet_len_ipv4: 24
+  ratelimit_subnet_len_ipv6: 56
+  ratelimit_whitelist: []
+  edns_client_subnet:
+    custom_ip: ""
+    enabled: false
+    use_custom: false
+  max_goroutines: 300
+  handle_ddr: true
+  serve_http3: false
+  use_http3_upstreams: false
+  use_dns64: false
+  enable_dnssec: true
+  cache_size: 4194304
+  cache_ttl_min: 0
+  cache_ttl_max: 0
+  cache_optimistic: true
+  bogus_nxdomain: []
+  upstream_mode: "parallel"
+  use_private_ptr_resolvers: true
+  local_ptr_upstreams:
+    - 127.0.0.1:5335
+
+tls:
+  enabled: false
+  server_name: ""
+  force_https: false
+  port_https: 443
+  port_dns_over_tls: 853
+  port_dns_over_quic: 853
+  port_dnscrypt: 0
+  dnscrypt_config_file: ""
+  allow_unencrypted_doh: true
+  certificate_chain: ""
+  private_key: ""
+
+filtering:
+  filtering_enabled: true
+  protection_enabled: true
+  protection_disabled_until: null
+  filters_update_interval: 24
+  safe_fs_patterns:
+    - "/var/db/threatshield/data/userfilters/*"
+  parental_enabled: false
+  safebrowsing_enabled: true
+  safe_search:
+    enabled: false
+    bing: true
+    duckduckgo: true
+    ecosia: true
+    google: true
+    pixabay: true
+    yandex: true
+    youtube: true
+  blocking_mode: "default"
+  blocking_ipv4: ""
+  blocking_ipv6: ""
+  rewrites:
+    - domain: "nas.home.arpa"
+      answer: "192.0.2.10"
+      enabled: true
+    - domain: "*.lab.home.arpa"
+      answer: "nas.home.arpa"
+      enabled: false
+  blocked_services:
+    schedule:
+      time_zone: "Europe/Copenhagen"
+      sat:
+        start: 10h
+        end: 18h30m
+      sun:
+        start: 0s
+        end: 24h
+    ids:
+      - "tiktok"
+      - "roblox"
+filters:
+  - enabled: true
+    url: "/var/db/threatshield/data/userfilters/feed_e5ffd74458e6a5eb0d01d5620b6e95f8.txt"
+    name: "AdGuard DNS filter"
+    id: 1062841019
+whitelist_filters:
+  - enabled: true
+    url: "/var/db/threatshield/data/userfilters/feed_b5624f5f80fcd90ea35e990a6958c9a7.txt"
+    name: "Referral allowlist"
+    id: 1229971788
+user_rules:
+  - "@@||example.com^$important"
+  - "@@|cdn.example.net^$important"
+  - "||use-application-dns.net^"
+  - "||mask.icloud.com^"
+  - "||mask-h2.icloud.com^"
+  - "||blocked.threatshield.test^"
+  - "||ads.example.org^"
+  - "! a comment"
+
+dhcp:
+  enabled: false
+
+clients:
+  runtime_sources:
+    whois: true
+    arp: true
+    rdns: true
+    dhcp: true
+    hosts: true
+  persistent:
+    - name: "Kids"
+      ids:
+        - "192.0.2.20"
+        - "kid-tablet"
+      use_global_settings: false
+      filtering_enabled: true
+      parental_enabled: false
+      safebrowsing_enabled: true
+      safe_search:
+        enabled: false
+        bing: true
+        duckduckgo: true
+        ecosia: true
+        google: true
+        pixabay: true
+        yandex: true
+        youtube: true
+      use_global_blocked_services: false
+      blocked_services:
+        schedule:
+          time_zone: "Local"
+          fri:
+            start: 17h
+            end: 20h
+        ids:
+          - "youtube"
+    - name: "Server"
+      ids:
+        - "192.0.2.30"
+      use_global_settings: false
+      filtering_enabled: false
+      parental_enabled: false
+      safebrowsing_enabled: false
+      safe_search:
+        enabled: false
+        bing: true
+        duckduckgo: true
+        ecosia: true
+        google: true
+        pixabay: true
+        yandex: true
+        youtube: true
+      use_global_blocked_services: true
+      blocked_services:
+        schedule:
+          time_zone: "Local"
+        ids: []
+
+querylog:
+  enabled: true
+  file_enabled: true
+  interval: 2160h
+  size_memory: 1000
+  anonymize_client_ip: false
+  ignored:
+    - "||blocked.threatshield.test^"
+
+statistics:
+  enabled: true
+  interval: 24h
+  ignored:
+    - "||blocked.threatshield.test^"
+
+schema_version: 34

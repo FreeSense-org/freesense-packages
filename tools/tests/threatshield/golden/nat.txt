@@ -1,0 +1,7 @@
+# Threat Shield DNS redirection
+no rdr on vtnet1 inet proto { tcp udp } from any to (vtnet1) port 53
+no rdr on vtnet1 inet proto { tcp udp } from { 192.0.2.53/32 } to any port 53
+rdr pass on vtnet1 inet proto { tcp udp } from any to any port 53 -> 127.0.0.1 port 53
+no rdr on vtnet2 inet proto { tcp udp } from any to (vtnet2) port 53
+no rdr on vtnet2 inet proto { tcp udp } from { 192.0.2.53/32 } to any port 53
+rdr pass on vtnet2 inet proto { tcp udp } from any to any port 53 -> 127.0.0.1 port 53
