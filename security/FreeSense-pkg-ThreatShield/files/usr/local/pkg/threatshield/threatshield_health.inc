@@ -341,6 +341,12 @@ function threatshield_preflight(array $candidate, array $current): array {
 function threatshield_reconcile(bool $after_start = false): void {
 	$cfg = threatshield_config();
 	if (($cfg['enable'] ?? 'off') !== 'on') return;
+	if (!$after_start) {
+		/* A Save & Apply stops and starts the services itself: never race it. */
+		$lock = threatshield_apply_lock(false);
+		if ($lock === false) return;
+		threatshield_apply_unlock($lock);
+	}
 	if ($after_start) {
 		for ($i = 0; $i < 40 && !threatshield_listener_healthy($cfg, 500); $i++) usleep(500000);
 	} elseif (!threatshield_is_running()) {

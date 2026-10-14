@@ -80,7 +80,7 @@ $asset = function (string $file): string {
 };
 
 /* texts for the scripts */
-$geo_button = $can_configure ? '<form method="post" action="' . $self . '"><input type="hidden" name="back" value="' . htmlspecialchars($_SERVER['REQUEST_URI'] ?? $self) . '">'
+$geo_button = $can_configure ? '<form method="post" action="' . $self . '">' . threatshield_csrf_input() . '<input type="hidden" name="back" value="' . htmlspecialchars($_SERVER['REQUEST_URI'] ?? $self) . '">'
     . '<button type="submit" name="enable_geodb" value="1" class="btn btn-sm btn-primary">' . htmlspecialchars(gettext('Turn on map locations')) . '</button></form>' : '';
 $js_text = [
 	'details' => gettext('Address details'), 'close' => gettext('Close'), 'loading' => gettext('Loading…'), 'cardFailed' => gettext('The details could not be loaded.'), 'noPtr' => gettext('No host name'),
