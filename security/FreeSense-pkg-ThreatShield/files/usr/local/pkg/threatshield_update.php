@@ -14,6 +14,10 @@
  *   health        self-repair (cron, every 5 minutes)
  *   reconcile     after the service started: reload the filter once DNS answers
  *   flood-expire  release flood offenders after the configured time (cron)
+ *   geodb         IP location database for the threat map (monthly, DB-IP Lite)
+ *   map-collect   threat map: read new log lines (cron, every minute)
+ *   map-prune     threat map: drop data older than the retention
+ *   dnsbl-check <ip>  look an address up in the DNSBL zones now
  */
 
 require_once('threatshield.inc');
@@ -127,6 +131,45 @@ switch ($mode) {
 	case 'flood-expire':
 		threatshield_flood_expire($cfg);
 		exit(0);
+	case 'map-collect':
+		if (($cfg['enable'] ?? 'off') === 'on') {
+			threatshield_map_collect($cfg, true);
+			if ((int)date('i') === 7) threatshield_map_prune($cfg);    // hourly
+		}
+		exit(0);
+	case 'map-prune':
+		threatshield_map_prune($cfg);
+		exit(0);
+	case 'geodb':
+		$kind = (string)($cfg['map_geodb'] ?? 'off');
+		if ($kind === 'off' && !$force) exit(0);
+		$meta = json_decode((string)@file_get_contents(THREATSHIELD_GEO_DIR . '/meta.json'), true);
+		$fresh = is_array($meta) && ($meta['month'] ?? '') === gmdate('Y-m') && (($meta['asn'] ?? false) || $kind !== 'country_asn');
+		if ($fresh && !$force) exit(0);
+		echo "[ThreatShield] Updating the IP location database (DB-IP Lite)...\n";
+		$tmpdir = THREATSHIELD_DB_DIR . '/geodb.download';
+		safe_mkdir($tmpdir, 0750);
+		$files = [];
+		foreach (($kind === 'country_asn') ? ['country', 'asn'] : ['country'] as $part) {
+			$error = 'no download';
+			foreach (threatshield_geo_dbip_urls($part, time()) as $url) {
+				$dest = $tmpdir . '/' . basename($url);
+				$error = threatshield_fetch("DB-IP {$part}", $url, $dest);
+				if ($error === null && (string)@file_get_contents($dest, false, null, 0, 2) !== "\x1f\x8b") $error = 'not a gzip file';
+				if ($error === null) { $files[$part] = $dest; break; }
+				@unlink($dest);
+			}
+			if (!isset($files[$part])) {
+				logger(LOG_WARNING, "Threat Shield: the IP location database could not be downloaded ({$error}); the previous copy stays in use.");
+				exit(1);
+			}
+		}
+		$stats = null;
+		$ok = threatshield_geo_build($files['country'], $files['asn'] ?? null, THREATSHIELD_GEO_DIR, $stats);
+		foreach ($files as $f) @unlink($f);
+		echo $ok ? '[ThreatShield] Location database built: ' . json_encode($stats) . "\n" : "[ThreatShield] Building the location database failed.\n";
+		if ($ok) threatshield_mark_updated('geodb');
+		exit($ok ? 0 : 1);
 	case 'dnsbl-check':
 		$r = threatshield_dnsbl_lookup((string)($argv[2] ?? ''), $cfg);
 		foreach ($r['zones'] as $id => $z) {

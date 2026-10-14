@@ -190,7 +190,29 @@ function threatshield_pf_early_rules(array $cfg, array $ctx): string {
 	}
 
 	if ($tables === '' && $rules === '') return '';
-	return "# FreeSense Threat Shield\n" . $tables . $rules;
+	return "# FreeSense Threat Shield\n" . $tables . threatshield_pf_add_trackers($rules);
+}
+
+/* filterlog reports a rule by its tracker (ridentifier). Threat Shield
+ * rules get a fixed number per label, so log lines keep pointing at the right
+ * rule across filter reloads. 4100000000 and up lies above the base rules
+ * (1000000000 + n) and the time-based trackers of user rules. */
+const THREATSHIELD_TRACKER_BASE = 4100000000;
+
+function threatshield_pf_tracker(string $label, array &$used): int {
+	$n = THREATSHIELD_TRACKER_BASE + (crc32($label) % 100000000);
+	while (isset($used[$n]) && $used[$n] !== $label) $n++;
+	$used[$n] = $label;
+	return $n;
+}
+
+function threatshield_pf_add_trackers(string $rules): string {
+	$used = [];
+	$by_label = [];
+	return (string)preg_replace_callback('/ label "(ThreatShield [^"]*)"/', function ($m) use (&$used, &$by_label) {
+		$by_label[$m[1]] = $by_label[$m[1]] ?? threatshield_pf_tracker($m[1], $used);
+		return $m[0] . ' ridentifier ' . $by_label[$m[1]];
+	}, $rules);
 }
 
 function threatshield_pf_policy_dest(string $dest, array $ctx): ?string {
@@ -293,7 +315,8 @@ function threatshield_pf_owned_pass(array $p, array $ctx, string $friendly, stri
 	foreach ($families as $family => $gw) {
 		if ($dst_family !== null && $dst_family !== $family) continue;
 		$reply = (!empty($ctx['replyto']) && $gw !== '' && filter_var($gw, FILTER_VALIDATE_IP)) ? " reply-to ({$real} {$gw})" : '';
-		$out .= "pass in quick on {$real}{$reply} {$family} proto {$proto} from any {$to}{$flags} {$state} label \"ThreatShield {$id} pass\"\n";
+		$log = empty($ctx['log_pass']) ? '' : ' log';
+		$out .= "pass in{$log} quick on {$real}{$reply} {$family} proto {$proto} from any {$to}{$flags} {$state} label \"ThreatShield {$id} pass\"\n";
 	}
 	return $out;
 }

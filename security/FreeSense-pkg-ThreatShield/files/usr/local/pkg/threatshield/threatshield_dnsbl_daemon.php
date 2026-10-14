@@ -73,6 +73,9 @@ final class ThreatShieldDnsbl {
 	private array $stats = ['lookups' => 0, 'listed' => 0, 'clean' => 0, 'failures' => 0, 'cache_hits' => 0,
 	    'dropped_ingest' => 0, 'dropped_queue' => 0, 'per_zone' => []];
 	private array $recent = [];     // lookup timestamps for the qps figure
+	private array $verdicts = [];   // newest fresh verdicts for the threat map
+	private int $verdict_n = 0;
+	private int $boot = 0;
 
 	public function run(): void {
 		$this->load();
@@ -424,6 +427,10 @@ final class ThreatShieldDnsbl {
 			$this->stats['failures']++;
 		}
 		$this->files_dirty = true;
+		if ($fresh && $verdict !== 'fail') {
+			$this->verdicts[] = ['n' => ++$this->verdict_n, 't' => time(), 'ip' => $ip, 'v' => $verdict, 'z' => array_values($zones)];
+			if (count($this->verdicts) > 100) array_shift($this->verdicts);
+		}
 		if ($fresh && $verdict !== 'fail' && $this->db !== null) {
 			$st = $this->db->prepare('INSERT INTO verdicts (ip, verdict, zones, checked, expires, hits) VALUES (:ip, :v, :z, :c, :e, 1)
 			    ON CONFLICT(ip) DO UPDATE SET verdict = :v, zones = :z, checked = :c, expires = :e, hits = hits + 1');
@@ -521,6 +528,11 @@ final class ThreatShieldDnsbl {
 		];
 		@file_put_contents(THREATSHIELD_DNSBL_STATUS . '.tmp', json_encode($status), LOCK_EX);
 		@rename(THREATSHIELD_DNSBL_STATUS . '.tmp', THREATSHIELD_DNSBL_STATUS);
+		/* the threat map reads the newest verdicts from here */
+		$this->boot = $this->boot ?: time();
+		$recent = '/var/run/threatshield_dnsbl.recent.json';
+		@file_put_contents($recent . '.tmp', json_encode(['boot' => $this->boot, 'n' => $this->verdict_n, 'v' => $this->verdicts]), LOCK_EX);
+		@rename($recent . '.tmp', $recent);
 	}
 }
 

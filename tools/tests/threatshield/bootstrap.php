@@ -14,6 +14,17 @@ $GLOBALS['ts_test_config'] = [
 ];
 $GLOBALS['ts_test_ifmap'] = ['wan' => 'vtnet0', 'lan' => 'vtnet1', 'opt1' => 'vtnet2'];
 $GLOBALS['ts_test_wans'] = ['wan'];
+/* the threat map store and its state live in a scratch directory */
+$GLOBALS['ts_test_tmp'] = sys_get_temp_dir() . '/ts-test-' . getmypid();
+@mkdir($GLOBALS['ts_test_tmp'], 0700, true);
+define('THREATSHIELD_MAP_DB', $GLOBALS['ts_test_tmp'] . '/map.sqlite');
+define('THREATSHIELD_MAP_STATE', $GLOBALS['ts_test_tmp'] . '/map_state.json');
+define('THREATSHIELD_GEO_DIR', $GLOBALS['ts_test_tmp'] . '/geodb');
+register_shutdown_function(function () {
+	foreach ((array)glob($GLOBALS['ts_test_tmp'] . '/{,*/}*', GLOB_BRACE) as $f) if (is_file($f)) @unlink($f);
+	foreach ((array)glob($GLOBALS['ts_test_tmp'] . '/*', GLOB_ONLYDIR) as $d) @rmdir($d);
+	@rmdir($GLOBALS['ts_test_tmp']);
+});
 require_once dirname(__DIR__, 3) . '/security/FreeSense-pkg-ThreatShield/files/usr/local/pkg/threatshield.inc';
 
 /* System facts for the rule builders, as threatshield_rule_context() collects them. */

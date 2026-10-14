@@ -10,28 +10,28 @@ table <threatshield_dnsbl_known_f> persist file "/var/db/threatshield/dnsbl/know
 table <threatshield_ip_allow> persist file "/var/db/threatshield/ip/allow.txt"
 table <threatshield_dnsbl_known> persist file "/var/db/threatshield/dnsbl/known.txt"
 table <threatshield_dnsbl_fail> persist file "/var/db/threatshield/dnsbl/fail.txt"
-block in log quick on vtnet1 proto { tcp udp } from ! <threatshield_dns_excl> to ! (self) port 853 label "ThreatShield anti-bypass DoT/DoQ"
-block in log quick on vtnet1 proto { tcp udp } from ! <threatshield_dns_excl> to <threatshield_doh> port { 443 853 } label "ThreatShield anti-bypass DoH"
-block in log quick on vtnet1 inet6 proto { tcp udp } from ! <threatshield_dns_excl> to ! (self) port 53 label "ThreatShield anti-bypass DNS IPv6"
-block in log quick on vtnet2 proto { tcp udp } from ! <threatshield_dns_excl> to ! (self) port 853 label "ThreatShield anti-bypass DoT/DoQ"
-block in log quick on vtnet2 proto { tcp udp } from ! <threatshield_dns_excl> to <threatshield_doh> port { 443 853 } label "ThreatShield anti-bypass DoH"
-block in log quick on vtnet2 inet6 proto { tcp udp } from ! <threatshield_dns_excl> to ! (self) port 53 label "ThreatShield anti-bypass DNS IPv6"
-block in log quick on vtnet0 from <ts_ipf_shdrop> to any label "ThreatShield IP list shdrop inbound"
-block in log quick on vtnet1 from any to <ts_ipf_shdrop> label "ThreatShield IP list shdrop outbound"
-block in quick on vtnet1 from any to <ts_ipf_feodo> label "ThreatShield IP list feodo outbound"
-block in log quick on vtnet0 inet proto tcp from <freesense_geoip_default> to any port { 22 8000:8100 } label "ThreatShield GeoIP default inbound"
-block out log quick on vtnet0 inet proto tcp from any to <freesense_geoip_default> port { 22 8000:8100 } label "ThreatShield GeoIP default outbound"
-block drop in log quick on vtnet0 from <threatshield_flood> to any label "ThreatShield flood offender"
-pass in quick on vtnet0 proto tcp from <threatshield_ip_allow> to (self) port { 22 } flags S/SA keep state label "ThreatShield ssh allowlisted"
-block drop in log quick on vtnet0 proto tcp from <threatshield_dnsbl_bad> to (self) port { 22 } label "ThreatShield ssh DNSBL listed"
-block drop in log (to pflog1) quick on vtnet0 proto tcp from ! <threatshield_dnsbl_known_f> to (self) port { 22 } flags S/SA label "ThreatShield ssh DNSBL pending"
-pass in quick on vtnet0 reply-to (vtnet0 203.0.113.1) inet proto tcp from any to (self) port { 22 } flags S/SA keep state (max-src-conn 10, max-src-conn-rate 15/5, max-src-states 50, overload <threatshield_flood> flush global) label "ThreatShield ssh pass"
-pass in quick on vtnet0 inet6 proto tcp from any to (self) port { 22 } flags S/SA keep state (max-src-conn 10, max-src-conn-rate 15/5, max-src-states 50, overload <threatshield_flood> flush global) label "ThreatShield ssh pass"
-block drop in quick on vtnet0 proto tcp from <threatshield_dnsbl_bad> to 192.0.2.80 port { 443 } label "ThreatShield web DNSBL listed"
-block drop in quick on vtnet0 proto tcp from <threatshield_dnsbl_fail> to 192.0.2.80 port { 443 } label "ThreatShield web DNSBL unverified"
-match in log (to pflog1) on vtnet0 proto tcp from ! <threatshield_dnsbl_known_f> to 192.0.2.80 port { 443 } flags S/SA label "ThreatShield web DNSBL check"
-block drop in quick on vtnet0 proto udp from <threatshield_dnsbl_bad> to 192.0.2.80 port { 443 } label "ThreatShield web DNSBL listed"
-block drop in quick on vtnet0 proto udp from <threatshield_dnsbl_fail> to 192.0.2.80 port { 443 } label "ThreatShield web DNSBL unverified"
-match in log (to pflog1) on vtnet0 proto udp from ! <threatshield_dnsbl_known_f> to 192.0.2.80 port { 443 } label "ThreatShield web DNSBL check"
-block drop in log quick on vtnet0 proto udp from <threatshield_dnsbl_bad> to $Servers port { 51820 } label "ThreatShield vpn DNSBL listed"
-block drop in log (to pflog1) quick on vtnet0 proto udp from ! <threatshield_dnsbl_known> to $Servers port { 51820 } label "ThreatShield vpn DNSBL pending"
+block in log quick on vtnet1 proto { tcp udp } from ! <threatshield_dns_excl> to ! (self) port 853 label "ThreatShield anti-bypass DoT/DoQ" ridentifier 4184089843
+block in log quick on vtnet1 proto { tcp udp } from ! <threatshield_dns_excl> to <threatshield_doh> port { 443 853 } label "ThreatShield anti-bypass DoH" ridentifier 4104819329
+block in log quick on vtnet1 inet6 proto { tcp udp } from ! <threatshield_dns_excl> to ! (self) port 53 label "ThreatShield anti-bypass DNS IPv6" ridentifier 4171360450
+block in log quick on vtnet2 proto { tcp udp } from ! <threatshield_dns_excl> to ! (self) port 853 label "ThreatShield anti-bypass DoT/DoQ" ridentifier 4184089843
+block in log quick on vtnet2 proto { tcp udp } from ! <threatshield_dns_excl> to <threatshield_doh> port { 443 853 } label "ThreatShield anti-bypass DoH" ridentifier 4104819329
+block in log quick on vtnet2 inet6 proto { tcp udp } from ! <threatshield_dns_excl> to ! (self) port 53 label "ThreatShield anti-bypass DNS IPv6" ridentifier 4171360450
+block in log quick on vtnet0 from <ts_ipf_shdrop> to any label "ThreatShield IP list shdrop inbound" ridentifier 4106006785
+block in log quick on vtnet1 from any to <ts_ipf_shdrop> label "ThreatShield IP list shdrop outbound" ridentifier 4127211216
+block in quick on vtnet1 from any to <ts_ipf_feodo> label "ThreatShield IP list feodo outbound" ridentifier 4108996744
+block in log quick on vtnet0 inet proto tcp from <freesense_geoip_default> to any port { 22 8000:8100 } label "ThreatShield GeoIP default inbound" ridentifier 4160851600
+block out log quick on vtnet0 inet proto tcp from any to <freesense_geoip_default> port { 22 8000:8100 } label "ThreatShield GeoIP default outbound" ridentifier 4169368689
+block drop in log quick on vtnet0 from <threatshield_flood> to any label "ThreatShield flood offender" ridentifier 4198022750
+pass in quick on vtnet0 proto tcp from <threatshield_ip_allow> to (self) port { 22 } flags S/SA keep state label "ThreatShield ssh allowlisted" ridentifier 4140771110
+block drop in log quick on vtnet0 proto tcp from <threatshield_dnsbl_bad> to (self) port { 22 } label "ThreatShield ssh DNSBL listed" ridentifier 4181970287
+block drop in log (to pflog1) quick on vtnet0 proto tcp from ! <threatshield_dnsbl_known_f> to (self) port { 22 } flags S/SA label "ThreatShield ssh DNSBL pending" ridentifier 4117837907
+pass in quick on vtnet0 reply-to (vtnet0 203.0.113.1) inet proto tcp from any to (self) port { 22 } flags S/SA keep state (max-src-conn 10, max-src-conn-rate 15/5, max-src-states 50, overload <threatshield_flood> flush global) label "ThreatShield ssh pass" ridentifier 4192692803
+pass in quick on vtnet0 inet6 proto tcp from any to (self) port { 22 } flags S/SA keep state (max-src-conn 10, max-src-conn-rate 15/5, max-src-states 50, overload <threatshield_flood> flush global) label "ThreatShield ssh pass" ridentifier 4192692803
+block drop in quick on vtnet0 proto tcp from <threatshield_dnsbl_bad> to 192.0.2.80 port { 443 } label "ThreatShield web DNSBL listed" ridentifier 4153112014
+block drop in quick on vtnet0 proto tcp from <threatshield_dnsbl_fail> to 192.0.2.80 port { 443 } label "ThreatShield web DNSBL unverified" ridentifier 4168327103
+match in log (to pflog1) on vtnet0 proto tcp from ! <threatshield_dnsbl_known_f> to 192.0.2.80 port { 443 } flags S/SA label "ThreatShield web DNSBL check" ridentifier 4120818581
+block drop in quick on vtnet0 proto udp from <threatshield_dnsbl_bad> to 192.0.2.80 port { 443 } label "ThreatShield web DNSBL listed" ridentifier 4153112014
+block drop in quick on vtnet0 proto udp from <threatshield_dnsbl_fail> to 192.0.2.80 port { 443 } label "ThreatShield web DNSBL unverified" ridentifier 4168327103
+match in log (to pflog1) on vtnet0 proto udp from ! <threatshield_dnsbl_known_f> to 192.0.2.80 port { 443 } label "ThreatShield web DNSBL check" ridentifier 4120818581
+block drop in log quick on vtnet0 proto udp from <threatshield_dnsbl_bad> to $Servers port { 51820 } label "ThreatShield vpn DNSBL listed" ridentifier 4183349686
+block drop in log (to pflog1) quick on vtnet0 proto udp from ! <threatshield_dnsbl_known> to $Servers port { 51820 } label "ThreatShield vpn DNSBL pending" ridentifier 4175225567
