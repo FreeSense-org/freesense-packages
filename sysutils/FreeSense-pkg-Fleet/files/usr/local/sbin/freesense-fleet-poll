@@ -72,6 +72,7 @@ do {
 		fleet_schedules_tick(time());
 		if (time() - (int)fleet_setting('compliance_checked', '0') >= 900) {
 			fleet_compliance_refresh();
+			fleet_remediate_tick();
 		}
 	}
 	$first = false;
