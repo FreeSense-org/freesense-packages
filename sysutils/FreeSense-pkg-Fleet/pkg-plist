@@ -8,6 +8,7 @@ pkg/fleet/fleet_groups.inc
 pkg/fleet/fleet_list.inc
 pkg/fleet/fleet_manage.inc
 pkg/fleet/fleet_ops.inc
+pkg/fleet/fleet_updates.inc
 pkg/fleet/fleet_store.inc
 sbin/freesense-fleet-backup
 sbin/freesense-fleet-poll

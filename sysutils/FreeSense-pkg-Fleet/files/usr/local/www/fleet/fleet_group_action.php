@@ -24,7 +24,8 @@
  * touches, in which order, which it leaves out and why, and how long it
  * may take. Starting it creates a group operation and hands it to
  * freesense-fleet-run; the Activity page follows it.
- * Actions: reboot (one firewall at a time, stops at the first failure).
+ * Actions: reboot and update (one firewall at a time, stops at the first
+ * failure; an update waits until the firewall has stayed healthy).
  */
 
 require_once('guiconfig.inc');
@@ -33,13 +34,13 @@ require_once('fleet.inc');
 $who = (string)($_SESSION['Username'] ?? 'admin');
 $group = fleet_group_get((int)($_REQUEST['group'] ?? 0));
 $action = (string)($_REQUEST['action'] ?? '');
-if (($group === null) || ($action !== 'reboot') || !fleet_ctl_settings()['enable']) {
+if (($group === null) || !in_array($action, array('reboot', 'update'), true) || !fleet_ctl_settings()['enable']) {
 	header('Location: /fleet/fleet_dashboard.php');
 	exit;
 }
 
 /* The page title says what is reviewed: "Reboot Canary". */
-$pgtitle = array(gettext('Status'), gettext('FreeSense Fleet'), sprintf(gettext('Reboot %s'), $group['name']));
+$pgtitle = array(gettext('Status'), gettext('FreeSense Fleet'), sprintf(($action === 'update') ? gettext('Update %s') : gettext('Reboot %s'), $group['name']));
 $members = array_column(fleet_db()->query('SELECT node_id FROM box_groups WHERE group_id = ' . (int)$group['id'])->fetchAll(), 'node_id');
 $boxes = array_values(array_filter(fleet_db()->query('SELECT * FROM boxes')->fetchAll(), function ($b) use ($members) {
 	return in_array($b['node_id'], $members, true);
@@ -51,7 +52,11 @@ foreach ($boxes as $b) {
 		$busy[$b['node_id']] = (string)$running['text'];
 	}
 }
-$plan = fleet_group_reboot_plan($boxes, $busy);
+$infos = array();
+foreach ($boxes as $b) {
+	$infos[$b['node_id']] = fleet_update_info($b);
+}
+$plan = ($action === 'update') ? fleet_group_update_plan($boxes, $busy, $infos, fleet_opt('update_ufs_in_groups')) : fleet_group_reboot_plan($boxes, $busy);
 $input_errors = array();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -60,18 +65,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 	if ($reviewed !== hash('sha256', implode(',', array_column($plan['go'], 'node_id')))) {
 		$input_errors[] = gettext('The group changed while you were reviewing it. Check the list again.');
 	} elseif (empty($plan['go'])) {
-		$input_errors[] = gettext('No firewall in this group can be rebooted now.');
+		$input_errors[] = ($action === 'update') ? gettext('No firewall in this group can be updated now.') : gettext('No firewall in this group can be rebooted now.');
 	} else {
-		$op = fleet_op_group_start('reboot_group', sprintf('Reboot %s', $group['name']), $who);
+		$op = fleet_op_group_start($action . '_group', sprintf(($action === 'update') ? 'Update %s' : 'Reboot %s', $group['name']), $who);
 		foreach ($plan['go'] as $b) {
-			fleet_op_start($b['node_id'], 'reboot', 'Waiting', $who, $op, 'queued');
+			fleet_op_start($b['node_id'], $action, 'Waiting', $who, $op, 'queued');
 		}
 		foreach ($plan['skip'] as list($b, $why)) {
-			fleet_op_set(fleet_op_start($b['node_id'], 'reboot', $why, $who, $op, 'skipped'), 'skipped', 'Skipped: ' . lcfirst($why));
+			fleet_op_set(fleet_op_start($b['node_id'], $action, $why, $who, $op, 'skipped'), 'skipped', 'Skipped: ' . lcfirst($why));
 		}
 		fleet_op_group_update($op);
-		fleet_audit($who, 'reboot_group', sprintf('%s: %d firewalls, one at a time', $group['name'], count($plan['go'])));
-		mwexec_bg('/usr/local/bin/php /usr/local/sbin/freesense-fleet-run reboot-group ' . (int)$op);
+		fleet_audit($who, $action . '_group', sprintf('%s: %d firewalls, one at a time', $group['name'], count($plan['go'])));
+		mwexec_bg('/usr/local/bin/php /usr/local/sbin/freesense-fleet-run ' . $action . '-group ' . (int)$op);
 		header('Location: /fleet/fleet_activity.php?op=' . (int)$op);
 		exit;
 	}
@@ -93,12 +98,14 @@ $n = count($plan['go']);
 <link rel="stylesheet" href="/fleet/assets/fleet.css?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet.css')?>">
 <p><a class="fs-fleet-back" href="/fleet/fleet_dashboard.php?group=<?=(int)$group['id']?>"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i><?=htmlspecialchars($group['name'])?></a></p>
 <div class="panel panel-default fs-fleet-review" role="region" aria-labelledby="review-title">
-	<div class="panel-heading"><h2 id="review-title" class="panel-title"><?=sprintf(htmlspecialchars(gettext('Reboot the %s group?')), htmlspecialchars($group['name']))?></h2></div>
+	<div class="panel-heading"><h2 id="review-title" class="panel-title"><?=sprintf(htmlspecialchars(($action === 'update') ? gettext('Update the %s group?') : gettext('Reboot the %s group?')), htmlspecialchars($group['name']))?></h2></div>
 	<div class="panel-body fs-fleet-pad">
 <?php if ($n === 0): ?>
-		<p class="fs-fleet-lead"><?=gettext('No firewall in this group can be rebooted now. The list below says why.')?></p>
+		<p class="fs-fleet-lead"><?=gettext('No firewall in this group can be changed now. The list below says why.')?></p>
+<?php elseif ($action === 'update'): ?>
+		<p class="fs-fleet-lead"><?=sprintf(gettext('%1$d firewalls update one at a time: the next starts only when the one before runs the new version and has stayed healthy for %2$d minutes. If one rolls back or fails, the rest are left alone. Expect about %3$s in all.'), $n, fleet_opt('update_healthy'), htmlspecialchars(fleet_op_duration((600 + 60 * fleet_opt('update_healthy')) * $n)))?></p>
 <?php else: ?>
-		<p class="fs-fleet-lead"><?=sprintf(gettext('%1$d firewalls restart one at a time: the next starts only when the one before is back online. If one does not come back within 10 minutes, the rest are left alone. Expect about %2$s in all.'), $n, htmlspecialchars(fleet_op_duration(120 * $n)))?></p>
+		<p class="fs-fleet-lead"><?=sprintf(gettext('%1$d firewalls restart one at a time: the next starts only when the one before is back online. If one does not come back within %3$d minutes, the rest are left alone. Expect about %2$s in all.'), $n, htmlspecialchars(fleet_op_duration(120 * $n)), fleet_opt('reboot_timeout'))?></p>
 <?php endif; ?>
 	</div>
 	<div class="panel-body table-responsive"><table class="table fs-table">
@@ -106,19 +113,19 @@ $n = count($plan['go']);
 		<tbody>
 <?php foreach ($plan['go'] as $i => $b): $st = json_decode((string)$b['status'], true) ?: array(); ?>
 		<tr><td class="fs-mono"><?=$i + 1?></td><td><?=htmlspecialchars((string)$b['label'])?></td>
-			<td><?=htmlspecialchars((string)($st['version'] ?? '-'))?></td><td><?=fs_badge('info', gettext('Reboots'))?></td></tr>
+			<td><?=htmlspecialchars((string)($st['version'] ?? '-'))?></td><td><?=($action === 'update') ? fs_badge('info', sprintf(gettext('Updates to %s'), fleet_version_number((string)($infos[$b['node_id']]['latest'] ?? '')))) : fs_badge('info', gettext('Reboots'))?></td></tr>
 <?php endforeach; ?>
-<?php foreach ($plan['skip'] as list($b, $why)): ?>
-		<tr><td class="fs-muted">-</td><td><?=htmlspecialchars((string)$b['label'])?></td><td class="fs-muted">-</td>
+<?php foreach ($plan['skip'] as list($b, $why)): $st = json_decode((string)$b['status'], true) ?: array(); ?>
+		<tr><td class="fs-muted">-</td><td><?=htmlspecialchars((string)$b['label'])?></td><td class="fs-muted"><?=htmlspecialchars((string)($st['version'] ?? '-'))?></td>
 			<td><?=fs_badge('neutral', gettext('Left alone'))?> <span class="fs-muted"><?=htmlspecialchars(gettext($why))?></span></td></tr>
 <?php endforeach; ?>
 		</tbody></table></div>
 	<div class="panel-footer">
 		<form method="post" class="fs-fleet-review-actions">
 			<input type="hidden" name="group" value="<?=(int)$group['id']?>"/>
-			<input type="hidden" name="action" value="reboot"/>
+			<input type="hidden" name="action" value="<?=htmlspecialchars($action)?>"/>
 			<input type="hidden" name="plan" value="<?=hash('sha256', implode(',', array_column($plan['go'], 'node_id')))?>"/>
-			<button class="btn btn-primary" type="submit"<?=($n === 0) ? ' disabled' : ''?>><i class="fa-solid fa-power-off icon-embed-btn" aria-hidden="true"></i><?=sprintf(ngettext('Reboot %d firewall', 'Reboot %d firewalls one at a time', $n), $n)?></button>
+			<button class="btn btn-primary" type="submit"<?=($n === 0) ? ' disabled' : ''?>><i class="fa-solid <?=($action === 'update') ? 'fa-download' : 'fa-power-off'?> icon-embed-btn" aria-hidden="true"></i><?php if ($n === 0): ?><?=($action === 'update') ? gettext('Nothing to update') : gettext('Nothing to reboot')?><?php else: ?><?=($action === 'update') ? sprintf(ngettext('Update %d firewall', 'Update %d firewalls one at a time', $n), $n) : sprintf(ngettext('Reboot %d firewall', 'Reboot %d firewalls one at a time', $n), $n)?><?php endif; ?></button>
 			<a class="btn btn-outline-secondary" href="/fleet/fleet_dashboard.php?group=<?=(int)$group['id']?>"><?=gettext('Cancel')?></a>
 		</form>
 	</div>

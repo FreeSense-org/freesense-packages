@@ -61,7 +61,7 @@ $what = function (array $o): string {
 	if ($o['node_id'] === '') {
 		return (string)$o['title'];
 	}
-	$kinds = array('reboot' => gettext('Reboot'), 'backup' => gettext('Back up'), 'restore' => gettext('Restore'));
+	$kinds = array('reboot' => gettext('Reboot'), 'backup' => gettext('Back up'), 'restore' => gettext('Restore'), 'update' => gettext('Update'));
 	return ($kinds[$o['kind']] ?? $o['kind']) . ' ' . ($o['label'] ?? $o['node_id']);
 };
 $now = time();

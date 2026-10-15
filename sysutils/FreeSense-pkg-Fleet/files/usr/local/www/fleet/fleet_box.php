@@ -76,6 +76,25 @@ if ($manage && isset($_POST['restore_id'])) {
 		}
 	}
 }
+/* Updates: check now, or start the update (after the review). */
+if ($manage && isset($_POST['update_check'])) {
+	$info = fleet_update_check($box, true);
+	$box = fleet_box_get($box['node_id']);
+	if ($info['error'] !== null) {
+		$input_errors[] = $info['error'];
+	} else {
+		$savemsg = $info['available'] ? sprintf(gettext('Version %s is available.'), fleet_version_number($info['latest'])) : gettext('The firewall is up to date.');
+	}
+}
+if ($manage && isset($_POST['update_start'])) {
+	try {
+		fleet_box_update($box, $who);
+		header('Location: /fleet/fleet_activity.php?op=' . (int)fleet_op_running($box['node_id'])['id']);
+		exit;
+	} catch (RuntimeException $e) {
+		$input_errors[] = $e->getMessage();
+	}
+}
 /* Manage: reboot, a service, the state table. The box refuses these itself unless it joined as Managed. */
 if ($manage && isset($_POST['manage_action'])) {
 	try {
@@ -170,7 +189,8 @@ $asset = function ($f) {
 	return '/fleet/assets/' . $f . '?v=' . (int)@filemtime('/usr/local/www/fleet/assets/' . $f);
 };
 
-$views = array('overview' => gettext('Overview'), 'backups' => gettext('Backups'), 'manage' => gettext('Manage'), 'events' => gettext('Events'));
+$views = array('overview' => gettext('Overview'), 'updates' => gettext('Updates'), 'backups' => gettext('Backups'), 'manage' => gettext('Manage'),
+    'events' => gettext('Events'));
 if (!$manage) {
 	unset($views['backups'], $views['manage']);
 }
@@ -406,6 +426,83 @@ if ($savemsg) {
 	</div>
 	<div class="panel-footer small fs-muted"><?=gettext("A copy of this firewall's configuration is kept on the controller, encrypted, when it changes and every night. Downloads contain secrets such as password hashes and keys.")?></div>
 </div>
+
+<?php elseif ($view === 'updates'):
+	$uinfo = fleet_update_info($box);
+	$protected = isset($st['rollback_protection']) ? (bool)$st['rollback_protection'] : null;
+	$ureview = $manage && fleet_manage_allowed($box) && (($_GET['review'] ?? '') === 'update') && ($uinfo !== null) && $uinfo['available'];
+	$checks = array();
+	$check_error = null;
+	if ($ureview) {
+		try {
+			$checks = fleet_update_preflight($box);
+		} catch (RuntimeException $e) {
+			$check_error = $e->getMessage();
+		}
+	}
+	$blocked = !empty(array_filter($checks, function ($c) { return $c['state'] === 'fail'; })) || ($check_error !== null);
+?>
+<?php if ($ureview): ?>
+<div class="panel panel-default fs-fleet-review" role="region" aria-labelledby="review-title">
+	<div class="panel-heading"><h2 id="review-title" class="panel-title"><?=sprintf(htmlspecialchars(gettext('Update %1$s to %2$s?')), htmlspecialchars($box['label']), htmlspecialchars(fleet_version_number($uinfo['latest'])))?></h2></div>
+	<div class="panel-body fs-fleet-pad">
+<?php if ($protected === false): ?>
+		<p class="fs-fleet-lead"><?=fs_badge('warn', gettext('No rollback'))?> <?=gettext('This firewall runs on UFS: the update runs in place and cannot roll back. If it fails, the firewall must be reinstalled and its configuration restored from Fleet. A backup is taken first.')?></p>
+<?php else: ?>
+		<p class="fs-fleet-lead"><?=gettext('The firewall downloads the update, saves its running system as a boot environment and restarts on the new version. If the new version fails its health check, it goes back to the old one by itself. It stops forwarding while it restarts, usually for a few minutes.')?></p>
+<?php endif; ?>
+		<h3 class="fs-fleet-subtitle"><?=gettext('Checks on the firewall')?></h3>
+<?php if ($check_error !== null): ?>
+		<p class="fs-fleet-problem"><?=htmlspecialchars($check_error)?></p>
+<?php else: ?>
+		<ul class="fs-fleet-checks">
+<?php foreach ($checks as $c): ?>
+			<li><?=fs_badge(array('pass' => 'pass', 'warn' => 'warn', 'fail' => 'block')[$c['state']] ?? 'neutral', array('pass' => gettext('OK'), 'warn' => gettext('Note'), 'fail' => gettext('Blocks'))[$c['state']] ?? $c['state'])?>
+				<strong><?=htmlspecialchars((string)$c['label'])?></strong> <span class="fs-muted"><?=htmlspecialchars((string)($c['detail'] ?? ''))?></span></li>
+<?php endforeach; ?>
+		</ul>
+<?php endif; ?>
+	</div>
+	<div class="panel-footer">
+		<form method="post" action="<?=$here('updates')?>" class="fs-fleet-review-actions">
+			<button class="btn btn-primary" type="submit" name="update_start" value="1"<?=$blocked ? ' disabled' : ''?>><i class="fa-solid fa-download icon-embed-btn" aria-hidden="true"></i><?=sprintf(gettext('Update to %s now'), htmlspecialchars(fleet_version_number($uinfo['latest'])))?></button>
+			<a class="btn btn-outline-secondary" href="<?=$here('updates')?>"><?=gettext('Cancel')?></a>
+<?php if ($blocked): ?>
+			<span class="fs-muted small"><?=gettext('A check blocks the update. Fix it on the firewall, then check again.')?></span>
+<?php endif; ?>
+		</form>
+	</div>
+</div>
+<?php endif; ?>
+<div class="panel panel-default">
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('System version')?></h2></div>
+	<div class="panel-body fs-fleet-pad">
+		<dl class="fs-fleet-facts">
+			<dt><?=gettext('Running')?></dt><dd><?=htmlspecialchars((string)($st['version'] ?? '-'))?></dd>
+<?php if ($uinfo === null): ?>
+			<dt><?=gettext('Latest')?></dt><dd class="fs-muted"><?=gettext('Not checked yet')?></dd>
+<?php elseif ($uinfo['error'] !== null): ?>
+			<dt><?=gettext('Latest')?></dt><dd><span class="fs-fleet-problem"><?=htmlspecialchars($uinfo['error'])?></span></dd>
+<?php else: ?>
+			<dt><?=gettext('Latest')?></dt><dd><?=htmlspecialchars(fleet_version_number($uinfo['latest']))?> <?=$uinfo['available'] ? fs_badge('info', gettext('Update available')) : '<span class="fs-fleet-ok">' . gettext('Up to date') . '</span>'?></dd>
+			<dt><?=gettext('Channel')?></dt><dd><?=htmlspecialchars($uinfo['channel'] !== '' ? $uinfo['channel'] : '-')?></dd>
+<?php endif; ?>
+			<dt><?=gettext('Rollback protection')?></dt><dd><?=($protected === null) ? '<span class="fs-muted">-</span>' : ($protected ? gettext('Yes (ZFS boot environments)') : fs_badge('warn', gettext('No (UFS)')))?></dd>
+			<dt><?=gettext('Checked')?></dt><dd><?=($uinfo === null) ? '-' : htmlspecialchars(date('Y-m-d H:i', (int)$uinfo['checked']))?></dd>
+		</dl>
+	</div>
+<?php if ($manage): ?>
+	<div class="panel-footer">
+		<form method="post" action="<?=$here('updates')?>" class="fs-fleet-review-actions">
+			<button class="btn btn-sm btn-outline-secondary" type="submit" name="update_check" value="1"<?=($state === 'offline') ? ' disabled' : ''?>><i class="fa-solid fa-rotate icon-embed-btn" aria-hidden="true"></i><?=gettext('Check now')?></button>
+<?php if (($uinfo !== null) && $uinfo['available'] && fleet_manage_allowed($box) && !$ureview): ?>
+			<a class="btn btn-sm btn-primary" href="<?=$here('updates', array('review' => 'update'))?>"><i class="fa-solid fa-download icon-embed-btn" aria-hidden="true"></i><?=sprintf(gettext('Update to %s...'), htmlspecialchars(fleet_version_number($uinfo['latest'])))?></a>
+<?php endif; ?>
+		</form>
+	</div>
+<?php endif; ?>
+</div>
+<p class="fs-fleet-hint"><?=gettext('The firewall checks its own update channel (System > Update on the firewall). Several firewalls at once: a group\'s menu on the dashboard, Update.')?></p>
 
 <?php elseif ($view === 'manage'):
 	$review = (string)($_GET['review'] ?? '');

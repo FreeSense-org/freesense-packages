@@ -441,7 +441,7 @@ $plan = fleet_group_reboot_plan(array(
     array('node_id' => 'o', 'label' => 'Off', 'role' => 'managed', 'state' => 'offline'),
     array('node_id' => 'x', 'label' => 'Busy', 'role' => 'managed', 'state' => 'online')), array('x' => 'Backing up'));
 check(array_column($plan['go'], 'node_id') === array('a', 'b') &&
-    array_map(function ($s) { return $s[1]; }, $plan['skip']) === array('Busy: backing up', 'Monitor only: the controller may not reboot it', 'Offline'),
+    array_map(function ($s) { return $s[1]; }, $plan['skip']) === array('Busy: backing up', 'Monitor only: the controller may not change it', 'Offline'),
     'the review lists who reboots in order and who is left alone and why');
 $rop = fleet_op_group_start('reboot_group', 'Reboot Canary', 'tester');
 $ra = fleet_op_start('node-ra', 'reboot', 'Waiting', 'tester', $rop, 'queued');
@@ -485,5 +485,37 @@ check(count(fleet_nav_toasts($fin, false, true)) === 1 && fleet_nav_toasts($fin,
 require_once($argv[1] . '/src/usr/local/www/includes/fs_menu.inc');
 check(fs_nav_toasts($ts) === $ts, 'System shows the Fleet notices as they are');
 check(fleet_ops_finished_since(0, time() + 100)[0]['name'] !== '', 'finished operations have a name');
+
+/* ---- updates ---- */
+check(fleet_version_number('1.1.5-RELEASE') === '1.1.5' && fleet_version_number('1.1.6_1') === '1.1.6' && fleet_version_number('x') === '' &&
+    fleet_version_same('1.1.6-RELEASE', '1.1.6') && !fleet_version_same('1.1.6', '1.1.60') && !fleet_version_same('', ''), 'versions compared by their numbers');
+$ui = fleet_update_info_from(200, array('data' => array('installed_version' => '1.1.5', 'latest_version' => '1.1.6', 'update_available' => true, 'channel' => 'stable')), 50);
+check($ui['available'] && $ui['latest'] === '1.1.6' && $ui['error'] === null && fleet_update_verdict($ui) === array('info', 'Update: 1.1.6'), 'an available update');
+$ue = fleet_update_info_from(502, array('error' => array('message' => 'Unable to check for updates.', 'details' => array('messages' => array('DNS servers not available')))), 50);
+check($ue['error'] === 'The firewall could not check for updates: DNS servers not available' && fleet_update_verdict($ue)[1] === 'Update check failed' &&
+    fleet_update_verdict(array('available' => false, 'error' => null)) === null && fleet_update_verdict(null) === null, 'a failed check says why; up to date says nothing');
+$uop = array('started' => 1000, 'text' => 'Downloading and installing', 'data' => json_encode(array('from' => '1.1.5', 'to' => '1.1.6')));
+$old = array('version' => '1.1.5-RELEASE', 'boot_time' => 900);
+check(fleet_op_update_step($uop, $old, 1060, 360, 3600) === null || fleet_op_update_step($uop, $old, 1060, 360, 3600)[0] === 'running', 'installing: still running');
+check(fleet_op_update_step($uop, null, 1300, 360, 3600)[1] === 'Restarting', 'no answer: restarting');
+$s1 = fleet_op_update_step($uop, array('version' => '1.1.6-RELEASE', 'boot_time' => 1400), 1500, 360, 3600);
+check($s1[0] === 'running' && $s1[1] === 'Checking that it stays healthy' && $s1[3]['reached'] === 1500, 'new version: waiting out the rollback window');
+$uop2 = array('started' => 1000, 'text' => 'Checking that it stays healthy', 'data' => json_encode($s1[3]));
+check(fleet_op_update_step($uop2, array('version' => '1.1.6-RELEASE', 'boot_time' => 1400), 1700, 360, 3600)[0] === 'running' &&
+    fleet_op_update_step($uop2, array('version' => '1.1.6-RELEASE', 'boot_time' => 1400), 1860, 360, 3600)[1] === 'Updated to 1.1.6 in 14 min 20 s',
+    'done only when the new version stayed up for the whole window');
+check(strpos(fleet_op_update_step($uop2, array('version' => '1.1.5-RELEASE', 'boot_time' => 1700), 1750, 360, 3600)[1], 'Rolled back to 1.1.5') === 0,
+    'back on the old version after a reboot: rolled back');
+check(fleet_op_update_step($uop, $old, 1000 + 3601, 360, 3600)[0] === 'failed' && fleet_op_update_step($uop, null, 1000 + 3601, 360, 3600)[0] === 'failed', 'no result in time: failed');
+$gp = fleet_group_update_plan(array(
+    array('node_id' => 'u1', 'label' => 'A', 'role' => 'managed', 'state' => 'online', 'status' => json_encode(array('rollback_protection' => true))),
+    array('node_id' => 'u2', 'label' => 'B', 'role' => 'managed', 'state' => 'online', 'status' => json_encode(array('rollback_protection' => false))),
+    array('node_id' => 'u3', 'label' => 'C', 'role' => 'managed', 'state' => 'online', 'status' => '{}'),
+    array('node_id' => 'u4', 'label' => 'D', 'role' => 'managed', 'state' => 'online', 'status' => '{}')), array(),
+    array('u1' => $ui, 'u2' => $ui, 'u3' => array('available' => false, 'installed' => '1.1.6', 'error' => null), 'u4' => $ue), false);
+check(array_column($gp['go'], 'node_id') === array('u1') && count($gp['skip']) === 3 &&
+    in_array('No rollback (UFS): update it by itself', array_map(function ($s) { return $s[1]; }, $gp['skip']), true), 'a group update leaves out the up to date, the unchecked and (by default) UFS');
+check(count(fleet_group_update_plan(array(array('node_id' => 'u2', 'label' => 'B', 'role' => 'managed', 'state' => 'online', 'status' => json_encode(array('rollback_protection' => false)))),
+    array(), array('u2' => $ui), true)['go']) === 1, 'UFS joins when the setting allows it');
 
 echo "Fleet controller tests: OK\n";

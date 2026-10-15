@@ -43,6 +43,7 @@ require_once('fleet/fleet_groups.inc');
 require_once('fleet/fleet_manage.inc');
 require_once('fleet/fleet_ops.inc');
 require_once('fleet/fleet_list.inc');
+require_once('fleet/fleet_updates.inc');
 
 define('FLEET_CTL_IF', 'wgfctl0');
 define('FLEET_ENROLL_CONF', '/var/etc/fleet-enroll.conf');
@@ -61,7 +62,7 @@ define('FLEET_POLL_INTERVALS', array(10, 15, 30, 60));
  * elsewhere. New features add their values here.
  */
 define('FLEET_SETTINGS_SECTIONS', array('controller' => 'Controller', 'monitoring' => 'Monitoring', 'actions' => 'Actions and notices',
-    'backups' => 'Backups', 'advanced' => 'Advanced'));
+    'backups' => 'Backups', 'updates' => 'Updates', 'advanced' => 'Advanced'));
 define('FLEET_TUNABLES', array(
 	'poll_interval' => array('monitoring', 'choice', 15, array(10, 15, 30, 60), null, 'Check each firewall every',
 	    'How quickly the dashboard sees a change. Shorter intervals cost a little more traffic over each tunnel.'),
@@ -85,6 +86,14 @@ define('FLEET_TUNABLES', array(
 	    'More is faster for big fleets and puts more load on the controller.'),
 	'restore_confirm' => array('backups', 'min', 5, 2, 15, 'After a restore, a firewall goes back by itself unless it answers within',
 	    'The controller keeps a restore only when the firewall still answers over its tunnel.'),
+	'update_check_hours' => array('updates', 'h', 6, 1, 24, 'Ask each firewall whether an update is available every',
+	    'Each firewall checks its own update channel; the dashboard shows the result.'),
+	'update_healthy' => array('updates', 'min', 6, 2, 30, 'An update is done when the new version has stayed up for',
+	    'The firewall rolls back by itself when the new version fails its health check (5 minutes by default); wait at least that long.'),
+	'update_timeout' => array('updates', 'min', 60, 20, 180, 'An update has failed when there is no result after',
+	    'Downloading takes most of the time on slow lines.'),
+	'update_ufs_in_groups' => array('updates', 'bool', false, null, null, 'Include firewalls without rollback (UFS) in group updates',
+	    'Off: group updates leave them out, so a failed update never needs a reinstall by surprise. You can still update one by itself.'),
 	'invite_hours' => array('advanced', 'h', 24, 1, 720, 'Invitations are valid for',
 	    'The default when you invite a firewall (you can change it per invitation).'),
 	'invite_failures' => array('advanced', 'count', 5, 3, 20, 'An invitation is burned after this many wrong join keys',
@@ -227,6 +236,7 @@ function fleet_dashboard_data(array $rows, int $pending, int $now, array $groups
 			'backup' => !empty($r['last_backup']) ? (int)$r['last_backup'] : null,
 			'groups' => $groups[(string)$r['node_id']] ?? array(),
 			'op' => $ops[(string)$r['node_id']] ?? null,
+			'update' => fleet_update_verdict(json_decode((string)($r['update_info'] ?? ''), true) ?: null),
 			'managed' => ($r['role'] ?? '') === 'managed',
 			'problem' => ($state === 'online') ? '' : (string)$r['error'],
 		);
@@ -432,6 +442,12 @@ function fleet_event_text(string $node_id, string $action, string $detail): arra
 		return array('Restore failed', $rest);
 	case 'reboot':
 		return array('Rebooted', 'by the controller');
+	case 'update':
+		return array('Update started', $rest);
+	case 'update_done':
+		return array('Updated', $rest);
+	case 'update_failed':
+		return array('Update failed', $rest);
 	case 'reboot_group':
 		return array('Group reboot', $rest);
 	case 'reboot_done':
@@ -519,6 +535,7 @@ function fleet_poll_box(array $box, int $now, int $interval = 60): string {
 	fleet_db()->prepare('UPDATE boxes SET misses = ?, state = ?, last_seen = COALESCE(?, last_seen), status = COALESCE(?, status), error = ? WHERE node_id = ?')
 	    ->execute(array($misses, $state, ($status === null) ? null : $now, ($status === null) ? null : json_encode($status), $error, $box['node_id']));
 	fleet_ops_follow($box, $status, $now);
+	fleet_update_follow($box, $status, $now);
 	if ($state !== $box['state']) {
 		fleet_audit('poll', 'state', "{$box['node_id']} ({$box['label']}): {$box['state']} -> {$state}" . (($error !== '') ? " ({$error})" : ''));
 	}

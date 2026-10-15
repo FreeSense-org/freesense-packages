@@ -113,6 +113,31 @@ function fleet_rolling_next(array $states): array {
 }
 
 /*
+ * pure: which firewalls a group update touches, in order, and which it
+ * leaves out and why: like a reboot, and also those without an update and
+ * (unless allowed) those without rollback. $info: node_id => update info.
+ */
+function fleet_group_update_plan(array $boxes, array $busy, array $info, bool $ufs_ok): array {
+	$plan = fleet_group_reboot_plan($boxes, $busy);
+	$go = array();
+	foreach ($plan['go'] as $b) {
+		$i = $info[$b['node_id']] ?? null;
+		$st = json_decode((string)($b['status'] ?? ''), true) ?: array();
+		if (($i === null) || ($i['error'] !== null)) {
+			$plan['skip'][] = array($b, ($i === null) ? 'Not checked for updates yet' : 'Its update check failed');
+		} elseif (!$i['available']) {
+			$plan['skip'][] = array($b, 'Up to date (' . fleet_version_number($i['installed']) . ')');
+		} elseif (!$ufs_ok && (($st['rollback_protection'] ?? null) === false)) {
+			$plan['skip'][] = array($b, 'No rollback (UFS): update it by itself');
+		} else {
+			$go[] = $b;
+		}
+	}
+	$plan['go'] = $go;
+	return $plan;
+}
+
+/*
  * pure: which firewalls a group reboot touches, in order, and which it
  * leaves out and why. $busy: node_id => what is running on it.
  */
@@ -124,7 +149,7 @@ function fleet_group_reboot_plan(array $boxes, array $busy): array {
 	});
 	foreach ($boxes as $b) {
 		if (($b['role'] ?? '') !== 'managed') {
-			$skip[] = array($b, 'Monitor only: the controller may not reboot it');
+			$skip[] = array($b, 'Monitor only: the controller may not change it');
 		} elseif (in_array($b['state'] ?? '', array('offline', 'new'), true)) {
 			$skip[] = array($b, 'Offline');
 		} elseif (isset($busy[$b['node_id']])) {
@@ -310,7 +335,7 @@ function fleet_ops_finished_since(int $since, int $now): array {
 	$q = fleet_db()->prepare("SELECT o.id, o.kind, o.state, o.text, o.title, o.node_id, b.label FROM ops o LEFT JOIN boxes b ON b.node_id = o.node_id
 	    WHERE o.parent IS NULL AND o.finished > ? AND o.finished <= ? ORDER BY o.finished, o.id");
 	$q->execute(array($since, $now));
-	$kinds = array('reboot' => 'Reboot', 'backup' => 'Back up', 'restore' => 'Restore');
+	$kinds = array('reboot' => 'Reboot', 'backup' => 'Back up', 'restore' => 'Restore', 'update' => 'Update');
 	return array_map(function ($op) use ($kinds) {
 		$op['name'] = ($op['node_id'] === '') ? (string)$op['title'] : (($kinds[$op['kind']] ?? ucfirst((string)$op['kind'])) . ' ' . ($op['label'] ?? $op['node_id']));
 		return $op;

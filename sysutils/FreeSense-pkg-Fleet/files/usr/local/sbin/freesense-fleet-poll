@@ -51,6 +51,11 @@ do {
 	$due = array();
 	foreach (fleet_db()->query('SELECT * FROM boxes ORDER BY host_no')->fetchAll() as $box) {
 		if ((fleet_poll_box($box, time(), $interval) === 'online') && $first) {
+			/* Now and then: is an update available? (the box checks its own channel) */
+			$info = fleet_update_info($box);
+			if (($box['role'] === 'managed' || $box['role'] === 'monitor') && (($info === null) || (time() - (int)$info['checked'] >= 3600 * fleet_opt('update_check_hours')))) {
+				fleet_update_check($box);
+			}
 			/* A changed configuration that has been quiet for a while gets a backup. */
 			$status = json_decode((string)fleet_box_get($box['node_id'])['status'], true) ?: array();
 			if (fleet_backup_due(fleet_backup_latest($box['node_id']), $status, time())) {
