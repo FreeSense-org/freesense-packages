@@ -6,4 +6,8 @@ pkg/fleet/fleet_enroll.inc
 pkg/fleet/fleet_store.inc
 sbin/freesense-fleet-poll
 share/FreeSense-pkg-Fleet/info.xml
+www/fleet/assets/fleet.css
+www/fleet/assets/fleet.js
 www/fleet/fleet.php
+www/fleet/fleet_dashboard.php
+www/fleet/fleet_data.php

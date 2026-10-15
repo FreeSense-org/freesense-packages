@@ -12,6 +12,12 @@
 		<section>System</section>
 		<url>/fleet/fleet.php</url>
 	</menu>
+	<menu>
+		<name>FreeSense Fleet</name>
+		<tooltiptext>The state of every firewall in the fleet</tooltiptext>
+		<section>Status</section>
+		<url>/fleet/fleet_dashboard.php</url>
+	</menu>
 	<filter_rules_needed>fleet_generate_rules</filter_rules_needed>
 	<custom_php_resync_config_command>fleet_sync_config();</custom_php_resync_config_command>
 	<custom_php_pre_deinstall_command>fleet_remove_config();</custom_php_pre_deinstall_command>

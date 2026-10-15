@@ -1,0 +1,138 @@
+/*
+ * FreeSense Fleet dashboard. Tokens only (docs/webui/01-tokens.md): both
+ * themes come from the design system. The one distinctive element is the
+ * fleet wall: one tile per firewall, worst state first, with a state edge.
+ */
+
+.fs-fleet-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	gap: var(--fs-sp-3);
+	margin-bottom: var(--fs-sp-4);
+}
+.fs-fleet-headline {
+	margin: 0;
+	font-size: var(--fs-fs-lg);
+	font-weight: 600;
+	line-height: 1.3;
+	color: var(--fs-text-strong);
+}
+.fs-fleet-checked {
+	margin-top: var(--fs-sp-1);
+	color: var(--fs-text-muted);
+	font-size: var(--fs-fs-sm);
+}
+.fs-fleet-actions {
+	display: flex;
+	gap: var(--fs-sp-2);
+	margin-left: auto;
+}
+
+/* Summary tiles double as filters. */
+.fs-fleet-filter {
+	display: block;
+	width: 100%;
+	text-align: left;
+	color: inherit;
+	cursor: pointer;
+	transition: border-color var(--fs-t-fast) ease-out;
+}
+.fs-fleet-filter:hover { border-color: var(--fs-text-muted); }
+.fs-fleet-filter:focus-visible { outline: 2px solid var(--fs-coral); outline-offset: 2px; }
+.fs-fleet-filter[aria-pressed="true"] { border-color: var(--fs-coral); box-shadow: inset 0 -2px 0 var(--fs-coral); }
+.fs-fleet-filter:disabled { cursor: default; opacity: .6; }
+
+/* The fleet wall. */
+.fs-fleet-wall {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+	gap: var(--fs-sp-3);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.fs-fleet-box {
+	--fs-fleet-edge: var(--fs-neutral);
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	gap: var(--fs-sp-2);
+	min-width: 0;
+	padding: var(--fs-sp-3) var(--fs-sp-4) var(--fs-sp-3) calc(var(--fs-sp-4) + 4px);
+	background: var(--fs-surface);
+	border: 1px solid var(--fs-border);
+	border-radius: var(--fs-r-md);
+}
+.fs-fleet-box::before {
+	content: "";
+	position: absolute;
+	inset: -1px auto -1px -1px;
+	width: 4px;
+	border-radius: var(--fs-r-md) 0 0 var(--fs-r-md);
+	background: var(--fs-fleet-edge);
+}
+.fs-fleet-box[data-state="online"] { --fs-fleet-edge: var(--fs-pass); }
+.fs-fleet-box[data-state="degraded"] { --fs-fleet-edge: var(--fs-warn); }
+.fs-fleet-box[data-state="offline"] { --fs-fleet-edge: var(--fs-block); }
+
+.fs-fleet-box-top {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--fs-sp-2);
+}
+.fs-fleet-box-names { flex: 1; min-width: 0; }
+.fs-fleet-box-name {
+	margin: 0;
+	font-size: var(--fs-fs-md);
+	font-weight: 600;
+	line-height: 1.3;
+	color: var(--fs-text-strong);
+	overflow-wrap: anywhere;
+}
+.fs-fleet-box-host {
+	color: var(--fs-text-muted);
+	font-size: var(--fs-fs-sm);
+	overflow-wrap: anywhere;
+}
+.fs-fleet-facts {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	gap: var(--fs-sp-1) var(--fs-sp-3);
+	margin: 0;
+	font-size: var(--fs-fs-sm);
+}
+.fs-fleet-facts dt { font-weight: 400; color: var(--fs-text-muted); }
+.fs-fleet-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.fs-fleet-box-foot {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--fs-sp-1);
+	margin-top: auto;
+}
+.fs-fleet-problem {
+	margin: 0;
+	color: var(--fs-text);
+	font-size: var(--fs-fs-sm);
+}
+
+.fs-fleet-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: var(--fs-sp-3);
+	padding: var(--fs-sp-5);
+	background: var(--fs-surface);
+	border: 1px dashed var(--fs-border);
+	border-radius: var(--fs-r-md);
+	color: var(--fs-text-muted);
+}
+.fs-fleet-empty strong { color: var(--fs-text-strong); font-size: var(--fs-fs-md); }
+
+@media (max-width: 575px) {
+	.fs-fleet-actions { margin-left: 0; width: 100%; }
+	.fs-fleet-actions .btn { flex: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+	.fs-fleet-filter { transition: none; }
+}
