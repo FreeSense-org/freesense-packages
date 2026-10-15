@@ -116,6 +116,57 @@ function fleet_box_state(int $misses): string {
 	return ($misses >= FLEET_MISSES_DEGRADED) ? 'degraded' : 'online';
 }
 
+/*
+ * pure: the dashboard's view of the fleet from the box rows and the number
+ * of boxes waiting for approval. Boxes are ordered worst state first, then
+ * by label; nothing secret (API keys, certificates) leaves this function.
+ */
+function fleet_dashboard_data(array $rows, int $pending, int $now): array {
+	$rank = array('offline' => 0, 'degraded' => 1, 'new' => 2, 'online' => 3);
+	$boxes = array();
+	$counts = array('online' => 0, 'degraded' => 0, 'offline' => 0, 'new' => 0, 'unprotected' => 0);
+	$last_check = 0;
+	foreach ($rows as $r) {
+		$st = json_decode((string)($r['status'] ?? ''), true) ?: array();
+		$state = isset($rank[$r['state']]) ? $r['state'] : 'new';
+		$protected = isset($st['rollback_protection']) ? (bool)$st['rollback_protection'] : null;
+		$counts[$state]++;
+		if ($protected === false) {
+			$counts['unprotected']++;
+		}
+		$last_check = max($last_check, (int)$r['last_seen']);
+		$boxes[] = array(
+			'id' => (string)$r['node_id'],
+			'label' => (string)$r['label'],
+			'host' => (string)($st['hostname'] ?? $r['name']),
+			'state' => $state,
+			'version' => (string)($st['version'] ?? ''),
+			'overlay' => (string)$r['overlay'],
+			'role' => (string)$r['role'],
+			'rollback' => $protected,
+			'carp' => (string)($st['carp'] ?? 'none'),
+			'policy' => isset($st['policy_bundle']['version']) ? (int)$st['policy_bundle']['version'] : null,
+			'breakglass' => !empty($st['breakglass']),
+			'seen' => $r['last_seen'] ? (int)$r['last_seen'] : null,
+			'problem' => ($state === 'online') ? '' : (string)$r['error'],
+		);
+	}
+	usort($boxes, function ($a, $b) use ($rank) {
+		return array($rank[$a['state']], strtolower($a['label'])) <=> array($rank[$b['state']], strtolower($b['label']));
+	});
+	$total = count($boxes);
+	$attention = $counts['offline'] + $counts['degraded'];
+	if ($total === 0) {
+		$headline = 'No firewalls yet';
+	} elseif ($attention === 0) {
+		$headline = ($total === 1) ? 'The firewall is online' : "All {$total} firewalls are online";
+	} else {
+		$headline = "{$attention} of {$total} " . (($total === 1) ? 'firewall needs' : 'firewalls need') . ' attention';
+	}
+	return array('headline' => $headline, 'total' => $total, 'counts' => $counts + array('pending' => $pending),
+	    'boxes' => $boxes, 'checked' => $last_check ?: null, 'now' => $now);
+}
+
 /* ------------------------------------------------------------------ */
 /* Settings and tunnel                                                 */
 /* ------------------------------------------------------------------ */
