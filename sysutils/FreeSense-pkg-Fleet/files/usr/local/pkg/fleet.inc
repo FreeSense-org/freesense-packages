@@ -46,6 +46,7 @@ require_once('fleet/fleet_list.inc');
 require_once('fleet/fleet_updates.inc');
 require_once('fleet/fleet_rollouts.inc');
 require_once('fleet/fleet_schedules.inc');
+require_once('fleet/fleet_backup_sets.inc');
 
 define('FLEET_CTL_IF', 'wgfctl0');
 define('FLEET_ENROLL_CONF', '/var/etc/fleet-enroll.conf');
@@ -84,6 +85,13 @@ define('FLEET_TUNABLES', array(
 	    'A group reboot stops at a firewall that is not back in time.'),
 	'backup_quiet' => array('backups', 'min', 5, 1, 60, 'Back up a changed configuration after it has been quiet for',
 	    'Several saves in a row give one backup.'),
+	'backup_keep_last' => array('backups', 'count', 10, 1, 500, 'Firewalls in no backup set keep their newest',
+	    'Plus the daily, weekly and monthly backups below. Backup sets (Backups > Sets) can keep more or less.'),
+	'backup_keep_daily' => array('backups', 'count', 14, 0, 366, 'and one backup a day for this many days', 'The newest backup of each day; 0 keeps none by the day.'),
+	'backup_keep_weekly' => array('backups', 'count', 8, 0, 260, 'and one backup a week for this many weeks', 'The newest backup of each week; 0 keeps none by the week.'),
+	'backup_keep_monthly' => array('backups', 'count', 12, 0, 120, 'and one backup a month for this many months', 'The newest backup of each month; 0 keeps none by the month.'),
+	'backup_safety_days' => array('backups', 'd', 30, 7, 365, 'Keep safety backups (taken before a restore) at least',
+	    'Pinned backups and each firewall\'s newest backup are never removed.'),
 	'backup_parallel' => array('backups', 'count', 10, 1, 50, 'Back up at most this many firewalls at once',
 	    'More is faster for big fleets and puts more load on the controller.'),
 	'restore_confirm' => array('backups', 'min', 5, 2, 15, 'After a restore, a firewall goes back by itself unless it answers within',
@@ -454,6 +462,12 @@ function fleet_event_text(string $node_id, string $action, string $detail): arra
 		return array('Updated', $rest);
 	case 'update_failed':
 		return array('Update failed', $rest);
+	case 'backup_set':
+		return array('Backup set', $rest);
+	case 'backup_prune':
+		return array('Old backups removed', $rest);
+	case 'backup_pin':
+		return array('Backup pinned', $rest);
 	case 'schedule':
 		return array('Schedule', $rest);
 	case 'rollout':

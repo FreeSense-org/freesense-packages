@@ -3,6 +3,7 @@ pkg/fleet.inc
 pkg/fleet.xml
 pkg/fleet/enroll/index.php
 pkg/fleet/fleet_backup.inc
+pkg/fleet/fleet_backup_sets.inc
 pkg/fleet/fleet_enroll.inc
 pkg/fleet/fleet_groups.inc
 pkg/fleet/fleet_list.inc
@@ -22,6 +23,7 @@ www/fleet/assets/fleet.js
 www/fleet/fleet.php
 www/fleet/fleet_action.php
 www/fleet/fleet_activity.php
+www/fleet/fleet_backups.php
 www/fleet/fleet_box.php
 www/fleet/fleet_group_action.php
 www/fleet/fleet_nav.php

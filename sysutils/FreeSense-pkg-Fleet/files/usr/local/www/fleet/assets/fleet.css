@@ -708,3 +708,11 @@ fieldset.fs-fleet-field legend { float: none; width: auto; font-size: inherit; }
 
 /* a panel heading or strip with its action on the right (Add group, Add window, Roll out...) */
 .fs-fleet-heading-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--fs-sp-2); }
+
+/* ---- backups overview: summary tiles that filter the list ---- */
+.fs-fleet-tiles-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: var(--fs-sp-3); margin-bottom: var(--fs-sp-3); }
+a.fs-fleet-tile-link { color: inherit; text-decoration: none; }
+a.fs-fleet-tile-link:hover, a.fs-fleet-tile-link:focus-visible { border-color: var(--fs-coral, var(--fs-info)); }
+
+.fs-fleet-warn-text { color: var(--fs-warn); }
+.fs-fleet-backup-what .fs-badge { align-self: flex-start; width: auto; }
