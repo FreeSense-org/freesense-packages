@@ -85,7 +85,11 @@
 
 		var top = el('div', 'fs-fleet-box-top');
 		var names = el('div', 'fs-fleet-box-names');
-		names.appendChild(el('h3', 'fs-fleet-box-name', b.label));
+		var h = el('h3', 'fs-fleet-box-name');
+		var a = el('a', null, b.label);
+		a.href = '/fleet/fleet_box.php?id=' + encodeURIComponent(b.id);
+		h.appendChild(a);
+		names.appendChild(h);
 		if (b.host && b.host !== b.label) {
 			names.appendChild(el('div', 'fs-fleet-box-host', b.host));
 		}
