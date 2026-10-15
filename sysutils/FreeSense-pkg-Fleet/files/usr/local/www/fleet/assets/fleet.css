@@ -301,7 +301,49 @@
 .fs-fleet-box-name a:hover { color: var(--fs-coral-text); text-decoration: underline; }
 .fs-fleet-box-name a:focus-visible { outline: 2px solid var(--fs-coral); outline-offset: 2px; border-radius: 2px; }
 
+/* ---------------------------------------------------- Backups */
+.fs-fleet-section-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--fs-sp-3);
+	max-width: 60rem;
+	margin-bottom: var(--fs-sp-1);
+}
+.fs-fleet-section-head .fs-fleet-section-title { margin: 0; }
+.fs-fleet-backups { margin: 0; padding: 0; list-style: none; }
+.fs-fleet-backups > li {
+	display: grid;
+	grid-template-columns: 9rem minmax(0, 1fr) auto;
+	align-items: baseline;
+	gap: var(--fs-sp-3);
+	padding: var(--fs-sp-2) 0;
+	border-top: 1px solid var(--fs-border);
+	font-size: var(--fs-fs-sm);
+}
+.fs-fleet-backups time { color: var(--fs-text-muted); font-variant-numeric: tabular-nums; }
+.fs-fleet-backup-what { display: flex; flex-direction: column; min-width: 0; color: var(--fs-text); }
+.fs-fleet-backup-actions { display: flex; gap: var(--fs-sp-1); white-space: nowrap; }
+.fs-fleet-backup-actions .btn-link { padding: 0 var(--fs-sp-1); color: var(--fs-coral-text); }
+.fs-fleet-diff { grid-column: 1 / -1; }
+.fs-fleet-diff pre {
+	max-height: 28rem;
+	margin: var(--fs-sp-2) 0 0;
+	padding: var(--fs-sp-3) 0;
+	overflow: auto;
+	background: var(--fs-surface);
+	border: 1px solid var(--fs-border);
+	border-radius: var(--fs-r-md);
+	font-size: var(--fs-fs-xs);
+	line-height: 1.5;
+}
+.fs-fleet-diff pre span { display: block; padding: 0 var(--fs-sp-3); white-space: pre; }
+.fs-fleet-diff pre .add { color: var(--fs-pass); background: color-mix(in srgb, var(--fs-pass) 12%, transparent); }
+.fs-fleet-diff pre .del { color: var(--fs-block); background: color-mix(in srgb, var(--fs-block) 12%, transparent); }
+.fs-fleet-diff pre .hunk { color: var(--fs-info); }
+
 @media (max-width: 575px) {
+	.fs-fleet-backups > li { grid-template-columns: 1fr; gap: var(--fs-sp-1); }
 	.fs-fleet-events li { grid-template-columns: 1fr; gap: 0; }
 	.fs-fleet-facts--wide { grid-template-columns: 1fr; }
 	.fs-fleet-secret { grid-template-columns: minmax(0, 1fr) auto; }

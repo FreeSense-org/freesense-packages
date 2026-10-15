@@ -78,6 +78,11 @@ if ($_POST['save_settings'] ?? false) {
 		    gettext('Approved. The firewall finishes joining by itself and appears on the dashboard.') :
 		    gettext('Rejected. The firewall was told to stop.');
 	}
+} elseif (($_POST['backup_all'] ?? false) && $s['enable']) {
+	/* In the background: many boxes take a while, and the page must not wait. */
+	mwexec_bg('/usr/local/bin/php /usr/local/sbin/freesense-fleet-backup all ' . escapeshellarg($who));
+	header('Location: /fleet/fleet_dashboard.php?started=backup');
+	exit;
 } elseif (isset($_POST['revoke']) && $s['enable']) {
 	fleet_invite_revoke((string)$_POST['revoke'], $who);
 	$savemsg = gettext('Invitation revoked. Its link and key no longer work.');

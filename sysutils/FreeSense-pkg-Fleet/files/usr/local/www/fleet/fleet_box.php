@@ -39,6 +39,32 @@ $st = json_decode((string)$box['status'], true) ?: array();
 $manage = isAllowedPage('fleet/fleet.php');
 $who = (string)($_SESSION['Username'] ?? 'admin');
 $input_errors = array();
+$savemsg = null;
+
+/* Backups hold the whole configuration (secrets included): only for those who manage the fleet. */
+if ($manage && isset($_GET['download'])) {
+	$row = fleet_backup_get((int)$_GET['download']);
+	$xml = (($row !== null) && ($row['node_id'] === $box['node_id'])) ? fleet_backup_read($row) : null;
+	if ($xml !== null) {
+		fleet_audit($who, 'backup_download', "{$box['node_id']} ({$box['label']}): backup of " . date('Y-m-d H:i', (int)$row['time']));
+		$name = preg_replace('/[^A-Za-z0-9._-]/', '_', (string)(json_decode((string)$box['status'], true)['hostname'] ?? $box['name']));
+		header('Content-Type: application/xml');
+		header('Content-Disposition: attachment; filename="config-' . $name . '-' . date('Ymd-His', (int)$row['time']) . '.xml"');
+		header('Cache-Control: no-store');
+		echo $xml;
+		exit;
+	}
+	$input_errors[] = gettext('FLEET-E802: That backup could not be read. Its file is missing or damaged.');
+}
+if ($manage && ($_POST['backup_now'] ?? false)) {
+	try {
+		list($result) = fleet_backup_box($box, 'manual', $who);
+		$savemsg = ($result === 'stored') ? gettext('Backed up and checked.') : gettext('No change since the last backup, so nothing new was stored.');
+	} catch (RuntimeException $e) {
+		fleet_audit($who, 'backup_failed', "{$box['node_id']} ({$box['label']}): " . $e->getMessage());
+		$input_errors[] = $e->getMessage();
+	}
+}
 
 if (($_POST['open_webui'] ?? false) && $manage) {
 	$base = (string)($_POST['base'] ?? '');
@@ -84,6 +110,9 @@ include('head.inc');
 <?php
 if (!empty($input_errors)) {
 	print_input_errors($input_errors);
+}
+if ($savemsg) {
+	print_info_box(htmlspecialchars($savemsg), 'success');
 }
 ?>
 <a class="fs-fleet-back" href="/fleet/fleet_dashboard.php"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i><?=gettext('All firewalls')?></a>
@@ -157,6 +186,55 @@ if (!empty($input_errors)) {
 		</dl>
 	</section>
 </div>
+
+<?php if ($manage):
+	$backups = fleet_backup_list($box['node_id']);
+	$diff_id = (int)($_GET['diff'] ?? 0);
+?>
+<section class="fs-fleet-block" id="backups" aria-labelledby="backups-title">
+	<div class="fs-fleet-section-head">
+		<h2 id="backups-title" class="fs-fleet-section-title"><?=gettext('Backups')?> <span class="fs-count"><?=count($backups)?></span></h2>
+		<form method="post" action="?id=<?=urlencode($box['node_id'])?>#backups"><button class="btn btn-sm btn-outline-secondary" name="backup_now" value="1" <?=($state === 'offline') ? 'disabled' : ''?>><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Back up now')?></button></form>
+	</div>
+	<p class="fs-fleet-lead"><?=gettext("A copy of this firewall's configuration is kept here, encrypted, when it changes and every night. Downloads contain secrets such as password hashes and keys.")?></p>
+<?php if (empty($backups)): ?>
+	<p class="fs-fleet-hint"><?=gettext('No backups yet. The first one is taken tonight, after the next configuration change, or now with Back up now.')?></p>
+<?php else: ?>
+	<ol class="fs-fleet-backups">
+<?php foreach ($backups as $i => $b): $prev = $backups[$i + 1] ?? null; ?>
+		<li<?=($diff_id === (int)$b['id']) ? ' class="is-open"' : ''?>>
+			<time datetime="<?=date('c', (int)$b['time'])?>"><?=htmlspecialchars(date('Y-m-d H:i', (int)$b['time']))?></time>
+			<span class="fs-fleet-backup-what"><?=htmlspecialchars(((string)$b['description'] !== '') ? $b['description'] : gettext('No description'))?>
+				<span class="fs-muted"><?=htmlspecialchars(fleet_backup_reason_text($b['reason']))?>, <?=htmlspecialchars(format_bytes((int)$b['size']))?></span></span>
+			<span class="fs-fleet-backup-actions">
+<?php if ($prev !== null): ?>
+				<a class="btn btn-sm btn-link" href="?id=<?=urlencode($box['node_id'])?>&amp;diff=<?=(int)$b['id']?>#backups"><?=gettext('Changes')?></a>
+<?php endif; ?>
+				<a class="btn btn-sm btn-link" href="?id=<?=urlencode($box['node_id'])?>&amp;download=<?=(int)$b['id']?>"><i class="fa-solid fa-download icon-embed-btn" aria-hidden="true"></i><?=gettext('Download')?></a>
+			</span>
+<?php if (($diff_id === (int)$b['id']) && ($prev !== null)):
+	$new = fleet_backup_read($b);
+	$old = fleet_backup_read($prev);
+	$diff = (($new !== null) && ($old !== null)) ? fleet_backup_diff($old, $new) : null;
+?>
+			<div class="fs-fleet-diff">
+<?php if ($diff === null): ?>
+				<p class="fs-fleet-hint"><?=gettext('FLEET-E802: One of the two backups could not be read.')?></p>
+<?php else: ?>
+				<div class="fs-fleet-hint"><?=sprintf(gettext('Changes since %s'), htmlspecialchars(date('Y-m-d H:i', (int)$prev['time'])))?></div>
+				<pre class="fs-mono" aria-label="<?=gettext('Changes since the backup before')?>"><?php foreach (explode("\n", $diff) as $line):
+	$c = ($line === '') ? '' : (($line[0] === '+') ? 'add' : (($line[0] === '-') ? 'del' : (($line[0] === '@') ? 'hunk' : '')));
+/* Each line is a block, so no newline between them (it would show as an empty line). */
+?><span<?=($c !== '') ? ' class="' . $c . '"' : ''?>><?=htmlspecialchars($line)?></span><?php endforeach; ?></pre>
+<?php endif; ?>
+			</div>
+<?php endif; ?>
+		</li>
+<?php endforeach; ?>
+	</ol>
+<?php endif; ?>
+</section>
+<?php endif; ?>
 
 <section class="fs-fleet-block" aria-labelledby="events-title">
 	<h2 id="events-title" class="fs-fleet-section-title"><?=gettext('Recent events')?></h2>

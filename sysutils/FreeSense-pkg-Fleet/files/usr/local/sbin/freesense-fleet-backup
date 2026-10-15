@@ -1,0 +1,73 @@
+#!/usr/local/bin/php
+<?php
+/*
+ * part of FreeSense (https://www.freesense.org)
+ * Copyright (c) 2026 The FreeSense Project
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/*
+ * freesense-fleet-backup: central configuration backups.
+ *   freesense-fleet-backup nightly              every box (cron, 03:17)
+ *   freesense-fleet-backup all <who>            every box ("Back up all now")
+ *   freesense-fleet-backup one <node> <reason> <who>
+ *                                               one box; prints stored, unchanged or the problem
+ */
+
+require_once('config.inc');
+require_once('functions.inc');
+require_once('fleet.inc');
+
+if (!fleet_ctl_settings()['enable'] || !is_file(FLEET_DATA . '/fleet.db')) {
+	exit(0);
+}
+$cmd = $argv[1] ?? '';
+
+if ($cmd === 'one') {
+	$box = fleet_box_get((string)($argv[2] ?? ''));
+	if ($box === null) {
+		echo "Unknown box.\n";
+		exit(1);
+	}
+	try {
+		list($result) = fleet_backup_box($box, (string)($argv[3] ?? 'manual'), (string)($argv[4] ?? 'system'));
+		echo $result, "\n";
+	} catch (RuntimeException $e) {
+		fleet_audit((string)($argv[4] ?? 'system'), 'backup_failed', "{$box['node_id']} ({$box['label']}): " . $e->getMessage());
+		echo $e->getMessage(), "\n";
+		exit(1);
+	}
+	exit(0);
+}
+
+if (($cmd === 'nightly') || ($cmd === 'all')) {
+	$lock = fopen('/var/run/fleet-backup.lock', 'c');
+	if (!flock($lock, LOCK_EX | LOCK_NB)) {
+		echo "A backup of all firewalls is already running.\n";
+		exit(0);
+	}
+	$who = ($cmd === 'all') ? (string)($argv[2] ?? 'system') : 'schedule';
+	$boxes = fleet_db()->query("SELECT * FROM boxes WHERE state != 'offline' ORDER BY host_no")->fetchAll();
+	$results = fleet_backup_many($boxes, $cmd, $who);
+	$failed = count(array_filter($results, function ($r) {
+		return !in_array($r, array('stored', 'unchanged'), true);
+	}));
+	fleet_audit($who, 'backup_all', sprintf('%d firewalls: %d stored, %d unchanged, %d failed', count($results),
+	    count(array_keys($results, 'stored', true)), count(array_keys($results, 'unchanged', true)), $failed));
+	exit(0);
+}
+
+echo "usage: freesense-fleet-backup nightly | all <who> | one <node> <reason> <who>\n";
+exit(64);

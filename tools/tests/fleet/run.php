@@ -234,5 +234,63 @@ check(fleet_event_text('node-1', 'joined', 'node-1 (Lab) at fd00::10') === array
     fleet_event_text('node-1', 'state', 'node-1 (Lab): degraded -> online') === array('Degraded to online', '') &&
     fleet_event_text('node-1', 'handoff', 'node-1 (Lab): WebUI as admin via https://192.0.2.1') === array('Opened the WebUI', 'as admin via https://192.0.2.1'),
     'event lines without the box\'s own ID');
+check(fleet_event_text('node-1', 'backup', 'node-1 (Lab): Nightly, 0123456789ab') === array('Backed up', 'Nightly') &&
+    fleet_event_text('node-1', 'backup', 'node-1 (Lab): Backed up by hand, 0123456789ab') === array('Backed up', 'by hand') &&
+    fleet_event_text('node-1', 'backup_failed', 'node-1 (Lab): FLEET-E105: x') === array('Backup failed', 'FLEET-E105: x') &&
+    fleet_event_text('node-1', 'backup_download', 'node-1 (Lab): backup of 2026-10-15 20:28') === array('Downloaded a backup', 'from 2026-10-15 20:28'),
+    'backup events in words');
+
+/* ---- backups ---- */
+$conf = "<?xml version=\"1.0\"?>\n<freesense>\n\t<version>24.5</version>\n\t<system><hostname>lab</hostname></system>\n" .
+    "\t<revision><time>1760000000</time><description><![CDATA[admin@192.0.2.1 (Local Database): Firewall rules changed]]></description></revision>\n</freesense>\n";
+check(fleet_backup_problem($conf) === null && fleet_backup_problem('') !== null && fleet_backup_problem('<html></html>') !== null &&
+    fleet_backup_problem('<freesense><version>1</version>') !== null, 'only a whole FreeSense configuration is a backup');
+check(fleet_backup_meta($conf) === array('config_time' => 1760000000, 'description' => 'admin@192.0.2.1 (Local Database): Firewall rules changed', 'version' => '24.5'),
+    'when, why and which config version');
+$sha = hash('sha256', $conf);
+$st = array('config_revision' => array('sha256' => $sha, 'time' => 1000));
+check(fleet_backup_due(null, $st, 1000 + FLEET_BACKUP_QUIET) && !fleet_backup_due(null, $st, 1000 + FLEET_BACKUP_QUIET - 1),
+    'a new configuration is backed up after it has been quiet for a while');
+check(!fleet_backup_due(array('sha256' => $sha), $st, 99999) && !fleet_backup_due(null, array(), 99999), 'an unchanged configuration is not');
+check(fleet_backup_file('node-1/../x', 1760000000, $sha) === 'node-1x/20251009-085320-' . substr($sha, 0, 12) . '.xml.enc', 'file names stay inside the backup directory');
+$bbox = array('node_id' => 'node-bk', 'label' => 'Backup test');
+list($r1, $row1) = fleet_backup_store($bbox, $conf, 'manual', 'tester', 1760000100);
+list($r2) = fleet_backup_store($bbox, $conf, 'nightly', 'schedule', 1760000200);
+check($r1 === 'stored' && $r2 === 'unchanged' && count(fleet_backup_list('node-bk')) === 1, 'stored once; the same configuration again is not stored twice');
+check(fleet_backup_read(fleet_backup_get($row1['id'])) === $conf, 'a backup reads back exactly');
+check(strpos((string)file_get_contents(FLEET_BACKUP_DIR . '/' . $row1['file']), 'hostname') === false && (fileperms(FLEET_BACKUP_DIR . '/' . $row1['file']) & 0077) === 0,
+    'the file is encrypted and only root can read it');
+$conf2 = str_replace('<hostname>lab</hostname>', '<hostname>lab2</hostname>', $conf);
+list($r3, $row3) = fleet_backup_store($bbox, $conf2, 'change', 'system', 1760000300);
+check($r3 === 'stored' && fleet_backup_latest('node-bk')['id'] === $row3['id'], 'a changed configuration is a new backup');
+try {
+	fleet_backup_store($bbox, '<html/>', 'manual', 'tester', 1760000400);
+	check(false, 'junk is refused');
+} catch (RuntimeException $e) {
+	check(count(fleet_backup_list('node-bk')) === 2, 'junk is refused and nothing is stored');
+}
+file_put_contents(FLEET_BACKUP_DIR . '/' . $row3['file'], 'v1:damaged');
+check(fleet_backup_read(fleet_backup_get($row3['id'])) === null, 'a damaged file is noticed (E802)');
+check(fleet_backup_reason_text('change') === 'Configuration changed' && fleet_backup_reason_text('nightly') === 'Nightly', 'reasons in words');
+if (is_executable('/usr/bin/diff')) {
+	$d = fleet_backup_diff($conf, $conf2);
+	check(strpos($d, "-\t<system><hostname>lab</hostname></system>") !== false && strpos($d, "+\t<system><hostname>lab2</hostname></system>") !== false &&
+	    strpos($d, '/tmp') === false, 'a diff shows the changed lines without temporary file names');
+}
+
+/* ---- packaging: every file in files/ is installed by the Makefile ---- */
+$port = dirname(__DIR__, 3) . '/sysutils/FreeSense-pkg-Fleet';
+$make = str_replace('${PORTNAME}', 'FreeSense-pkg-Fleet', (string)file_get_contents("{$port}/Makefile"));
+$it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator("{$port}/files", FilesystemIterator::SKIP_DOTS));
+foreach ($it as $f) {
+	$rel = substr(str_replace('\\', '/', $f->getPathname()), strlen("{$port}/files"));
+	if (preg_match('#^/pkg-(install|deinstall)#', $rel)) {
+		continue;
+	}
+	$made = str_replace('/usr/local/', '${PREFIX}/', $rel);
+	$ext = pathinfo($made, PATHINFO_EXTENSION);
+	check(strpos($make, '${FILESDIR}' . $made . ' ') !== false || strpos($make, '${FILESDIR}' . dirname($made) . '/*.' . $ext . ' ') !== false ||
+	    strpos($make, '${FILESDIR}' . dirname($made) . '/* ') !== false, "the Makefile installs {$rel}");
+}
 
 echo "Fleet controller tests: OK\n";

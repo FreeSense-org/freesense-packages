@@ -30,7 +30,7 @@ if (!fleet_ctl_settings()['enable'] || !is_file(FLEET_DATA . '/fleet.db')) {
 	echo json_encode(fleet_dashboard_data(array(), 0, time()));
 	exit;
 }
-$rows = fleet_db()->query('SELECT node_id, name, label, overlay, role, state, last_seen, error, status FROM boxes')->fetchAll();
+$rows = fleet_db()->query('SELECT node_id, name, label, overlay, role, state, last_seen, error, status, (SELECT MAX(time) FROM backups b WHERE b.node_id = boxes.node_id) AS last_backup FROM boxes')->fetchAll();
 $pending = (int)fleet_db()->query("SELECT COUNT(*) FROM enrollments WHERE state = 'pending'")->fetchColumn();
 $data = fleet_dashboard_data($rows, $pending, time());
 /* The clock is not part of the ETag: only a change in the fleet is. */

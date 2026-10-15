@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 1);
+define('FLEET_DB_SCHEMA', 2);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -173,7 +173,8 @@ function fleet_db_migrate(PDO $db): void {
 		return;
 	}
 	$db->exec('BEGIN IMMEDIATE');
-	$db->exec(<<<'SQL'
+	if ($version < 1) {
+		$db->exec(<<<'SQL'
 CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS invitations (
 	token_id TEXT PRIMARY KEY, secret_hash TEXT NOT NULL, okm TEXT NOT NULL, role TEXT NOT NULL, label TEXT NOT NULL,
@@ -189,6 +190,17 @@ CREATE TABLE IF NOT EXISTS boxes (
 CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY AUTOINCREMENT, time INTEGER NOT NULL, who TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL);
 PRAGMA user_version = 1;
 SQL);
+	}
+	if ($version < 2) {
+		/* Central configuration backups: the files are encrypted under backups/; this is the index. */
+		$db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS backups (
+	id INTEGER PRIMARY KEY AUTOINCREMENT, node_id TEXT NOT NULL, time INTEGER NOT NULL, reason TEXT NOT NULL, who TEXT NOT NULL,
+	sha256 TEXT NOT NULL, size INTEGER NOT NULL, file TEXT NOT NULL, config_time INTEGER, description TEXT, version TEXT);
+CREATE INDEX IF NOT EXISTS backups_node_time ON backups (node_id, time);
+PRAGMA user_version = 2;
+SQL);
+	}
 	$db->exec('COMMIT');
 }
 

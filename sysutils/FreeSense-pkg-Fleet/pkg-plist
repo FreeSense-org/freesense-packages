@@ -2,8 +2,10 @@
 pkg/fleet.inc
 pkg/fleet.xml
 pkg/fleet/enroll/index.php
+pkg/fleet/fleet_backup.inc
 pkg/fleet/fleet_enroll.inc
 pkg/fleet/fleet_store.inc
+sbin/freesense-fleet-backup
 sbin/freesense-fleet-poll
 share/FreeSense-pkg-Fleet/info.xml
 www/fleet/assets/fleet.css
