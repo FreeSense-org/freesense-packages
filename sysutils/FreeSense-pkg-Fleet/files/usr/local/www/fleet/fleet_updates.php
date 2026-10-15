@@ -92,6 +92,7 @@ if ($manage) {
 		array(gettext('Dashboard'), false, '/fleet/fleet_dashboard.php'),
 		array(gettext('Activity'), false, '/fleet/fleet_activity.php'),
 		array(gettext('Updates'), true, '/fleet/fleet_updates.php'),
+		array(gettext('Schedules'), false, '/fleet/fleet_schedules.php'),
 		array(gettext('Firewalls'), false, '/fleet/fleet.php'),
 		array(gettext('Settings'), false, '/fleet/fleet.php?tab=settings'),
 	);

@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 8);
+define('FLEET_DB_SCHEMA', 9);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -255,6 +255,16 @@ CREATE TABLE IF NOT EXISTS rollouts (
 	id INTEGER PRIMARY KEY AUTOINCREMENT, op_id INTEGER NOT NULL, target TEXT NOT NULL, rings TEXT NOT NULL, ring_done TEXT NOT NULL DEFAULT '{}',
 	acked TEXT NOT NULL DEFAULT '[]', state TEXT NOT NULL, gap INTEGER NOT NULL, who TEXT NOT NULL, created INTEGER NOT NULL);
 PRAGMA user_version = 8;
+SQL);
+	}
+	if ($version < 9) {
+		/* Schedules: recurring jobs on a group (group_id 0: every firewall). */
+		$db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS schedules (
+	id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, kind TEXT NOT NULL, group_id INTEGER NOT NULL DEFAULT 0, days TEXT NOT NULL,
+	time INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, last_run INTEGER NOT NULL DEFAULT 0, last_op INTEGER, last_result TEXT,
+	who TEXT NOT NULL, created INTEGER NOT NULL);
+PRAGMA user_version = 9;
 SQL);
 	}
 	$db->exec('COMMIT');

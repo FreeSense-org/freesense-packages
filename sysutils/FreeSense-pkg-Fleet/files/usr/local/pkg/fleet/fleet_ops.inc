@@ -345,3 +345,46 @@ function fleet_ops_finished_since(int $since, int $now): array {
 		return $op;
 	}, $q->fetchAll());
 }
+
+/*
+ * What a group reboot or update would do now: array(boxes, plan, update
+ * infos). $group null: every firewall. Used by the review page and by
+ * schedules.
+ */
+function fleet_group_plan(?array $group, string $action): array {
+	$boxes = fleet_db()->query('SELECT * FROM boxes ORDER BY label COLLATE NOCASE')->fetchAll();
+	if ($group !== null) {
+		$q = fleet_db()->prepare('SELECT node_id FROM box_groups WHERE group_id = ?');
+		$q->execute(array((int)$group['id']));
+		$members = $q->fetchAll(PDO::FETCH_COLUMN);
+		$boxes = array_values(array_filter($boxes, function ($b) use ($members) { return in_array($b['node_id'], $members, true); }));
+	}
+	$busy = array();
+	$infos = array();
+	foreach ($boxes as $b) {
+		$running = fleet_op_running($b['node_id']);
+		if ($running !== null) {
+			$busy[$b['node_id']] = (string)$running['text'];
+		}
+		$infos[$b['node_id']] = fleet_update_info($b);
+	}
+	$plan = ($action === 'update') ? fleet_group_update_plan($boxes, $busy, $infos, fleet_opt('update_ufs_in_groups')) : fleet_group_reboot_plan($boxes, $busy);
+	return array($boxes, $plan, $infos);
+}
+
+/* Start a reviewed (or scheduled) group reboot or update in the background. Returns the operation id. */
+function fleet_group_op_launch(?array $group, string $action, array $plan, string $who): int {
+	$name = ($group !== null) ? $group['name'] : 'all firewalls';
+	$op = fleet_op_group_start($action . '_group', sprintf(($action === 'update') ? 'Update %s' : 'Reboot %s', $name), $who);
+	foreach ($plan['go'] as $b) {
+		fleet_op_start($b['node_id'], $action, 'Waiting', $who, $op, 'queued');
+	}
+	foreach ($plan['skip'] as list($b, $why)) {
+		fleet_op_set(fleet_op_start($b['node_id'], $action, $why, $who, $op, 'skipped'), 'skipped', 'Skipped: ' . lcfirst($why));
+	}
+	fleet_op_group_update($op);
+	fleet_audit($who, $action . '_group', sprintf('%s: %d firewalls, one at a time', $name, count($plan['go'])));
+	mwexec_bg('/usr/local/bin/php /usr/local/sbin/freesense-fleet-run ' . $action . '-group ' . (int)$op);
+	return $op;
+}
+

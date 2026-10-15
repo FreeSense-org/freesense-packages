@@ -41,22 +41,7 @@ if (($group === null) || !in_array($action, array('reboot', 'update'), true) || 
 
 /* The page title says what is reviewed: "Reboot Canary". */
 $pgtitle = array(gettext('Status'), gettext('FreeSense Fleet'), sprintf(($action === 'update') ? gettext('Update %s') : gettext('Reboot %s'), $group['name']));
-$members = array_column(fleet_db()->query('SELECT node_id FROM box_groups WHERE group_id = ' . (int)$group['id'])->fetchAll(), 'node_id');
-$boxes = array_values(array_filter(fleet_db()->query('SELECT * FROM boxes')->fetchAll(), function ($b) use ($members) {
-	return in_array($b['node_id'], $members, true);
-}));
-$busy = array();
-foreach ($boxes as $b) {
-	$running = fleet_op_running($b['node_id']);
-	if ($running !== null) {
-		$busy[$b['node_id']] = (string)$running['text'];
-	}
-}
-$infos = array();
-foreach ($boxes as $b) {
-	$infos[$b['node_id']] = fleet_update_info($b);
-}
-$plan = ($action === 'update') ? fleet_group_update_plan($boxes, $busy, $infos, fleet_opt('update_ufs_in_groups')) : fleet_group_reboot_plan($boxes, $busy);
+list($boxes, $plan, $infos) = fleet_group_plan($group, $action);
 $input_errors = array();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -67,16 +52,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 	} elseif (empty($plan['go'])) {
 		$input_errors[] = ($action === 'update') ? gettext('No firewall in this group can be updated now.') : gettext('No firewall in this group can be rebooted now.');
 	} else {
-		$op = fleet_op_group_start($action . '_group', sprintf(($action === 'update') ? 'Update %s' : 'Reboot %s', $group['name']), $who);
-		foreach ($plan['go'] as $b) {
-			fleet_op_start($b['node_id'], $action, 'Waiting', $who, $op, 'queued');
-		}
-		foreach ($plan['skip'] as list($b, $why)) {
-			fleet_op_set(fleet_op_start($b['node_id'], $action, $why, $who, $op, 'skipped'), 'skipped', 'Skipped: ' . lcfirst($why));
-		}
-		fleet_op_group_update($op);
-		fleet_audit($who, $action . '_group', sprintf('%s: %d firewalls, one at a time', $group['name'], count($plan['go'])));
-		mwexec_bg('/usr/local/bin/php /usr/local/sbin/freesense-fleet-run ' . $action . '-group ' . (int)$op);
+		$op = fleet_group_op_launch($group, $action, $plan, $who);
 		header('Location: /fleet/fleet_activity.php?op=' . (int)$op);
 		exit;
 	}
@@ -90,6 +66,7 @@ $tab_array = array(
 	array(gettext('Dashboard'), true, '/fleet/fleet_dashboard.php'),
 	array(gettext('Activity'), false, '/fleet/fleet_activity.php'),
 	array(gettext('Updates'), false, '/fleet/fleet_updates.php'),
+	array(gettext('Schedules'), false, '/fleet/fleet_schedules.php'),
 	array(gettext('Firewalls'), false, '/fleet/fleet.php'),
 	array(gettext('Settings'), false, '/fleet/fleet.php?tab=settings'),
 );
