@@ -359,6 +359,15 @@ function fleet_group_plan(?array $group, string $action): array {
 		$members = $q->fetchAll(PDO::FETCH_COLUMN);
 		$boxes = array_values(array_filter($boxes, function ($b) use ($members) { return in_array($b['node_id'], $members, true); }));
 	}
+	$infos = array();
+	foreach ($boxes as $b) {
+		$infos[$b['node_id']] = fleet_update_info($b);
+	}
+	return array($boxes, fleet_boxes_plan($boxes, $action), $infos);
+}
+
+/* What a reboot or update of these firewalls would do now (one at a time, who is left out and why). */
+function fleet_boxes_plan(array $boxes, string $action): array {
 	$busy = array();
 	$infos = array();
 	foreach ($boxes as $b) {
@@ -368,13 +377,12 @@ function fleet_group_plan(?array $group, string $action): array {
 		}
 		$infos[$b['node_id']] = fleet_update_info($b);
 	}
-	$plan = ($action === 'update') ? fleet_group_update_plan($boxes, $busy, $infos, fleet_opt('update_ufs_in_groups')) : fleet_group_reboot_plan($boxes, $busy);
-	return array($boxes, $plan, $infos);
+	return ($action === 'update') ? fleet_group_update_plan($boxes, $busy, $infos, fleet_opt('update_ufs_in_groups')) : fleet_group_reboot_plan($boxes, $busy);
 }
 
-/* Start a reviewed (or scheduled) group reboot or update in the background. Returns the operation id. */
-function fleet_group_op_launch(?array $group, string $action, array $plan, string $who): int {
-	$name = ($group !== null) ? $group['name'] : 'all firewalls';
+/* Start a reviewed (or scheduled) group reboot or update in the background. $group: a group, a name, or null (all). Returns the operation id. */
+function fleet_group_op_launch($group, string $action, array $plan, string $who): int {
+	$name = is_array($group) ? $group['name'] : (is_string($group) ? $group : 'all firewalls');
 	$op = fleet_op_group_start($action . '_group', sprintf(($action === 'update') ? 'Update %s' : 'Reboot %s', $name), $who);
 	foreach ($plan['go'] as $b) {
 		fleet_op_start($b['node_id'], $action, 'Waiting', $who, $op, 'queued');

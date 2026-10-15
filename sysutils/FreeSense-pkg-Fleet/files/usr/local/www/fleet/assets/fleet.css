@@ -702,3 +702,6 @@ fieldset.fs-fleet-field legend { float: none; width: auto; font-size: inherit; }
 .fs-fleet-day span { display: inline-block; min-width: 2.75rem; padding: .3rem .5rem; border: 1px solid var(--fs-border); border-radius: var(--fs-r-sm); text-align: center; cursor: pointer; }
 .fs-fleet-day input:checked + span { border-color: var(--fs-info); background: var(--fs-accent-tint, rgb(96 165 250 / 15%)); color: var(--fs-text-strong, var(--fs-text)); font-weight: 600; }
 .fs-fleet-day input:focus-visible + span { outline: 2px solid var(--fs-info); outline-offset: 2px; }
+
+/* a fieldset's legend inside a modal reads like the other field labels */
+.fs-modal-form legend.form-label { float: none; width: auto; font-size: inherit; margin-bottom: .5rem; }
