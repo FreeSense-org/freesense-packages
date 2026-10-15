@@ -158,6 +158,11 @@ function fleet_update_preflight(array $box): array {
 /* Start the update of one firewall. $task: its group operation's task, if any. Returns the words for the result. */
 function fleet_box_update(array $box, string $who, ?int $task = null): string {
 	fleet_manage_require($box);
+	$info = fleet_update_info($box);
+	$block = fleet_policy_update_blocks(array($box), array($box['node_id'] => $info))[$box['node_id']] ?? null;
+	if ($block !== null) {
+		throw new RuntimeException($block . '. Change the policy first.');
+	}
 	if (($task === null) && (fleet_op_running($box['node_id']) !== null)) {
 		throw new RuntimeException('Something is already running on this firewall. Wait until it is done.');
 	}

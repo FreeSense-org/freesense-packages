@@ -48,6 +48,7 @@ require_once('fleet/fleet_rollouts.inc');
 require_once('fleet/fleet_schedules.inc');
 require_once('fleet/fleet_backup_sets.inc');
 require_once('fleet/fleet_replicas.inc');
+require_once('fleet/fleet_policy.inc');
 
 define('FLEET_CTL_IF', 'wgfctl0');
 define('FLEET_ENROLL_CONF', '/var/etc/fleet-enroll.conf');
@@ -226,6 +227,10 @@ function fleet_dashboard_data(array $rows, int $pending, int $now, array $groups
 	$boxes = array();
 	$counts = array('online' => 0, 'degraded' => 0, 'offline' => 0, 'new' => 0, 'unprotected' => 0);
 	$last_check = 0;
+	$policy_fails = array();
+	foreach (fleet_db()->query("SELECT node_id, COUNT(*) AS n FROM compliance WHERE state = 'fail' GROUP BY node_id")->fetchAll() as $pf) {
+		$policy_fails[$pf['node_id']] = (int)$pf['n'];
+	}
 	foreach ($rows as $r) {
 		$st = json_decode((string)($r['status'] ?? ''), true) ?: array();
 		$state = isset($rank[$r['state']]) ? $r['state'] : 'new';
@@ -252,6 +257,7 @@ function fleet_dashboard_data(array $rows, int $pending, int $now, array $groups
 			'groups' => $groups[(string)$r['node_id']] ?? array(),
 			'op' => $ops[(string)$r['node_id']] ?? null,
 			'update' => fleet_update_verdict(json_decode((string)($r['update_info'] ?? ''), true) ?: null),
+			'policy' => (int)($policy_fails[(string)$r['node_id']] ?? 0),
 			'managed' => ($r['role'] ?? '') === 'managed',
 			'problem' => ($state === 'online') ? '' : (string)$r['error'],
 		);
@@ -463,6 +469,10 @@ function fleet_event_text(string $node_id, string $action, string $detail): arra
 		return array('Updated', $rest);
 	case 'update_failed':
 		return array('Update failed', $rest);
+	case 'policy':
+		return array('Policy', $rest);
+	case 'policy_exception':
+		return array('Policy exception', $rest);
 	case 'replicas':
 		return array('Backup copies', $rest);
 	case 'recovery_key':

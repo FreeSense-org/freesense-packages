@@ -335,6 +335,9 @@
 			chip.style.setProperty('--fs-fleet-group', 'var(--fs-series-' + g.color + ')');
 			foot.appendChild(chip);
 		});
+		if (b.policy > 0) {
+			foot.appendChild(badge('warn', T.policy_fails.replace('%d', b.policy)));
+		}
 		if (b.update) {
 			foot.appendChild(badge(b.update[0] === 'info' ? 'info' : 'new', b.update[1]));
 		}
@@ -485,6 +488,7 @@
 		menuItem(menu, T.open, 'fa-arrow-right', page);
 		menuItem(menu, T.webui, 'fa-up-right-from-square', page + '&view=overview#webui');
 		menuItem(menu, T.events, 'fa-list', page + '&view=events');
+		menuItem(menu, T.policies, 'fa-scale-balanced', page + '&view=policies');
 		menuItem(menu, b.update && b.update[0] === 'info' ? b.update[1] : T.updates, 'fa-download', page + '&view=updates');
 		if (canManage) {
 			menuSeparator(menu);

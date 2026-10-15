@@ -58,7 +58,7 @@ $strings = array(
 	'change_group' => gettext('Change the group'), 'n_fw' => gettext('%d firewalls'), 'one_fw' => gettext('1 firewall'),
 	'n_attention' => gettext('%d need attention'), 'one_attention' => gettext('1 needs attention'), 'all_ok' => gettext('All online'),
 	'version_unknown' => gettext('Version unknown'), 'firewalls' => gettext('Firewalls'), 'collapse' => gettext('Show or hide %s'), 'backup_all' => gettext('Back up all now'), 'backup_group' => gettext('Back up %s now'), 'reboot_group' => gettext('Reboot %s...'),
-	'update_group' => gettext('Update %s...'), 'updates' => gettext('Updates'),
+	'update_group' => gettext('Update %s...'), 'updates' => gettext('Updates'), 'policy_fails' => gettext('Policy: %d failing'), 'policies' => gettext('Policies'),
 	'none_match' => gettext('No firewall is %s.'), 'none_in_group' => gettext('No firewall in this group matches.'), 'show_all' => gettext('Show all'),
 );
 
@@ -81,6 +81,7 @@ if ($manage) {
 		array(gettext('Updates'), false, '/fleet/fleet_updates.php'),
 		array(gettext('Schedules'), false, '/fleet/fleet_schedules.php'),
 		array(gettext('Backups'), false, '/fleet/fleet_backups.php'),
+		array(gettext('Policies'), false, '/fleet/fleet_policies.php'),
 		array(gettext('Firewalls'), false, '/fleet/fleet.php'),
 		array(gettext('Settings'), false, '/fleet/fleet.php?tab=settings'),
 	);
