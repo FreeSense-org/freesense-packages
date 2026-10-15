@@ -52,9 +52,46 @@ define('FLEET_NODE_API_PORT_DEFAULT', 8444);
 define('FLEET_MISSES_DEGRADED', 3);
 define('FLEET_MISSES_OFFLINE', 10);
 define('FLEET_POLL_INTERVALS', array(10, 15, 30, 60));
-/* Silence before a firewall is degraded / offline, at least (longer when the interval is long). */
-define('FLEET_SILENT_DEGRADED', 60);
-define('FLEET_SILENT_OFFLINE', 300);
+
+/*
+ * Every tunable value of Fleet, shown on Fleet > Settings in its section:
+ * key => array(section, unit, default, min, max, label, help). Units:
+ * 'min', 's', 'h', 'count', 'bool' (min/max unused), 'choice' (min is the
+ * list). Code reads them with fleet_setting(); nothing here is hard-coded
+ * elsewhere. New features add their values here.
+ */
+define('FLEET_SETTINGS_SECTIONS', array('controller' => 'Controller', 'monitoring' => 'Monitoring', 'actions' => 'Actions and notices',
+    'backups' => 'Backups', 'advanced' => 'Advanced'));
+define('FLEET_TUNABLES', array(
+	'poll_interval' => array('monitoring', 'choice', 15, array(10, 15, 30, 60), null, 'Check each firewall every',
+	    'How quickly the dashboard sees a change. Shorter intervals cost a little more traffic over each tunnel.'),
+	'silent_degraded' => array('monitoring', 'min', 1, 1, 10, 'Degraded after',
+	    'A firewall that does not answer for this long is marked degraded (at least three checks).'),
+	'silent_offline' => array('monitoring', 'min', 5, 2, 60, 'Offline after',
+	    'A firewall that does not answer for this long is marked offline (at least ten checks).'),
+	'toast_done' => array('actions', 'bool', true, null, null, 'Tell me when an action is done',
+	    'A short notice on any WebUI page when a reboot, backup or restore finishes.'),
+	'toast_failed' => array('actions', 'bool', true, null, null, 'Tell me when an action fails',
+	    'A notice that stays until it is closed.'),
+	'nav_failed' => array('actions', 'min', 10, 1, 60, 'Show a failed action in the top bar for',
+	    'The Fleet item in the top bar shows a red count this long after an action failed.'),
+	'show_done' => array('actions', 's', 90, 30, 600, 'Show the result on the tile for',
+	    'How long a firewall\'s tile keeps "Back online" or "Backed up" after an action.'),
+	'reboot_timeout' => array('actions', 'min', 10, 5, 30, 'A reboot has failed when the firewall is not back after',
+	    'A group reboot stops at a firewall that is not back in time.'),
+	'backup_quiet' => array('backups', 'min', 5, 1, 60, 'Back up a changed configuration after it has been quiet for',
+	    'Several saves in a row give one backup.'),
+	'backup_parallel' => array('backups', 'count', 10, 1, 50, 'Back up at most this many firewalls at once',
+	    'More is faster for big fleets and puts more load on the controller.'),
+	'restore_confirm' => array('backups', 'min', 5, 2, 15, 'After a restore, a firewall goes back by itself unless it answers within',
+	    'The controller keeps a restore only when the firewall still answers over its tunnel.'),
+	'invite_hours' => array('advanced', 'h', 24, 1, 720, 'Invitations are valid for',
+	    'The default when you invite a firewall (you can change it per invitation).'),
+	'invite_failures' => array('advanced', 'count', 5, 3, 20, 'An invitation is burned after this many wrong join keys',
+	    'Protects against guessing. A burned invitation cannot be used again.'),
+	'per_page' => array('advanced', 'choice', 25, array(25, 50, 100), null, 'Rows per page in lists',
+	    'Activity, Events and other lists.'),
+));
 
 /* ------------------------------------------------------------------ */
 /* Pure                                                                */
@@ -70,9 +107,24 @@ function fleet_ctl_settings_from(array $s): array {
 		'public_host' => trim((string)($s['public_host'] ?? '')),
 		'enroll_port' => $port($s['enroll_port'] ?? '', 8443),
 		'wg_port' => $port($s['wg_port'] ?? '', 51830),
-		/* How often each firewall is asked for its status, in seconds. */
-		'poll_interval' => in_array((int)($s['poll_interval'] ?? 0), FLEET_POLL_INTERVALS, true) ? (int)$s['poll_interval'] : 15,
-	);
+	) + fleet_tunables_from($s);
+}
+
+/* pure: the tunable values with defaults; a value out of range is the default. */
+function fleet_tunables_from(array $s): array {
+	$out = array();
+	foreach (FLEET_TUNABLES as $key => list($section, $unit, $default, $min, $max)) {
+		$v = $s[$key] ?? null;
+		if ($unit === 'bool') {
+			/* Stored as 'on' / 'off'; not stored yet is the default. */
+			$out[$key] = ($v === null || $v === '') ? $default : ($v === 'on' || $v === true);
+		} elseif ($unit === 'choice') {
+			$out[$key] = in_array((int)$v, $min, true) ? (int)$v : $default;
+		} else {
+			$out[$key] = (is_numeric($v) && ((int)$v == $v) && ((int)$v >= $min) && ((int)$v <= $max)) ? (int)$v : $default;
+		}
+	}
+	return $out;
 }
 
 /* pure: "host:port" with IPv6 bracketed. */
@@ -125,10 +177,10 @@ function fleet_ctl_early_rules(array $s): string {
  * not missed checks, so a shorter interval does not make boxes flap.
  */
 function fleet_box_state_for(int $silent, int $interval): string {
-	if ($silent >= max(FLEET_SILENT_OFFLINE, 10 * $interval)) {
+	if ($silent >= max(60 * fleet_opt('silent_offline'), 10 * $interval)) {
 		return 'offline';
 	}
-	return ($silent >= max(FLEET_SILENT_DEGRADED, 3 * $interval)) ? 'degraded' : 'online';
+	return ($silent >= max(60 * fleet_opt('silent_degraded'), 3 * $interval)) ? 'degraded' : 'online';
 }
 
 function fleet_box_state(int $misses): string {
@@ -201,6 +253,15 @@ function fleet_dashboard_data(array $rows, int $pending, int $now, array $groups
 
 function fleet_ctl_settings(): array {
 	return fleet_ctl_settings_from((array)config_get_path('installedpackages/fleet/config/0', []));
+}
+
+/* One tunable value (defaults where there is no configuration, as in the tests). */
+function fleet_opt(string $key) {
+	static $cache = null;
+	if ($cache === null) {
+		$cache = function_exists('config_get_path') ? fleet_ctl_settings() : fleet_tunables_from(array());
+	}
+	return $cache[$key] ?? fleet_tunables_from(array())[$key];
 }
 
 function fleet_ctl_exec(array $argv): array {

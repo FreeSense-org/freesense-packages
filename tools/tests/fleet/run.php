@@ -37,7 +37,7 @@ check(preg_match('/^fd[0-9a-f]{2}:[0-9a-f]{4}:[0-9a-f]{4}:f1::\/64$/D', $ov) ===
 check(fleet_overlay_host('fd12:3456:789a:f1::/64', 1) === 'fd12:3456:789a:f1::1' && fleet_overlay_host('fd12:3456:789a:f1::/64', 16) === 'fd12:3456:789a:f1::10',
     'overlay host addresses');
 $s = fleet_ctl_settings_from(array('enable' => 'on', 'public_host' => ' hq.example.net ', 'enroll_port' => '99999'));
-check($s === array('enable' => true, 'public_host' => 'hq.example.net', 'enroll_port' => 8443, 'wg_port' => 51830, 'poll_interval' => 15), 'settings with defaults');
+check($s === array('enable' => true, 'public_host' => 'hq.example.net', 'enroll_port' => 8443, 'wg_port' => 51830) + fleet_tunables_from(array()), 'settings with defaults');
 check(fleet_ctl_settings_from(array('poll_interval' => '30'))['poll_interval'] === 30 && fleet_ctl_settings_from(array('poll_interval' => '7'))['poll_interval'] === 15, 'status interval: 10, 15, 30 or 60 s');
 check(fleet_ctl_settings_from(array())['enable'] === false, 'off by default');
 check(fleet_hostport('fd12::1', 8443) === '[fd12::1]:8443' && fleet_hostport('hq', 1) === 'hq:1', 'host:port');
@@ -250,7 +250,7 @@ check(fleet_backup_meta($conf) === array('config_time' => 1760000000, 'descripti
     'when, why and which config version');
 $sha = hash('sha256', $conf);
 $st = array('config_revision' => array('sha256' => $sha, 'time' => 1000));
-check(fleet_backup_due(null, $st, 1000 + FLEET_BACKUP_QUIET) && !fleet_backup_due(null, $st, 1000 + FLEET_BACKUP_QUIET - 1),
+check(fleet_backup_due(null, $st, 1000 + 60 * fleet_opt('backup_quiet')) && !fleet_backup_due(null, $st, 1000 + 60 * fleet_opt('backup_quiet') - 1),
     'a new configuration is backed up after it has been quiet for a while');
 check(!fleet_backup_due(array('sha256' => $sha), $st, 99999) && !fleet_backup_due(null, array(), 99999), 'an unchanged configuration is not');
 check(fleet_backup_file('node-1/../x', 1760000000, $sha) === 'node-1x/20251009-085320-' . substr($sha, 0, 12) . '.xml.enc', 'file names stay inside the backup directory');
@@ -364,9 +364,9 @@ check(fleet_op_reboot_step($rop, array('boot_time' => 900), 1010) === array('run
     fleet_op_reboot_step($rop, null, 1030) === array('running', 'Restarting', 50) &&
     fleet_op_reboot_step(array('started' => 1000, 'text' => 'Restarting'), null, 1040) === null &&
     fleet_op_reboot_step($rop, array('boot_time' => 1050), 1070) === array('done', 'Back online after 1 min 10 s', 100) &&
-    fleet_op_reboot_step($rop, null, 1000 + FLEET_OP_REBOOT_TIMEOUT + 1)[0] === 'failed', 'a reboot is done only when the box answers with a new boot time');
+    fleet_op_reboot_step($rop, null, 1000 + 60 * fleet_opt('reboot_timeout') + 1)[0] === 'failed', 'a reboot is done only when the box answers with a new boot time');
 check(fleet_op_duration(45) === '45 s' && fleet_op_duration(120) === '2 min' && fleet_op_duration(-3) === '0 s', 'durations in words');
-check(fleet_op_view(array('id' => 1, 'kind' => 'reboot', 'state' => 'done', 'text' => 'x', 'started' => 1, 'who' => 'a', 'finished' => 100), 100 + FLEET_OP_SHOW_DONE + 1) === null &&
+check(fleet_op_view(array('id' => 1, 'kind' => 'reboot', 'state' => 'done', 'text' => 'x', 'started' => 1, 'who' => 'a', 'finished' => 100), 100 + fleet_opt('show_done') + 1) === null &&
     fleet_op_view(array('id' => 1, 'kind' => 'reboot', 'state' => 'running', 'text' => 'x', 'started' => 1, 'who' => 'a', 'finished' => null), 99999)['state'] === 'running',
     'a finished operation leaves the tile after a moment; a running one stays');
 $oid = fleet_op_start('node-op', 'reboot', 'Rebooting', 'tester');
@@ -466,5 +466,14 @@ check(is_array(fleet_nav_now(time())), 'the top-bar item from the store');
 $nav = fleet_nav_item(3, 0);
 require_once($argv[1] . '/src/usr/local/www/includes/fs_menu.inc');
 check(fs_nav_plugin_item('fleet', $nav) !== null, 'System accepts the Fleet item as it is');
+
+/* ---- settings ---- */
+$t = fleet_tunables_from(array('silent_offline' => '30', 'backup_parallel' => '0', 'toast_done' => 'off', 'per_page' => '50', 'reboot_timeout' => '7.5', 'show_done' => 'x'));
+check($t['silent_offline'] === 30 && $t['backup_parallel'] === 10 && $t['toast_done'] === false && $t['toast_failed'] === true && $t['per_page'] === 50 &&
+    $t['reboot_timeout'] === 10 && $t['show_done'] === 90, 'tunables: in range kept, out of range or not whole is the default, booleans on/off');
+foreach (FLEET_TUNABLES as $k => $def) {
+	check(array_key_exists($def[0], FLEET_SETTINGS_SECTIONS) && $def[5] !== '' && $def[6] !== '', "setting {$k} has a section, a label and help");
+}
+check(fleet_opt('reboot_timeout') === 10 && fleet_opt('per_page') === 25, 'defaults without a configuration');
 
 echo "Fleet controller tests: OK\n";

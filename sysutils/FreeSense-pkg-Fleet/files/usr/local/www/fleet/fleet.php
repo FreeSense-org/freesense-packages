@@ -42,12 +42,39 @@ $input_errors = array();
 $savemsg = null;
 $new_invite = null;
 
-if ($_POST['save_settings'] ?? false) {
+if (isset($_POST['save_section']) && array_key_exists((string)$_POST['save_section'], FLEET_SETTINGS_SECTIONS) && ($_POST['save_section'] !== 'controller')) {
+	/* A settings section other than Controller: only its values change, everything else is kept. */
+	$tab = 'settings';
+	$section = (string)$_POST['save_section'];
+	$stored = (array)config_get_path('installedpackages/fleet/config/0', array());
+	foreach (FLEET_TUNABLES as $key => list($sec, $unit, $default, $min, $max, $label)) {
+		if ($sec !== $section) {
+			continue;
+		}
+		if ($unit === 'bool') {
+			$stored[$key] = !empty($_POST[$key]) ? 'on' : 'off';
+			continue;
+		}
+		$v = trim((string)($_POST[$key] ?? ''));
+		if (fleet_tunables_from(array($key => $v))[$key] !== (int)$v || !ctype_digit($v)) {
+			$input_errors[] = ($unit === 'choice') ? sprintf(gettext('%s: choose one of the values offered.'), gettext($label))
+			    : sprintf(gettext('%1$s: a whole number from %2$d to %3$d.'), gettext($label), $min, $max);
+			continue;
+		}
+		$stored[$key] = $v;
+	}
+	if (empty($input_errors)) {
+		config_set_path('installedpackages/fleet/config/0', $stored);
+		write_config(sprintf(gettext('FreeSense Fleet settings saved (%s).'), gettext(FLEET_SETTINGS_SECTIONS[$section])));
+		$s = fleet_ctl_settings();
+		$savemsg = gettext('Saved.');
+	}
+} elseif ($_POST['save_settings'] ?? false) {
 	$tab = 'settings';
 	$host = trim((string)($_POST['public_host'] ?? ''));
-	$post = array('enable' => !empty($_POST['enable']) ? 'on' : '', 'public_host' => $host,
-	    'enroll_port' => (string)($_POST['enroll_port'] ?? ''), 'wg_port' => (string)($_POST['wg_port'] ?? ''),
-	    'poll_interval' => (string)(int)($_POST['poll_interval'] ?? 15));
+	/* Controller: kept with every other stored value (Monitoring, Backups...). */
+	$post = array_merge((array)config_get_path('installedpackages/fleet/config/0', array()), array('enable' => !empty($_POST['enable']) ? 'on' : '',
+	    'public_host' => $host, 'enroll_port' => (string)($_POST['enroll_port'] ?? ''), 'wg_port' => (string)($_POST['wg_port'] ?? '')));
 	$check = fleet_ctl_settings_from($post);
 	if ($check['enable'] && !fleet_join_valid_authority($host)) {
 		$input_errors[] = gettext('Enter the host name or IP address firewalls use to reach this controller.');
@@ -69,7 +96,7 @@ if ($_POST['save_settings'] ?? false) {
 } elseif (($_POST['invite'] ?? false) && $s['enable']) {
 	try {
 		$new_invite = fleet_invite_create((string)($_POST['role'] ?? 'monitor'), trim((string)($_POST['label'] ?? '')),
-		    3600 * max(1, min(168, (int)($_POST['hours'] ?? 24))), $who, fleet_hostport($s['public_host'], $s['enroll_port']), time());
+		    3600 * max(1, min(720, (int)($_POST['hours'] ?? fleet_opt('invite_hours')))), $who, fleet_hostport($s['public_host'], $s['enroll_port']), time());
 	} catch (InvalidArgumentException $e) {
 		$input_errors[] = $e->getMessage();
 	}
@@ -262,9 +289,17 @@ if ($savemsg) {
 			</select></div>
 		<div class="fs-fleet-field"><label class="form-label" for="hours"><?=gettext('Valid for')?></label>
 			<select class="form-select" id="hours" name="hours">
-				<option value="1"><?=gettext('1 hour')?></option>
-				<option value="24" selected><?=gettext('24 hours')?></option>
-				<option value="168"><?=gettext('7 days')?></option>
+<?php
+	$ttl_choices = array(1 => gettext('1 hour'), 24 => gettext('24 hours'), 168 => gettext('7 days'), 720 => gettext('30 days'));
+	$ttl_default = fleet_opt('invite_hours');
+	if (!isset($ttl_choices[$ttl_default])) {
+		$ttl_choices[$ttl_default] = sprintf(gettext('%d hours'), $ttl_default);
+		ksort($ttl_choices);
+	}
+	foreach ($ttl_choices as $h => $text):
+?>
+				<option value="<?=(int)$h?>"<?=($h === $ttl_default) ? ' selected' : ''?>><?=htmlspecialchars($text)?></option>
+<?php endforeach; ?>
 			</select></div>
 		<div class="fs-fleet-field fs-fleet-field--button">
 			<button class="btn btn-primary" type="submit" name="invite" value="1"><i class="fa-solid fa-plus icon-embed-btn" aria-hidden="true"></i><?=gettext('Create invitation')?></button>
@@ -282,7 +317,7 @@ if ($savemsg) {
 <?php foreach ($invites as $i): ?>
 		<tr><td><?=htmlspecialchars($i['label'])?></td><td><?=htmlspecialchars($role_name($i['role']))?></td>
 			<td><?=htmlspecialchars(date('Y-m-d H:i', (int)$i['expires']))?></td>
-			<td><?=((int)$i['failures'] > 0) ? fs_badge('warn', (int)$i['failures'] . ' / ' . FLEET_INVITE_MAX_FAILURES) : '<span class="fs-muted">0</span>'?></td>
+			<td><?=((int)$i['failures'] > 0) ? fs_badge('warn', (int)$i['failures'] . ' / ' . fleet_opt('invite_failures')) : '<span class="fs-muted">0</span>'?></td>
 			<td class="text-end"><form method="post"><button class="btn btn-sm btn-outline-secondary" name="revoke" value="<?=htmlspecialchars($i['token_id'])?>"><?=gettext('Revoke')?></button></form></td></tr>
 <?php endforeach; ?>
 		</tbody></table></div>
@@ -290,12 +325,71 @@ if ($savemsg) {
 <?php endif; ?>
 
 <?php endif; ?>
+<?php else:
+	$set_view = fs_view_param(array_keys(FLEET_SETTINGS_SECTIONS), (string)($_POST['save_section'] ?? (isset($_POST['save_settings']) ? 'controller' : 'controller')));
+	$set_labels = array_map('gettext', FLEET_SETTINGS_SECTIONS);
+	fs_view_switch($set_labels, $set_view);
+	$set_leads = array(
+		'controller' => gettext('Firewalls connect to this controller. They may be behind NAT: they start the connection, so only this controller needs to be reachable.'),
+		'monitoring' => gettext('How often the controller asks each firewall for its status, and when a silent firewall counts as degraded or offline.'),
+		'actions' => gettext('Reboots, backups and restores started from Fleet: how long results stay visible and when you are told.'),
+		'backups' => gettext('Central backups of each firewall\'s configuration, taken every night and when it changes.'),
+		'advanced' => gettext('Values you rarely need to change. The defaults suit most fleets.'),
+	);
+?>
+<?php if ($set_view !== 'controller'): ?>
+<form method="post" action="?tab=settings&amp;view=<?=htmlspecialchars($set_view)?>">
+<div class="panel panel-default">
+	<div class="panel-heading"><h2 class="panel-title"><?=htmlspecialchars($set_labels[$set_view])?></h2></div>
+	<div class="panel-body fs-fleet-pad">
+		<p class="fs-fleet-lead"><?=htmlspecialchars($set_leads[$set_view])?></p>
+		<div class="fs-fleet-settings">
+<?php foreach (FLEET_TUNABLES as $key => list($sec, $unit, $default, $min, $max, $label, $help)):
+	if ($sec !== $set_view) {
+		continue;
+	}
+	$units = array('min' => gettext('minutes'), 's' => gettext('seconds'), 'h' => gettext('hours'), 'count' => '');
+	$value = $s[$key];
+?>
+<?php if ($unit === 'bool'): ?>
+			<div class="form-check form-switch">
+				<input class="form-check-input" type="checkbox" role="switch" id="<?=$key?>" name="<?=$key?>" aria-describedby="<?=$key?>-help"<?=$value ? ' checked' : ''?>/>
+				<label class="form-check-label" for="<?=$key?>"><?=htmlspecialchars(gettext($label))?></label>
+				<div id="<?=$key?>-help" class="fs-fleet-hint"><?=htmlspecialchars(gettext($help))?></div>
+			</div>
+<?php elseif ($unit === 'choice'): ?>
+			<div class="fs-fleet-field"><label class="form-label" for="<?=$key?>"><?=htmlspecialchars(gettext($label))?></label>
+				<select class="form-select fs-fleet-narrow" id="<?=$key?>" name="<?=$key?>" aria-describedby="<?=$key?>-help">
+<?php foreach ($min as $opt): ?>
+					<option value="<?=(int)$opt?>"<?=($value === $opt) ? ' selected' : ''?>><?=($key === 'poll_interval') ? sprintf(gettext('%d seconds'), $opt) : (int)$opt?><?=($opt === $default) ? ' ' . gettext('(default)') : ''?></option>
+<?php endforeach; ?>
+				</select>
+				<div id="<?=$key?>-help" class="fs-fleet-hint"><?=htmlspecialchars(gettext($help))?></div></div>
 <?php else: ?>
-
-<section class="fs-fleet-block" aria-labelledby="settings-title">
-	<h2 id="settings-title" class="fs-fleet-section-title"><?=gettext('Controller')?></h2>
-	<p class="fs-fleet-lead"><?=gettext('Firewalls connect to this controller. They may be behind NAT: they start the connection, so only this controller needs to be reachable.')?></p>
-	<form method="post" class="fs-fleet-settings">
+			<div class="fs-fleet-field"><label class="form-label" for="<?=$key?>"><?=htmlspecialchars(gettext($label))?></label>
+				<div class="input-group fs-fleet-narrow">
+					<input class="form-control" type="number" id="<?=$key?>" name="<?=$key?>" min="<?=(int)$min?>" max="<?=(int)$max?>" step="1" value="<?=(int)$value?>" aria-describedby="<?=$key?>-help" required/>
+<?php if ($units[$unit] !== ''): ?>
+					<span class="input-group-text"><?=htmlspecialchars($units[$unit])?></span>
+<?php endif; ?>
+				</div>
+				<div id="<?=$key?>-help" class="fs-fleet-hint"><?=htmlspecialchars(gettext($help))?> <?=sprintf(gettext('%1$d to %2$d, default %3$d.'), $min, $max, $default)?></div></div>
+<?php endif; ?>
+<?php endforeach; ?>
+		</div>
+	</div>
+	<div class="panel-footer">
+		<button class="btn btn-primary" type="submit" name="save_section" value="<?=htmlspecialchars($set_view)?>"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save')?></button>
+	</div>
+</div>
+</form>
+<?php else: ?>
+<form method="post" action="?tab=settings&amp;view=controller">
+<div class="panel panel-default">
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Controller')?></h2></div>
+	<div class="panel-body fs-fleet-pad">
+	<p class="fs-fleet-lead"><?=htmlspecialchars($set_leads['controller'])?></p>
+	<div class="fs-fleet-settings">
 		<div class="form-check form-switch">
 			<input class="form-check-input" type="checkbox" role="switch" id="enable" name="enable" <?=$s['enable'] ? 'checked' : ''?>/>
 			<label class="form-check-label" for="enable"><?=gettext('Run this firewall as a FreeSense Fleet controller')?></label>
@@ -309,19 +403,17 @@ if ($savemsg) {
 			<div class="fs-fleet-field"><label class="form-label" for="wg_port"><?=gettext('Tunnel port (UDP)')?></label>
 				<input class="form-control" id="wg_port" name="wg_port" inputmode="numeric" value="<?=(int)$s['wg_port']?>"/></div>
 		</div>
-		<div class="fs-fleet-field"><label class="form-label" for="poll_interval"><?=gettext('Check each firewall every')?></label>
-			<select class="form-select fs-fleet-narrow" id="poll_interval" name="poll_interval" aria-describedby="poll-help">
-<?php foreach (FLEET_POLL_INTERVALS as $sec): ?>
-				<option value="<?=$sec?>"<?=($s['poll_interval'] === $sec) ? ' selected' : ''?>><?=sprintf(gettext('%d seconds'), $sec)?><?=($sec === 15) ? ' ' . gettext('(recommended)') : ''?></option>
-<?php endforeach; ?>
-			</select>
-			<div id="poll-help" class="fs-fleet-hint"><?=gettext('How quickly the dashboard sees a change. A firewall is degraded after a minute without an answer and offline after five, whatever the interval. Shorter intervals cost a little more traffic over each tunnel.')?></div></div>
 <?php if ($ready && !fleet_data_on_zfs()): ?>
 		<div class="fs-fleet-note"><?=fs_badge('warn', gettext('No rollback'))?> <?=gettext('This controller runs on UFS. Fleet works, but a failed update of this controller cannot roll back automatically. ZFS is recommended for the controller.')?></div>
 <?php endif; ?>
-		<div><button class="btn btn-primary" type="submit" name="save_settings" value="1"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save')?></button></div>
-	</form>
-</section>
+	</div>
+	</div>
+	<div class="panel-footer">
+		<button class="btn btn-primary" type="submit" name="save_settings" value="1"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save')?></button>
+	</div>
+</div>
+</form>
+<?php endif; ?>
 
 <?php endif; ?>
 <?php include('foot.inc');

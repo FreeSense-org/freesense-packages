@@ -34,10 +34,6 @@
 
 require_once('fleet/fleet_store.inc');
 
-/* A reboot that is not back after this long has failed. */
-define('FLEET_OP_REBOOT_TIMEOUT', 600);
-/* A finished operation stays on the tile this long, so its result can be read. */
-define('FLEET_OP_SHOW_DONE', 90);
 
 /* ------------------------------------------------------------------ */
 /* Pure                                                                */
@@ -56,8 +52,9 @@ function fleet_op_reboot_step(array $op, ?array $status, int $now): ?array {
 		}
 		return ($op['text'] === 'Waiting for it to go down') ? null : array('running', 'Waiting for it to go down', 25);
 	}
-	if (($now - (int)$op['started']) > FLEET_OP_REBOOT_TIMEOUT) {
-		return array('failed', 'Not back after ' . fleet_op_duration(FLEET_OP_REBOOT_TIMEOUT) . '. Check its console.', 100);
+	$timeout = 60 * fleet_opt('reboot_timeout');
+	if (($now - (int)$op['started']) > $timeout) {
+		return array('failed', 'Not back after ' . fleet_op_duration($timeout) . '. Check its console.', 100);
 	}
 	return ($op['text'] === 'Restarting') ? null : array('running', 'Restarting', 50);
 }
@@ -78,7 +75,7 @@ function fleet_op_view(?array $op, int $now): ?array {
 	if ($op === null) {
 		return null;
 	}
-	if (!in_array($op['state'], array('running', 'queued'), true) && (($now - (int)$op['finished']) > FLEET_OP_SHOW_DONE)) {
+	if (!in_array($op['state'], array('running', 'queued'), true) && (($now - (int)$op['finished']) > fleet_opt('show_done'))) {
 		return null;
 	}
 	return array('id' => (int)$op['id'], 'kind' => (string)$op['kind'], 'state' => (string)$op['state'], 'text' => (string)$op['text'],
@@ -224,7 +221,7 @@ function fleet_op_set(int $id, string $state, string $text, ?int $progress = nul
 function fleet_ops_for_tiles(int $now): array {
 	$out = array();
 	$q = fleet_db()->prepare("SELECT * FROM ops WHERE node_id != '' AND (state IN ('running', 'queued') OR finished >= ?) ORDER BY id");
-	$q->execute(array($now - FLEET_OP_SHOW_DONE));
+	$q->execute(array($now - fleet_opt('show_done')));
 	foreach ($q->fetchAll() as $op) {
 		$view = fleet_op_view($op, $now);
 		if ($view !== null) {
@@ -261,8 +258,6 @@ function fleet_ops_follow(array $box, ?array $status, int $now): void {
 /* The top-bar item (plugin_navbar)                                    */
 /* ------------------------------------------------------------------ */
 
-/* A failed action stays in the top bar this long, so it is seen. */
-define('FLEET_NAV_SHOW_FAILED', 600);
 
 /*
  * pure: the top-bar item from what runs and what failed lately. Out of
@@ -287,6 +282,6 @@ function fleet_nav_item(int $running, int $failed): array {
 function fleet_nav_now(int $now): array {
 	$running = (int)fleet_db()->query("SELECT COUNT(*) FROM ops WHERE parent IS NULL AND state IN ('running', 'queued')")->fetchColumn();
 	$q = fleet_db()->prepare("SELECT COUNT(*) FROM ops WHERE parent IS NULL AND state = 'failed' AND finished >= ?");
-	$q->execute(array($now - FLEET_NAV_SHOW_FAILED));
+	$q->execute(array($now - 60 * fleet_opt('nav_failed')));
 	return fleet_nav_item($running, (int)$q->fetchColumn());
 }
