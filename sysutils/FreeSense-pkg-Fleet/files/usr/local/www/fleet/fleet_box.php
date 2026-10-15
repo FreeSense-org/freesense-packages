@@ -146,9 +146,10 @@ $state_names = array('online' => gettext('Online'), 'degraded' => gettext('Degra
 $when = function ($ts) {
 	return $ts ? htmlspecialchars(date('Y-m-d H:i', (int)$ts)) : '<span class="fs-muted">' . gettext('never') . '</span>';
 };
-$events = fleet_db()->prepare('SELECT time, who, action, detail FROM audit WHERE detail LIKE ? ORDER BY id DESC LIMIT 100');
-$events->execute(array($box['node_id'] . '%'));
-$events = $events->fetchAll();
+$ev_types = array_map(function ($t) { return $t[0]; }, FLEET_EVENT_TYPES);
+$ev_filters = fleet_list_filters($_GET, array('q' => null, 'type' => $ev_types, 'since' => FLEET_OPS_SINCE));
+list($events, $ev_page) = (($_GET['view'] ?? '') === 'events')
+    ? fleet_events_find($box['node_id'], $ev_filters, max(1, (int)($_GET['page'] ?? 1)), time()) : array(array(), fleet_list_page(0, 1));
 $webgui = (array)($st['webgui'] ?? array());
 /* Inside addresses first: WAN is rarely the one an administrator's browser reaches. */
 usort($webgui, function ($x, $y) {
@@ -503,11 +504,13 @@ if ($savemsg) {
 <?php endif; ?>
 
 <?php else: ?>
+<?=fleet_list_filterbar(array('id' => $box['node_id'], 'view' => 'events'), $ev_filters,
+    array('type' => array(gettext('Any event'), $ev_types), 'since' => array(gettext('Any time'), FLEET_OPS_SINCE)), gettext('Search events'), gettext('Search events'))?>
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Events')?> <span class="fs-count"><?=count($events)?></span></h2></div>
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Events')?> <span class="fs-count"><?=(int)$ev_page['total']?></span></h2></div>
 	<div class="panel-body fs-fleet-pad">
 <?php if (empty($events)): ?>
-		<p class="fs-fleet-hint"><?=gettext('Nothing has happened to this firewall yet.')?></p>
+		<p class="fs-fleet-hint"><?=!empty($ev_filters) ? gettext('No event matches these filters.') : gettext('Nothing has happened to this firewall yet.')?></p>
 <?php else: ?>
 		<ol class="fs-fleet-events">
 <?php foreach ($events as $ev): ?>
@@ -519,7 +522,8 @@ if ($savemsg) {
 		</ol>
 <?php endif; ?>
 	</div>
-	<div class="panel-footer small fs-muted"><?=gettext('The newest 100 events: status changes, backups, restores and sign-ins from the controller.')?></div>
+	<div class="panel-footer"><?=fleet_list_pager($ev_page, array('id' => $box['node_id'], 'view' => 'events'), $ev_filters)?></div>
 </div>
 <?php endif; ?>
+<script src="/fleet/assets/fleet-list.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-list.js')?>"></script>
 <?php include('foot.inc');

@@ -582,3 +582,21 @@ fieldset.fs-fleet-field legend { float: none; width: auto; font-size: inherit; }
 .fs-fleet-bar--wide { height: 8px; margin: var(--fs-sp-2) 0 var(--fs-sp-3); }
 .fs-fleet-facts--inline { display: flex; flex-wrap: wrap; gap: var(--fs-sp-1) var(--fs-sp-3); margin: 0; }
 .fs-fleet-facts--inline dd { margin: 0 var(--fs-sp-3) 0 0; }
+
+/* ---- lists: filter bar and pager ---- */
+.fs-fleet-filterbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--fs-sp-2);
+	margin-bottom: var(--fs-sp-3);
+}
+.fs-fleet-filterbar .form-select { width: auto; min-width: 9rem; }
+.fs-fleet-search { position: relative; flex: 1 1 16rem; max-width: 24rem; }
+.fs-fleet-search i { position: absolute; top: 50%; left: 0.6rem; transform: translateY(-50%); color: var(--fs-text-muted); pointer-events: none; }
+.fs-fleet-search .form-control { padding-left: 2rem; }
+.fs-fleet-pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--fs-sp-2); font-variant-numeric: tabular-nums; }
+@media (max-width: 720px) {
+	.fs-fleet-search { max-width: none; flex-basis: 100%; }
+	.fs-fleet-filterbar .form-select { flex: 1 1 8rem; }
+}

@@ -22,8 +22,9 @@
 /*
  * Activity: every operation the controller ran on firewalls (a reboot, a
  * backup of all firewalls or a group), newest first, and the detail of one
- * with a row per firewall. While something runs, assets/fleet-activity.js
- * refreshes the block every 3 s.
+ * with a row per firewall. Both have filters, search and paging (a fleet
+ * runs thousands of operations). While something runs, assets/fleet-list.js
+ * refreshes the results every 3 s; the filter bar stays as typed.
  */
 
 require_once('guiconfig.inc');
@@ -63,6 +64,12 @@ $what = function (array $o): string {
 	$kinds = array('reboot' => gettext('Reboot'), 'backup' => gettext('Back up'));
 	return ($kinds[$o['kind']] ?? $o['kind']) . ' ' . ($o['label'] ?? $o['node_id']);
 };
+$now = time();
+$page = max(1, (int)($_GET['page'] ?? 1));
+$base = ($op !== null) ? array('op' => (int)$op['id']) : array();
+$f = fleet_list_filters($_GET, ($op !== null)
+    ? array('q' => null, 'state' => array('failed' => 1, 'done' => 1, 'running' => 1, 'skipped' => 1))
+    : array('q' => null, 'state' => FLEET_OPS_STATES, 'kind' => FLEET_OPS_KINDS, 'since' => FLEET_OPS_SINCE));
 $is_running = function (string $state): bool {
 	return in_array($state, array('running', 'queued'), true);
 };
@@ -73,6 +80,16 @@ if (!$ready) {
 	$running = $is_running((string)$op['state']);
 } else {
 	$running = (int)fleet_db()->query("SELECT COUNT(*) FROM ops WHERE parent IS NULL AND state IN ('running', 'queued')")->fetchColumn() > 0;
+}
+
+/* The list's filters, carried to a detail page and back: only known keys. */
+function fleet_activity_from(string $from): string {
+	parse_str($from, $get);
+	$keep = fleet_list_filters($get, array('q' => null, 'state' => FLEET_OPS_STATES, 'kind' => FLEET_OPS_KINDS, 'since' => FLEET_OPS_SINCE));
+	if ((int)($get['page'] ?? 1) > 1) {
+		$keep['page'] = (int)$get['page'];
+	}
+	return empty($keep) ? '' : '?' . http_build_query($keep);
 }
 
 include('head.inc');
@@ -89,6 +106,14 @@ if ($manage) {
 	display_top_tabs($tab_array);
 }
 ?>
+<?php if ($ready && $op === null): ?>
+<?=fleet_list_filterbar($base, $f, array('state' => array(gettext('Any state'), FLEET_OPS_STATES), 'kind' => array(gettext('Any action'), FLEET_OPS_KINDS),
+    'since' => array(gettext('Any time'), FLEET_OPS_SINCE)), gettext('Search activity'), gettext('Search firewall, action or person'))?>
+<?php endif; ?>
+<?php if ($op !== null && $op['node_id'] === ''): ?>
+<?=fleet_list_filterbar($base, $f, array('state' => array(gettext('Any state'), array('failed' => 'Failed', 'skipped' => 'Skipped', 'done' => 'Done', 'running' => 'Running'))),
+    gettext('Search firewalls'), gettext('Search firewall or result'))?>
+<?php endif; ?>
 <div id="fs-fleet-activity" data-running="<?=$running ? '1' : '0'?>">
 <?php if (!$ready): ?>
 	<div class="fs-fleet-empty"><strong><?=gettext('This firewall is not a fleet controller')?></strong></div>
@@ -96,8 +121,15 @@ if ($manage) {
 	$op['label'] = fleet_box_get((string)$op['node_id'])['label'] ?? null;
 	$tasks = ($op['node_id'] === '') ? fleet_op_tasks((int)$op['id']) : array();
 	$p = fleet_op_progress(array_column($tasks, 'state'));
+	/* Hundreds of firewalls: filter and page the rows (the bar always counts them all). */
+	$shown = array_values(array_filter($tasks, function ($t) use ($f) {
+		return (!isset($f['state']) || ($f['state'] === 'running' ? in_array($t['state'], array('running', 'queued'), true) : $t['state'] === $f['state'])) &&
+		    (!isset($f['q']) || stripos((string)($t['label'] ?? $t['node_id']) . ' ' . $t['text'], $f['q']) !== false);
+	}));
+	$tpg = fleet_list_page(count($shown), $page);
+	$shown = array_slice($shown, $tpg['offset'], $tpg['per']);
 ?>
-	<p><a class="fs-fleet-back" href="/fleet/fleet_activity.php"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i><?=gettext('All activity')?></a></p>
+	<p><a class="fs-fleet-back" href="/fleet/fleet_activity.php<?=htmlspecialchars(fleet_activity_from((string)($_GET['from'] ?? '')))?>"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i><?=gettext('All activity')?></a></p>
 	<div class="panel panel-default">
 		<div class="panel-heading"><h2 class="panel-title"><?=htmlspecialchars($what($op))?> <?=$state_badge((string)$op['state'])?></h2></div>
 		<div class="panel-body fs-fleet-pad">
@@ -115,31 +147,36 @@ if ($manage) {
 <?php if (!empty($tasks)): ?>
 	<div class="panel panel-default">
 		<div class="panel-heading"><h2 class="panel-title"><?=gettext('Firewalls')?> <span class="fs-badge fs-badge--neutral"><?=count($tasks)?></span></h2></div>
+<?php if (empty($shown)): ?>
+		<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint"><?=gettext('No firewall matches these filters.')?></p></div>
+<?php else: ?>
 		<div class="panel-body table-responsive"><table class="table fs-table">
 			<thead><tr><th><?=gettext('Firewall')?></th><th><?=gettext('State')?></th><th><?=gettext('Result')?></th><th class="text-end"><?=gettext('Took')?></th></tr></thead>
 			<tbody>
-<?php foreach ($tasks as $t): ?>
+<?php foreach ($shown as $t): ?>
 			<tr><td><a href="/fleet/fleet_box.php?id=<?=urlencode((string)$t['node_id'])?>"><?=htmlspecialchars((string)($t['label'] ?? $t['node_id']))?></a></td>
 				<td><?=$state_badge((string)$t['state'])?></td>
 				<td><?=htmlspecialchars((string)$t['text'])?></td>
 				<td class="text-end fs-muted"><?=($t['state'] === 'queued') ? '-' : $took($t)?></td></tr>
 <?php endforeach; ?>
 			</tbody></table></div>
+<?php endif; ?>
+		<div class="panel-footer"><?=fleet_list_pager($tpg, $base, $f)?></div>
 	</div>
 <?php endif; ?>
 <?php else:
-	$history = fleet_ops_history(50);
+	list($history, $pg) = fleet_ops_find($f, $page, $now);
 ?>
 	<div class="panel panel-default">
-		<div class="panel-heading"><h2 class="panel-title"><?=gettext('Activity')?></h2></div>
+		<div class="panel-heading"><h2 class="panel-title"><?=gettext('Activity')?> <span class="fs-badge fs-badge--neutral"><?=(int)$pg['total']?></span></h2></div>
 <?php if (empty($history)): ?>
-		<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint"><?=gettext('Nothing has run yet. Reboots, backups and other actions on firewalls appear here with their progress.')?></p></div>
+		<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint"><?=!empty($f) ? gettext('Nothing matches these filters.') : gettext('Nothing has run yet. Reboots, backups and other actions on firewalls appear here with their progress.')?></p></div>
 <?php else: ?>
 		<div class="panel-body table-responsive"><table class="table fs-table">
 			<thead><tr><th><?=gettext('What')?></th><th><?=gettext('State')?></th><th><?=gettext('Progress')?></th><th><?=gettext('Started')?></th><th><?=gettext('By')?></th><th class="text-end"><?=gettext('Took')?></th></tr></thead>
 			<tbody>
 <?php foreach ($history as $h): ?>
-			<tr><td><a href="?op=<?=(int)$h['id']?>"><?=htmlspecialchars($what($h))?></a></td>
+			<tr><td><a href="?op=<?=(int)$h['id']?>&amp;from=<?=urlencode(http_build_query($f + array('page' => $pg['page'])))?>"><?=htmlspecialchars($what($h))?></a></td>
 				<td><?=$state_badge((string)$h['state'])?></td>
 				<td><?=htmlspecialchars((string)$h['text'])?></td>
 				<td class="fs-muted"><?=$when((int)$h['started'])?></td>
@@ -148,9 +185,9 @@ if ($manage) {
 <?php endforeach; ?>
 			</tbody></table></div>
 <?php endif; ?>
-		<div class="panel-footer small fs-muted"><?=gettext('The last 50 operations. Each firewall\'s own actions are also in its Events.')?></div>
+		<div class="panel-footer"><?=fleet_list_pager($pg, $base, $f)?></div>
 	</div>
 <?php endif; ?>
 </div>
-<script src="<?=$asset('fleet-activity.js')?>"></script>
+<script src="<?=$asset('fleet-list.js')?>"></script>
 <?php include('foot.inc');

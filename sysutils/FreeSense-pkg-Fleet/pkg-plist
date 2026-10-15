@@ -5,13 +5,14 @@ pkg/fleet/enroll/index.php
 pkg/fleet/fleet_backup.inc
 pkg/fleet/fleet_enroll.inc
 pkg/fleet/fleet_groups.inc
+pkg/fleet/fleet_list.inc
 pkg/fleet/fleet_manage.inc
 pkg/fleet/fleet_ops.inc
 pkg/fleet/fleet_store.inc
 sbin/freesense-fleet-backup
 sbin/freesense-fleet-poll
 share/FreeSense-pkg-Fleet/info.xml
-www/fleet/assets/fleet-activity.js
+www/fleet/assets/fleet-list.js
 www/fleet/assets/fleet.css
 www/fleet/assets/fleet.js
 www/fleet/fleet.php
