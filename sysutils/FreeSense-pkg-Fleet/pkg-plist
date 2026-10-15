@@ -20,6 +20,7 @@ sbin/freesense-fleet-poll
 sbin/freesense-fleet-run
 share/FreeSense-pkg-Fleet/info.xml
 www/fleet/assets/fleet-list.js
+www/fleet/assets/fleet-policy.js
 www/fleet/assets/fleet.css
 www/fleet/assets/fleet.js
 www/fleet/fleet.php

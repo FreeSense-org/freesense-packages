@@ -439,37 +439,84 @@ $state_badge = function (string $state) {
 			</div>
 		</div>
 	</div>
+<?php
+	$area_info = array(
+		'Versions' => array('fa-code-branch', gettext('Which FreeSense versions the firewalls run. Pinned and allowed versions also stop updates and rollouts that would break them.')),
+		'Operations' => array('fa-gears', gettext('What keeps a firewall easy to run and recover: backups, rollback protection, time and logging.')),
+		'Security' => array('fa-shield-halved', gettext('How the firewall itself can be reached and logged in to.')),
+		'Naming' => array('fa-tag', gettext('Names and domains that follow your conventions, so a firewall is easy to find.')),
+		'Custom' => array('fa-sliders', gettext('Any configuration setting, by its path. A custom rule tests a value; it never runs code.')),
+	);
+	$rule_icons = array('VER-001' => 'fa-arrow-up-wide-short', 'VER-002' => 'fa-thumbtack', 'VER-003' => 'fa-list-check', 'VER-004' => 'fa-satellite-dish',
+	    'OPS-010' => 'fa-box-archive', 'OPS-020' => 'fa-clock-rotate-left', 'OPS-001' => 'fa-clock', 'OPS-002' => 'fa-scroll', 'OPS-003' => 'fa-earth-europe',
+	    'SEC-001' => 'fa-key', 'SEC-002' => 'fa-lock', 'SEC-003' => 'fa-user-shield', 'NAME-001' => 'fa-font', 'NAME-002' => 'fa-globe', 'CUSTOM' => 'fa-sliders');
+	$n_on = count($pol['rules']);
+	$n_lock = count(array_filter($pol['rules'], function ($r) { return ($r[1] ?? '') === 'lock'; }));
+?>
+	<div class="fs-fleet-picker" data-fleet-picker>
+		<div class="fs-fleet-picker-bar">
+			<div class="fs-fleet-picker-sum" aria-live="polite">
+				<span><strong data-picker="on"><?=$n_on?></strong> <?=gettext('rules on')?></span>
+				<span><i class="fa-solid fa-lock" aria-hidden="true"></i> <strong data-picker="lock"><?=$n_lock?></strong> <?=gettext('locked')?></span>
+			</div>
+			<input class="form-control form-control-sm fs-fleet-picker-search" type="search" data-picker="search" placeholder="<?=gettext('Search rules: ssh, backup, version...')?>" aria-label="<?=gettext('Search rules')?>"/>
+			<div class="fs-fleet-seg" role="group" aria-label="<?=gettext('Show')?>">
+				<button type="button" class="is-active" data-show="all" aria-pressed="true"><?=gettext('All')?></button>
+				<button type="button" data-show="on" aria-pressed="false"><?=gettext('On')?></button>
+				<button type="button" data-show="off" aria-pressed="false"><?=gettext('Off')?></button>
+				<button type="button" data-show="lockable" aria-pressed="false"><?=gettext('Can lock')?></button>
+			</div>
+		</div>
+		<div class="fs-fleet-picker-body">
+			<nav class="fs-fleet-picker-nav" aria-label="<?=gettext('Rule areas')?>">
+<?php foreach ($areas as $area => $rids): $on_here = count(array_intersect($rids, array_keys($pol['rules']))); ?>
+				<a href="#area-<?=strtolower($area)?>" data-area-link="<?=strtolower($area)?>"><i class="fa-solid <?=$area_info[$area][0]?>" aria-hidden="true"></i>
+					<span><?=htmlspecialchars(gettext($area))?></span><span class="fs-count" data-area-count><?=$on_here?>/<?=count($rids)?></span></a>
+<?php endforeach; ?>
+			</nav>
+			<div class="fs-fleet-picker-areas">
 <?php foreach ($areas as $area => $rids): ?>
-	<div class="panel panel-default">
-		<div class="panel-heading"><h2 class="panel-title"><?=htmlspecialchars(gettext($area))?></h2></div>
-		<div class="panel-body fs-fleet-pad">
-			<ul class="fs-fleet-rules">
-<?php foreach ($rids as $rid): $base = preg_replace('/:\d+$/', '', $rid); $r = $cat[$base]; $used = isset($pol['rules'][$rid]); $vals = $used ? $pol['rules'][$rid][0] : array(); ?>
-				<li class="fs-fleet-rule<?=$used ? ' is-used' : ''?>">
-					<label class="form-check fs-fleet-rule-head"><input class="form-check-input" type="checkbox" name="use[<?=htmlspecialchars($rid)?>]" value="1"<?=$used ? ' checked' : ''?>/>
-						<span class="form-check-label"><strong><?=($base === 'CUSTOM') ? ($used ? htmlspecialchars(fleet_policy_rule_title($rid, $vals)) : gettext('Add a custom rule')) : htmlspecialchars(gettext($r['title']))?></strong>
-						<span class="fs-muted small"><?=htmlspecialchars($base)?> &middot; <?=htmlspecialchars(gettext($r['help']))?></span></span></label>
-<?php $lockable = fleet_policy_lockable($base); $mode_now = $used ? (string)($pol['rules'][$rid][1] ?? 'audit') : 'audit'; ?>
+			<section class="fs-fleet-area" id="area-<?=strtolower($area)?>" data-area="<?=strtolower($area)?>">
+				<header class="fs-fleet-area-head"><span class="fs-fleet-area-icon"><i class="fa-solid <?=$area_info[$area][0]?>" aria-hidden="true"></i></span>
+					<div><h2><?=htmlspecialchars(gettext($area))?></h2><p><?=htmlspecialchars($area_info[$area][1])?></p></div></header>
+				<div class="fs-fleet-rule-grid">
+<?php foreach ($rids as $rid): $base = preg_replace('/:\d+$/', '', $rid); $r = $cat[$base]; $used = isset($pol['rules'][$rid]); $vals = $used ? $pol['rules'][$rid][0] : array();
+	$lockable = fleet_policy_lockable($base); $mode_now = $used ? (string)($pol['rules'][$rid][1] ?? 'audit') : 'audit';
+	$title = ($base === 'CUSTOM') ? ($used ? fleet_policy_rule_title($rid, $vals) : gettext('New custom rule')) : gettext($r['title']);
+	$cid = 'use-' . preg_replace('/[^A-Za-z0-9-]/', '-', $rid); ?>
+					<article class="fs-fleet-rcard<?=$used ? ' is-on' : ''?>" data-rule data-lockable="<?=$lockable ? '1' : '0'?>"
+					    data-text="<?=htmlspecialchars(strtolower($title . ' ' . $base . ' ' . $r['help'] . ' ' . $area))?>">
+						<div class="fs-fleet-rcard-head">
+							<span class="fs-fleet-rcard-icon fs-fleet-sev-<?=htmlspecialchars($r['severity'])?>"><i class="fa-solid <?=$rule_icons[$base] ?? 'fa-circle-check'?>" aria-hidden="true"></i></span>
+							<div class="fs-fleet-rcard-title"><label for="<?=$cid?>"><?=htmlspecialchars($title)?></label>
+								<span class="fs-muted small"><?=htmlspecialchars($base)?> &middot; <?=htmlspecialchars(gettext(ucfirst($r['severity'])))?></span></div>
+							<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" role="switch" id="<?=$cid?>" name="use[<?=htmlspecialchars($rid)?>]" value="1"<?=$used ? ' checked' : ''?> data-rule-toggle/></div>
+						</div>
+						<p class="fs-fleet-rcard-help"><?=htmlspecialchars(gettext($r['help']))?></p>
 <?php if (!empty($r['params']) || $lockable): ?>
-					<div class="fs-fleet-rule-params">
+						<div class="fs-fleet-rcard-settings" data-rule-settings<?=$used ? '' : ' hidden'?>>
 <?php foreach ($r['params'] as $pname => $def): ?>
-						<div><?=$field($rid, $pname, $def, $vals[$pname] ?? $def[2])?></div>
+							<div><?=$field($rid, $pname, $def, $vals[$pname] ?? $def[2])?></div>
 <?php endforeach; ?>
-<?php if ($lockable): $mid = 'm-' . preg_replace('/[^A-Za-z0-9-]/', '-', $rid); ?>
-						<div><label class="form-label small" for="<?=$mid?>"><?=gettext('Mode')?></label>
-							<select class="form-select form-select-sm" id="<?=$mid?>" name="rule[<?=htmlspecialchars($rid)?>][mode]">
-								<option value="audit"<?=($mode_now === 'audit') ? ' selected' : ''?>><?=gettext('Audit: report only')?></option>
-								<option value="lock"<?=($mode_now === 'lock') ? ' selected' : ''?>><?=gettext('Lock: the firewall refuses saves that break it')?></option>
-							</select></div>
+<?php if ($lockable): $mname = 'rule[' . htmlspecialchars($rid) . '][mode]'; $mid = 'm-' . preg_replace('/[^A-Za-z0-9-]/', '-', $rid); ?>
+							<fieldset class="fs-fleet-mode"><legend class="form-label small"><?=gettext('When it is broken')?></legend>
+								<label><input type="radio" name="<?=$mname?>" value="audit"<?=($mode_now !== 'lock') ? ' checked' : ''?> data-rule-mode/>
+									<span><i class="fa-solid fa-eye" aria-hidden="true"></i> <?=gettext('Report it')?></span></label>
+								<label><input type="radio" name="<?=$mname?>" value="lock"<?=($mode_now === 'lock') ? ' checked' : ''?> data-rule-mode/>
+									<span><i class="fa-solid fa-lock" aria-hidden="true"></i> <?=gettext('Lock: refuse the save')?></span></label>
+							</fieldset>
 <?php endif; ?>
-					</div>
+						</div>
 <?php endif; ?>
-				</li>
+					</article>
 <?php endforeach; ?>
-			</ul>
+				</div>
+			</section>
+<?php endforeach; ?>
+				<p class="fs-fleet-hint" data-picker="empty" hidden><?=gettext('No rule matches.')?> <button type="button" class="btn btn-link btn-sm p-0" data-picker="clear"><?=gettext('Show all rules')?></button></p>
+			</div>
 		</div>
 	</div>
-<?php endforeach; ?>
 	<div class="fs-fleet-review-actions">
 		<button class="btn btn-primary" type="submit" name="policy_save" value="1"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save policy')?></button>
 		<a class="btn btn-outline-secondary" href="?view=policies"><?=gettext('Cancel')?></a>
@@ -500,4 +547,7 @@ $state_badge = function (string $state) {
 <?php
 	fs_modal_form_end(gettext('Add exception'), 'exception_save', '1', 'fa-floppy-disk');
 endif; ?>
+<?php if ($view === 'edit'): ?>
+<script src="/fleet/assets/fleet-policy.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-policy.js')?>"></script>
+<?php endif; ?>
 <?php include('foot.inc');
