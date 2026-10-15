@@ -19,12 +19,17 @@
  */
 
 /*
- * freesense-fleet-run: runs a group operation in the background.
+ * freesense-fleet-run: runs an operation in the background, reporting
+ * each step to it (Activity and the tiles show the progress).
  *   freesense-fleet-run reboot-group <op id>
- * Reboots the operation's firewalls one at a time: the next starts only
- * when the one before is back online (the status poll decides that from
- * its boot time). The first failure stops it; the rest are skipped and
- * say why. Started by the WebUI; one runner per operation.
+ *     Reboots the operation's firewalls one at a time: the next starts
+ *     only when the one before is back online (the status poll decides
+ *     that from its boot time). The first failure stops it; the rest are
+ *     skipped and say why.
+ *   freesense-fleet-run restore <op id> <backup id>
+ *     Restores a backup onto its firewall (safety backup, snapshot,
+ *     restore, keep it only when the firewall still answers).
+ * Started by the WebUI; one runner per operation.
  */
 
 require_once('config.inc');
@@ -33,12 +38,33 @@ require_once('fleet.inc');
 
 $cmd = $argv[1] ?? '';
 $op_id = (int)($argv[2] ?? 0);
-if (($cmd !== 'reboot-group') || ($op_id <= 0)) {
-	echo "usage: freesense-fleet-run reboot-group <op id>\n";
+if (!in_array($cmd, array('reboot-group', 'restore'), true) || ($op_id <= 0)) {
+	echo "usage: freesense-fleet-run reboot-group <op id> | restore <op id> <backup id>\n";
 	exit(64);
 }
 $lock = fopen("/var/run/fleet-op-{$op_id}.lock", 'c');
 if (!flock($lock, LOCK_EX | LOCK_NB)) {
+	exit(0);
+}
+
+if ($cmd === 'restore') {
+	$op = fleet_db()->query('SELECT * FROM ops WHERE id = ' . $op_id)->fetch();
+	$box = $op ? fleet_box_get((string)$op['node_id']) : null;
+	$row = fleet_backup_get((int)($argv[3] ?? 0));
+	if (($box === null) || ($row === null) || ($row['node_id'] !== $box['node_id'])) {
+		fleet_op_set($op_id, 'failed', 'That backup does not belong to this firewall.');
+		exit(1);
+	}
+	try {
+		$text = fleet_backup_restore($box, $row, (string)$op['who'], null, function (string $text, int $percent) use ($op_id): void {
+			fleet_op_set($op_id, 'running', $text, $percent);
+		});
+		fleet_op_set($op_id, 'done', $text);
+		/* The dashboard shows the restored configuration at once, not after the next check. */
+		fleet_poll_box(fleet_box_get($box['node_id']), time());
+	} catch (RuntimeException $e) {
+		fleet_op_set($op_id, 'failed', $e->getMessage());
+	}
 	exit(0);
 }
 
