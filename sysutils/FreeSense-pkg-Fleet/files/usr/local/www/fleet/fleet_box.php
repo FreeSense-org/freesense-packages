@@ -56,6 +56,24 @@ if ($manage && isset($_GET['download'])) {
 	}
 	$input_errors[] = gettext('FLEET-E802: That backup could not be read. Its file is missing or damaged.');
 }
+if ($manage && isset($_POST['restore_id'])) {
+	$row = fleet_backup_get((int)$_POST['restore_id']);
+	if (($row === null) || ($row['node_id'] !== $box['node_id'])) {
+		$input_errors[] = gettext('That backup does not belong to this firewall.');
+	} else {
+		/* A restore waits for the firewall to answer afterwards (up to a minute). */
+		set_time_limit(180);
+		try {
+			$savemsg = fleet_backup_restore($box, $row, $who);
+			/* Read the new state now, so the page shows the restored configuration as current. */
+			fleet_poll_box($box, time());
+			$box = fleet_box_get($box['node_id']);
+			$st = json_decode((string)$box['status'], true) ?: array();
+		} catch (RuntimeException $e) {
+			$input_errors[] = $e->getMessage();
+		}
+	}
+}
 if ($manage && ($_POST['backup_now'] ?? false)) {
 	try {
 		list($result) = fleet_backup_box($box, 'manual', $who);
@@ -100,6 +118,15 @@ usort($webgui, function ($x, $y) {
 });
 $users = (array)($st['handoff_users'] ?? array());
 $rev = (array)($st['config_revision'] ?? array());
+/* A unified diff as lines colored by kind. Each line is a block, so no newline between them. */
+$render_diff = function (string $diff, string $label) {
+	echo '<pre class="fs-mono" aria-label="' . htmlspecialchars($label) . '">';
+	foreach (explode("\n", $diff) as $line) {
+		$c = ($line === '') ? '' : (($line[0] === '+') ? 'add' : (($line[0] === '-') ? 'del' : (($line[0] === '@') ? 'hunk' : '')));
+		echo '<span' . (($c !== '') ? ' class="' . $c . '"' : '') . '>' . htmlspecialchars($line) . '</span>';
+	}
+	echo '</pre>';
+};
 $asset = function ($f) {
 	return '/fleet/assets/' . $f . '?v=' . (int)@filemtime('/usr/local/www/fleet/assets/' . $f);
 };
@@ -197,10 +224,44 @@ if ($savemsg) {
 		<form method="post" action="?id=<?=urlencode($box['node_id'])?>#backups"><button class="btn btn-sm btn-outline-secondary" name="backup_now" value="1" <?=($state === 'offline') ? 'disabled' : ''?>><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Back up now')?></button></form>
 	</div>
 	<p class="fs-fleet-lead"><?=gettext("A copy of this firewall's configuration is kept here, encrypted, when it changes and every night. Downloads contain secrets such as password hashes and keys.")?></p>
+<?php
+	$review = isset($_GET['restore']) ? fleet_backup_get((int)$_GET['restore']) : null;
+	if (($review !== null) && ($review['node_id'] === $box['node_id'])):
+		try {
+			$live = fleet_backup_fetch($box);
+			$wanted = fleet_backup_read($review);
+			$change = ($wanted === null) ? null : fleet_backup_diff($live, $wanted);
+			$fetch_error = ($wanted === null) ? gettext('FLEET-E802: That backup could not be read.') : null;
+		} catch (RuntimeException $e) {
+			$change = null;
+			$fetch_error = $e->getMessage();
+		}
+?>
+	<div class="fs-fleet-block fs-fleet-invite fs-fleet-review" role="region" aria-labelledby="review-title">
+		<h3 id="review-title" class="fs-fleet-section-title"><?=sprintf(gettext('Restore the backup from %s?'), htmlspecialchars(date('Y-m-d H:i', (int)$review['time'])))?></h3>
+		<p class="fs-fleet-lead"><?=sprintf(gettext('The firewall gets this configuration back. Its current configuration is backed up first, and it keeps its place in the fleet. If it does not answer within %d minutes afterwards, it goes back by itself. Rules and aliases apply at once; some interface and service settings need a reboot.'), FLEET_RESTORE_CONFIRM / 60)?></p>
+<?php if ($fetch_error !== null): ?>
+		<p class="fs-fleet-problem"><?=htmlspecialchars($fetch_error)?></p>
+<?php elseif (trim((string)$change) === ''): ?>
+		<p class="fs-fleet-hint"><?=gettext('The firewall already runs exactly this configuration. There is nothing to restore.')?></p>
+<?php else: ?>
+		<div class="fs-fleet-diff">
+			<div class="fs-fleet-hint"><?=gettext('What changes on the firewall (- now, + after the restore)')?></div>
+			<?php $render_diff($change, gettext('What changes on the firewall')); ?>
+		</div>
+<?php endif; ?>
+		<form method="post" action="?id=<?=urlencode($box['node_id'])?>#backups" class="fs-fleet-review-actions">
+			<input type="hidden" name="restore_id" value="<?=(int)$review['id']?>"/>
+			<button class="btn btn-primary" type="submit"<?=(($fetch_error !== null) || (trim((string)$change) === '') || ($state === 'offline')) ? ' disabled' : ''?>><i class="fa-solid fa-upload icon-embed-btn" aria-hidden="true"></i><?=gettext('Restore this backup')?></button>
+			<a class="btn btn-outline-secondary" href="?id=<?=urlencode($box['node_id'])?>#backups"><?=gettext('Cancel')?></a>
+		</form>
+	</div>
+<?php endif; ?>
 <?php if (empty($backups)): ?>
 	<p class="fs-fleet-hint"><?=gettext('No backups yet. The first one is taken tonight, after the next configuration change, or now with Back up now.')?></p>
 <?php else: ?>
 	<ol class="fs-fleet-backups">
+<?php $running_sha = (string)($st['config_revision']['sha256'] ?? ''); ?>
 <?php foreach ($backups as $i => $b): $prev = $backups[$i + 1] ?? null; ?>
 		<li<?=($diff_id === (int)$b['id']) ? ' class="is-open"' : ''?>>
 			<time datetime="<?=date('c', (int)$b['time'])?>"><?=htmlspecialchars(date('Y-m-d H:i', (int)$b['time']))?></time>
@@ -211,6 +272,11 @@ if ($savemsg) {
 				<a class="btn btn-sm btn-link" href="?id=<?=urlencode($box['node_id'])?>&amp;diff=<?=(int)$b['id']?>#backups"><?=gettext('Changes')?></a>
 <?php endif; ?>
 				<a class="btn btn-sm btn-link" href="?id=<?=urlencode($box['node_id'])?>&amp;download=<?=(int)$b['id']?>"><i class="fa-solid fa-download icon-embed-btn" aria-hidden="true"></i><?=gettext('Download')?></a>
+<?php if (($running_sha !== '') && hash_equals($running_sha, (string)$b['sha256'])): ?>
+				<span class="fs-fleet-current"><?=gettext('Current')?></span>
+<?php else: ?>
+				<a class="btn btn-sm btn-link" href="?id=<?=urlencode($box['node_id'])?>&amp;restore=<?=(int)$b['id']?>#backups"><?=gettext('Restore')?>&hellip;</a>
+<?php endif; ?>
 			</span>
 <?php if (($diff_id === (int)$b['id']) && ($prev !== null)):
 	$new = fleet_backup_read($b);
@@ -222,10 +288,7 @@ if ($savemsg) {
 				<p class="fs-fleet-hint"><?=gettext('FLEET-E802: One of the two backups could not be read.')?></p>
 <?php else: ?>
 				<div class="fs-fleet-hint"><?=sprintf(gettext('Changes since %s'), htmlspecialchars(date('Y-m-d H:i', (int)$prev['time'])))?></div>
-				<pre class="fs-mono" aria-label="<?=gettext('Changes since the backup before')?>"><?php foreach (explode("\n", $diff) as $line):
-	$c = ($line === '') ? '' : (($line[0] === '+') ? 'add' : (($line[0] === '-') ? 'del' : (($line[0] === '@') ? 'hunk' : '')));
-/* Each line is a block, so no newline between them (it would show as an empty line). */
-?><span<?=($c !== '') ? ' class="' . $c . '"' : ''?>><?=htmlspecialchars($line)?></span><?php endforeach; ?></pre>
+				<?php $render_diff($diff, gettext('Changes since the backup before')); ?>
 <?php endif; ?>
 			</div>
 <?php endif; ?>
