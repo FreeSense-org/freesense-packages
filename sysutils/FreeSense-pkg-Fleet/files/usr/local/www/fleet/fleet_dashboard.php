@@ -54,7 +54,9 @@ $strings = array(
 	'reboot_q' => gettext('Reboot %s?'), 'reboot_hint' => gettext('It stops forwarding for a minute or two and comes back by itself.'),
 	'reboot_now' => gettext('Reboot now'), 'cancel' => gettext('Cancel'), 'rebooting' => gettext('Rebooting'), 'backing_up' => gettext('Backing up'),
 	'action_failed' => gettext('The controller did not answer. Try again.'), 'secs' => gettext('%d s'), 'mins' => gettext('%d min %s s'),
-	'details' => gettext('Details'), 'backup_all' => gettext('Back up all now'), 'backup_group' => gettext('Back up %s now'), 'reboot_group' => gettext('Reboot %s...'),
+	'details' => gettext('Details'), 'ungrouped' => gettext('Ungrouped'), 'n_fw' => gettext('%d firewalls'), 'one_fw' => gettext('1 firewall'),
+	'n_attention' => gettext('%d need attention'), 'one_attention' => gettext('1 needs attention'), 'all_ok' => gettext('All online'),
+	'version_unknown' => gettext('Version unknown'), 'firewalls' => gettext('Firewalls'), 'collapse' => gettext('Show or hide %s'), 'backup_all' => gettext('Back up all now'), 'backup_group' => gettext('Back up %s now'), 'reboot_group' => gettext('Reboot %s...'),
 	'none_match' => gettext('No firewall is %s.'), 'none_in_group' => gettext('No firewall in this group matches.'), 'show_all' => gettext('Show all'),
 );
 
@@ -119,8 +121,8 @@ if ($manage) {
 	</div>
 
 <?php $all_groups = $ready ? fleet_groups_all() : array(); ?>
-<?php if (!empty($all_groups)): ?>
 	<div class="fs-fleet-groupbar">
+<?php if (!empty($all_groups)): ?>
 		<label for="fleet-group" class="fs-muted"><?=gettext('Group')?></label>
 		<select id="fleet-group" class="form-select form-select-sm" data-fleet="group">
 			<option value=""><?=gettext('All firewalls')?></option>
@@ -128,8 +130,21 @@ if ($manage) {
 			<option value="<?=(int)$grp['id']?>"><?=htmlspecialchars($grp['name'])?> (<?=(int)$grp['members']?>)</option>
 <?php endforeach; ?>
 		</select>
-	</div>
 <?php endif; ?>
+		<label for="fleet-by" class="fs-muted"><?=gettext('Group by')?></label>
+		<select id="fleet-by" class="form-select form-select-sm fs-fleet-small" data-fleet="by">
+			<option value="group"><?=gettext('Group')?></option>
+			<option value="state"><?=gettext('State')?></option>
+			<option value="version"><?=gettext('Version')?></option>
+			<option value="none"><?=gettext('Nothing')?></option>
+		</select>
+		<label for="fleet-sort" class="fs-muted"><?=gettext('Sort')?></label>
+		<select id="fleet-sort" class="form-select form-select-sm fs-fleet-small" data-fleet="sort">
+			<option value="attention"><?=gettext('Needs attention first')?></option>
+			<option value="name"><?=gettext('Name')?></option>
+			<option value="seen"><?=gettext('Last seen')?></option>
+		</select>
+	</div>
 	<div class="fs-tiles" role="group" aria-label="<?=gettext('Filter firewalls')?>">
 <?php foreach ($filters as list($key, $label, $count, $state)): ?>
 		<button type="button" class="fs-tile fs-fleet-filter" data-filter="<?=$key?>" aria-pressed="<?=($key === 'all') ? 'true' : 'false'?>">
@@ -149,7 +164,7 @@ if ($manage) {
 	</div>
 <?php endif; ?>
 	<div class="fs-fleet-activities" data-fleet="activity" aria-live="polite" hidden></div>
-	<ul class="fs-fleet-wall" data-fleet="wall" aria-label="<?=gettext('Firewalls')?>"></ul>
+	<div class="fs-fleet-sections" data-fleet="wall"></div>
 	<p class="fs-fleet-problem" data-fleet="filter-empty" hidden></p>
 	<script type="application/json" id="fs-fleet-initial"><?=json_encode($data, JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_SLASHES)?></script>
 </div>
