@@ -53,7 +53,13 @@ if ($manage && ($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['recover
 		if (($err = fleet_data_prepare()) !== null) {
 			throw new RuntimeException($err);
 		}
-		if (isset($_POST['recover_open'])) {
+		if (isset($_POST['recover_open']) && (($_POST['source'] ?? 'file') === 'offsite')) {
+			exec('rm -rf ' . escapeshellarg($recover_dir));
+			@mkdir($recover_dir, 0700, true);
+			if (fleet_offsite_fetch((string)($_POST['offsite_target'] ?? ''), $recover_dir) === 0) {
+				throw new RuntimeException(gettext('FLEET-E805: That storage holds no Fleet copies.'));
+			}
+		} elseif (isset($_POST['recover_open'])) {
 			$up = $_FILES['archive'] ?? null;
 			if (!is_array($up) || ($up['error'] !== UPLOAD_ERR_OK) || !is_uploaded_file($up['tmp_name'])) {
 				throw new RuntimeException(gettext('Choose the .fsfa file: downloaded from a firewall (System > Central Management) or exported by a controller.'));
@@ -100,6 +106,10 @@ if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 			$view = 'copies';
 			fleet_replica_targets_set(array_values((array)($_POST['targets'] ?? array())), $who);
 			$savemsg = empty(fleet_replica_targets()) ? gettext('Copies on other firewalls are off.') : gettext('Saved. The copies are made with the next sync (after the nightly backup, or Sync now).');
+		} elseif (isset($_POST['offsite_save'])) {
+			$view = 'copies';
+			fleet_offsite_ids_set(array_values((array)($_POST['offsite'] ?? array())), $who);
+			$savemsg = empty(fleet_offsite_ids()) ? gettext('Off-site copies are off.') : gettext('Saved. The off-site copies are made with the next sync.');
 		} elseif (isset($_POST['sync'])) {
 			$view = 'copies';
 			mwexec_bg('/usr/local/bin/php /usr/local/sbin/freesense-fleet-backup replicate ' . escapeshellarg($who));
@@ -168,8 +178,20 @@ if ($view === 'recover'):
 		<p class="fs-fleet-lead"><?=gettext('Bring a lost controller back on this firewall: its firewalls, groups, settings, keys and every backup. You need the fleet\'s recovery key and a copy of the backups: download it from any firewall that keeps copies (System > Central Management on that firewall) or use an archive exported by the controller.')?></p>
 <?php if ($recover_preview === null): ?>
 		<form method="post" enctype="multipart/form-data" class="fs-fleet-form">
-			<div class="fs-fleet-field fs-fleet-field--wide"><label class="form-label" for="archive"><?=gettext('Copy of the backups (.fsfa)')?></label>
-				<input class="form-control" type="file" id="archive" name="archive" accept=".fsfa,application/gzip" required/></div>
+<?php $remote = fleet_offsite_available() ? remote_backup_targets() : array(); ?>
+			<fieldset class="fs-fleet-field fs-fleet-field--wide"><legend class="form-label"><?=gettext('Where the copy is')?></legend>
+				<label class="form-check"><input class="form-check-input" type="radio" name="source" value="file" checked/> <span class="form-check-label"><?=gettext('A file (.fsfa)')?></span></label>
+				<input class="form-control mt-1" type="file" id="archive" name="archive" accept=".fsfa,application/gzip" aria-label="<?=gettext('Copy of the backups (.fsfa)')?>"/>
+<?php if (!empty($remote)): ?>
+				<label class="form-check mt-2"><input class="form-check-input" type="radio" name="source" value="offsite"/> <span class="form-check-label"><?=gettext('Off-site storage')?></span></label>
+				<select class="form-select mt-1" name="offsite_target" aria-label="<?=gettext('Storage')?>">
+<?php foreach ($remote as $t): ?>
+					<option value="<?=htmlspecialchars($t['id'])?>"><?=htmlspecialchars(($t['descr'] ?: $t['id']) . ' (' . strtoupper($t['type']) . ')')?></option>
+<?php endforeach; ?>
+				</select>
+<?php endif; ?>
+				<div class="form-text"><?=gettext('Off-site storage: set it up again in System > Backup > Remote on this firewall first (the same bucket or server).')?></div>
+			</fieldset>
 			<div class="fs-fleet-field fs-fleet-field--wide"><label class="form-label" for="recovery_key"><?=gettext('Recovery key')?></label>
 				<input class="form-control fs-mono" id="recovery_key" name="recovery_key" autocomplete="off" spellcheck="false" required placeholder="FRK-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"/></div>
 			<div class="fs-fleet-field fs-fleet-field--button"><button class="btn btn-primary" type="submit" name="recover_open" value="1"><i class="fa-solid fa-unlock icon-embed-btn" aria-hidden="true"></i><?=gettext('Open and check')?></button></div>
@@ -338,7 +360,7 @@ $now = time();
 
 <div class="panel panel-default">
 	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Copies on other firewalls')?></h2>
-<?php if ($manage && !empty($peers)): ?>
+<?php if ($manage && (!empty($peers) || !empty(fleet_offsite_ids()))): ?>
 		<form method="post" action="?view=copies"><button class="btn btn-sm btn-outline-secondary" name="sync" value="1"><i class="fa-solid fa-rotate icon-embed-btn" aria-hidden="true"></i><?=gettext('Sync now')?></button></form>
 <?php endif; ?>
 	</div>
@@ -385,6 +407,35 @@ $now = time();
 <?php elseif (!empty($targets)): ?>
 	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint"><?=gettext('None of the chosen firewalls is managed, so none can keep copies.')?></p></div>
 <?php endif; ?>
+</div>
+
+<div class="panel panel-default">
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Off-site copies')?></h2>
+		<a class="btn btn-sm btn-link" href="/diag_backup_remote.php"><?=gettext('Storage targets...')?></a></div>
+	<div class="panel-body fs-fleet-pad">
+<?php $remote = fleet_offsite_available() ? remote_backup_targets() : array(); $off_ids = fleet_offsite_ids(); $off_status = fleet_offsite_status(); ?>
+<?php if (empty($remote)): ?>
+		<p class="fs-fleet-hint mb-0"><?=gettext('No storage targets yet. Add an S3, WebDAV or SFTP target in System > Backup > Remote on this firewall; then choose it here. Fleet stores its copies there encrypted, next to (never mixed with) the firewall\'s own remote backups.')?></p>
+<?php else: ?>
+		<form method="post" action="?view=copies">
+			<p class="fs-fleet-lead"><?=gettext('The same encrypted copies also go to these storage targets with every sync. With the recovery key they bring the fleet back even when every firewall is gone.')?></p>
+			<div class="table-responsive"><table class="table fs-table">
+				<thead><tr><th><?=gettext('Use')?></th><th><?=gettext('Storage')?></th><th><?=gettext('Copies')?></th><th><?=gettext('Last sync')?></th></tr></thead>
+				<tbody>
+<?php foreach ($remote as $t): $os = $off_status[$t['id']] ?? array(); ?>
+				<tr><td><input class="form-check-input" type="checkbox" name="offsite[]" value="<?=htmlspecialchars($t['id'])?>"<?=in_array($t['id'], $off_ids, true) ? ' checked' : ''?> aria-label="<?=htmlspecialchars(sprintf(gettext('Use %s'), $t['descr'] ?: $t['id']))?>"<?=$manage ? '' : ' disabled'?>/></td>
+					<td><?=htmlspecialchars(($t['descr'] ?: $t['id']))?> <span class="fs-muted small"><?=htmlspecialchars(strtoupper($t['type']))?></span></td>
+					<td><?=isset($os['held']) ? sprintf(gettext('%1$d of %2$d'), (int)$os['held'], $wanted_n) : '<span class="fs-muted">-</span>'?></td>
+					<td><?=!empty($os['synced']) ? htmlspecialchars(date('Y-m-d H:i', (int)$os['synced'])) : '<span class="fs-muted">-</span>'?>
+						<?=!empty($os['error']) ? '<div class="fs-fleet-problem small">' . htmlspecialchars((string)$os['error']) . '</div>' : ''?></td></tr>
+<?php endforeach; ?>
+				</tbody></table></div>
+<?php if ($manage): ?>
+			<button class="btn btn-sm btn-primary" type="submit" name="offsite_save" value="1"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save')?></button>
+<?php endif; ?>
+		</form>
+<?php endif; ?>
+	</div>
 </div>
 
 <div class="panel panel-default">
