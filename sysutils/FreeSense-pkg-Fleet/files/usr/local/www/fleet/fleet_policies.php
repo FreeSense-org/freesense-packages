@@ -315,7 +315,7 @@ $state_badge = function (string $state) {
 		<tr><td><a href="?view=edit&amp;id=<?=(int)$p['id']?>"><?=htmlspecialchars($p['name'])?></a> <?=$p['enabled'] ? '' : fs_badge('neutral', gettext('Off'))?>
 				<?=($p['description'] !== '') ? '<div class="fs-muted small">' . htmlspecialchars($p['description']) . '</div>' : ''?></td>
 			<td><?=htmlspecialchars(fleet_targets_text($p['targets'], $names))?></td>
-			<td class="small"><?=htmlspecialchars(implode(', ', array_map(function ($rid) use ($p) { return fleet_policy_rule_title($rid, $p['rules'][$rid][0]) . (($p['rules'][$rid][1] === 'lock') ? ' (' . gettext('locked') . ')' : ''); }, array_keys($p['rules']))))?></td>
+			<td class="small"><?=htmlspecialchars(implode(', ', array_map(function ($rid) use ($p) { return fleet_policy_rule_title($rid, $p['rules'][$rid][0]) . (($p['rules'][$rid][1] === 'lock') ? ' (' . gettext('locked') . ')' : (($p['rules'][$rid][1] === 'remediate') ? ' (' . gettext('fixed') . ')' : '')); }, array_keys($p['rules']))))?></td>
 			<td><?=!empty($fail_by_policy[(int)$p['id']]) ? '<a href="?view=compliance&amp;state=fail">' . fs_badge('block', (string)$fail_by_policy[(int)$p['id']]) . '</a>' : '<span class="fs-muted">0</span>'?></td>
 			<td class="text-end text-nowrap">
 <?php if ($manage): ?>
@@ -458,6 +458,7 @@ $state_badge = function (string $state) {
 			<div class="fs-fleet-picker-sum" aria-live="polite">
 				<span><strong data-picker="on"><?=$n_on?></strong> <?=gettext('rules on')?></span>
 				<span><i class="fa-solid fa-lock" aria-hidden="true"></i> <strong data-picker="lock"><?=$n_lock?></strong> <?=gettext('locked')?></span>
+				<span><i class="fa-solid fa-wrench" aria-hidden="true"></i> <strong data-picker="fix"><?=count(array_filter($pol['rules'], function ($r) { return ($r[1] ?? '') === 'remediate'; }))?></strong> <?=gettext('fixed by Fleet')?></span>
 			</div>
 			<input class="form-control form-control-sm fs-fleet-picker-search" type="search" data-picker="search" placeholder="<?=gettext('Search rules: ssh, backup, version...')?>" aria-label="<?=gettext('Search rules')?>"/>
 			<div class="fs-fleet-seg" role="group" aria-label="<?=gettext('Show')?>">
@@ -465,6 +466,7 @@ $state_badge = function (string $state) {
 				<button type="button" data-show="on" aria-pressed="false"><?=gettext('On')?></button>
 				<button type="button" data-show="off" aria-pressed="false"><?=gettext('Off')?></button>
 				<button type="button" data-show="lockable" aria-pressed="false"><?=gettext('Can lock')?></button>
+				<button type="button" data-show="fixable" aria-pressed="false"><?=gettext('Can fix')?></button>
 			</div>
 		</div>
 		<div class="fs-fleet-picker-body">
@@ -484,7 +486,7 @@ $state_badge = function (string $state) {
 	$lockable = fleet_policy_lockable($base); $mode_now = $used ? (string)($pol['rules'][$rid][1] ?? 'audit') : 'audit';
 	$title = ($base === 'CUSTOM') ? ($used ? fleet_policy_rule_title($rid, $vals) : gettext('New custom rule')) : gettext($r['title']);
 	$cid = 'use-' . preg_replace('/[^A-Za-z0-9-]/', '-', $rid); ?>
-					<article class="fs-fleet-rcard<?=$used ? ' is-on' : ''?>" data-rule data-lockable="<?=$lockable ? '1' : '0'?>"
+					<article class="fs-fleet-rcard<?=$used ? ' is-on' : ''?>" data-rule data-lockable="<?=$lockable ? '1' : '0'?>" data-fixable="<?=in_array($base, FLEET_POLICY_REMEDIABLE, true) ? '1' : '0'?>"
 					    data-text="<?=htmlspecialchars(strtolower($title . ' ' . $base . ' ' . $r['help'] . ' ' . $area))?>">
 						<div class="fs-fleet-rcard-head">
 							<span class="fs-fleet-rcard-icon fs-fleet-sev-<?=htmlspecialchars($r['severity'])?>"><i class="fa-solid <?=$rule_icons[$base] ?? 'fa-circle-check'?>" aria-hidden="true"></i></span>
@@ -493,6 +495,7 @@ $state_badge = function (string $state) {
 							<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" role="switch" id="<?=$cid?>" name="use[<?=htmlspecialchars($rid)?>]" value="1"<?=$used ? ' checked' : ''?> data-rule-toggle/></div>
 						</div>
 						<p class="fs-fleet-rcard-help"><?=htmlspecialchars(gettext($r['help']))?></p>
+<?php $fixable = in_array($base, FLEET_POLICY_REMEDIABLE, true); ?>
 <?php if (!empty($r['params']) || $lockable): ?>
 						<div class="fs-fleet-rcard-settings" data-rule-settings<?=$used ? '' : ' hidden'?>>
 <?php foreach ($r['params'] as $pname => $def): ?>
@@ -502,6 +505,10 @@ $state_badge = function (string $state) {
 							<fieldset class="fs-fleet-mode"><legend class="form-label small"><?=gettext('When it is broken')?></legend>
 								<label><input type="radio" name="<?=$mname?>" value="audit"<?=($mode_now !== 'lock') ? ' checked' : ''?> data-rule-mode/>
 									<span><i class="fa-solid fa-eye" aria-hidden="true"></i> <?=gettext('Report it')?></span></label>
+<?php if ($fixable): ?>
+								<label><input type="radio" name="<?=$mname?>" value="remediate"<?=($mode_now === 'remediate') ? ' checked' : ''?> data-rule-mode/>
+									<span><i class="fa-solid fa-wrench" aria-hidden="true"></i> <?=gettext('Fix it')?></span></label>
+<?php endif; ?>
 								<label><input type="radio" name="<?=$mname?>" value="lock"<?=($mode_now === 'lock') ? ' checked' : ''?> data-rule-mode/>
 									<span><i class="fa-solid fa-lock" aria-hidden="true"></i> <?=gettext('Lock: refuse the save')?></span></label>
 							</fieldset>
@@ -520,7 +527,7 @@ $state_badge = function (string $state) {
 	<div class="fs-fleet-review-actions">
 		<button class="btn btn-primary" type="submit" name="policy_save" value="1"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save policy')?></button>
 		<a class="btn btn-outline-secondary" href="?view=policies"><?=gettext('Cancel')?></a>
-		<span class="fs-muted small"><?=gettext('Lock rules are sent to the firewalls signed and held there, so they apply while the controller is offline. A console administrator can suspend Lock (break-glass); Fleet is told at once.')?></span>
+		<span class="fs-muted small"><?=gettext('Fix it: Fleet has the firewall correct the setting in its maintenance window, after a safety backup, and does not retry a failed fix by itself. Lock: the firewall refuses saves that break the rule, also while the controller is offline; a console administrator can suspend it (break-glass).')?></span>
 	</div>
 </form>
 <?php endif; ?>

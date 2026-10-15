@@ -96,7 +96,7 @@ function fleet_backup_file(string $node_id, int $time, string $sha256): string {
 /* pure: the words for why a backup was taken. */
 function fleet_backup_reason_text(string $reason): string {
 	$names = array('change' => 'Configuration changed', 'nightly' => 'Nightly', 'manual' => 'Backed up by hand', 'all' => 'Back up all',
-	    'safety' => 'Before a restore');
+	    'safety' => 'Before a restore', 'remediation' => 'Before a policy fix');
 	return $names[$reason] ?? ucfirst($reason);
 }
 

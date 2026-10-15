@@ -86,6 +86,18 @@ if ($manage && isset($_POST['update_check'])) {
 		$savemsg = $info['available'] ? sprintf(gettext('Version %s is available.'), fleet_version_number($info['latest'])) : gettext('The firewall is up to date.');
 	}
 }
+if ($manage && isset($_POST['policy_fix'])) {
+	try {
+		$fixres = fleet_remediate_box($box, $who, true);
+		if (strncmp($fixres, 'FLEET-E', 7) === 0) {
+			$input_errors[] = $fixres;
+		} else {
+			$savemsg = $fixres;
+		}
+	} catch (RuntimeException $e) {
+		$input_errors[] = $e->getMessage();
+	}
+}
 if ($manage && isset($_POST['update_start'])) {
 	try {
 		fleet_box_update($box, $who);
@@ -539,12 +551,20 @@ if ($savemsg) {
 	$pq->execute(array($box['node_id']));
 	$pres = array_column($pq->fetchAll(), null, 'rule_id');
 	$pnames = array_column(fleet_policies_all(), 'name', 'id');
+	$prem = fleet_remediations()[$box['node_id']] ?? array();
+	$pfixable = 0;
+	foreach ($peff as $prid => $pe) {
+		$pfixable += (($pe[1] === 'remediate') && (($pres[$prid]['state'] ?? '') === 'fail')) ? 1 : 0;
+	}
 	$pbadge = array('pass' => fs_badge('pass', gettext('Pass')), 'fail' => fs_badge('block', gettext('Fails')), 'unknown' => fs_badge('neutral', gettext('Unknown')),
 	    'excepted' => fs_badge('info', gettext('Exception')));
 ?>
 <div class="panel panel-default">
 	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Policy rules for this firewall')?> <span class="fs-count"><?=count($peff)?></span></h2>
-		<a class="btn btn-sm btn-link" href="/fleet/fleet_policies.php?view=policies"><?=gettext('Policies...')?></a></div>
+		<span><?php if ($manage && ($pfixable > 0) && fleet_manage_allowed($box)): ?>
+			<form method="post" action="?id=<?=urlencode($box['node_id'])?>&amp;view=policies" class="d-inline"><button class="btn btn-sm btn-primary" name="policy_fix" value="1"><i class="fa-solid fa-wrench icon-embed-btn" aria-hidden="true"></i><?=sprintf(ngettext('Fix %d rule now', 'Fix %d rules now', $pfixable), $pfixable)?></button></form>
+<?php endif; ?>
+		<a class="btn btn-sm btn-link" href="/fleet/fleet_policies.php?view=policies"><?=gettext('Policies...')?></a></span></div>
 <?php if (empty($peff)): ?>
 	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint mb-0"><?=gettext('No policy covers this firewall. Add a policy for all firewalls, one of its groups, or this firewall.')?></p></div>
 <?php else: ?>
@@ -555,7 +575,9 @@ if ($savemsg) {
 		<tr><td><?=htmlspecialchars(fleet_policy_rule_title($rid, $params))?> <span class="fs-muted small"><?=htmlspecialchars(preg_replace('/:\d+$/', '', $rid))?></span></td>
 			<td><?=($res === null) ? '<span class="fs-muted">' . gettext('Not checked yet') . '</span>' : ($pbadge[$res['state']] ?? htmlspecialchars($res['state']))?></td>
 			<td class="small"><?=htmlspecialchars((string)($res['detail'] ?? ''))?></td>
-			<td><?=($mode === 'lock') ? '<i class="fa-solid fa-lock" aria-hidden="true"></i> ' . gettext('Lock') : '<span class="fs-muted">' . gettext('Audit') . '</span>'?></td>
+			<td><?=($mode === 'lock') ? '<i class="fa-solid fa-lock" aria-hidden="true"></i> ' . gettext('Lock') : (($mode === 'remediate') ? '<i class="fa-solid fa-wrench" aria-hidden="true"></i> ' . gettext('Fix') .
+			    (isset($prem[$rid]) ? '<div class="small ' . (($prem[$rid]['result'] === 'fixed') ? 'fs-muted' : 'fs-fleet-problem') . '">' . htmlspecialchars(date('m-d H:i', (int)$prem[$rid]['time']) . ': ' . $prem[$rid]['detail']) . '</div>' : '') :
+			    '<span class="fs-muted">' . gettext('Audit') . '</span>')?></td>
 			<td><a href="/fleet/fleet_policies.php?view=edit&amp;id=<?=(int)$pid?>"><?=htmlspecialchars($pname)?></a>
 				<?=($conflict !== null) ? fs_badge('warn', sprintf(gettext('Conflicts with %s'), $conflict)) : ''?></td>
 			<td class="text-end"><?php if ($manage && (($res['state'] ?? '') === 'fail')): ?><a class="btn btn-sm btn-link" href="/fleet/fleet_policies.php?view=exceptions&amp;node=<?=urlencode($box['node_id'])?>&amp;rule=<?=urlencode($rid)?>"><?=gettext('Exception...')?></a><?php endif; ?></td></tr>
@@ -565,8 +587,8 @@ if ($savemsg) {
 	<div class="panel-footer small fs-muted"><?=gettext('Checked every 15 minutes against what the firewall reports and its newest configuration backup.')?>
 <?php $bs = fleet_bundle_state()[$box['node_id']] ?? null; $bst = json_decode((string)($box['status'] ?? ''), true) ?: array(); $bg = $bst['breakglass'] ?? null; ?>
 <?php if ($bs !== null): ?>
-		<div class="mt-1"><?=!empty($bs['error']) ? '<span class="fs-fleet-problem">' . htmlspecialchars(sprintf(gettext('Lock rules not on the firewall yet: %s'), $bs['error'])) . '</span>' :
-		    htmlspecialchars(sprintf(gettext('%1$d lock rules on the firewall since %2$s.'), (int)$bs['rules'], date('Y-m-d H:i', (int)$bs['sent'])))?></div>
+		<div class="mt-1"><?=!empty($bs['error']) ? '<span class="fs-fleet-problem">' . htmlspecialchars(sprintf(gettext('Policy rules not on the firewall yet: %s'), $bs['error'])) . '</span>' :
+		    htmlspecialchars(sprintf(gettext('%1$d lock and fix rules held on the firewall since %2$s.'), (int)$bs['rules'], date('Y-m-d H:i', (int)$bs['sent'])))?></div>
 <?php endif; ?>
 <?php if (is_array($bg) && !empty($bg['until'])): ?>
 		<div class="mt-1"><?=fs_badge('warn', gettext('Break-glass'))?> <?=htmlspecialchars(sprintf(gettext('Lock suspended on the firewall until %1$s by %2$s: %3$s'), date('Y-m-d H:i', (int)$bg['until']), (string)($bg['by'] ?? '?'), (string)($bg['reason'] ?? '')))?></div>

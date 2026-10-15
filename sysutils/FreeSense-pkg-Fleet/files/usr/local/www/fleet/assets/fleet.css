@@ -771,6 +771,7 @@ a.fs-fleet-tile-link:hover, a.fs-fleet-tile-link:focus-visible { border-color: v
 .fs-fleet-mode span { display: inline-flex; align-items: center; gap: .35rem; padding: .25rem .6rem; border: 1px solid var(--fs-border); border-radius: 999px; font-size: .8125rem; color: var(--fs-text-muted); cursor: pointer; }
 .fs-fleet-mode input:checked + span { border-color: var(--fs-info); color: var(--bs-body-color); background: var(--bs-body-bg); }
 .fs-fleet-mode input[value="lock"]:checked + span { border-color: var(--fs-coral-text); }
+.fs-fleet-mode input[value="remediate"]:checked + span { border-color: var(--fs-pass, #3fb27f); }
 .fs-fleet-mode input:focus-visible + span { outline: 2px solid var(--fs-info); outline-offset: 1px; }
 @media (max-width: 768px) {
 	.fs-fleet-picker-body { grid-template-columns: 1fr; }

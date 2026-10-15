@@ -32,7 +32,10 @@
  * configuration backup (config.xml). Custom rules are config-path
  * predicates only, never code. Modes: audit (report) and lock (the
  * firewall itself refuses a local save that would break the rule; only
- * configuration rules). Lock rules travel to each firewall as a bundle
+ * configuration rules) and remediate (the controller has the firewall fix
+ * the setting, for the few rules one value can fix; inside the firewall's
+ * maintenance window, after a safety backup, never in a loop). Lock and
+ * remediate rules travel to each firewall as a bundle
  * signed with the controller's key; the firewall keeps it, so Lock holds
  * while the controller is offline, and a console administrator can
  * suspend it with break-glass (System, fleet_guard.inc).
@@ -60,7 +63,8 @@ function fleet_policy_catalog(): array {
 		'OPS-020' => array('area' => 'Operations', 'title' => 'Rollback protection (ZFS)', 'kind' => 'rollback', 'severity' => 'low',
 		    'help' => 'The firewall runs on ZFS boot environments, so a failed update rolls back by itself.', 'params' => array()),
 		'OPS-001' => array('area' => 'Operations', 'title' => 'NTP servers set', 'kind' => 'config', 'severity' => 'medium',
-		    'help' => 'The firewall has time servers configured.', 'params' => array(), 'path' => 'system/timeservers', 'op' => 'nonempty'),
+		    'help' => 'The firewall has time servers configured.', 'params' => array('fix' => array('text', 'Time servers to set when fixing', 'pool.ntp.org')),
+		    'path' => 'system/timeservers', 'op' => 'nonempty'),
 		'OPS-002' => array('area' => 'Operations', 'title' => 'Remote syslog', 'kind' => 'config', 'severity' => 'medium',
 		    'help' => 'The firewall sends its logs to a remote syslog server.', 'params' => array(), 'path' => 'syslog/enable', 'op' => 'present'),
 		'OPS-003' => array('area' => 'Operations', 'title' => 'Time zone', 'kind' => 'config', 'severity' => 'low',
@@ -83,7 +87,9 @@ function fleet_policy_catalog(): array {
 	);
 }
 
-define('FLEET_POLICY_MODES', array('audit' => 'Audit', 'lock' => 'Lock'));
+define('FLEET_POLICY_MODES', array('audit' => 'Audit', 'remediate' => 'Remediate', 'lock' => 'Lock'));
+/* Rules one value can fix; the firewall keeps its own allow-list too (System, fleet_guard.inc). */
+define('FLEET_POLICY_REMEDIABLE', array('OPS-001', 'OPS-003', 'SEC-003', 'NAME-002'));
 
 /* ------------------------------------------------------------------ */
 /* Pure: rules                                                         */
@@ -134,6 +140,12 @@ function fleet_policy_rule_from(string $id, array $in): array {
 	if (($mode === 'lock') && !fleet_policy_lockable($base)) {
 		throw new InvalidArgumentException("{$id}: only configuration rules can be locked.");
 	}
+	if (($mode === 'remediate') && !in_array($base, FLEET_POLICY_REMEDIABLE, true)) {
+		throw new InvalidArgumentException("{$id}: Fleet cannot fix this rule by itself.");
+	}
+	if (isset($params['fix']) && ($params['fix'] !== '') && !preg_match('/^[A-Za-z0-9.:-]{1,253}( [A-Za-z0-9.:-]{1,253}){0,9}$/D', $params['fix'])) {
+		throw new InvalidArgumentException("{$id}: time servers are host names or addresses separated by spaces.");
+	}
 	return array($id, $params, $mode);
 }
 
@@ -147,13 +159,16 @@ function fleet_policy_lockable(string $base): bool {
  * value} as System's fleet_guard.inc checks it. Custom rules get ids
  * CUS-<n>; "set and not empty" becomes a regex.
  */
-function fleet_policy_node_rule(string $rid, array $params): array {
+function fleet_policy_node_rule(string $rid, array $params, string $mode = 'lock'): array {
 	$base = preg_replace('/:\d+$/', '', $rid);
 	$rule = fleet_policy_catalog()[$base];
 	$op = $rule['op'] ?? $params['op'];
 	$value = (string)($rule['value'] ?? ($params['value'] ?? ($params['regex'] ?? '')));
 	$out = array('id' => ($base === 'CUSTOM') ? sprintf('CUS-%03d', (int)substr($rid, 7) % 1000) : $rid, 'title' => fleet_policy_rule_title($rid, $params),
-	    'mode' => 'lock', 'path' => $rule['path'] ?? $params['path'], 'op' => ($op === 'nonempty') ? 'regex' : $op);
+	    'mode' => $mode, 'path' => $rule['path'] ?? $params['path'], 'op' => ($op === 'nonempty') ? 'regex' : $op);
+	if (($params['fix'] ?? '') !== '') {
+		$out['fix'] = $params['fix'];
+	}
 	if ($op === 'nonempty') {
 		$out['value'] = '.';
 	} elseif (!in_array($op, array('present', 'absent'), true)) {
@@ -162,12 +177,13 @@ function fleet_policy_node_rule(string $rid, array $params): array {
 	return $out;
 }
 
-/* pure: a firewall's lock rules from its effective rules, in a stable order. */
+/* pure: the rules a firewall holds in its bundle (lock and remediate), from its effective rules, in a stable order. */
 function fleet_policy_lock_rules(array $effective): array {
 	$out = array();
 	foreach ($effective as $rid => list($params, $mode)) {
-		if (($mode === 'lock') && fleet_policy_lockable(preg_replace('/:\d+$/', '', $rid))) {
-			$out[] = fleet_policy_node_rule($rid, $params);
+		$base = preg_replace('/:\d+$/', '', $rid);
+		if ((($mode === 'lock') && fleet_policy_lockable($base)) || (($mode === 'remediate') && in_array($base, FLEET_POLICY_REMEDIABLE, true))) {
+			$out[] = fleet_policy_node_rule($rid, $params, $mode);
 		}
 	}
 	return $out;
@@ -507,7 +523,7 @@ function fleet_box_effective(string $node, ?array $policies = null, ?array $grou
 }
 
 /* Check every firewall (or one) against its effective rules and keep the result. Exceptions turn a failure into "excepted". */
-function fleet_compliance_refresh(?string $only = null): void {
+function fleet_compliance_refresh(?string $only = null, bool $push = true): void {
 	$policies = fleet_policies_all();
 	$groups = fleet_box_group_ids();
 	$exceptions = fleet_policy_exceptions();
@@ -533,7 +549,9 @@ function fleet_compliance_refresh(?string $only = null): void {
 	if ($only === null) {
 		fleet_setting_set('compliance_checked', (string)$now);
 	}
-	fleet_bundles_push(($only === null) ? null : array($only));
+	if ($push) {
+		fleet_bundles_push(($only === null) ? null : array($only));
+	}
 }
 
 /* node_id => array(pass, fail, unknown, excepted, conflicts) */
@@ -658,6 +676,148 @@ function fleet_lock_follow(array $box, array $status): void {
 	if (($sent !== null) && empty($sent['error']) && ($held < (int)$sent['version'])) {
 		$state[$box['node_id']]['error'] = 'The firewall holds an older bundle; sending again';
 		fleet_setting_set('bundles', json_encode($state));
+	}
+}
+
+/* ------------------------------------------------------------------ */
+/* Remediate                                                           */
+/* ------------------------------------------------------------------ */
+
+/* node_id => rule id => {time, hash, result, detail} of the last fix Fleet tried. */
+function fleet_remediations(): array {
+	return json_decode((string)fleet_setting('remediations', '{}'), true) ?: array();
+}
+
+/* Is a firewall inside a maintenance window now? (No window on any of its groups: always.) */
+function fleet_box_window_open(string $node, int $now): bool {
+	$q = fleet_db()->prepare('SELECT g.window_id FROM box_groups bg JOIN fleet_groups g ON g.id = bg.group_id WHERE bg.node_id = ? AND g.window_id IS NOT NULL');
+	$q->execute(array($node));
+	$ids = array_map('intval', $q->fetchAll(PDO::FETCH_COLUMN));
+	if (empty($ids)) {
+		return true;
+	}
+	foreach ($ids as $id) {
+		$w = fleet_window_get($id);
+		if (($w !== null) && fleet_window_state($w, $now, fleet_tz())[0]) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/*
+ * pure: which failing rules to fix now. $failing: rule id => params of
+ * failing remediate rules; $last: this firewall's last attempts. A rule
+ * whose fix failed or could not be done is not tried again until its
+ * settings change; a fix that worked waits an hour for the next backup to
+ * show it.
+ */
+function fleet_remediate_due(array $failing, array $last, int $now, bool $manual): array {
+	$out = array();
+	foreach ($failing as $rid => $params) {
+		$hash = hash('sha256', json_encode($params));
+		$prev = $last[$rid] ?? null;
+		if (!$manual && ($prev !== null) && ($prev['hash'] === $hash) &&
+		    (($prev['result'] !== 'fixed') || (($now - (int)$prev['time']) < 3600))) {
+			continue;
+		}
+		$out[$rid] = $hash;
+	}
+	return $out;
+}
+
+/*
+ * Have one firewall fix its failing remediate rules. $manual: an admin
+ * pressed "Fix now" (outside the window too, and again after a failure).
+ * Returns the words for the result.
+ */
+function fleet_remediate_box(array $box, string $who, bool $manual = false): string {
+	fleet_manage_require($box);
+	$eff = fleet_box_effective($box['node_id']);
+	$q = fleet_db()->prepare("SELECT rule_id FROM compliance WHERE node_id = ? AND state = 'fail'");
+	$q->execute(array($box['node_id']));
+	$failing = array();
+	foreach ($q->fetchAll(PDO::FETCH_COLUMN) as $rid) {
+		if ((($eff[$rid][1] ?? '') === 'remediate')) {
+			$failing[$rid] = $eff[$rid][0];
+		}
+	}
+	$all = fleet_remediations();
+	$due = fleet_remediate_due($failing, $all[$box['node_id']] ?? array(), time(), $manual);
+	if (empty($due)) {
+		return 'Nothing to fix.';
+	}
+	if (!$manual && !fleet_box_window_open($box['node_id'], time())) {
+		return 'Waiting for the maintenance window.';
+	}
+	$bundle = fleet_bundle_state()[$box['node_id']] ?? null;
+	if (($bundle === null) || !empty($bundle['error'])) {
+		fleet_bundles_push(array($box['node_id']));
+		$bundle = fleet_bundle_state()[$box['node_id']] ?? null;
+		if (($bundle === null) || !empty($bundle['error'])) {
+			return 'The firewall does not have the policy rules yet.';
+		}
+	}
+	$node_ids = array();
+	foreach (array_keys($due) as $rid) {
+		$node_ids[fleet_policy_node_rule($rid, $failing[$rid], 'remediate')['id']] = $rid;
+	}
+	$record = function (string $rid, string $result, string $detail) use (&$all, $box, $due) {
+		$all[$box['node_id']][$rid] = array('time' => time(), 'hash' => $due[$rid], 'result' => $result, 'detail' => $detail);
+	};
+	try {
+		fleet_backup_box($box, 'remediation', $who);
+		list($code, $json) = fleet_box_call($box, 'POST', '/api/v1/management/remediate', array('rules' => array_keys($node_ids)));
+		if ($code !== 200) {
+			throw new RuntimeException(fleet_box_error($code, $json));
+		}
+	} catch (RuntimeException $e) {
+		foreach ($due as $rid => $h) {
+			$record($rid, 'failed', $e->getMessage());
+		}
+		fleet_setting_set('remediations', json_encode($all));
+		fleet_audit($who, 'policy', "FLEET-E320: {$box['label']}: the fix failed: " . $e->getMessage());
+		return 'FLEET-E320: The fix failed: ' . $e->getMessage();
+	}
+	$fixed = array();
+	$words = array();
+	foreach ((array)($json['data'] ?? array()) as $r) {
+		$rid = $node_ids[(string)($r['id'] ?? '')] ?? null;
+		if ($rid === null) {
+			continue;
+		}
+		$res = in_array($r['result'] ?? '', array('fixed', 'compliant'), true) ? 'fixed' : 'cannot';
+		$record($rid, $res, (string)($r['detail'] ?? ''));
+		$words[] = fleet_policy_rule_title($rid, $failing[$rid]) . ': ' . (string)($r['detail'] ?? '');
+		if ($res === 'fixed') {
+			$fixed[] = $rid;
+		} else {
+			fleet_audit($who, 'policy', "FLEET-E320: {$box['label']}: " . fleet_policy_rule_title($rid, $failing[$rid]) . ': ' . (string)($r['detail'] ?? ''));
+		}
+	}
+	fleet_setting_set('remediations', json_encode($all));
+	fleet_audit($who, 'policy', "{$box['label']}: remediation: " . implode('; ', $words));
+	if (!empty($fixed)) {
+		/* A fresh backup shows the fix in compliance at once. */
+		try {
+			fleet_backup_box($box, 'change', $who);
+		} catch (RuntimeException $e) {
+		}
+		fleet_compliance_refresh($box['node_id'], false);
+	}
+	return implode(' ', $words);
+}
+
+/* From the poll: fix what is due on every online managed firewall. */
+function fleet_remediate_tick(): void {
+	foreach (fleet_db()->query("SELECT * FROM boxes WHERE state = 'online'")->fetchAll() as $box) {
+		if (!fleet_manage_allowed($box)) {
+			continue;
+		}
+		try {
+			fleet_remediate_box($box, 'fleet');
+		} catch (RuntimeException $e) {
+		}
 	}
 }
 

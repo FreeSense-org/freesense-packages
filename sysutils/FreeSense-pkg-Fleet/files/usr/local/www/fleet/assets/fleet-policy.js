@@ -19,14 +19,17 @@
 	function counts() {
 		var on = 0;
 		var lock = 0;
+		var fix = 0;
 		cards.forEach(function (c) {
 			var isOn = c.querySelector('[data-rule-toggle]').checked;
 			var m = c.querySelector('[data-rule-mode]:checked');
 			on += isOn ? 1 : 0;
 			lock += (isOn && m && m.value === 'lock') ? 1 : 0;
+			fix += (isOn && m && m.value === 'remediate') ? 1 : 0;
 		});
 		root.querySelector('[data-picker="on"]').textContent = on;
 		root.querySelector('[data-picker="lock"]').textContent = lock;
+		root.querySelector('[data-picker="fix"]').textContent = fix;
 		Array.prototype.forEach.call(root.querySelectorAll('[data-area]'), function (sec) {
 			var all = sec.querySelectorAll('[data-rule]');
 			var n = sec.querySelectorAll('[data-rule].is-on').length;
@@ -41,7 +44,8 @@
 		cards.forEach(function (c) {
 			var on = c.classList.contains('is-on');
 			var ok = (q === '' || c.getAttribute('data-text').indexOf(q) !== -1) &&
-			    (show === 'all' || (show === 'on' && on) || (show === 'off' && !on) || (show === 'lockable' && c.getAttribute('data-lockable') === '1'));
+			    (show === 'all' || (show === 'on' && on) || (show === 'off' && !on) || (show === 'lockable' && c.getAttribute('data-lockable') === '1') ||
+			    (show === 'fixable' && c.getAttribute('data-fixable') === '1'));
 			c.hidden = !ok;
 			any = any || ok;
 		});
