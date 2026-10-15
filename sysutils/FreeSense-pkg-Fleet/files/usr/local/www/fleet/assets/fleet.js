@@ -90,7 +90,11 @@
 			names.appendChild(el('div', 'fs-fleet-box-host', b.host));
 		}
 		top.appendChild(names);
-		top.appendChild(badge(b.state, T[b.state]));
+		if (b.state === 'online') {
+			top.appendChild(el('span', 'fs-fleet-ok', T.online));
+		} else {
+			top.appendChild(badge(b.state, T[b.state]));
+		}
 		li.appendChild(top);
 
 		if (b.problem) {
@@ -99,18 +103,18 @@
 
 		var dl = el('dl', 'fs-fleet-facts');
 		fact(dl, T.version, b.version || '-');
+		fact(dl, T.role, b.role === 'managed' ? T.managed : T.monitor);
 		fact(dl, T.tunnel, b.overlay, true);
 		var seen = fact(dl, T.seen, ago(b.seen));
 		seen.setAttribute('data-seen', b.seen || 0);
 		li.appendChild(dl);
 
 		var foot = el('div', 'fs-fleet-box-foot');
-		foot.appendChild(badge('info', b.role === 'managed' ? T.managed : T.monitor));
 		if (b.rollback === false) {
 			foot.appendChild(badge('warn', T.rollback, T.rollback_hint));
 		}
-		if (b.carp && b.carp !== 'none') {
-			foot.appendChild(badge(b.carp === 'ok' ? 'online' : 'degraded', T.carp + ': ' + b.carp));
+		if (b.carp && b.carp !== 'none' && b.carp !== 'ok') {
+			foot.appendChild(badge('degraded', T.carp + ': ' + b.carp));
 		}
 		if (b.breakglass) {
 			foot.appendChild(badge('warn', T.breakglass));

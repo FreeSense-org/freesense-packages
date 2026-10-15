@@ -46,35 +46,45 @@
 /* The fleet wall. */
 .fs-fleet-wall {
 	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+	grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
 	gap: var(--fs-sp-3);
 	margin: 0;
 	padding: 0;
 	list-style: none;
 }
 .fs-fleet-box {
-	--fs-fleet-edge: var(--fs-neutral);
+	--fs-fleet-edge: transparent;
 	position: relative;
 	display: flex;
 	flex-direction: column;
 	gap: var(--fs-sp-2);
 	min-width: 0;
-	padding: var(--fs-sp-3) var(--fs-sp-4) var(--fs-sp-3) calc(var(--fs-sp-4) + 4px);
+	padding: var(--fs-sp-4) var(--fs-sp-4) var(--fs-sp-4) calc(var(--fs-sp-4) + 4px);
 	background: var(--fs-surface);
 	border: 1px solid var(--fs-border);
 	border-radius: var(--fs-r-md);
 }
-.fs-fleet-box::before {
-	content: "";
-	position: absolute;
-	inset: -1px auto -1px -1px;
-	width: 4px;
-	border-radius: var(--fs-r-md) 0 0 var(--fs-r-md);
-	background: var(--fs-fleet-edge);
-}
-.fs-fleet-box[data-state="online"] { --fs-fleet-edge: var(--fs-pass); }
+/* Healthy boxes stay quiet; only a box that needs attention gets a colored edge. */
+.fs-fleet-box { box-shadow: inset 4px 0 0 var(--fs-fleet-edge); }
 .fs-fleet-box[data-state="degraded"] { --fs-fleet-edge: var(--fs-warn); }
 .fs-fleet-box[data-state="offline"] { --fs-fleet-edge: var(--fs-block); }
+.fs-fleet-box[data-state="new"] { --fs-fleet-edge: var(--fs-neutral); }
+.fs-fleet-ok {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--fs-sp-1);
+	flex: none;
+	color: var(--fs-text-muted);
+	font-size: var(--fs-fs-sm);
+	white-space: nowrap;
+}
+.fs-fleet-ok::before {
+	content: "";
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--fs-pass);
+}
 
 .fs-fleet-box-top {
 	display: flex;
@@ -108,8 +118,9 @@
 	display: flex;
 	flex-wrap: wrap;
 	gap: var(--fs-sp-1);
-	margin-top: auto;
 }
+.fs-fleet-box-foot:empty { display: none; }
+.fs-fleet-facts .fs-mono { color: var(--fs-text-muted); }
 .fs-fleet-problem {
 	margin: 0;
 	color: var(--fs-text);
