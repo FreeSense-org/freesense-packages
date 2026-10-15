@@ -315,7 +315,7 @@ $state_badge = function (string $state) {
 		<tr><td><a href="?view=edit&amp;id=<?=(int)$p['id']?>"><?=htmlspecialchars($p['name'])?></a> <?=$p['enabled'] ? '' : fs_badge('neutral', gettext('Off'))?>
 				<?=($p['description'] !== '') ? '<div class="fs-muted small">' . htmlspecialchars($p['description']) . '</div>' : ''?></td>
 			<td><?=htmlspecialchars(fleet_targets_text($p['targets'], $names))?></td>
-			<td class="small"><?=htmlspecialchars(implode(', ', array_map(function ($rid) use ($p) { return fleet_policy_rule_title($rid, $p['rules'][$rid][0]); }, array_keys($p['rules']))))?></td>
+			<td class="small"><?=htmlspecialchars(implode(', ', array_map(function ($rid) use ($p) { return fleet_policy_rule_title($rid, $p['rules'][$rid][0]) . (($p['rules'][$rid][1] === 'lock') ? ' (' . gettext('locked') . ')' : ''); }, array_keys($p['rules']))))?></td>
 			<td><?=!empty($fail_by_policy[(int)$p['id']]) ? '<a href="?view=compliance&amp;state=fail">' . fs_badge('block', (string)$fail_by_policy[(int)$p['id']]) . '</a>' : '<span class="fs-muted">0</span>'?></td>
 			<td class="text-end text-nowrap">
 <?php if ($manage): ?>
@@ -372,7 +372,7 @@ $state_badge = function (string $state) {
 		$pol = array('id' => (int)($typed['policy_id'] ?? 0), 'name' => (string)($typed['name'] ?? ''), 'description' => (string)($typed['description'] ?? ''),
 		    'targets' => (array)($typed['targets'] ?? array()), 'enabled' => !empty($typed['enabled']), 'rules' => array());
 		foreach (array_keys((array)($typed['use'] ?? array())) as $rid) {
-			$pol['rules'][$rid] = array((array)($typed['rule'][$rid] ?? array()), 'audit');
+			$pol['rules'][$rid] = array((array)($typed['rule'][$rid] ?? array()), (string)($typed['rule'][$rid]['mode'] ?? 'audit'));
 		}
 	}
 	$pol = $pol ?? array('id' => 0, 'name' => '', 'description' => '', 'targets' => array('all'), 'enabled' => true, 'rules' => array());
@@ -449,11 +449,19 @@ $state_badge = function (string $state) {
 					<label class="form-check fs-fleet-rule-head"><input class="form-check-input" type="checkbox" name="use[<?=htmlspecialchars($rid)?>]" value="1"<?=$used ? ' checked' : ''?>/>
 						<span class="form-check-label"><strong><?=($base === 'CUSTOM') ? ($used ? htmlspecialchars(fleet_policy_rule_title($rid, $vals)) : gettext('Add a custom rule')) : htmlspecialchars(gettext($r['title']))?></strong>
 						<span class="fs-muted small"><?=htmlspecialchars($base)?> &middot; <?=htmlspecialchars(gettext($r['help']))?></span></span></label>
-<?php if (!empty($r['params'])): ?>
+<?php $lockable = fleet_policy_lockable($base); $mode_now = $used ? (string)($pol['rules'][$rid][1] ?? 'audit') : 'audit'; ?>
+<?php if (!empty($r['params']) || $lockable): ?>
 					<div class="fs-fleet-rule-params">
 <?php foreach ($r['params'] as $pname => $def): ?>
 						<div><?=$field($rid, $pname, $def, $vals[$pname] ?? $def[2])?></div>
 <?php endforeach; ?>
+<?php if ($lockable): $mid = 'm-' . preg_replace('/[^A-Za-z0-9-]/', '-', $rid); ?>
+						<div><label class="form-label small" for="<?=$mid?>"><?=gettext('Mode')?></label>
+							<select class="form-select form-select-sm" id="<?=$mid?>" name="rule[<?=htmlspecialchars($rid)?>][mode]">
+								<option value="audit"<?=($mode_now === 'audit') ? ' selected' : ''?>><?=gettext('Audit: report only')?></option>
+								<option value="lock"<?=($mode_now === 'lock') ? ' selected' : ''?>><?=gettext('Lock: the firewall refuses saves that break it')?></option>
+							</select></div>
+<?php endif; ?>
 					</div>
 <?php endif; ?>
 				</li>
@@ -465,7 +473,7 @@ $state_badge = function (string $state) {
 	<div class="fs-fleet-review-actions">
 		<button class="btn btn-primary" type="submit" name="policy_save" value="1"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save policy')?></button>
 		<a class="btn btn-outline-secondary" href="?view=policies"><?=gettext('Cancel')?></a>
-		<span class="fs-muted small"><?=gettext('Mode: audit (Fleet reports; nothing on the firewalls changes). Fixing and locking come later.')?></span>
+		<span class="fs-muted small"><?=gettext('Lock rules are sent to the firewalls signed and held there, so they apply while the controller is offline. A console administrator can suspend Lock (break-glass); Fleet is told at once.')?></span>
 	</div>
 </form>
 <?php endif; ?>
