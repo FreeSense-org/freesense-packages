@@ -459,4 +459,12 @@ check(fleet_ops_for_tiles(time())['node-pg']['progress'] === 50, 'progress is ke
 fleet_op_set($pop, 'done', 'Back');
 check(fleet_ops_for_tiles(time())['node-pg']['progress'] === 100, 'a finished operation is at 100');
 
+/* ---- top-bar item ---- */
+check(fleet_nav_item(0, 0)['hidden'] === true && fleet_nav_item(2, 0)['busy'] === true && fleet_nav_item(2, 0)['badge'] === 2 && fleet_nav_item(2, 1)['kind'] === 'info' &&
+    fleet_nav_item(0, 1)['kind'] === 'block' && fleet_nav_item(0, 1)['label'] === 'FreeSense Fleet: 1 action failed' && !fleet_nav_item(0, 1)['hidden'], 'quiet: hidden; running: spinner and count; failed lately: red count');
+check(is_array(fleet_nav_now(time())), 'the top-bar item from the store');
+$nav = fleet_nav_item(3, 0);
+require_once($argv[1] . '/src/usr/local/www/includes/fs_menu.inc');
+check(fs_nav_plugin_item('fleet', $nav) !== null, 'System accepts the Fleet item as it is');
+
 echo "Fleet controller tests: OK\n";

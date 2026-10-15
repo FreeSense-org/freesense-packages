@@ -463,3 +463,19 @@ function fleet_poll_box(array $box, int $now, int $interval = 60): string {
 	}
 	return $state;
 }
+
+/*
+ * plugin_navbar: the Fleet item in the WebUI's top bar (System checks it
+ * and shows it only to users who may open Fleet Activity). Quiet fleets
+ * add nothing to the bar.
+ */
+function fleet_plugin_navbar($params) {
+	if (!fleet_ctl_settings()['enable'] || !is_file(FLEET_DATA . '/fleet.db')) {
+		return null;
+	}
+	try {
+		return fleet_nav_now(time());
+	} catch (Throwable $e) {
+		return null;
+	}
+}
