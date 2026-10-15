@@ -63,6 +63,16 @@ $filters = array(
 include('head.inc');
 ?>
 <link rel="stylesheet" href="<?=$asset('fleet.css')?>">
+<?php
+if ($manage) {
+	$tab_array = array(
+		array(gettext('Dashboard'), true, '/fleet/fleet_dashboard.php'),
+		array(gettext('Firewalls'), false, '/fleet/fleet.php'),
+		array(gettext('Settings'), false, '/fleet/fleet.php?tab=settings'),
+	);
+	display_top_tabs($tab_array);
+}
+?>
 <?php if (!$ready): ?>
 <div class="fs-fleet-empty">
 	<strong><?=gettext('This firewall is not a fleet controller')?></strong>
@@ -81,7 +91,7 @@ include('head.inc');
 		</div>
 		<div class="fs-fleet-actions">
 <?php if ($manage && $data['counts']['pending'] > 0): ?>
-			<a class="btn btn-primary" href="/fleet/fleet.php" data-fleet="pending"><i class="fa-solid fa-hourglass-half icon-embed-btn" aria-hidden="true"></i><?=sprintf(ngettext('%d waiting for approval', '%d waiting for approval', $data['counts']['pending']), $data['counts']['pending'])?></a>
+			<a class="btn btn-primary" href="/fleet/fleet.php" data-fleet="pending"><i class="fa-solid fa-hourglass-half icon-embed-btn" aria-hidden="true"></i><?=sprintf(gettext('%d waiting for approval'), $data['counts']['pending'])?></a>
 <?php endif; ?>
 <?php if ($manage): ?>
 			<a class="btn btn-outline-secondary" href="/fleet/fleet.php"><i class="fa-solid fa-plus icon-embed-btn" aria-hidden="true"></i><?=gettext('Add a firewall')?></a>

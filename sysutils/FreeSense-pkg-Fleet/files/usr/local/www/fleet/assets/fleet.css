@@ -140,7 +140,114 @@
 }
 .fs-fleet-empty strong { color: var(--fs-text-strong); font-size: var(--fs-fs-md); }
 
+/* ---------------------------------------------------- Management page */
+.fs-fleet-block {
+	max-width: 60rem;
+	margin-bottom: var(--fs-sp-6);
+}
+.fs-fleet-section-title {
+	display: flex;
+	align-items: center;
+	gap: var(--fs-sp-2);
+	margin: 0 0 var(--fs-sp-1);
+	font-size: var(--fs-fs-md);
+	font-weight: 600;
+	color: var(--fs-text-strong);
+}
+.fs-fleet-lead {
+	max-width: 42rem;
+	margin: 0 0 var(--fs-sp-4);
+	color: var(--fs-text-muted);
+}
+.fs-fleet-hint {
+	margin: var(--fs-sp-2) 0 0;
+	color: var(--fs-text-muted);
+	font-size: var(--fs-fs-sm);
+}
+
+/* Fields in one row on wide screens, stacked on narrow ones. */
+.fs-fleet-form {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	gap: var(--fs-sp-3);
+}
+.fs-fleet-field { display: flex; flex-direction: column; min-width: 10rem; }
+.fs-fleet-field .form-label { margin-bottom: var(--fs-sp-1); font-weight: 500; }
+.fs-fleet-field--wide { flex: 1 1 18rem; }
+.fs-fleet-settings {
+	display: flex;
+	flex-direction: column;
+	gap: var(--fs-sp-4);
+	max-width: 36rem;
+}
+.fs-fleet-ports { display: grid; grid-template-columns: 1fr 1fr; gap: var(--fs-sp-3); }
+.fs-fleet-note { color: var(--fs-text); font-size: var(--fs-fs-sm); }
+
+/* The invitation just created: the one moment on this page that must be read. */
+.fs-fleet-invite {
+	padding: var(--fs-sp-5);
+	background: var(--fs-surface);
+	border: 1px solid var(--fs-border);
+	border-left: 4px solid var(--fs-coral);
+	border-radius: var(--fs-r-md);
+}
+.fs-fleet-secret {
+	display: grid;
+	grid-template-columns: 6rem minmax(0, 1fr) auto;
+	align-items: center;
+	gap: var(--fs-sp-3);
+	padding: var(--fs-sp-3) 0;
+	border-top: 1px solid var(--fs-border);
+}
+.fs-fleet-secret-label { color: var(--fs-text-muted); font-size: var(--fs-fs-sm); }
+.fs-fleet-secret-value {
+	min-width: 0;
+	color: var(--fs-text-strong);
+	font-size: var(--fs-fs-sm);
+	overflow-wrap: anywhere;
+	user-select: all;
+}
+.fs-fleet-key { font-size: var(--fs-fs-lg); letter-spacing: .04em; }
+.fs-fleet-steps {
+	margin: var(--fs-sp-4) 0 0;
+	padding-left: 1.25rem;
+	border-top: 1px solid var(--fs-border);
+	padding-top: var(--fs-sp-3);
+}
+.fs-fleet-steps li + li { margin-top: var(--fs-sp-1); }
+
+/* Waiting for approval: the code is what the admin compares. */
+.fs-fleet-approvals { margin: 0; padding: 0; list-style: none; }
+.fs-fleet-approval {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--fs-sp-4);
+	padding: var(--fs-sp-4);
+	background: var(--fs-surface);
+	border: 1px solid var(--fs-border);
+	border-radius: var(--fs-r-md);
+}
+.fs-fleet-approval + .fs-fleet-approval { margin-top: var(--fs-sp-3); }
+.fs-fleet-code {
+	font-family: var(--fs-font-mono);
+	font-size: 2rem;
+	font-weight: 600;
+	line-height: 1;
+	letter-spacing: .08em;
+	color: var(--fs-text-strong);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+.fs-fleet-approval-who { display: flex; flex-direction: column; flex: 1 1 14rem; min-width: 0; }
+.fs-fleet-approval-actions { display: flex; gap: var(--fs-sp-2); }
+
 @media (max-width: 575px) {
+	.fs-fleet-secret { grid-template-columns: minmax(0, 1fr) auto; }
+	.fs-fleet-secret-label { grid-column: 1 / -1; }
+	.fs-fleet-ports { grid-template-columns: 1fr; }
+	.fs-fleet-field, .fs-fleet-form .btn { width: 100%; }
 	.fs-fleet-actions { margin-left: 0; width: 100%; }
 	.fs-fleet-actions .btn { flex: 1; }
 }
