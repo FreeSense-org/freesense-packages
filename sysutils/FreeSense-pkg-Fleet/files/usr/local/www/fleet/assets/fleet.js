@@ -91,7 +91,10 @@
 				if (gs.length === 0) {
 					add('none', T.ungrouped, null, b, true);
 				}
-				gs.forEach(function (g) { add('g' + g.id, g.name, g.color, b); });
+				gs.forEach(function (g) {
+					add('g' + g.id, g.name, g.color, b);
+					map['g' + g.id].group = g;
+				});
 			} else if (prefs.by === 'state') {
 				add(b.state, T[b.state], null, b);
 			} else if (prefs.by === 'version') {
@@ -124,32 +127,77 @@
 		return order;
 	}
 
+	/* The "..." on a group's header: the same actions as Fleet actions, for this group. */
+	function groupMenu(s) {
+		var g = s.group;
+		var wrap = el('div', 'fs-fleet-menu');
+		var btn = el('button', 'fs-fleet-menu-btn');
+		btn.type = 'button';
+		btn.setAttribute('aria-haspopup', 'menu');
+		btn.setAttribute('aria-label', T.actions_for.replace('%s', g.name));
+		btn.title = T.actions;
+		var bi = el('i', 'fa-solid fa-ellipsis');
+		bi.setAttribute('aria-hidden', 'true');
+		btn.appendChild(bi);
+		var menu = el('ul', 'fs-fleet-menu-list');
+		menu.setAttribute('role', 'menu');
+		var busy = s.boxes.some(isBusy);
+		if (canManage) {
+			menuItem(menu, T.backup_group.replace('%s', g.name), 'fa-floppy-disk', function () {
+				var form = document.getElementById('fleet-backup-all');
+				form.elements.group.value = String(g.id);
+				form.submit();
+			}, busy);
+			menuItem(menu, T.reboot_group.replace('%s', g.name), 'fa-power-off', '/fleet/fleet_group_action.php?action=reboot&group=' + g.id);
+			menuSeparator(menu);
+		}
+		if (group !== String(g.id) && groupSelect) {
+			menuItem(menu, T.only_group, 'fa-filter', function () {
+				groupSelect.value = String(g.id);
+				groupSelect.dispatchEvent(new Event('change'));
+			});
+		}
+		menuItem(menu, T.group_activity, 'fa-clock-rotate-left', '/fleet/fleet_activity.php?q=' + encodeURIComponent(g.name));
+		if (canManage) {
+			menuItem(menu, T.change_group, 'fa-pen', '/fleet/fleet.php?view=groups&edit=' + g.id);
+		}
+		wireMenu(wrap, btn, menu, 'group-' + g.id);
+		wrap.appendChild(btn);
+		wrap.appendChild(menu);
+		return wrap;
+	}
+
 	function section(s) {
-		var wrap = el('section', 'fs-fleet-section');
+		var wrap = el('section', 'fs-fleet-wsec');
 		var collapsed = !!prefs.collapsed[prefs.by + ':' + s.key];
 		wrap.setAttribute('data-attention', s.attention > 0 ? 'true' : 'false');
-		var head = el('button', 'fs-fleet-section-head');
+		var bar = el('div', 'fs-fleet-wsec-bar');
+		var head = el('button', 'fs-fleet-wsec-head');
 		head.type = 'button';
 		head.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
 		head.setAttribute('aria-label', T.collapse.replace('%s', s.title));
-		var chev = el('i', 'fa-solid fa-chevron-down fs-fleet-section-chev');
+		var chev = el('i', 'fa-solid fa-chevron-down fs-fleet-wsec-chev');
 		chev.setAttribute('aria-hidden', 'true');
 		head.appendChild(chev);
 		if (s.color) {
-			var dot = el('span', 'fs-fleet-section-dot');
+			var dot = el('span', 'fs-fleet-wsec-dot');
 			dot.style.setProperty('--fs-fleet-group', 'var(--fs-series-' + s.color + ')');
 			head.appendChild(dot);
 		}
-		head.appendChild(el('h3', 'fs-fleet-section-title', s.title));
-		head.appendChild(el('span', 'fs-fleet-section-count', s.boxes.length === 1 ? T.one_fw : T.n_fw.replace('%d', s.boxes.length)));
-		var health = el('span', 'fs-fleet-section-health');
+		head.appendChild(el('h3', 'fs-fleet-wsec-title', s.title));
+		head.appendChild(el('span', 'fs-fleet-wsec-count', s.boxes.length === 1 ? T.one_fw : T.n_fw.replace('%d', s.boxes.length)));
+		var health = el('span', 'fs-fleet-wsec-health');
 		if (s.attention > 0) {
 			health.appendChild(badge('warn', s.attention === 1 ? T.one_attention : T.n_attention.replace('%d', s.attention)));
 		} else {
 			health.appendChild(el('span', 'fs-fleet-ok', T.all_ok));
 		}
-		head.appendChild(health);
-		wrap.appendChild(head);
+		bar.appendChild(head);
+		bar.appendChild(health);
+		if (s.group) {
+			bar.appendChild(groupMenu(s));
+		}
+		wrap.appendChild(bar);
 		var ul = el('ul', 'fs-fleet-wall');
 		ul.setAttribute('aria-label', s.title);
 		ul.hidden = collapsed;
