@@ -383,6 +383,7 @@ if ($savemsg) {
 <div class="panel panel-default">
 	<div class="panel-heading fs-fleet-panel-head">
 		<h2 class="panel-title"><?=gettext('Backups')?> <span class="fs-count"><?=count($backups)?></span></h2>
+		<a class="btn btn-sm btn-link" href="/fleet/fleet_schedules.php?node=<?=urlencode($box['node_id'])?>"><?=gettext('Schedule...')?></a>
 		<form method="post" action="<?=$here('backups')?>"><button class="btn btn-sm btn-outline-secondary" name="backup_now" value="1" <?=($state === 'offline') ? 'disabled' : ''?>><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Back up now')?></button></form>
 	</div>
 	<div class="panel-body fs-fleet-pad">

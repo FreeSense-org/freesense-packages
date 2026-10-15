@@ -20,7 +20,7 @@
  */
 
 /*
- * Schedules: recurring backups, reboots and updates on a group or every
+ * Schedules: recurring backups, reboots and updates on one firewall, a group or every
  * firewall (fleet_schedules.inc; the poll runs them).
  */
 
@@ -90,12 +90,14 @@ $all = fleet_schedules_all();
 /* Filters live in the URL, so a filtered list can be shared and survives a reload. */
 $q = trim((string)($_GET['q'] ?? ''));
 $fk = isset($kinds[$_GET['kind'] ?? '']) ? (string)$_GET['kind'] : '';
-$list = array_values(array_filter($all, function ($s) use ($q, $fk, $groups) {
-	$target = ($s['group_id'] > 0) ? ($groups[$s['group_id']]['name'] ?? '') : 'All firewalls';
+$boxes = fleet_db()->query('SELECT node_id, label FROM boxes ORDER BY label COLLATE NOCASE')->fetchAll(PDO::FETCH_KEY_PAIR);
+$list = array_values(array_filter($all, function ($s) use ($q, $fk, $groups, $boxes) {
+	$target = !empty($s['node_id']) ? ($boxes[$s['node_id']] ?? '') : (($s['group_id'] > 0) ? ($groups[$s['group_id']]['name'] ?? '') : 'All firewalls');
 	return (($fk === '') || ($s['kind'] === $fk)) && (($q === '') || (stripos($s['name'] . ' ' . $target, $q) !== false));
 }));
 $edit = isset($_GET['edit']) ? fleet_schedule_get((int)$_GET['edit']) : null;
-$f = $edit ?? array('id' => 0, 'name' => '', 'kind' => 'backup', 'group_id' => 0, 'days' => array(1, 2, 3, 4, 5, 6, 7), 'time' => 150, 'enabled' => true);
+/* ?node=... (from a firewall's page) starts a schedule for that firewall. */
+$f = $edit ?? array('id' => 0, 'name' => '', 'kind' => 'backup', 'group_id' => 0, 'node_id' => isset($boxes[$_GET['node'] ?? '']) ? (string)$_GET['node'] : null, 'days' => array(1, 2, 3, 4, 5, 6, 7), 'time' => 150, 'enabled' => true);
 $now = time();
 ?>
 <div class="panel panel-default">
@@ -127,7 +129,11 @@ $now = time();
 <?php foreach ($list as $s): $next = $s['enabled'] ? fleet_schedule_next($s, $now, fleet_tz()) : null; ?>
 		<tr><td><?=htmlspecialchars($s['name'])?></td>
 			<td><?=htmlspecialchars($kinds[$s['kind']] ?? $s['kind'])?></td>
+<?php if (!empty($s['node_id'])): ?>
+			<td><?=isset($boxes[$s['node_id']]) ? '<a href="/fleet/fleet_box.php?id=' . urlencode($s['node_id']) . '">' . htmlspecialchars($boxes[$s['node_id']]) . '</a>' : fs_badge('warn', gettext('Firewall removed'))?></td>
+<?php else: ?>
 			<td><?=($s['group_id'] > 0) ? (isset($groups[$s['group_id']]) ? htmlspecialchars($groups[$s['group_id']]['name']) : fs_badge('warn', gettext('Group deleted'))) : gettext('All firewalls')?></td>
+<?php endif; ?>
 			<td><?=htmlspecialchars(fleet_schedule_text($s))?></td>
 			<td><?=$s['enabled'] ? htmlspecialchars(date('D H:i', (int)$next)) : fs_badge('neutral', gettext('Paused'))?></td>
 			<td class="small"><?php if ($s['last_result'] === null): ?><span class="fs-muted"><?=gettext('Not run yet')?></span><?php else: ?>
@@ -164,11 +170,20 @@ $now = time();
 <?php endforeach; ?>
 				</select></div>
 			<div class="fs-fleet-field"><label class="form-label" for="sgroup"><?=gettext('On')?></label>
-				<select class="form-select" id="sgroup" name="group_id">
-					<option value="0"><?=gettext('All firewalls')?></option>
-<?php foreach ($groups as $g): ?>
-					<option value="<?=(int)$g['id']?>"<?=($f['group_id'] === (int)$g['id']) ? ' selected' : ''?>><?=htmlspecialchars($g['name'])?></option>
+				<select class="form-select" id="sgroup" name="target">
+					<option value="all"><?=gettext('All firewalls')?></option>
+<?php if (!empty($groups)): ?>
+					<optgroup label="<?=gettext('Groups')?>">
+<?php foreach ($groups as $grp): ?>
+					<option value="g:<?=(int)$grp['id']?>"<?=(empty($f['node_id']) && ($f['group_id'] === (int)$grp['id'])) ? ' selected' : ''?>><?=htmlspecialchars($grp['name'])?></option>
 <?php endforeach; ?>
+					</optgroup>
+<?php endif; ?>
+					<optgroup label="<?=gettext('One firewall')?>">
+<?php foreach ($boxes as $node => $label): ?>
+					<option value="n:<?=htmlspecialchars($node)?>"<?=(($f['node_id'] ?? null) === $node) ? ' selected' : ''?>><?=htmlspecialchars($label)?></option>
+<?php endforeach; ?>
+					</optgroup>
 				</select></div>
 			<fieldset class="fs-fleet-field"><legend class="form-label"><?=gettext('Days')?></legend>
 				<div class="fs-fleet-days">

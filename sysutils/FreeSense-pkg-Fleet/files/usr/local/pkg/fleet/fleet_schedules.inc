@@ -20,7 +20,7 @@
  */
 
 /*
- * Schedules: recurring jobs on a group (or every firewall) at a time of
+ * Schedules: recurring jobs on one firewall, a group or every firewall at a time of
  * day on chosen weekdays, in the controller's time zone. A job is the same
  * operation the dashboard starts (back up, reboot one at a time, update
  * one at a time), so Activity and the notices follow it. The poll checks
@@ -57,7 +57,17 @@ function fleet_schedule_from(array $in): array {
 	if (!preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/', (string)($in['time'] ?? ''), $m)) {
 		throw new InvalidArgumentException('The time is like 02:30.');
 	}
-	return array('name' => $name, 'kind' => $kind, 'group_id' => max(0, (int)($in['group_id'] ?? 0)), 'days' => $days,
+	/* Target: "all", "g:<group id>" or "n:<node id>" (the form), or group_id alone. */
+	list($group, $node) = array(max(0, (int)($in['group_id'] ?? 0)), null);
+	$target = (string)($in['target'] ?? '');
+	if (preg_match('/^g:(\d+)$/', $target, $t)) {
+		$group = (int)$t[1];
+	} elseif (preg_match('/^n:([A-Za-z0-9-]{1,64})$/', $target, $t)) {
+		list($group, $node) = array(0, $t[1]);
+	} elseif (($target !== '') && ($target !== 'all')) {
+		throw new InvalidArgumentException('Choose which firewalls the schedule is for.');
+	}
+	return array('name' => $name, 'kind' => $kind, 'group_id' => $group, 'node_id' => $node, 'days' => $days,
 	    'time' => 60 * (int)$m[1] + (int)$m[2], 'enabled' => !empty($in['enabled']));
 }
 
@@ -131,14 +141,17 @@ function fleet_schedule_save(?int $id, array $in, string $who): int {
 	if (($s['group_id'] > 0) && (fleet_group_get($s['group_id']) === null)) {
 		throw new InvalidArgumentException('That group does not exist any more.');
 	}
-	$args = array($s['name'], $s['kind'], $s['group_id'], json_encode($s['days']), $s['time'], (int)$s['enabled']);
+	if (($s['node_id'] !== null) && (fleet_box_get($s['node_id']) === null)) {
+		throw new InvalidArgumentException('That firewall is not in the fleet any more.');
+	}
+	$args = array($s['name'], $s['kind'], $s['group_id'], $s['node_id'], json_encode($s['days']), $s['time'], (int)$s['enabled']);
 	if ($id === null) {
-		fleet_db()->prepare('INSERT INTO schedules (name, kind, group_id, days, time, enabled, last_run, who, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+		fleet_db()->prepare('INSERT INTO schedules (name, kind, group_id, node_id, days, time, enabled, last_run, who, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
 		    ->execute(array_merge($args, array(time(), $who, time())));
 		$id = (int)fleet_db()->lastInsertId();
 	} else {
 		/* Changing the time must not fire a run that "was due" under the old time. */
-		fleet_db()->prepare('UPDATE schedules SET name = ?, kind = ?, group_id = ?, days = ?, time = ?, enabled = ?, last_run = MAX(last_run, ?) WHERE id = ?')
+		fleet_db()->prepare('UPDATE schedules SET name = ?, kind = ?, group_id = ?, node_id = ?, days = ?, time = ?, enabled = ?, last_run = MAX(last_run, ?) WHERE id = ?')
 		    ->execute(array_merge($args, array(time(), $id)));
 	}
 	fleet_audit($who, 'schedule', sprintf('%s: %s, %s%s', $s['name'], FLEET_SCHEDULE_KINDS[$s['kind']], fleet_schedule_text($s), $s['enabled'] ? '' : ' (paused)'));
@@ -160,7 +173,9 @@ function fleet_schedule_set_enabled(int $id, bool $on, string $who): void {
 /* Run a schedule's job now. Returns the words for its last result. */
 function fleet_schedule_run(array $s, string $who): string {
 	$group = ($s['group_id'] > 0) ? fleet_group_get($s['group_id']) : null;
-	if (($s['group_id'] > 0) && ($group === null)) {
+	if (!empty($s['node_id'])) {
+		$result = fleet_schedule_run_one($s, $who);
+	} elseif (($s['group_id'] > 0) && ($group === null)) {
 		$result = 'Not run: its group was deleted.';
 	} elseif ($s['kind'] === 'backup') {
 		mwexec_bg('/usr/local/bin/php /usr/local/sbin/freesense-fleet-backup all ' . escapeshellarg($who) . ' ' . (int)$s['group_id']);
@@ -203,3 +218,35 @@ function fleet_schedules_tick(int $now): void {
 		}
 	}
 }
+
+/* A schedule on one firewall: the same actions as its own page. */
+function fleet_schedule_run_one(array $s, string $who): string {
+	$box = fleet_box_get((string)$s['node_id']);
+	if ($box === null) {
+		return 'Not run: the firewall left the fleet.';
+	}
+	if ($s['kind'] === 'backup') {
+		mwexec_bg('/usr/local/bin/php /usr/local/sbin/freesense-fleet-backup one ' . escapeshellarg($box['node_id']) . ' schedule ' . escapeshellarg($who));
+		return 'Backup started.';
+	}
+	if ($box['state'] === 'offline') {
+		return 'Not run: the firewall was offline.';
+	}
+	if ($s['kind'] === 'update') {
+		$info = fleet_update_info($box);
+		if (($info === null) || !$info['available']) {
+			return 'Nothing to do: ' . (($info === null) ? 'not checked for updates yet.' : (($info['error'] !== null) ? 'its update check failed.' : 'up to date.'));
+		}
+	}
+	try {
+		$text = ($s['kind'] === 'update') ? fleet_box_update($box, $who) : fleet_box_reboot($box, $who);
+	} catch (RuntimeException $e) {
+		return 'Not run: ' . $e->getMessage();
+	}
+	$op = fleet_op_running($box['node_id']);
+	if ($op !== null) {
+		fleet_db()->prepare('UPDATE schedules SET last_op = ? WHERE id = ?')->execute(array($op['id'], $s['id']));
+	}
+	return $text;
+}
+

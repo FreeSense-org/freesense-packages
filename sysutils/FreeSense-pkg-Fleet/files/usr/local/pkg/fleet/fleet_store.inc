@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 9);
+define('FLEET_DB_SCHEMA', 10);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -265,6 +265,13 @@ CREATE TABLE IF NOT EXISTS schedules (
 	time INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, last_run INTEGER NOT NULL DEFAULT 0, last_op INTEGER, last_result TEXT,
 	who TEXT NOT NULL, created INTEGER NOT NULL);
 PRAGMA user_version = 9;
+SQL);
+	}
+	if ($version < 10) {
+		/* A schedule can target one firewall instead of a group. */
+		$db->exec(<<<'SQL'
+ALTER TABLE schedules ADD COLUMN node_id TEXT;
+PRAGMA user_version = 10;
 SQL);
 	}
 	$db->exec('COMMIT');
