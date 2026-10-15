@@ -35,12 +35,18 @@ $ready = fleet_ctl_settings()['enable'] && is_file(FLEET_DATA . '/fleet.db');
 $manage = isAllowedPage('fleet/fleet.php');
 $input_errors = array();
 $savemsg = null;
+$reopen_window = null;
 $view = fs_view_param(array('overview', 'rollouts', 'windows'), 'overview');
 
 /* ---------------- actions ---------------- */
 if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 	try {
-		if (isset($_POST['window_save'])) {
+		if (isset($_POST['rollout_rings'])) {
+			$rings = array_values(array_filter((array)($_POST['ring'] ?? array()), 'strlen'));
+			$q = http_build_query(array('view' => 'rollouts', 'review' => 1, 'ring' => array_map('intval', $rings)));
+			header('Location: /fleet/fleet_updates.php?' . $q);
+			exit;
+		} elseif (isset($_POST['window_save'])) {
 			$view = 'windows';
 			$id = ((int)($_POST['window_id'] ?? 0) > 0) ? (int)$_POST['window_id'] : null;
 			fleet_window_save($id, array('name' => $_POST['name'] ?? '', 'days' => (array)($_POST['days'] ?? array()), 'start' => $_POST['start'] ?? '',
@@ -74,6 +80,11 @@ if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 		}
 	} catch (InvalidArgumentException | RuntimeException $e) {
 		$input_errors[] = $e->getMessage();
+		if (isset($_POST['window_save'])) {
+			/* The modal opens again with what was typed. */
+			$reopen_window = array('window_id' => (string)($_POST['window_id'] ?? ''), 'name' => (string)($_POST['name'] ?? ''),
+			    'days[]' => array_values((array)($_POST['days'] ?? array())), 'start' => (string)($_POST['start'] ?? ''), 'length' => (string)($_POST['length'] ?? ''));
+		}
 	}
 }
 
@@ -138,7 +149,7 @@ $target = fleet_rollout_target();
 <?php endforeach; ?>
 		</tbody></table></div>
 <?php if ($manage && $target !== null): ?>
-	<div class="panel-footer"><a class="btn btn-primary btn-sm" href="?view=rollouts&amp;new=1"><i class="fa-solid fa-layer-group icon-embed-btn" aria-hidden="true"></i><?=sprintf(gettext('Roll out %s...'), htmlspecialchars($target))?></a></div>
+	<div class="panel-footer"><a class="btn btn-primary btn-sm" href="?view=rollouts&amp;new=1" data-fs-modal="#rings-modal"><i class="fa-solid fa-layer-group icon-embed-btn" aria-hidden="true"></i><?=sprintf(gettext('Roll out %s...'), htmlspecialchars($target))?></a></div>
 <?php endif; ?>
 </div>
 
@@ -147,27 +158,14 @@ $target = fleet_rollout_target();
 	$picked = array_map('intval', array_filter((array)($_GET['ring'] ?? array()), 'strlen'));
 	$review = $manage && isset($_GET['review']) && !empty($picked) && ($target !== null);
 ?>
-<?php if ($manage && (isset($_GET['new']) || isset($_GET['review'])) && ($target !== null)): ?>
+<?php if ($manage && ($target !== null) && !$review): ?>
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=sprintf(htmlspecialchars(gettext('Roll out %s')), htmlspecialchars($target))?></h2></div>
-	<div class="panel-body fs-fleet-pad">
-		<p class="fs-fleet-lead"><?=gettext('Rings update in order. Inside a ring, firewalls update one at a time and only in the ring\'s maintenance window (its group\'s window; no window: any time). The next ring starts when the one before is done and the wait has passed. A rollback or failure pauses the rollout until you resume or cancel it.')?></p>
-		<form method="get" class="fs-fleet-rings">
-			<input type="hidden" name="view" value="rollouts"/>
-<?php for ($i = 0; $i < 5; $i++): $sel = $picked[$i] ?? null; ?>
-			<div class="fs-fleet-field"><label class="form-label" for="ring<?=$i?>"><?=sprintf(gettext('Ring %d'), $i + 1)?></label>
-				<select class="form-select" id="ring<?=$i?>" name="ring[]">
-					<option value=""><?=($i === 0) ? gettext('Choose a group') : gettext('(none)')?></option>
-<?php foreach ($groups as $grp): ?>
-					<option value="<?=(int)$grp['id']?>"<?=($sel === (int)$grp['id']) ? ' selected' : ''?>><?=htmlspecialchars($grp['name'])?><?=$grp['window_id'] ? ' (' . htmlspecialchars(fleet_window_text(fleet_window_get((int)$grp['window_id']))) . ')' : ''?></option>
-<?php endforeach; ?>
-					<option value="0"<?=($sel === 0) ? ' selected' : ''?>><?=gettext('Everyone else (no window)')?></option>
-				</select></div>
-<?php endfor; ?>
-			<div class="fs-fleet-field fs-fleet-field--button"><button class="btn btn-outline-secondary" type="submit" name="review" value="1"><?=gettext('Review')?></button></div>
-		</form>
+	<div class="panel-body fs-fleet-pad fs-fleet-heading-actions">
+		<p class="fs-fleet-lead mb-0"><?=sprintf(htmlspecialchars(gettext('%s is available. A rollout updates groups ring by ring, each in its maintenance window.')), htmlspecialchars($target))?></p>
+		<button type="button" class="btn btn-sm btn-primary" data-fs-modal="#rings-modal"><i class="fa-solid fa-layer-group icon-embed-btn" aria-hidden="true"></i><?=sprintf(gettext('Roll out %s...'), htmlspecialchars($target))?></button>
 	</div>
 </div>
+<?php endif; ?>
 <?php if ($review):
 	$plan = fleet_rollout_plan($picked, $target);
 	$hash = hash('sha256', json_encode(array_map(function ($r) { return array_column($r[3], 'node_id'); }, $plan['rings'])));
@@ -197,11 +195,11 @@ $target = fleet_rollout_target();
 			<label class="fs-muted small" for="gap"><?=gettext('Wait between rings')?></label>
 			<div class="input-group input-group-sm fs-fleet-gap"><input class="form-control" type="number" id="gap" name="gap" min="0" max="168" value="<?=(int)fleet_opt('rollout_gap_hours')?>"/><span class="input-group-text"><?=gettext('hours')?></span></div>
 			<button class="btn btn-primary" type="submit" name="rollout_start" value="1"<?=($n === 0) ? ' disabled' : ''?>><i class="fa-solid fa-layer-group icon-embed-btn" aria-hidden="true"></i><?=($n === 0) ? gettext('Nothing to update') : sprintf(gettext('Start the rollout to %s'), htmlspecialchars($target))?></button>
-			<a class="btn btn-outline-secondary" href="?view=rollouts"><?=gettext('Cancel')?></a>
+			<button type="button" class="btn btn-outline-secondary" data-fs-modal="#rings-modal" data-fs-fill="<?=htmlspecialchars(json_encode(array_combine(array_map(function ($i) { return 'ring[' . $i . ']'; }, array_keys($picked)), array_map('strval', $picked))))?>"><?=gettext('Change rings')?></button>
+			<a class="btn btn-link" href="?view=rollouts"><?=gettext('Cancel')?></a>
 		</form>
 	</div>
 </div>
-<?php endif; ?>
 <?php endif; ?>
 
 <div class="panel panel-default">
@@ -209,7 +207,7 @@ $target = fleet_rollout_target();
 <?php $rollouts = fleet_rollouts_all(20); ?>
 <?php if (empty($rollouts)): ?>
 	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint"><?=($target === null) ? gettext('No firewall has an update available.') : sprintf(gettext('No rollouts yet. %s is available.'), htmlspecialchars($target))?>
-<?php if ($manage && $target !== null): ?> <a href="?view=rollouts&amp;new=1"><?=sprintf(gettext('Roll out %s...'), htmlspecialchars($target))?></a><?php endif; ?></p></div>
+<?php if ($manage && $target !== null): ?> <a href="?view=rollouts&amp;new=1" data-fs-modal="#rings-modal"><?=sprintf(gettext('Roll out %s...'), htmlspecialchars($target))?></a><?php endif; ?></p></div>
 <?php else: ?>
 	<div class="panel-body fs-fleet-pad fs-fleet-rollouts">
 <?php foreach ($rollouts as $ro):
@@ -263,24 +261,49 @@ $target = fleet_rollout_target();
 
 <?php else:
 	$windows = fleet_windows_all();
-	$edit = isset($_GET['edit']) ? fleet_window_get((int)$_GET['edit']) : null;
-	$f = $edit ?? array('id' => 0, 'name' => '', 'days' => array(1, 2, 3, 4, 5), 'start' => 60, 'length' => 180);
+	$wq = trim((string)($_GET['q'] ?? ''));
+	$wshown = array_values(array_filter($windows, function ($w) use ($wq) {
+		return ($wq === '') || (stripos($w['name'] . ' ' . fleet_window_text($w) . ' ' . implode(' ', fleet_window_users($w['id'])), $wq) !== false);
+	}));
+	$wfill = function (?array $w) {
+		$w = $w ?? array('id' => '', 'name' => '', 'days' => array(1, 2, 3, 4, 5), 'start' => 60, 'length' => 180);
+		return json_encode(array('window_id' => (string)$w['id'], 'name' => $w['name'], 'days[]' => array_map('strval', $w['days']),
+		    'start' => sprintf('%02d:%02d', intdiv($w['start'], 60), $w['start'] % 60), 'length' => (string)$w['length']));
+	};
 ?>
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Maintenance windows')?></h2></div>
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Maintenance windows')?> <span class="fs-count"><?=count($windows)?></span></h2>
+<?php if ($manage): ?>
+		<button type="button" class="btn btn-sm btn-primary" data-fs-modal="#window-modal" data-fs-modal-title="<?=gettext('Add a window')?>" data-fs-fill="<?=htmlspecialchars($wfill(null))?>"><i class="fa-solid fa-plus icon-embed-btn" aria-hidden="true"></i><?=gettext('Add window')?></button>
+<?php endif; ?>
+	</div>
 <?php if (empty($windows)): ?>
 	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint"><?=gettext('No windows yet. A window is a weekly time when a group may be updated, for example weeknights 01:00 for 3 hours.')?></p></div>
 <?php else: ?>
+	<div class="panel-body fs-fleet-pad">
+		<form method="get" class="fs-fleet-filterbar" role="search">
+			<input type="hidden" name="view" value="windows"/>
+			<input class="form-control form-control-sm" type="search" name="q" value="<?=htmlspecialchars($wq)?>" placeholder="<?=gettext('Search name, days or group')?>" aria-label="<?=gettext('Search windows')?>"/>
+			<button class="btn btn-sm btn-outline-secondary" type="submit"><?=gettext('Search')?></button>
+<?php if ($wq !== ''): ?>
+			<a class="btn btn-sm btn-link" href="?view=windows"><?=gettext('Clear')?></a>
+			<span class="fs-muted small ms-auto"><?=sprintf(gettext('%1$d of %2$d'), count($wshown), count($windows))?></span>
+<?php endif; ?>
+		</form>
+	</div>
 	<div class="panel-body table-responsive"><table class="table fs-table">
 		<thead><tr><th><?=gettext('Name')?></th><th><?=gettext('When')?></th><th><?=gettext('Now')?></th><th><?=gettext('Used by')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
 		<tbody>
-<?php foreach ($windows as $w): list($open, $left) = fleet_window_state($w, time(), fleet_tz()); $next = fleet_window_next($w, time(), fleet_tz()); $users = fleet_window_users($w['id']); ?>
+<?php if (empty($wshown)): ?>
+		<tr><td colspan="5" class="fs-muted"><?=gettext('No window matches.')?> <a href="?view=windows"><?=gettext('Clear the search')?></a></td></tr>
+<?php endif; ?>
+<?php foreach ($wshown as $w): list($open, $left) = fleet_window_state($w, time(), fleet_tz()); $next = fleet_window_next($w, time(), fleet_tz()); $users = fleet_window_users($w['id']); ?>
 		<tr><td><?=htmlspecialchars($w['name'])?></td><td><?=htmlspecialchars(fleet_window_text($w))?></td>
 			<td><?=$open ? fs_badge('pass', sprintf(gettext('Open, %s left'), fleet_op_duration($left))) : '<span class="fs-muted">' . sprintf(gettext('Opens %s'), htmlspecialchars(date('D H:i', (int)$next))) . '</span>'?></td>
 			<td><?=empty($users) ? '<span class="fs-muted">-</span>' : htmlspecialchars(implode(', ', $users))?></td>
 			<td class="text-end text-nowrap">
 <?php if ($manage): ?>
-				<a class="btn btn-sm btn-link" href="?view=windows&amp;edit=<?=(int)$w['id']?>"><?=gettext('Change')?></a>
+				<button type="button" class="btn btn-sm btn-link" data-fs-modal="#window-modal" data-fs-modal-title="<?=htmlspecialchars(sprintf(gettext('Change %s'), $w['name']))?>" data-fs-fill="<?=htmlspecialchars($wfill($w))?>"><?=gettext('Change')?></button>
 				<form method="post" action="?view=windows" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="window_delete" value="<?=(int)$w['id']?>"><?=gettext('Delete')?></button></form>
 <?php endif; ?>
 			</td></tr>
@@ -289,33 +312,45 @@ $target = fleet_rollout_target();
 <?php endif; ?>
 	<div class="panel-footer small fs-muted"><?=sprintf(gettext('Times are the controller\'s time zone (%s). A window may run past midnight. A rollout does not start an update when less than %d minutes are left.'), htmlspecialchars(fleet_tz()), fleet_opt('update_timeout'))?></div>
 </div>
-<?php if ($manage): ?>
-<div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=($edit !== null) ? sprintf(htmlspecialchars(gettext('Change %s')), htmlspecialchars($edit['name'])) : gettext('Add a window')?></h2></div>
-	<div class="panel-body fs-fleet-pad">
-		<form method="post" action="?view=windows" class="fs-fleet-form">
-			<input type="hidden" name="window_id" value="<?=(int)$f['id']?>"/>
-			<div class="fs-fleet-field"><label class="form-label" for="wname"><?=gettext('Name')?></label>
-				<input class="form-control" id="wname" name="name" maxlength="40" required value="<?=htmlspecialchars($f['name'])?>" placeholder="<?=gettext('Weeknights')?>"/></div>
-			<fieldset class="fs-fleet-field"><legend class="form-label"><?=gettext('Days')?></legend>
-				<div class="fs-fleet-days">
+<?php if ($manage):
+	fs_modal_form_begin('window-modal', gettext('Add a window'), '?view=windows', array('window_id' => ''), $reopen_window);
+?>
+	<div class="mb-3"><label class="form-label" for="wname"><?=gettext('Name')?></label>
+		<input class="form-control" id="wname" name="name" maxlength="40" required placeholder="<?=gettext('Weeknights')?>"/></div>
+	<fieldset class="mb-3"><legend class="form-label"><?=gettext('Days')?></legend>
+		<div class="fs-fleet-days">
 <?php foreach ($day_names as $d => $label): ?>
-					<label class="fs-fleet-day"><input type="checkbox" name="days[]" value="<?=$d?>"<?=in_array($d, $f['days'], true) ? ' checked' : ''?>/><span><?=htmlspecialchars($label)?></span></label>
+			<label class="fs-fleet-day"><input type="checkbox" name="days[]" value="<?=$d?>"/><span><?=htmlspecialchars($label)?></span></label>
 <?php endforeach; ?>
-				</div></fieldset>
-			<div class="fs-fleet-field"><label class="form-label" for="wstart"><?=gettext('Starts at')?></label>
-				<input class="form-control" type="time" id="wstart" name="start" required value="<?=sprintf('%02d:%02d', intdiv($f['start'], 60), $f['start'] % 60)?>"/></div>
-			<div class="fs-fleet-field"><label class="form-label" for="wlength"><?=gettext('Length')?></label>
-				<div class="input-group"><input class="form-control" type="number" id="wlength" name="length" min="30" max="1440" step="30" required value="<?=(int)$f['length']?>"/><span class="input-group-text"><?=gettext('minutes')?></span></div></div>
-			<div class="fs-fleet-field fs-fleet-field--button">
-				<button class="btn btn-primary" type="submit" name="window_save" value="1"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=($edit !== null) ? gettext('Save') : gettext('Add window')?></button>
-<?php if ($edit !== null): ?>
-				<a class="btn btn-outline-secondary" href="?view=windows"><?=gettext('Cancel')?></a>
-<?php endif; ?>
-			</div>
-		</form>
+		</div></fieldset>
+	<div class="row g-3">
+		<div class="col-sm-6"><label class="form-label" for="wstart"><?=gettext('Starts at')?></label>
+			<input class="form-control" type="time" id="wstart" name="start" required value="01:00"/></div>
+		<div class="col-sm-6"><label class="form-label" for="wlength"><?=gettext('Length')?></label>
+			<div class="input-group"><input class="form-control" type="number" id="wlength" name="length" min="30" max="1440" step="30" required value="180"/><span class="input-group-text"><?=gettext('minutes')?></span></div></div>
 	</div>
-</div>
+	<p class="fs-fleet-hint mt-3 mb-0"><?=gettext('Choose the window for a group on Firewalls > Groups.')?></p>
+<?php
+	fs_modal_form_end(gettext('Save window'), 'window_save', '1', 'fa-floppy-disk');
+endif; ?>
 <?php endif; ?>
-<?php endif; ?>
+<?php if ($manage && ($target !== null)):
+	/* Rings: chosen in a modal from any view; the review is a page. */
+	$ring_groups = fleet_groups_all();
+	fs_modal_form_begin('rings-modal', sprintf(gettext('Roll out %s'), $target), '?view=rollouts');
+?>
+	<p class="fs-fleet-hint"><?=gettext('Rings update in order. Inside a ring, firewalls update one at a time and only in the ring\'s maintenance window (no window: any time). The next ring starts when the one before is done and the wait has passed. A failure pauses the rollout.')?></p>
+<?php for ($i = 0; $i < 5; $i++): ?>
+	<div class="mb-2 row g-2 align-items-center"><label class="col-3 col-form-label" for="ring<?=$i?>"><?=sprintf(gettext('Ring %d'), $i + 1)?></label>
+		<div class="col-9"><select class="form-select" id="ring<?=$i?>" name="ring[<?=$i?>]"<?=($i === 0) ? ' required' : ''?>>
+			<option value=""><?=($i === 0) ? gettext('Choose a group') : gettext('(none)')?></option>
+<?php foreach ($ring_groups as $grp): ?>
+			<option value="<?=(int)$grp['id']?>"><?=htmlspecialchars($grp['name'])?><?=$grp['window_id'] ? ' (' . htmlspecialchars(fleet_window_text(fleet_window_get((int)$grp['window_id']))) . ')' : ''?></option>
+<?php endforeach; ?>
+			<option value="0"><?=gettext('Everyone else (no window)')?></option>
+		</select></div></div>
+<?php endfor; ?>
+<?php
+	fs_modal_form_end(gettext('Review'), 'rollout_rings', '1', 'fa-list-check');
+endif; ?>
 <?php include('foot.inc');

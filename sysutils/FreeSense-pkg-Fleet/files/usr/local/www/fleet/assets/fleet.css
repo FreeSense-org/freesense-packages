@@ -705,3 +705,6 @@ fieldset.fs-fleet-field legend { float: none; width: auto; font-size: inherit; }
 
 /* a fieldset's legend inside a modal reads like the other field labels */
 .fs-modal-form legend.form-label { float: none; width: auto; font-size: inherit; margin-bottom: .5rem; }
+
+/* a panel heading or strip with its action on the right (Add group, Add window, Roll out...) */
+.fs-fleet-heading-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--fs-sp-2); }
