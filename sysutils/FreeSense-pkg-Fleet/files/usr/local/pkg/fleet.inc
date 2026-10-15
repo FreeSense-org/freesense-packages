@@ -296,6 +296,22 @@ function fleet_remove_config(): void {
 /* Status poll                                                         */
 /* ------------------------------------------------------------------ */
 
+/*
+ * pure: what the dashboard says when a box does not answer. The join client's
+ * errors speak from the box's side ("the controller is unreachable"); here
+ * the controller is the one asking.
+ */
+function fleet_poll_problem(string $code, string $message): string {
+	$reason = preg_match('/\(([^)]+)\)/', $message, $m) ? " ({$m[1]})" : '';
+	switch ($code) {
+	case 'E105':
+		return "FLEET-E105: The box did not answer over the tunnel{$reason}. Check that it is powered on and online.";
+	case 'E101':
+		return 'FLEET-E101: The box answered with a different certificate. Check it before trusting it again.';
+	}
+	return "FLEET-{$code}: {$message}";
+}
+
 /* Poll one box; returns its new state. */
 function fleet_poll_box(array $box, int $now): string {
 	$key = fleet_unseal((string)$box['api_key'], fleet_master_key());
@@ -311,7 +327,7 @@ function fleet_poll_box(array $box, int $now): string {
 			$error = "HTTP {$code} " . (string)($json['error']['code'] ?? '');
 		}
 	} catch (FleetJoinError $e) {
-		$error = "FLEET-{$e->fleet_code}: " . $e->getMessage();
+		$error = fleet_poll_problem($e->fleet_code, $e->getMessage());
 	}
 	$misses = ($status === null) ? ((int)$box['misses'] + 1) : 0;
 	$state = ($status === null) ? fleet_box_state($misses) : 'online';

@@ -44,7 +44,7 @@ $manage = isAllowedPage('fleet/fleet.php');
 $strings = array(
 	'online' => gettext('Online'), 'degraded' => gettext('Degraded'), 'offline' => gettext('Offline'), 'new' => gettext('Joining'),
 	'version' => gettext('Version'), 'tunnel' => gettext('Tunnel'), 'seen' => gettext('Last seen'), 'never' => gettext('never'),
-	'managed' => gettext('Managed'), 'monitor' => gettext('Monitor only'), 'rollback' => gettext('No rollback'),
+	'role' => gettext('Role'), 'managed' => gettext('Managed'), 'monitor' => gettext('Monitor only'), 'rollback' => gettext('No rollback'),
 	'rollback_hint' => gettext('UFS: a failed update cannot roll back by itself'), 'carp' => gettext('CARP'),
 	'breakglass' => gettext('Lock suspended'), 'checked' => gettext('Checked %s'), 'not_checked' => gettext('Not checked yet'),
 	'stale' => gettext('Could not refresh. Showing the last known state.'),
