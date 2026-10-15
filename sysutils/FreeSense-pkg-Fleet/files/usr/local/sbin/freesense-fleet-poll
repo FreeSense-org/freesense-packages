@@ -1,0 +1,40 @@
+#!/usr/local/bin/php
+<?php
+/*
+ * part of FreeSense (https://www.freesense.org)
+ * Copyright (c) 2026 The FreeSense Project
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/*
+ * freesense-fleet-poll: run every minute by cron. Reads each managed box's
+ * status through the tunnel (certificate pinned) and updates the box list:
+ * online, degraded after 3 missed polls, offline after 10.
+ */
+
+require_once('config.inc');
+require_once('functions.inc');
+require_once('fleet.inc');
+
+if (!fleet_ctl_settings()['enable'] || !is_file(FLEET_DATA . '/fleet.db')) {
+	exit(0);
+}
+$lock = fopen('/var/run/fleet-poll.lock', 'c');
+if (!flock($lock, LOCK_EX | LOCK_NB)) {
+	exit(0);
+}
+foreach (fleet_db()->query('SELECT * FROM boxes ORDER BY host_no')->fetchAll() as $box) {
+	fleet_poll_box($box, time());
+}

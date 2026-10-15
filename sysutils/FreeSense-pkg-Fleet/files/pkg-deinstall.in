@@ -1,0 +1,3 @@
+#!/bin/sh
+# rc.packages removes the package's config entry in the POST-DEINSTALL stage
+/usr/local/bin/php -f /etc/rc.packages %%PORTNAME%% "$2"

@@ -1,0 +1,8 @@
+FreeSense Fleet: central management for many FreeSense firewalls.
+
+Run it on one FreeSense firewall (the controller). Invite other firewalls
+with a join link and a separate join key, approve them after comparing a
+verification code, and follow their status over an encrypted WireGuard
+management tunnel that the managed firewalls start themselves.
+
+The managed side is built into FreeSense (freesense-join, console option 17).
