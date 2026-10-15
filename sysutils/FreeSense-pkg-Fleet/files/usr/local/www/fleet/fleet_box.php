@@ -202,8 +202,8 @@ $asset = function ($f) {
 	return '/fleet/assets/' . $f . '?v=' . (int)@filemtime('/usr/local/www/fleet/assets/' . $f);
 };
 
-$views = array('overview' => gettext('Overview'), 'updates' => gettext('Updates'), 'backups' => gettext('Backups'), 'manage' => gettext('Manage'),
-    'events' => gettext('Events'));
+$views = array('overview' => gettext('Overview'), 'updates' => gettext('Updates'), 'policies' => gettext('Policies'), 'backups' => gettext('Backups'),
+    'manage' => gettext('Manage'), 'events' => gettext('Events'));
 if (!$manage) {
 	unset($views['backups'], $views['manage']);
 }
@@ -224,6 +224,7 @@ if ($manage) {
 		array(gettext('Updates'), false, '/fleet/fleet_updates.php'),
 		array(gettext('Schedules'), false, '/fleet/fleet_schedules.php'),
 		array(gettext('Backups'), false, '/fleet/fleet_backups.php'),
+		array(gettext('Policies'), false, '/fleet/fleet_policies.php'),
 		array(gettext('Firewalls'), false, '/fleet/fleet.php'),
 		array(gettext('Settings'), false, '/fleet/fleet.php?tab=settings'),
 	);
@@ -531,6 +532,37 @@ if ($savemsg) {
 <?php endif; ?>
 </div>
 <p class="fs-fleet-hint"><?=gettext('The firewall checks its own update channel (System > Update on the firewall). Several firewalls at once: a group\'s menu on the dashboard, Update.')?></p>
+
+<?php elseif ($view === 'policies'):
+	$peff = fleet_box_effective($box['node_id']);
+	$pq = fleet_db()->prepare('SELECT * FROM compliance WHERE node_id = ?');
+	$pq->execute(array($box['node_id']));
+	$pres = array_column($pq->fetchAll(), null, 'rule_id');
+	$pnames = array_column(fleet_policies_all(), 'name', 'id');
+	$pbadge = array('pass' => fs_badge('pass', gettext('Pass')), 'fail' => fs_badge('block', gettext('Fails')), 'unknown' => fs_badge('neutral', gettext('Unknown')),
+	    'excepted' => fs_badge('info', gettext('Exception')));
+?>
+<div class="panel panel-default">
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Policy rules for this firewall')?> <span class="fs-count"><?=count($peff)?></span></h2>
+		<a class="btn btn-sm btn-link" href="/fleet/fleet_policies.php?view=policies"><?=gettext('Policies...')?></a></div>
+<?php if (empty($peff)): ?>
+	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint mb-0"><?=gettext('No policy covers this firewall. Add a policy for all firewalls, one of its groups, or this firewall.')?></p></div>
+<?php else: ?>
+	<div class="panel-body table-responsive"><table class="table fs-table">
+		<thead><tr><th><?=gettext('Rule')?></th><th><?=gettext('State')?></th><th><?=gettext('Found')?></th><th><?=gettext('From policy')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
+		<tbody>
+<?php foreach ($peff as $rid => list($params, $mode, $pid, $pname, $conflict)): $res = $pres[$rid] ?? null; ?>
+		<tr><td><?=htmlspecialchars(fleet_policy_rule_title($rid, $params))?> <span class="fs-muted small"><?=htmlspecialchars(preg_replace('/:\d+$/', '', $rid))?></span></td>
+			<td><?=($res === null) ? '<span class="fs-muted">' . gettext('Not checked yet') . '</span>' : ($pbadge[$res['state']] ?? htmlspecialchars($res['state']))?></td>
+			<td class="small"><?=htmlspecialchars((string)($res['detail'] ?? ''))?></td>
+			<td><a href="/fleet/fleet_policies.php?view=edit&amp;id=<?=(int)$pid?>"><?=htmlspecialchars($pname)?></a>
+				<?=($conflict !== null) ? fs_badge('warn', sprintf(gettext('Conflicts with %s'), $conflict)) : ''?></td>
+			<td class="text-end"><?php if ($manage && (($res['state'] ?? '') === 'fail')): ?><a class="btn btn-sm btn-link" href="/fleet/fleet_policies.php?view=exceptions&amp;node=<?=urlencode($box['node_id'])?>&amp;rule=<?=urlencode($rid)?>"><?=gettext('Exception...')?></a><?php endif; ?></td></tr>
+<?php endforeach; ?>
+		</tbody></table></div>
+<?php endif; ?>
+	<div class="panel-footer small fs-muted"><?=gettext('Checked every 15 minutes against what the firewall reports and its newest configuration backup.')?></div>
+</div>
 
 <?php elseif ($view === 'manage'):
 	$review = (string)($_GET['review'] ?? '');

@@ -117,13 +117,15 @@ function fleet_rolling_next(array $states): array {
  * leaves out and why: like a reboot, and also those without an update and
  * (unless allowed) those without rollback. $info: node_id => update info.
  */
-function fleet_group_update_plan(array $boxes, array $busy, array $info, bool $ufs_ok): array {
+function fleet_group_update_plan(array $boxes, array $busy, array $info, bool $ufs_ok, array $blocked = array()): array {
 	$plan = fleet_group_reboot_plan($boxes, $busy);
 	$go = array();
 	foreach ($plan['go'] as $b) {
 		$i = $info[$b['node_id']] ?? null;
 		$st = json_decode((string)($b['status'] ?? ''), true) ?: array();
-		if (($i === null) || ($i['error'] !== null)) {
+		if (isset($blocked[$b['node_id']])) {
+			$plan['skip'][] = array($b, $blocked[$b['node_id']]);
+		} elseif (($i === null) || ($i['error'] !== null)) {
 			$plan['skip'][] = array($b, ($i === null) ? 'Not checked for updates yet' : 'Its update check failed');
 		} elseif (!$i['available']) {
 			$plan['skip'][] = array($b, 'Up to date (' . fleet_version_number($i['installed']) . ')');
@@ -377,7 +379,8 @@ function fleet_boxes_plan(array $boxes, string $action): array {
 		}
 		$infos[$b['node_id']] = fleet_update_info($b);
 	}
-	return ($action === 'update') ? fleet_group_update_plan($boxes, $busy, $infos, fleet_opt('update_ufs_in_groups')) : fleet_group_reboot_plan($boxes, $busy);
+	return ($action === 'update') ? fleet_group_update_plan($boxes, $busy, $infos, fleet_opt('update_ufs_in_groups'), fleet_policy_update_blocks($boxes, $infos)) :
+	    fleet_group_reboot_plan($boxes, $busy);
 }
 
 /* Start a reviewed (or scheduled) group reboot or update in the background. $group: a group, a name, or null (all). Returns the operation id. */

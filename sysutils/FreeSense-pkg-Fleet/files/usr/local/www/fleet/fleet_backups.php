@@ -161,6 +161,7 @@ if ($manage) {
 		array(gettext('Updates'), false, '/fleet/fleet_updates.php'),
 		array(gettext('Schedules'), false, '/fleet/fleet_schedules.php'),
 		array(gettext('Backups'), true, '/fleet/fleet_backups.php'),
+		array(gettext('Policies'), false, '/fleet/fleet_policies.php'),
 		array(gettext('Firewalls'), false, '/fleet/fleet.php'),
 		array(gettext('Settings'), false, '/fleet/fleet.php?tab=settings'),
 	);

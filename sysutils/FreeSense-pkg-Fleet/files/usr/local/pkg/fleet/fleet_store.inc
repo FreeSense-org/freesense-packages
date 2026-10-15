@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 12);
+define('FLEET_DB_SCHEMA', 13);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -298,6 +298,21 @@ CREATE TABLE IF NOT EXISTS backup_sets (
 	keep_last INTEGER NOT NULL, keep_daily INTEGER NOT NULL, keep_weekly INTEGER NOT NULL, keep_monthly INTEGER NOT NULL, created INTEGER NOT NULL);
 ALTER TABLE backups ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
 PRAGMA user_version = 12;
+SQL);
+	}
+	if ($version < 13) {
+		/* Policies, exceptions, and the last compliance check of every firewall and rule. */
+		$db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS policies (
+	id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE COLLATE NOCASE, description TEXT NOT NULL DEFAULT '', targets TEXT NOT NULL,
+	rules TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, created INTEGER NOT NULL, updated INTEGER NOT NULL, who TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS policy_exceptions (
+	id INTEGER PRIMARY KEY AUTOINCREMENT, node_id TEXT NOT NULL, rule_id TEXT NOT NULL, reason TEXT NOT NULL, who TEXT NOT NULL,
+	created INTEGER NOT NULL, expires INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS compliance (
+	node_id TEXT NOT NULL, rule_id TEXT NOT NULL, state TEXT NOT NULL, detail TEXT NOT NULL, policy_id INTEGER, conflict TEXT,
+	checked INTEGER NOT NULL, PRIMARY KEY (node_id, rule_id));
+PRAGMA user_version = 13;
 SQL);
 	}
 	$db->exec('COMMIT');

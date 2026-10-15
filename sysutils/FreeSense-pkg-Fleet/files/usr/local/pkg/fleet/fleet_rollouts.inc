@@ -301,7 +301,7 @@ function fleet_rollout_plan(array $ring_groups, string $target): array {
 			$infos[$b['node_id']]['installed'] = $infos[$b['node_id']]['latest'] . ' offered';
 		}
 	}
-	$plan = fleet_group_update_plan($boxes, $busy, $infos, fleet_opt('update_ufs_in_groups'));
+	$plan = fleet_group_update_plan($boxes, $busy, $infos, fleet_opt('update_ufs_in_groups'), fleet_policy_update_blocks($boxes, $infos, $target));
 	$members = array();
 	foreach (fleet_db()->query('SELECT group_id, node_id FROM box_groups')->fetchAll() as $m) {
 		$members[(int)$m['group_id']][] = $m['node_id'];
