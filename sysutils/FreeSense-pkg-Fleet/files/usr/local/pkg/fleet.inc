@@ -371,6 +371,8 @@ function fleet_event_text(string $node_id, string $action, string $detail): arra
 		return array('Restore failed', $rest);
 	case 'reboot':
 		return array('Rebooted', 'by the controller');
+	case 'reboot_group':
+		return array('Group reboot', $rest);
 	case 'reboot_done':
 		return array('Back online', preg_replace('/^Back online /', '', $rest));
 	case 'reboot_failed':

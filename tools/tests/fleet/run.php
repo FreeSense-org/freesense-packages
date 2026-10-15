@@ -377,10 +377,11 @@ check(fleet_dashboard_data(array($row('node-op', 'Op', 'online')), 0, time(), ar
     'the tile data carries the operation');
 
 /* ---- group operations ---- */
-check(fleet_op_progress(array('done', 'failed', 'running', 'queued')) === array('total' => 4, 'finished' => 2, 'failed' => 1, 'percent' => 50) &&
+check(fleet_op_progress(array('done', 'failed', 'running', 'queued')) === array('total' => 4, 'finished' => 2, 'failed' => 1, 'skipped' => 0, 'percent' => 50) &&
     fleet_op_progress(array())['percent'] === 100, 'group progress counts finished tasks');
 check(fleet_op_summary(array('total' => 8, 'finished' => 5, 'failed' => 0), false) === '5 of 8 done' && fleet_op_summary(array('total' => 8, 'finished' => 8, 'failed' => 0), true) === 'All 8 done' &&
     fleet_op_summary(array('total' => 8, 'finished' => 8, 'failed' => 2), true) === '2 of 8 failed', 'group progress in words');
+check(fleet_op_summary(array('total' => 3, 'finished' => 3, 'failed' => 1, 'skipped' => 2), true) === '1 of 3 failed, 2 left alone', 'a stopped rolling operation says what was left alone');
 $gop = fleet_op_group_start('backup_all', 'Back up Denmark', 'tester');
 $t1 = fleet_op_start('node-ga', 'backup', 'Waiting', 'tester', $gop, 'queued');
 $t2 = fleet_op_start('node-gb', 'backup', 'Waiting', 'tester', $gop, 'queued');
@@ -424,5 +425,28 @@ list($evs, $epg) = fleet_events_find('node-ev', array('type' => 'manage'), 1, ti
 check($epg['total'] === 1 && $evs[0]['action'] === 'reboot', 'events filtered by type');
 list(, $epg) = fleet_events_find('node-ev', array('q' => 'offline'), 1, time());
 check($epg['total'] === 1, 'events searched');
+
+/* ---- group reboot: plan and rolling order ---- */
+check(fleet_rolling_next(array('queued', 'queued')) === array('do' => 'start', 'index' => 0) &&
+    fleet_rolling_next(array('done', 'running', 'queued')) === array('do' => 'wait') &&
+    fleet_rolling_next(array('done', 'done', 'queued')) === array('do' => 'start', 'index' => 2) &&
+    fleet_rolling_next(array('done', 'failed', 'queued')) === array('do' => 'stop') &&
+    fleet_rolling_next(array('done', 'skipped', 'done')) === array('do' => 'done') && fleet_rolling_next(array()) === array('do' => 'done'),
+    'one at a time; the first failure stops the rest');
+$plan = fleet_group_reboot_plan(array(
+    array('node_id' => 'b', 'label' => 'Bravo', 'role' => 'managed', 'state' => 'online'),
+    array('node_id' => 'a', 'label' => 'alpha', 'role' => 'managed', 'state' => 'degraded'),
+    array('node_id' => 'm', 'label' => 'Mon', 'role' => 'monitor', 'state' => 'online'),
+    array('node_id' => 'o', 'label' => 'Off', 'role' => 'managed', 'state' => 'offline'),
+    array('node_id' => 'x', 'label' => 'Busy', 'role' => 'managed', 'state' => 'online')), array('x' => 'Backing up'));
+check(array_column($plan['go'], 'node_id') === array('a', 'b') &&
+    array_map(function ($s) { return $s[1]; }, $plan['skip']) === array('Busy: backing up', 'Monitor only: the controller may not reboot it', 'Offline'),
+    'the review lists who reboots in order and who is left alone and why');
+$rop = fleet_op_group_start('reboot_group', 'Reboot Canary', 'tester');
+$ra = fleet_op_start('node-ra', 'reboot', 'Waiting', 'tester', $rop, 'queued');
+check(fleet_rolling_next(array_column(fleet_op_tasks($rop), 'state'))['index'] === 0, 'tasks run in the order they were planned');
+fleet_db()->prepare("UPDATE ops SET state = 'running', text = 'Rebooting', started = ? WHERE id = ?")->execute(array(time() - 30, $ra));
+fleet_ops_follow(array('node_id' => 'node-ra', 'label' => 'RA'), array('boot_time' => time()), time());
+check(fleet_op_group_update($rop)['finished'] === 1 && fleet_ops_history(1)[0]['text'] === 'Done', 'the poll finishes a group task the same way as a single reboot');
 
 echo "Fleet controller tests: OK\n";

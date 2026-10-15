@@ -11,6 +11,7 @@ pkg/fleet/fleet_ops.inc
 pkg/fleet/fleet_store.inc
 sbin/freesense-fleet-backup
 sbin/freesense-fleet-poll
+sbin/freesense-fleet-run
 share/FreeSense-pkg-Fleet/info.xml
 www/fleet/assets/fleet-list.js
 www/fleet/assets/fleet.css
@@ -19,5 +20,6 @@ www/fleet/fleet.php
 www/fleet/fleet_action.php
 www/fleet/fleet_activity.php
 www/fleet/fleet_box.php
+www/fleet/fleet_group_action.php
 www/fleet/fleet_dashboard.php
 www/fleet/fleet_data.php

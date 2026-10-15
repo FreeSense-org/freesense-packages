@@ -82,10 +82,10 @@ function fleet_manage_require(array $box): void {
 	}
 }
 
-/* Reboot a firewall. Returns the words for the result. */
-function fleet_box_reboot(array $box, string $who): string {
+/* Reboot a firewall. Returns the words for the result. $task: the group operation's task for it, if any. */
+function fleet_box_reboot(array $box, string $who, ?int $task = null): string {
 	fleet_manage_require($box);
-	if (fleet_op_running($box['node_id']) !== null) {
+	if (($task === null) && (fleet_op_running($box['node_id']) !== null)) {
 		throw new RuntimeException('Something is already running on this firewall. Wait until it is done.');
 	}
 	list($code, $json) = fleet_box_call($box, 'POST', '/api/v1/management/reboot', array('confirm' => true, 'operator' => fleet_operator($who)));
@@ -93,7 +93,12 @@ function fleet_box_reboot(array $box, string $who): string {
 		throw new RuntimeException('The firewall refused the reboot: ' . fleet_box_error($code, $json));
 	}
 	fleet_audit($who, 'reboot', "{$box['node_id']} ({$box['label']}): reboot started");
-	fleet_op_start($box['node_id'], 'reboot', 'Rebooting', $who);
+	if ($task === null) {
+		fleet_op_start($box['node_id'], 'reboot', 'Rebooting', $who);
+	} else {
+		/* Started now: the poll compares the box's boot time with this. */
+		fleet_db()->prepare("UPDATE ops SET state = 'running', text = 'Rebooting', started = ?, updated = ? WHERE id = ?")->execute(array(time(), time(), $task));
+	}
 	return 'The firewall is rebooting. It is usually back within a few minutes; the dashboard shows when it is online again.';
 }
 
