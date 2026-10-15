@@ -62,3 +62,7 @@ jobs:
             ! -path './freesense-src/*' -print0 | xargs -0 -r -n1 sh -n
       - name: Threat Shield unit tests
         run: php tools/tests/threatshield/run.php
+      - name: FreeSense Fleet controller tests (joins with the System's client from freesense-src)
+        run: |
+          sudo apt-get install -yq php-sqlite3
+          php -d error_reporting=E_ALL tools/tests/fleet/run.php freesense-src

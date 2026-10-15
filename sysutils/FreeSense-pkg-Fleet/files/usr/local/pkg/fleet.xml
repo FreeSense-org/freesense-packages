@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!DOCTYPE packagegui SYSTEM "../schema/packages.dtd">
+<?xml-stylesheet type="text/xsl" href="../xsl/package.xsl"?>
+<packagegui>
+	<name>fleet</name>
+	<title>System: FreeSense Fleet</title>
+	<donotsave>true</donotsave>
+	<include_file>/usr/local/pkg/fleet.inc</include_file>
+	<menu>
+		<name>FreeSense Fleet</name>
+		<tooltiptext>Manage many FreeSense firewalls from this one</tooltiptext>
+		<section>System</section>
+		<url>/fleet/fleet.php</url>
+	</menu>
+	<filter_rules_needed>fleet_generate_rules</filter_rules_needed>
+	<custom_php_resync_config_command>fleet_sync_config();</custom_php_resync_config_command>
+	<custom_php_pre_deinstall_command>fleet_remove_config();</custom_php_pre_deinstall_command>
+</packagegui>

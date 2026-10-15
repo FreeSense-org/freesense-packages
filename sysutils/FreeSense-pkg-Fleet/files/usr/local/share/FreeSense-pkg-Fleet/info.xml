@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<freesensepkgs>
+	<package>
+		<name>Fleet</name>
+		<website>https://freesense.org/</website>
+		<descr><![CDATA[Central management for many FreeSense firewalls: invite boxes with a join link and key, approve them, and watch their status over an encrypted management tunnel.]]></descr>
+		<version>%%PKGVERSION%%</version>
+		<configurationfile>fleet.xml</configurationfile>
+	</package>
+</freesensepkgs>

@@ -1,0 +1,219 @@
+<?php
+/*
+ * fleet_store.inc
+ *
+ * part of FreeSense (https://www.freesense.org)
+ * Copyright (c) 2026 The FreeSense Project
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/*
+ * FreeSense Fleet controller storage.
+ *
+ * Everything lives in the data directory /fleet, never in config.xml (which is
+ * rewritten on every save, copied into every revision and pushed over HA
+ * sync). On ZFS /fleet is its own dataset FreeSense/fleet, outside the boot
+ * environment, so rolling back the controller's own update never rolls back
+ * the fleet's state. On UFS it is a plain directory. /var is avoided: it can
+ * be a RAM disk.
+ *
+ *   /fleet/fleet.db      SQLite (WAL): settings, invitations, enrollments, boxes, audit
+ *   /fleet/master.key    32 random bytes; encrypts the secrets kept in the database
+ *   /fleet/wg.key        the controller's WireGuard private key
+ *   /fleet/signing.pem   the key that signs policy bundles (ECDSA P-256)
+ *   /fleet/tls.pem       the enrollment endpoint's certificate and key (pinned by join links)
+ *
+ * Functions marked "pure" touch neither the system nor the database.
+ */
+
+define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
+define('FLEET_DB_SCHEMA', 1);
+
+/* ------------------------------------------------------------------ */
+/* Pure: secrets                                                       */
+/* ------------------------------------------------------------------ */
+
+/* pure: encrypt a secret for the database (AES-256-GCM, base64 "v1:nonce:tag:data"). */
+function fleet_seal(string $plain, string $master): string {
+	$nonce = random_bytes(12);
+	$tag = '';
+	$data = openssl_encrypt($plain, 'aes-256-gcm', $master, OPENSSL_RAW_DATA, $nonce, $tag, 'FreeSense-Fleet-Store-v1');
+	return 'v1:' . base64_encode($nonce) . ':' . base64_encode($tag) . ':' . base64_encode((string)$data);
+}
+
+/* pure: decrypt fleet_seal() output, or null. */
+function fleet_unseal(string $sealed, string $master): ?string {
+	$p = explode(':', $sealed);
+	if ((count($p) !== 4) || ($p[0] !== 'v1')) {
+		return null;
+	}
+	$plain = openssl_decrypt((string)base64_decode($p[3]), 'aes-256-gcm', $master, OPENSSL_RAW_DATA, (string)base64_decode($p[1]),
+	    (string)base64_decode($p[2]), 'FreeSense-Fleet-Store-v1');
+	return ($plain === false) ? null : $plain;
+}
+
+/* pure: a random ULA /64 for the management overlay (RFC 4193: fd + 40 random bits + subnet f1). */
+function fleet_random_overlay(): string {
+	$g = bin2hex(random_bytes(5));
+	return sprintf('fd%s:%s:%s:f1::/64', substr($g, 0, 2), substr($g, 2, 4), substr($g, 6, 4));
+}
+
+/* pure: the address of host number $n (1 = the controller) in a /64 overlay prefix. */
+function fleet_overlay_host(string $prefix, int $n): string {
+	$base = explode('/', $prefix)[0];
+	return inet_ntop(substr(inet_pton($base), 0, 8) . pack('J', $n));
+}
+
+/* ------------------------------------------------------------------ */
+/* Data directory and keys                                             */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Create the data directory: a ZFS dataset when the system runs on ZFS,
+ * otherwise a directory. Returns an error text or null.
+ */
+function fleet_data_prepare(): ?string {
+	if (!is_dir(FLEET_DATA)) {
+		$pool = '';
+		exec('/sbin/zfs list -H -o name / 2>/dev/null', $out, $rc);
+		if (($rc === 0) && preg_match('#^([A-Za-z0-9_.:-]+)/#', (string)($out[0] ?? ''), $m)) {
+			$pool = $m[1];
+		}
+		if ($pool !== '') {
+			exec('/sbin/zfs create -o mountpoint=' . escapeshellarg(FLEET_DATA) . ' -o canmount=on ' .
+			    escapeshellarg("{$pool}/fleet") . ' 2>&1', $zout, $zrc);
+		}
+		if (!is_dir(FLEET_DATA) && !@mkdir(FLEET_DATA, 0700, true)) {
+			return 'The Fleet data directory ' . FLEET_DATA . ' could not be created.';
+		}
+	}
+	@chmod(FLEET_DATA, 0700);
+	return null;
+}
+
+/* True when the data directory is on ZFS (the controller then has rollback protection). */
+function fleet_data_on_zfs(): bool {
+	exec('/sbin/zfs list -H -o name ' . escapeshellarg(FLEET_DATA) . ' 2>/dev/null', $out, $rc);
+	return $rc === 0;
+}
+
+/* Write a private file once; returns its content. */
+function fleet_secret_file(string $name, callable $make): string {
+	$path = FLEET_DATA . "/{$name}";
+	if (!is_file($path)) {
+		$tmp = "{$path}.tmp" . getmypid();
+		if ((@file_put_contents($tmp, $make()) === false) || !@chmod($tmp, 0600) || !@rename($tmp, $path)) {
+			@unlink($tmp);
+			throw new RuntimeException("{$path} could not be written.");
+		}
+	}
+	return (string)file_get_contents($path);
+}
+
+function fleet_master_key(): string {
+	return fleet_secret_file('master.key', function () { return random_bytes(32); });
+}
+
+function fleet_signing_pem(): string {
+	return fleet_secret_file('signing.pem', function () {
+		$k = openssl_pkey_new(array('private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1'));
+		openssl_pkey_export($k, $pem);
+		return $pem;
+	});
+}
+
+function fleet_signing_public(): string {
+	return (string)openssl_pkey_get_details(openssl_pkey_get_private(fleet_signing_pem()))['key'];
+}
+
+/* The enrollment endpoint's certificate (self-signed ECDSA, 10 years): its fingerprint goes in every join link. */
+function fleet_tls_pem(): string {
+	return fleet_secret_file('tls.pem', function () {
+		$k = openssl_pkey_new(array('private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1'));
+		$csr = openssl_csr_new(array('commonName' => 'FreeSense Fleet controller', 'organizationName' => 'FreeSense Fleet'), $k,
+		    array('digest_alg' => 'sha256'));
+		openssl_x509_export(openssl_csr_sign($csr, null, $k, 3650, array('digest_alg' => 'sha256'), random_int(1, PHP_INT_MAX)), $crt);
+		openssl_pkey_export($k, $kpem);
+		return $crt . $kpem;
+	});
+}
+
+/* ------------------------------------------------------------------ */
+/* Database                                                            */
+/* ------------------------------------------------------------------ */
+
+function fleet_db(): PDO {
+	static $db = null;
+	if ($db === null) {
+		$db = new PDO('sqlite:' . FLEET_DATA . '/fleet.db', null, null, array(PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+		    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC));
+		$db->exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
+		@chmod(FLEET_DATA . '/fleet.db', 0600);
+		fleet_db_migrate($db);
+	}
+	return $db;
+}
+
+/* Create or upgrade the schema; safe to run again. */
+function fleet_db_migrate(PDO $db): void {
+	$version = (int)$db->query('PRAGMA user_version')->fetchColumn();
+	if ($version >= FLEET_DB_SCHEMA) {
+		return;
+	}
+	$db->exec('BEGIN IMMEDIATE');
+	$db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS invitations (
+	token_id TEXT PRIMARY KEY, secret_hash TEXT NOT NULL, okm TEXT NOT NULL, role TEXT NOT NULL, label TEXT NOT NULL,
+	created INTEGER NOT NULL, expires INTEGER NOT NULL, state TEXT NOT NULL DEFAULT 'open', failures INTEGER NOT NULL DEFAULT 0,
+	challenge TEXT, challenge_time INTEGER, created_by TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS enrollments (
+	id TEXT PRIMARY KEY, token_id TEXT NOT NULL REFERENCES invitations(token_id), node_wg_pub TEXT NOT NULL, inventory TEXT NOT NULL,
+	code TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending', created INTEGER NOT NULL, decided_by TEXT, decided INTEGER, source_ip TEXT);
+CREATE TABLE IF NOT EXISTS boxes (
+	node_id TEXT PRIMARY KEY, name TEXT NOT NULL, label TEXT NOT NULL, host_no INTEGER NOT NULL UNIQUE, overlay TEXT NOT NULL,
+	wg_pub TEXT NOT NULL UNIQUE, api_key TEXT NOT NULL, cert_sha256 TEXT NOT NULL, role TEXT NOT NULL, joined INTEGER NOT NULL,
+	last_seen INTEGER, state TEXT NOT NULL DEFAULT 'new', misses INTEGER NOT NULL DEFAULT 0, status TEXT, error TEXT);
+CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY AUTOINCREMENT, time INTEGER NOT NULL, who TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL);
+PRAGMA user_version = 1;
+SQL);
+	$db->exec('COMMIT');
+}
+
+function fleet_setting(string $name, ?string $default = null): ?string {
+	$st = fleet_db()->prepare('SELECT value FROM settings WHERE name = ?');
+	$st->execute(array($name));
+	$v = $st->fetchColumn();
+	return ($v === false) ? $default : (string)$v;
+}
+
+function fleet_setting_set(string $name, string $value): void {
+	fleet_db()->prepare('INSERT INTO settings (name, value) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value')
+	    ->execute(array($name, $value));
+}
+
+function fleet_audit(string $who, string $action, string $detail): void {
+	fleet_db()->prepare('INSERT INTO audit (time, who, action, detail) VALUES (?, ?, ?, ?)')->execute(array(time(), $who, $action, $detail));
+}
+
+/* First-time setup of the controller's identity: overlay prefix and keys. Idempotent. */
+function fleet_controller_init(): void {
+	if (fleet_setting('overlay_prefix') === null) {
+		fleet_setting_set('overlay_prefix', fleet_random_overlay());
+	}
+	fleet_master_key();
+	fleet_signing_pem();
+	fleet_tls_pem();
+}
