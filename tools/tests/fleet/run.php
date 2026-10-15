@@ -293,4 +293,9 @@ foreach ($it as $f) {
 	    strpos($make, '${FILESDIR}' . dirname($made) . '/* ') !== false, "the Makefile installs {$rel}");
 }
 
+check(fleet_box_error(422, array('error' => array('message' => 'The request failed validation.', 'details' => array('fields' => array('config' => 'The configuration is from a newer FreeSense.'))))) === 'The configuration is from a newer FreeSense.' &&
+    fleet_box_error(500, array('error' => array('message' => 'Disk full.'))) === 'Disk full.' &&
+    fleet_box_error(502, array()) === 'The box answered HTTP 502.' && fleet_backup_reason_text('safety') === 'Before a restore', 'restore messages');
+check(fleet_event_text('node-1', 'restore', 'node-1 (Lab): backup of 2026-10-15 20:28') === array('Restored a backup', 'from 2026-10-15 20:28'), 'restore events in words');
+
 echo "Fleet controller tests: OK\n";

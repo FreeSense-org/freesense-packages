@@ -339,6 +339,10 @@ function fleet_event_text(string $node_id, string $action, string $detail): arra
 		return array('Backed up', preg_replace(array('/, [0-9a-f]{12}$/', '/^Backed up /'), '', $rest));
 	case 'backup_failed':
 		return array('Backup failed', $rest);
+	case 'restore':
+		return array('Restored a backup', preg_replace('/^backup of /', 'from ', $rest));
+	case 'restore_failed':
+		return array('Restore failed', $rest);
 	case 'backup_download':
 		return array('Downloaded a backup', preg_replace('/^backup of /', 'from ', $rest));
 	}

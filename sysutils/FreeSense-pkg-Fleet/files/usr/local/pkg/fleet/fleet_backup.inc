@@ -99,7 +99,8 @@ function fleet_backup_file(string $node_id, int $time, string $sha256): string {
 
 /* pure: the words for why a backup was taken. */
 function fleet_backup_reason_text(string $reason): string {
-	$names = array('change' => 'Configuration changed', 'nightly' => 'Nightly', 'manual' => 'Backed up by hand', 'all' => 'Back up all');
+	$names = array('change' => 'Configuration changed', 'nightly' => 'Nightly', 'manual' => 'Backed up by hand', 'all' => 'Back up all',
+	    'safety' => 'Before a restore');
 	return $names[$reason] ?? ucfirst($reason);
 }
 
@@ -174,18 +175,88 @@ function fleet_backup_store(array $box, string $xml, string $reason, string $who
 	return array('stored', $row);
 }
 
-/* Fetch a box's running configuration over the tunnel and store it. */
-function fleet_backup_box(array $box, string $reason, string $who): array {
+/* One API call to a box over the tunnel. Returns array(status, JSON, raw body); a connection problem is a RuntimeException. */
+function fleet_box_call(array $box, string $method, string $path, ?array $body = null): array {
 	$key = (string)fleet_unseal((string)$box['api_key'], fleet_master_key());
 	try {
-		list($code, , $raw) = fleet_http_pinned(fleet_box_target($box), 'GET', '/api/v1/config/revisions/current', null, $key);
+		return fleet_http_pinned(fleet_box_target($box), $method, $path, $body, $key);
 	} catch (FleetJoinError $e) {
 		throw new RuntimeException(fleet_poll_problem($e->fleet_code, $e->getMessage()));
 	}
+}
+
+/* A box's running configuration, fetched over the tunnel. */
+function fleet_backup_fetch(array $box): string {
+	list($code, , $raw) = fleet_box_call($box, 'GET', '/api/v1/config/revisions/current');
 	if ($code !== 200) {
 		throw new RuntimeException("The box answered HTTP {$code} when asked for its configuration.");
 	}
-	return fleet_backup_store($box, (string)$raw, $reason, $who, time());
+	return (string)$raw;
+}
+
+/* Fetch a box's running configuration over the tunnel and store it. */
+function fleet_backup_box(array $box, string $reason, string $who): array {
+	return fleet_backup_store($box, fleet_backup_fetch($box), $reason, $who, time());
+}
+
+/* How long the box waits for the controller to confirm a restore before it goes back by itself. */
+define('FLEET_RESTORE_CONFIRM', 300);
+
+/* pure: the error text of a box's JSON answer. */
+function fleet_box_error(int $code, array $json): string {
+	/* A validation error names the field; that message says more than the general one. */
+	$fields = array_filter((array)($json['error']['details']['fields'] ?? array()), 'is_string');
+	$msg = !empty($fields) ? implode(' ', $fields) : (string)($json['error']['message'] ?? '');
+	return ($msg !== '') ? $msg : "The box answered HTTP {$code}.";
+}
+
+/*
+ * Restore a backup onto its box: a safety backup first, then the restore
+ * inside a commit-confirm window, then the box must still answer over the
+ * tunnel before the controller confirms. Returns the words for the result;
+ * a RuntimeException says what went wrong (the box reverts by itself when
+ * it was left unconfirmed).
+ */
+function fleet_backup_restore(array $box, array $row, string $who, ?callable $sleep = null): string {
+	$sleep = $sleep ?? 'sleep';
+	$xml = fleet_backup_read($row);
+	if ($xml === null) {
+		throw new RuntimeException('FLEET-E802: That backup could not be read. Its file is missing or damaged.');
+	}
+	fleet_backup_box($box, 'safety', $who);
+	$when = date('Y-m-d H:i', (int)$row['time']);
+	list($code, $json) = fleet_box_call($box, 'POST', '/api/v1/management/commit-confirm',
+	    array('seconds' => FLEET_RESTORE_CONFIRM, 'label' => "Fleet: restore of the backup from {$when}"));
+	$id = (string)($json['data']['id'] ?? '');
+	if (($code !== 201) || ($id === '')) {
+		throw new RuntimeException('The box could not take a snapshot first: ' . fleet_box_error($code, $json));
+	}
+	list($code, $json) = fleet_box_call($box, 'POST', '/api/v1/management/restore',
+	    array('config' => $xml, 'commit_confirm' => $id, 'description' => "Restored from the Fleet backup of {$when} by {$who}"));
+	if ($code !== 200) {
+		/* Nothing was restored; close the window (the snapshot is the running configuration). */
+		try {
+			fleet_box_call($box, 'DELETE', '/api/v1/management/commit-confirm/' . rawurlencode($id));
+		} catch (RuntimeException $e) {
+		}
+		fleet_audit($who, 'restore_failed', "{$box['node_id']} ({$box['label']}): " . fleet_box_error($code, $json));
+		throw new RuntimeException('The box refused the restore: ' . fleet_box_error($code, $json));
+	}
+	/* The box reloads its rules; it must still answer before the restore is kept. */
+	for ($try = 0; $try < 12; $try++) {
+		$sleep(5);
+		try {
+			list($code) = fleet_box_call($box, 'POST', '/api/v1/management/commit-confirm/' . rawurlencode($id) . '/confirm');
+			if ($code === 200) {
+				fleet_audit($who, 'restore', "{$box['node_id']} ({$box['label']}): backup of {$when}");
+				return "Restored the backup of {$when}. The firewall answered afterwards, so the restore was kept.";
+			}
+		} catch (RuntimeException $e) {
+		}
+	}
+	fleet_audit($who, 'restore_failed', "{$box['node_id']} ({$box['label']}): no answer after the restore of {$when}; it reverts by itself");
+	throw new RuntimeException('FLEET-E310: The firewall did not answer after the restore. It goes back to its previous configuration by itself within ' .
+	    (FLEET_RESTORE_CONFIRM / 60) . ' minutes.');
 }
 
 /*
