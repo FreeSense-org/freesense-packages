@@ -116,8 +116,10 @@ if (isset($_POST['save_section']) && array_key_exists((string)$_POST['save_secti
 } elseif (isset($_POST['group_save']) && $s['enable']) {
 	$edit_id = ((int)($_POST['group_id'] ?? 0) > 0) ? (int)$_POST['group_id'] : null;
 	try {
-		fleet_group_save($edit_id, (string)($_POST['group_name'] ?? ''), (string)($_POST['group_description'] ?? ''),
+		$gid = fleet_group_save($edit_id, (string)($_POST['group_name'] ?? ''), (string)($_POST['group_description'] ?? ''),
 		    (string)($_POST['group_color'] ?? ''), $who);
+		$win = (int)($_POST['group_window'] ?? 0);
+		fleet_group_set_window($gid, (fleet_window_get($win) !== null) ? $win : null, $who);
 		$savemsg = ($edit_id === null) ? gettext('Group created. Add firewalls to it on each firewall\'s Overview.') : gettext('Group saved.');
 	} catch (InvalidArgumentException $e) {
 		$input_errors[] = $e->getMessage();
@@ -155,6 +157,7 @@ include('head.inc');
 $tab_array = array(
 	array(gettext('Dashboard'), false, '/fleet/fleet_dashboard.php'),
 	array(gettext('Activity'), false, '/fleet/fleet_activity.php'),
+	array(gettext('Updates'), false, '/fleet/fleet_updates.php'),
 	array(gettext('Firewalls'), $tab === 'firewalls', '/fleet/fleet.php'),
 	array(gettext('Settings'), $tab === 'settings', '/fleet/fleet.php?tab=settings'),
 );
@@ -186,11 +189,12 @@ if ($savemsg) {
 	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint"><?=gettext('No groups yet. Group firewalls by place, customer or role, for example Denmark, Retail or Canary. Policies, backups and updates can then target a group.')?></p></div>
 <?php else: ?>
 	<div class="panel-body table-responsive"><table class="table fs-table">
-		<thead><tr><th><?=gettext('Name')?></th><th><?=gettext('Description')?></th><th><?=gettext('Firewalls')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
+		<thead><tr><th><?=gettext('Name')?></th><th><?=gettext('Description')?></th><th><?=gettext('Window')?></th><th><?=gettext('Firewalls')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
 		<tbody>
 <?php foreach ($groups as $grp): ?>
 		<tr><td><span class="fs-fleet-group" style="--fs-fleet-group: var(--fs-series-<?=htmlspecialchars(fleet_group_color((string)$grp['color']))?>)"><?=htmlspecialchars($grp['name'])?></span></td>
 			<td><?=($grp['description'] !== '') ? htmlspecialchars($grp['description']) : '<span class="fs-muted">-</span>'?></td>
+			<td><?php $gw = fleet_window_get((int)($grp['window_id'] ?? 0)); ?><?=($gw === null) ? '<span class="fs-muted">-</span>' : htmlspecialchars($gw['name'])?></td>
 			<td><a class="fs-fleet-inline-link" href="/fleet/fleet_dashboard.php?group=<?=(int)$grp['id']?>"><?=(int)$grp['members']?></a></td>
 			<td class="text-end text-nowrap">
 				<a class="btn btn-sm btn-link" href="?view=groups&amp;edit=<?=(int)$grp['id']?>"><?=gettext('Change')?></a>
@@ -211,6 +215,15 @@ if ($savemsg) {
 				<input class="form-control" id="group_name" name="group_name" maxlength="40" required value="<?=htmlspecialchars($form['name'])?>" placeholder="<?=gettext('Retail')?>"/></div>
 			<div class="fs-fleet-field fs-fleet-field--wide"><label class="form-label" for="group_description"><?=gettext('Description')?></label>
 				<input class="form-control" id="group_description" name="group_description" maxlength="200" value="<?=htmlspecialchars($form['description'])?>" placeholder="<?=gettext('Shops and pop-up stores')?>"/></div>
+<?php $all_windows = fleet_windows_all(); $cur_window = (int)($editing['window_id'] ?? 0); ?>
+			<div class="fs-fleet-field"><label class="form-label" for="group_window"><?=gettext('Maintenance window')?></label>
+				<select class="form-select" id="group_window" name="group_window">
+					<option value="0"><?=gettext('None (any time)')?></option>
+<?php foreach ($all_windows as $w): ?>
+					<option value="<?=(int)$w['id']?>"<?=($cur_window === $w['id']) ? ' selected' : ''?>><?=htmlspecialchars($w['name'] . ' (' . fleet_window_text($w) . ')')?></option>
+<?php endforeach; ?>
+				</select>
+				<div class="fs-fleet-hint"><a href="/fleet/fleet_updates.php?view=windows"><?=gettext('Manage windows')?></a></div></div>
 			<fieldset class="fs-fleet-field">
 				<legend class="form-label"><?=gettext('Colour')?></legend>
 				<div class="fs-fleet-swatches">

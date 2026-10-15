@@ -44,6 +44,7 @@ require_once('fleet/fleet_manage.inc');
 require_once('fleet/fleet_ops.inc');
 require_once('fleet/fleet_list.inc');
 require_once('fleet/fleet_updates.inc');
+require_once('fleet/fleet_rollouts.inc');
 
 define('FLEET_CTL_IF', 'wgfctl0');
 define('FLEET_ENROLL_CONF', '/var/etc/fleet-enroll.conf');
@@ -92,6 +93,8 @@ define('FLEET_TUNABLES', array(
 	    'The firewall rolls back by itself when the new version fails its health check (5 minutes by default); wait at least that long.'),
 	'update_timeout' => array('updates', 'min', 60, 20, 180, 'An update has failed when there is no result after',
 	    'Downloading takes most of the time on slow lines.'),
+	'rollout_gap_hours' => array('updates', 'h', 24, 0, 168, 'In a rollout, wait between rings',
+	    'Time to notice a problem in one ring before the next ring updates. The default for new rollouts.'),
 	'update_ufs_in_groups' => array('updates', 'bool', false, null, null, 'Include firewalls without rollback (UFS) in group updates',
 	    'Off: group updates leave them out, so a failed update never needs a reinstall by surprise. You can still update one by itself.'),
 	'invite_hours' => array('advanced', 'h', 24, 1, 720, 'Invitations are valid for',
@@ -448,6 +451,10 @@ function fleet_event_text(string $node_id, string $action, string $detail): arra
 		return array('Updated', $rest);
 	case 'update_failed':
 		return array('Update failed', $rest);
+	case 'rollout':
+		return array('Rollout', $rest);
+	case 'window':
+		return array('Maintenance window', $rest);
 	case 'reboot_group':
 		return array('Group reboot', $rest);
 	case 'reboot_done':
