@@ -181,7 +181,33 @@
 			t.setAttribute('data-since', op.started);
 			p.appendChild(t);
 		}
-		return p;
+		var wrap = el('div', 'fs-fleet-opwrap');
+		wrap.appendChild(p);
+		if (op.state !== 'skipped') {
+			wrap.appendChild(progressBar(op.state, op.state === 'queued' ? 0 : op.progress, op.text, 'thin'));
+		}
+		return wrap;
+	}
+
+	/* The one progress bar (same markup as fleet_progress_bar() in PHP): fills when the progress is known, slides when not. */
+	function progressBar(state, progress, label, size) {
+		var running = state === 'running' || state === 'queued';
+		var known = !running || (progress !== null && progress !== undefined);
+		var bar = el('span', 'fs-fleet-bar' + (size ? ' fs-fleet-bar--' + size : ''));
+		bar.setAttribute('data-state', state);
+		bar.setAttribute('role', 'progressbar');
+		bar.setAttribute('aria-label', label);
+		bar.setAttribute('aria-valuemin', '0');
+		bar.setAttribute('aria-valuemax', '100');
+		if (known) {
+			bar.setAttribute('aria-valuenow', running ? progress : 100);
+		} else {
+			bar.setAttribute('data-indeterminate', '');
+		}
+		var fill = el('span', 'fs-fleet-bar-fill');
+		fill.style.width = (known ? (running ? progress : 100) : 100) + '%';
+		bar.appendChild(fill);
+		return bar;
 	}
 
 	function elapsed(ts) {
@@ -374,7 +400,7 @@
 	function act(b, action, text) {
 		delete notes[b.id];
 		/* Show it at once; the next refresh brings the controller's own record. */
-		b.op = { state: 'running', text: text, started: Math.round((Date.now() + skew) / 1000) };
+		b.op = { state: 'running', text: text, progress: null, started: Math.round((Date.now() + skew) / 1000) };
 		render();
 		var body = new URLSearchParams();
 		body.set('id', b.id);
@@ -420,16 +446,7 @@
 			row.appendChild(i);
 			row.appendChild(el('strong', null, op.title));
 			row.appendChild(el('span', 'fs-fleet-activity-text', op.text));
-			var bar = el('span', 'fs-fleet-bar');
-			bar.setAttribute('role', 'progressbar');
-			bar.setAttribute('aria-valuenow', op.percent);
-			bar.setAttribute('aria-valuemin', '0');
-			bar.setAttribute('aria-valuemax', '100');
-			bar.setAttribute('aria-label', op.title);
-			var fill = el('span', 'fs-fleet-bar-fill');
-			fill.style.width = op.percent + '%';
-			bar.appendChild(fill);
-			row.appendChild(bar);
+			row.appendChild(progressBar('running', op.percent, op.title));
 			row.appendChild(el('span', 'fs-fleet-activity-link', T.details));
 			frag.appendChild(row);
 		});

@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 5);
+define('FLEET_DB_SCHEMA', 6);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -228,6 +228,13 @@ ALTER TABLE ops ADD COLUMN parent INTEGER;
 ALTER TABLE ops ADD COLUMN title TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS ops_parent ON ops (parent);
 PRAGMA user_version = 5;
+SQL);
+	}
+	if ($version < 6) {
+		/* How far an operation is, 0-100, or NULL when it cannot know (the bar then slides). */
+		$db->exec(<<<'SQL'
+ALTER TABLE ops ADD COLUMN progress INTEGER;
+PRAGMA user_version = 6;
 SQL);
 	}
 	$db->exec('COMMIT');

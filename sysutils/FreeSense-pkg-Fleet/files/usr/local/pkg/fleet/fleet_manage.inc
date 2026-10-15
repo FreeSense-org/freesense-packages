@@ -94,10 +94,10 @@ function fleet_box_reboot(array $box, string $who, ?int $task = null): string {
 	}
 	fleet_audit($who, 'reboot', "{$box['node_id']} ({$box['label']}): reboot started");
 	if ($task === null) {
-		fleet_op_start($box['node_id'], 'reboot', 'Rebooting', $who);
+		fleet_op_set(fleet_op_start($box['node_id'], 'reboot', 'Rebooting', $who), 'running', 'Rebooting', 10);
 	} else {
 		/* Started now: the poll compares the box's boot time with this. */
-		fleet_db()->prepare("UPDATE ops SET state = 'running', text = 'Rebooting', started = ?, updated = ? WHERE id = ?")->execute(array(time(), time(), $task));
+		fleet_db()->prepare("UPDATE ops SET state = 'running', text = 'Rebooting', started = ?, updated = ?, progress = 10 WHERE id = ?")->execute(array(time(), time(), $task));
 	}
 	return 'The firewall is rebooting. It is usually back within a few minutes; the dashboard shows when it is online again.';
 }
