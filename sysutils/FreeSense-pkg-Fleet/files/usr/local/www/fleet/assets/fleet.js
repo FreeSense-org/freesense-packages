@@ -34,6 +34,140 @@
 	/* A message for one tile after its action was refused: id => text. */
 	var notes = {};
 	var activityEl = root.querySelector('[data-fleet="activity"]');
+	/* How the wall is split and sorted; remembered in this browser only. */
+	var bySelect = root.querySelector('[data-fleet="by"]');
+	var sortSelect = root.querySelector('[data-fleet="sort"]');
+	var prefs = { by: 'group', sort: 'attention', collapsed: {} };
+	try {
+		var saved = JSON.parse(localStorage.getItem('fs-fleet-wall') || '{}');
+		prefs.by = ['group', 'state', 'version', 'none'].indexOf(saved.by) >= 0 ? saved.by : 'group';
+		prefs.sort = ['attention', 'name', 'seen'].indexOf(saved.sort) >= 0 ? saved.sort : 'attention';
+		prefs.collapsed = (saved.collapsed && typeof saved.collapsed === 'object') ? saved.collapsed : {};
+	} catch (e) {
+	}
+	function savePrefs() {
+		try {
+			localStorage.setItem('fs-fleet-wall', JSON.stringify(prefs));
+		} catch (e) {
+		}
+	}
+	if (bySelect) {
+		bySelect.value = prefs.by;
+		bySelect.addEventListener('change', function () { prefs.by = bySelect.value; savePrefs(); render(); });
+	}
+	if (sortSelect) {
+		sortSelect.value = prefs.sort;
+		sortSelect.addEventListener('change', function () { prefs.sort = sortSelect.value; savePrefs(); render(); });
+	}
+
+	var RANK = { offline: 0, degraded: 1, 'new': 2, online: 3 };
+	function needsAttention(b) {
+		return b.state !== 'online' || !!(b.op && b.op.state === 'failed');
+	}
+	function compare(a, b) {
+		if (prefs.sort === 'name') {
+			return a.label.localeCompare(b.label);
+		}
+		if (prefs.sort === 'seen') {
+			return (b.seen || 0) - (a.seen || 0) || a.label.localeCompare(b.label);
+		}
+		return (RANK[a.state] - RANK[b.state]) || a.label.localeCompare(b.label);
+	}
+
+	/* The sections for the chosen split: [{key, title, color, boxes}], worst first, "Ungrouped" last. */
+	function sections(boxes) {
+		var map = {};
+		var order = [];
+		function add(key, title, color, b, last) {
+			if (!map[key]) {
+				map[key] = { key: key, title: title, color: color, boxes: [], last: !!last };
+				order.push(map[key]);
+			}
+			map[key].boxes.push(b);
+		}
+		boxes.forEach(function (b) {
+			if (prefs.by === 'group') {
+				var gs = (b.groups || []).filter(function (g) { return group === '' || String(g.id) === group; });
+				if (gs.length === 0) {
+					add('none', T.ungrouped, null, b, true);
+				}
+				gs.forEach(function (g) { add('g' + g.id, g.name, g.color, b); });
+			} else if (prefs.by === 'state') {
+				add(b.state, T[b.state], null, b);
+			} else if (prefs.by === 'version') {
+				add('v' + (b.version || ''), b.version || T.version_unknown, null, b, !b.version);
+			} else {
+				add('all', T.firewalls, null, b);
+			}
+		});
+		order.forEach(function (s) {
+			s.boxes.sort(compare);
+			s.attention = s.boxes.filter(needsAttention).length;
+			s.worst = Math.min.apply(null, s.boxes.map(function (b) { return RANK[b.state]; }));
+		});
+		order.sort(function (x, y) {
+			/* Problems win: with "needs attention first", a section with an offline firewall comes first, Ungrouped too. */
+			if (prefs.sort === 'attention' && prefs.by !== 'state' && (x.worst < RANK.online || y.worst < RANK.online) && x.worst !== y.worst) {
+				return x.worst - y.worst;
+			}
+			if (x.last !== y.last) {
+				return x.last ? 1 : -1;
+			}
+			if (prefs.by === 'state') {
+				return RANK[x.key] - RANK[y.key];
+			}
+			if (prefs.by === 'version') {
+				return y.title.localeCompare(x.title, undefined, { numeric: true });
+			}
+			return (prefs.sort === 'attention' ? (x.worst - y.worst) : 0) || x.title.localeCompare(y.title);
+		});
+		return order;
+	}
+
+	function section(s) {
+		var wrap = el('section', 'fs-fleet-section');
+		var collapsed = !!prefs.collapsed[prefs.by + ':' + s.key];
+		wrap.setAttribute('data-attention', s.attention > 0 ? 'true' : 'false');
+		var head = el('button', 'fs-fleet-section-head');
+		head.type = 'button';
+		head.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+		head.setAttribute('aria-label', T.collapse.replace('%s', s.title));
+		var chev = el('i', 'fa-solid fa-chevron-down fs-fleet-section-chev');
+		chev.setAttribute('aria-hidden', 'true');
+		head.appendChild(chev);
+		if (s.color) {
+			var dot = el('span', 'fs-fleet-section-dot');
+			dot.style.setProperty('--fs-fleet-group', 'var(--fs-series-' + s.color + ')');
+			head.appendChild(dot);
+		}
+		head.appendChild(el('h3', 'fs-fleet-section-title', s.title));
+		head.appendChild(el('span', 'fs-fleet-section-count', s.boxes.length === 1 ? T.one_fw : T.n_fw.replace('%d', s.boxes.length)));
+		var health = el('span', 'fs-fleet-section-health');
+		if (s.attention > 0) {
+			health.appendChild(badge('warn', s.attention === 1 ? T.one_attention : T.n_attention.replace('%d', s.attention)));
+		} else {
+			health.appendChild(el('span', 'fs-fleet-ok', T.all_ok));
+		}
+		head.appendChild(health);
+		wrap.appendChild(head);
+		var ul = el('ul', 'fs-fleet-wall');
+		ul.setAttribute('aria-label', s.title);
+		ul.hidden = collapsed;
+		s.boxes.forEach(function (b) { ul.appendChild(tile(b)); });
+		wrap.appendChild(ul);
+		head.addEventListener('click', function () {
+			var key = prefs.by + ':' + s.key;
+			ul.hidden = !ul.hidden;
+			head.setAttribute('aria-expanded', ul.hidden ? 'false' : 'true');
+			if (ul.hidden) {
+				prefs.collapsed[key] = 1;
+			} else {
+				delete prefs.collapsed[key];
+			}
+			savePrefs();
+		});
+		return wrap;
+	}
 	/* Server clock minus browser clock, so "ago" is right when the two disagree. */
 	var skew = data.now * 1000 - Date.now();
 
@@ -498,12 +632,10 @@
 			btn.setAttribute('aria-pressed', key === filter ? 'true' : 'false');
 		});
 		var frag = document.createDocumentFragment();
-		var shown = 0;
-		data.boxes.forEach(function (b) {
-			if (visible(b)) {
-				frag.appendChild(tile(b));
-				shown++;
-			}
+		var list = data.boxes.filter(visible);
+		var shown = list.length;
+		sections(list).forEach(function (s) {
+			frag.appendChild(section(s));
 		});
 		wall.replaceChildren(frag);
 		wall.hidden = data.total === 0;
