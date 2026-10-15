@@ -8,3 +8,9 @@ $priv_list['page-system-fleet-controller'] = [
 	'warn' => 'standard-warning-root',
 	'match' => ['fleet/fleet.php*'],
 ];
+
+$priv_list['page-status-fleet-dashboard'] = [
+	'name' => 'WebCfg - Status: FreeSense Fleet',
+	'descr' => 'View the state of every firewall in the fleet (read only)',
+	'match' => ['fleet/fleet_dashboard.php*', 'fleet/fleet_data.php*', 'fleet/fleet_box.php*', 'fleet/assets/*'],
+];

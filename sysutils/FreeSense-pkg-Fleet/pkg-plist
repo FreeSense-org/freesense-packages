@@ -9,5 +9,6 @@ share/FreeSense-pkg-Fleet/info.xml
 www/fleet/assets/fleet.css
 www/fleet/assets/fleet.js
 www/fleet/fleet.php
+www/fleet/fleet_box.php
 www/fleet/fleet_dashboard.php
 www/fleet/fleet_data.php

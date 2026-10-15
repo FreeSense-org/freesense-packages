@@ -312,11 +312,77 @@ function fleet_poll_problem(string $code, string $message): string {
 	return "FLEET-{$code}: {$message}";
 }
 
+/*
+ * pure: an audit line about one box as (what happened, details) for its
+ * event list: the box's own ID and label are left out.
+ */
+function fleet_event_text(string $node_id, string $action, string $detail): array {
+	$rest = trim((string)preg_replace('/^' . preg_quote($node_id, '/') . '(\s*\([^)]*\))?:?\s*/', '', $detail));
+	switch ($action) {
+	case 'joined':
+		return array('Joined the fleet', preg_replace('/^at\s+/', 'tunnel address ', $rest));
+	case 'state':
+		if (preg_match('/^(\w+) -> (\w+)(?: \((.*)\))?$/s', $rest, $m)) {
+			return array(ucfirst($m[1]) . ' to ' . $m[2], (string)($m[3] ?? ''));
+		}
+		break;
+	case 'handoff':
+		return array('Opened the WebUI', preg_replace('/^WebUI\s+/', '', $rest));
+	}
+	return array(ucfirst($action), $rest);
+}
+
+/* pure: how the controller reaches a box's API: its overlay address, pinned to its certificate. */
+function fleet_box_target(array $box): array {
+	return array('host' => $box['overlay'], 'port' => FLEET_NODE_API_PORT_DEFAULT,
+	    'authority' => fleet_hostport($box['overlay'], FLEET_NODE_API_PORT_DEFAULT), 'cert_sha256' => $box['cert_sha256']);
+}
+
+/* One box row, or null. */
+function fleet_box_get(string $node_id): ?array {
+	$q = fleet_db()->prepare('SELECT * FROM boxes WHERE node_id = ?');
+	$q->execute(array($node_id));
+	$row = $q->fetch();
+	return is_array($row) ? $row : null;
+}
+
+/*
+ * pure: the URL that signs the browser in on a box. Only a WebGUI address
+ * the box itself reported, and only a handoff path, so the controller can
+ * never be used to send a browser somewhere else.
+ */
+function fleet_handoff_url(array $status, string $base, string $path): ?string {
+	if (!in_array($base, array_column((array)($status['webgui'] ?? array()), 'url'), true)) {
+		return null;
+	}
+	if (!preg_match('#^/\?fleet_handoff=[A-Za-z0-9_-]{43}$#D', $path)) {
+		return null;
+	}
+	return $base . $path;
+}
+
+/*
+ * Ask a box for a one-time sign-in to its WebGUI as $user. Returns the path
+ * to open on the box, or throws RuntimeException with a message for the admin.
+ */
+function fleet_box_handoff(array $box, string $user, string $operator): string {
+	$key = (string)fleet_unseal((string)$box['api_key'], fleet_master_key());
+	try {
+		list($code, $json) = fleet_http_pinned(fleet_box_target($box), 'POST', '/api/v1/auth/handoff',
+		    array('user' => $user, 'operator' => $operator, 'seconds' => 60), $key);
+	} catch (FleetJoinError $e) {
+		throw new RuntimeException(fleet_poll_problem($e->fleet_code, $e->getMessage()));
+	}
+	if (($code === 201) && is_string($json['data']['path'] ?? null)) {
+		return $json['data']['path'];
+	}
+	throw new RuntimeException((string)($json['error']['message'] ?? "The box answered HTTP {$code}."));
+}
+
 /* Poll one box; returns its new state. */
 function fleet_poll_box(array $box, int $now): string {
 	$key = fleet_unseal((string)$box['api_key'], fleet_master_key());
-	$target = array('host' => $box['overlay'], 'port' => FLEET_NODE_API_PORT_DEFAULT, 'authority' => fleet_hostport($box['overlay'], FLEET_NODE_API_PORT_DEFAULT),
-	    'cert_sha256' => $box['cert_sha256']);
+	$target = fleet_box_target($box);
 	$status = null;
 	$error = '';
 	try {
