@@ -39,6 +39,7 @@
 require_once('fleet/fleet_store.inc');
 require_once('fleet/fleet_enroll.inc');
 require_once('fleet/fleet_backup.inc');
+require_once('fleet/fleet_groups.inc');
 
 define('FLEET_CTL_IF', 'wgfctl0');
 define('FLEET_ENROLL_CONF', '/var/etc/fleet-enroll.conf');
@@ -121,8 +122,9 @@ function fleet_box_state(int $misses): string {
  * pure: the dashboard's view of the fleet from the box rows and the number
  * of boxes waiting for approval. Boxes are ordered worst state first, then
  * by label; nothing secret (API keys, certificates) leaves this function.
+ * $groups: node_id => the firewall's groups (fleet_groups_by_box()).
  */
-function fleet_dashboard_data(array $rows, int $pending, int $now): array {
+function fleet_dashboard_data(array $rows, int $pending, int $now, array $groups = array()): array {
 	$rank = array('offline' => 0, 'degraded' => 1, 'new' => 2, 'online' => 3);
 	$boxes = array();
 	$counts = array('online' => 0, 'degraded' => 0, 'offline' => 0, 'new' => 0, 'unprotected' => 0);
@@ -150,6 +152,7 @@ function fleet_dashboard_data(array $rows, int $pending, int $now): array {
 			'breakglass' => !empty($st['breakglass']),
 			'seen' => $r['last_seen'] ? (int)$r['last_seen'] : null,
 			'backup' => !empty($r['last_backup']) ? (int)$r['last_backup'] : null,
+			'groups' => $groups[(string)$r['node_id']] ?? array(),
 			'problem' => ($state === 'online') ? '' : (string)$r['error'],
 		);
 	}

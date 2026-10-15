@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 2);
+define('FLEET_DB_SCHEMA', 3);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -199,6 +199,16 @@ CREATE TABLE IF NOT EXISTS backups (
 	sha256 TEXT NOT NULL, size INTEGER NOT NULL, file TEXT NOT NULL, config_time INTEGER, description TEXT, version TEXT);
 CREATE INDEX IF NOT EXISTS backups_node_time ON backups (node_id, time);
 PRAGMA user_version = 2;
+SQL);
+	}
+	if ($version < 3) {
+		/* Groups of firewalls (many-to-many). */
+		$db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS fleet_groups (
+	id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE COLLATE NOCASE, description TEXT NOT NULL DEFAULT '',
+	color TEXT NOT NULL DEFAULT '1', created INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS box_groups (node_id TEXT NOT NULL, group_id INTEGER NOT NULL REFERENCES fleet_groups(id), PRIMARY KEY (node_id, group_id));
+PRAGMA user_version = 3;
 SQL);
 	}
 	$db->exec('COMMIT');

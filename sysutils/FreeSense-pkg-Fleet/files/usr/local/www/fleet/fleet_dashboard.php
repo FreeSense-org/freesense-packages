@@ -33,7 +33,7 @@ $s = fleet_ctl_settings();
 $ready = $s['enable'] && is_file(FLEET_DATA . '/fleet.db');
 $data = $ready ? fleet_dashboard_data(
     fleet_db()->query('SELECT node_id, name, label, overlay, role, state, last_seen, error, status, (SELECT MAX(time) FROM backups b WHERE b.node_id = boxes.node_id) AS last_backup FROM boxes')->fetchAll(),
-    (int)fleet_db()->query("SELECT COUNT(*) FROM enrollments WHERE state = 'pending'")->fetchColumn(), time())
+    (int)fleet_db()->query("SELECT COUNT(*) FROM enrollments WHERE state = 'pending'")->fetchColumn(), time(), fleet_groups_by_box())
     : fleet_dashboard_data(array(), 0, time());
 $asset = function ($f) {
 	return '/fleet/assets/' . $f . '?v=' . (int)@filemtime('/usr/local/www/fleet/assets/' . $f);
@@ -49,7 +49,7 @@ $strings = array(
 	'breakglass' => gettext('Lock suspended'), 'checked' => gettext('Checked %s'), 'not_checked' => gettext('Not checked yet'),
 	'stale' => gettext('Could not refresh. Showing the last known state.'),
 	'ago_s' => gettext('%d s ago'), 'ago_m' => gettext('%d min ago'), 'ago_h' => gettext('%d h ago'), 'ago_d' => gettext('%d days ago'),
-	'none_match' => gettext('No firewall is %s.'), 'show_all' => gettext('Show all'),
+	'none_match' => gettext('No firewall is %s.'), 'none_in_group' => gettext('No firewall in this group matches.'), 'show_all' => gettext('Show all'),
 );
 
 $filters = array(
@@ -103,6 +103,18 @@ if ($manage) {
 		</div>
 	</div>
 
+<?php $all_groups = $ready ? fleet_groups_all() : array(); ?>
+<?php if (!empty($all_groups)): ?>
+	<div class="fs-fleet-groupbar">
+		<label for="fleet-group" class="fs-muted"><?=gettext('Group')?></label>
+		<select id="fleet-group" class="form-select form-select-sm" data-fleet="group">
+			<option value=""><?=gettext('All firewalls')?></option>
+<?php foreach ($all_groups as $grp): ?>
+			<option value="<?=(int)$grp['id']?>"><?=htmlspecialchars($grp['name'])?> (<?=(int)$grp['members']?>)</option>
+<?php endforeach; ?>
+		</select>
+	</div>
+<?php endif; ?>
 	<div class="fs-tiles" role="group" aria-label="<?=gettext('Filter firewalls')?>">
 <?php foreach ($filters as list($key, $label, $count, $state)): ?>
 		<button type="button" class="fs-tile fs-fleet-filter" data-filter="<?=$key?>" aria-pressed="<?=($key === 'all') ? 'true' : 'false'?>">
