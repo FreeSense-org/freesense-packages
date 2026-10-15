@@ -285,3 +285,34 @@ function fleet_nav_now(int $now): array {
 	$q->execute(array($now - 60 * fleet_opt('nav_failed')));
 	return fleet_nav_item($running, (int)$q->fetchColumn());
 }
+
+/*
+ * pure: the notices for operations that finished after $since (a time),
+ * newest last, as the WebUI shows them (System's plugin_navbar toasts).
+ * $titles: what each operation is called ("Reboot Lab", "Back up Aarhus").
+ */
+function fleet_nav_toasts(array $finished, bool $done_on, bool $failed_on): array {
+	$out = array();
+	foreach ($finished as $op) {
+		$failed = ($op['state'] === 'failed');
+		if (($failed && !$failed_on) || (!$failed && !$done_on) || !in_array($op['state'], array('done', 'failed'), true)) {
+			continue;
+		}
+		$text = $op['name'] . ': ' . $op['text'];
+		$out[] = array('text' => (strlen($text) > 200) ? substr($text, 0, 197) . '...' : $text, 'kind' => $failed ? 'block' : 'pass',
+		    'href' => '/fleet/fleet_activity.php?op=' . (int)$op['id'], 'sticky' => $failed);
+	}
+	return array_slice($out, -5);
+}
+
+/* Operations that finished after $since, with a name for the notice. */
+function fleet_ops_finished_since(int $since, int $now): array {
+	$q = fleet_db()->prepare("SELECT o.id, o.kind, o.state, o.text, o.title, o.node_id, b.label FROM ops o LEFT JOIN boxes b ON b.node_id = o.node_id
+	    WHERE o.parent IS NULL AND o.finished > ? AND o.finished <= ? ORDER BY o.finished, o.id");
+	$q->execute(array($since, $now));
+	$kinds = array('reboot' => 'Reboot', 'backup' => 'Back up', 'restore' => 'Restore');
+	return array_map(function ($op) use ($kinds) {
+		$op['name'] = ($op['node_id'] === '') ? (string)$op['title'] : (($kinds[$op['kind']] ?? ucfirst((string)$op['kind'])) . ' ' . ($op['label'] ?? $op['node_id']));
+		return $op;
+	}, $q->fetchAll());
+}
