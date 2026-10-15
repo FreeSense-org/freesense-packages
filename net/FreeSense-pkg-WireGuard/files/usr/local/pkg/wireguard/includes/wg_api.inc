@@ -472,10 +472,16 @@ function wg_gateways_set_enable($enable = true, $filter_configure = true) {
 }
 
 /*
- * Returns an array of running WireGuard tunnel interfaces per wg(8)
+ * Returns an array of running WireGuard tunnel interfaces per wg(8) that
+ * belong to this package (tun_wg*). Other WireGuard interfaces, such as the
+ * FreeSense Fleet management tunnel wgfleet0, are never touched: the
+ * package destroys what this returns as "rogue" or on stop.
  */
 function wg_get_running_ifs() {
-	return array_keys(wg_get_running_config());
+	global $wgg;
+
+	return array_values(array_filter(array_keys(wg_get_running_config()),
+	    fn($name) => str_starts_with((string)$name, $wgg['if_prefix'])));
 }
 
 /*

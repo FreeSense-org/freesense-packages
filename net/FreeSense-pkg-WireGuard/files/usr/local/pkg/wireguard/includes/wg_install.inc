@@ -259,8 +259,12 @@ function wg_destroy_tunnels(&$cmds = null) {
 		$res &= wg_ifconfig_if_destroy($tunnel, $cmds);
 	}
 
-	// Now attempt to unload the module if the above was successful
-	if ($res) {
+	/*
+	 * Now attempt to unload the module if the above was successful. Never
+	 * while another WireGuard interface is up (e.g. the FreeSense Fleet
+	 * management tunnel wgfleet0): unloading if_wg would destroy it too.
+	 */
+	if ($res && empty(wg_get_running_config())) {
 		$res &= wg_kld_loadunload(false, $cmds);
 	}
 
