@@ -60,7 +60,6 @@ function threatshield_download_file(string $url, string $dest): ?string {
 	$code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
 	$curl_error = curl_error($ch);
 	$aborted = curl_errno($ch) === CURLE_ABORTED_BY_CALLBACK;
-	curl_close($ch);
 	fclose($fp);
 
 	$error = null;

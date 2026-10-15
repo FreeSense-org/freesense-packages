@@ -1583,7 +1583,6 @@ function threatshield_api_request(string $endpoint, string $method = 'GET', ?arr
 
 	$res = curl_exec($ch);
 	$code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-	curl_close($ch);
 
 	if ($res === false || $code < 200 || $code >= 300) {
 		return null;
