@@ -203,7 +203,7 @@ function openvpn_client_export_validate_config($srvid, $usrid, $crtid) {
 	return array($settings, $server_cert, $server_ca, $servercn, $user, $cert, $nokeys);
 }
 
-function openvpn_client_export_config($srvid, $usrid, $crtid, $useaddr, $verifyservercn, $blockoutsidedns, $legacy, $bindmode, $usetoken, $nokeys = false, $proxy, $expformat = "baseconf", $outpass = "", $p12encryption, $skiptls = false, $doslines = false, $advancedoptions = "", $usepkcs11, $pkcs11providers, $pkcs11id) {
+function openvpn_client_export_config($srvid, $usrid, $crtid, $useaddr, $verifyservercn, $blockoutsidedns, $legacy, $bindmode, $usetoken, $nokeys, $proxy, $expformat, $outpass, $p12encryption, $skiptls, $doslines, $advancedoptions, $usepkcs11, $pkcs11providers, $pkcs11id) {
 	global $input_errors, $g, $legacy_incompatible_ciphers;
 
 	$validconfig = openvpn_client_export_validate_config($srvid, $usrid, $crtid);
@@ -584,7 +584,7 @@ EOF;
 	}
 }
 
-function openvpn_client_export_installer($srvid, $usrid, $crtid, $useaddr, $verifyservercn, $blockoutsidedns, $legacy, $bindmode, $usetoken, $outpass, $p12encryption, $proxy, $advancedoptions, $openvpn_version = "x64-current", $usepkcs11, $pkcs11providers, $pkcs11id, $silent) {
+function openvpn_client_export_installer($srvid, $usrid, $crtid, $useaddr, $verifyservercn, $blockoutsidedns, $legacy, $bindmode, $usetoken, $outpass, $p12encryption, $proxy, $advancedoptions, $openvpn_version, $usepkcs11, $pkcs11providers, $pkcs11id, $silent) {
 	global $g, $input_errors;
 	global $current_openvpn_version, $current_openvpn_version_rev;
 	global $legacy_openvpn_version, $legacy_openvpn_version_rev;

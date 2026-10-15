@@ -208,9 +208,9 @@ $section->addInput(new Form_StaticText(
 ))->setHelp("");
 
 
-$maxfiles = `sysctl kern.maxfiles | awk '{ print $2 }'`;
-$maxfilesperproc = `sysctl kern.maxfilesperproc | awk '{ print $2 }'`;
-$memusage = trim(`ps auxw | grep "haproxy -f" | grep -v grep | awk '{ print $5 }'`);
+$maxfiles = shell_exec("sysctl kern.maxfiles | awk '{ print \$2 }'");
+$maxfilesperproc = shell_exec("sysctl kern.maxfilesperproc | awk '{ print \$2 }'");
+$memusage = trim(shell_exec("ps auxw | grep \"haproxy -f\" | grep -v grep | awk '{ print \$5 }'"));
 if ($memusage) {
 	$memusage = "Current memory usage: <b>{$memusage} kB.</b><br/>";
 }
@@ -283,7 +283,7 @@ EOD
 
 $section->add($group);
 
-$cpucores = trim(`/sbin/sysctl kern.smp.cpus | cut -d" " -f2`);
+$cpucores = trim(shell_exec('/sbin/sysctl kern.smp.cpus | cut -d" " -f2'));
 
 if (haproxy_version() >= "1.8") {
 	$section->addInput(new Form_Input('nbthread', 'Number of threads to start per process', 'text', $pconfig['nbthread']

@@ -62,8 +62,9 @@ if (isset($_GET['haproxystats']) || isset($_GET['scope']) || (isset($_POST) && i
 		}
 		$context = stream_context_create($options);
 		$response = @file_get_contents("http://127.0.0.1:{$pconfig['localstatsport']}/haproxy/haproxy_stats.php?haproxystats=1".$request, false, $context);
-		if (is_array($http_response_header)){
-			foreach($http_response_header as $header){
+		$response_headers = http_get_last_response_headers();
+		if (is_array($response_headers)){
+			foreach($response_headers as $header){
 				if (strpos($header,"Refresh: ") == 0) {
 					header($header);
 				}

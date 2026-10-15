@@ -118,7 +118,6 @@ if (isset($_POST['geoip'])) {
 		curl_setopt($conn, CURLOPT_RETURNTRANSFER, 1);
 		set_curlproxy($conn);
 		$res = curl_exec($conn);
-		curl_close($conn);
 	} else {
 		$res = '';
 	}

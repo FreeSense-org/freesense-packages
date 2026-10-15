@@ -794,7 +794,6 @@ EOD;
 		if (curl_errno($curl_session) || empty($named_root)) {
 			$named_root = file_get_contents("/usr/local/etc/namedb/named.root");
 		}
-		curl_close($curl_session);
 		file_put_contents(CHROOT_LOCALBASE . "/etc/namedb/named.root", $named_root, LOCK_EX);
 	}
 	if (!file_exists(CHROOT_LOCALBASE."/etc/localtime")) {
