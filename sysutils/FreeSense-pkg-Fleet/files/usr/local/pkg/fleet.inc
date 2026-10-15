@@ -38,6 +38,7 @@
 
 require_once('fleet/fleet_store.inc');
 require_once('fleet/fleet_enroll.inc');
+require_once('fleet/fleet_backup.inc');
 
 define('FLEET_CTL_IF', 'wgfctl0');
 define('FLEET_ENROLL_CONF', '/var/etc/fleet-enroll.conf');
@@ -148,6 +149,7 @@ function fleet_dashboard_data(array $rows, int $pending, int $now): array {
 			'policy' => isset($st['policy_bundle']['version']) ? (int)$st['policy_bundle']['version'] : null,
 			'breakglass' => !empty($st['breakglass']),
 			'seen' => $r['last_seen'] ? (int)$r['last_seen'] : null,
+			'backup' => !empty($r['last_backup']) ? (int)$r['last_backup'] : null,
 			'problem' => ($state === 'online') ? '' : (string)$r['error'],
 		);
 	}
@@ -206,17 +208,20 @@ function fleet_ctl_peer_add(array $box): void {
 	fleet_ctl_exec(array('/sbin/route', '-n', 'add', '-inet6', $box['overlay'] . '/128', '-interface', FLEET_CTL_IF));
 }
 
-/* Bring the controller's tunnel up with every box as a peer. */
+/*
+ * Bring the controller's tunnel up with every box as a peer. An existing
+ * interface is kept and only reconfigured: destroying it would drop every
+ * box's session until its next handshake (up to about 3 minutes).
+ */
 function fleet_ctl_tunnel_up(array $s): ?string {
-	fleet_ctl_exec(array('/sbin/ifconfig', FLEET_CTL_IF, 'destroy'));
 	fleet_ctl_wg_public();
 	$addr = fleet_overlay_host((string)fleet_setting('overlay_prefix'), 1);
-	foreach (array(
-		array('/sbin/ifconfig', 'wg', 'create', 'name', FLEET_CTL_IF),
+	list($exists) = fleet_ctl_exec(array('/sbin/ifconfig', FLEET_CTL_IF));
+	foreach (array_merge(($exists === 0) ? array() : array(array('/sbin/ifconfig', 'wg', 'create', 'name', FLEET_CTL_IF)), array(
 		array('/usr/bin/wg', 'set', FLEET_CTL_IF, 'private-key', FLEET_DATA . '/wg.key', 'listen-port', (string)$s['wg_port']),
 		array('/sbin/ifconfig', FLEET_CTL_IF, 'inet6', $addr, 'prefixlen', '128'),
 		array('/sbin/ifconfig', FLEET_CTL_IF, 'mtu', '1380', 'up'),
-	) as $argv) {
+	)) as $argv) {
 		list($rc, $out) = fleet_ctl_exec($argv);
 		if ($rc !== 0) {
 			return basename($argv[0]) . ': ' . $out;
@@ -271,6 +276,7 @@ function fleet_sync_config(): array {
 		}
 	}
 	install_cron_job('/usr/local/bin/php /usr/local/sbin/freesense-fleet-poll', true, '*', '*', '*', '*', '*', 'root');
+	install_cron_job('/usr/local/bin/php /usr/local/sbin/freesense-fleet-backup nightly', true, '17', '3', '*', '*', '*', 'root');
 	filter_configure();
 	return $problems;
 }
@@ -289,6 +295,7 @@ function fleet_remove_config(): void {
 	fleet_ctl_enroll_stop();
 	fleet_ctl_exec(array('/sbin/ifconfig', FLEET_CTL_IF, 'destroy'));
 	install_cron_job('/usr/local/bin/php /usr/local/sbin/freesense-fleet-poll', false);
+	install_cron_job('/usr/local/bin/php /usr/local/sbin/freesense-fleet-backup nightly', false);
 	/* The data directory stays: removing the package must never delete a fleet. */
 }
 
@@ -328,6 +335,12 @@ function fleet_event_text(string $node_id, string $action, string $detail): arra
 		break;
 	case 'handoff':
 		return array('Opened the WebUI', preg_replace('/^WebUI\s+/', '', $rest));
+	case 'backup':
+		return array('Backed up', preg_replace(array('/, [0-9a-f]{12}$/', '/^Backed up /'), '', $rest));
+	case 'backup_failed':
+		return array('Backup failed', $rest);
+	case 'backup_download':
+		return array('Downloaded a backup', preg_replace('/^backup of /', 'from ', $rest));
 	}
 	return array(ucfirst($action), $rest);
 }

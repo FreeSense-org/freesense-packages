@@ -111,6 +111,8 @@
 		fact(dl, T.tunnel, b.overlay, true);
 		var seen = fact(dl, T.seen, ago(b.seen));
 		seen.setAttribute('data-seen', b.seen || 0);
+		var backup = fact(dl, T.backup, ago(b.backup));
+		backup.setAttribute('data-seen', b.backup || 0);
 		li.appendChild(dl);
 
 		var foot = el('div', 'fs-fleet-box-foot');

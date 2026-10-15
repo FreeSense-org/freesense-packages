@@ -32,7 +32,7 @@ $pgtitle = array(gettext('Status'), gettext('FreeSense Fleet'));
 $s = fleet_ctl_settings();
 $ready = $s['enable'] && is_file(FLEET_DATA . '/fleet.db');
 $data = $ready ? fleet_dashboard_data(
-    fleet_db()->query('SELECT node_id, name, label, overlay, role, state, last_seen, error, status FROM boxes')->fetchAll(),
+    fleet_db()->query('SELECT node_id, name, label, overlay, role, state, last_seen, error, status, (SELECT MAX(time) FROM backups b WHERE b.node_id = boxes.node_id) AS last_backup FROM boxes')->fetchAll(),
     (int)fleet_db()->query("SELECT COUNT(*) FROM enrollments WHERE state = 'pending'")->fetchColumn(), time())
     : fleet_dashboard_data(array(), 0, time());
 $asset = function ($f) {
@@ -43,7 +43,7 @@ $manage = isAllowedPage('fleet/fleet.php');
 /* Text the script needs, so every word on the page is translated in one place. */
 $strings = array(
 	'online' => gettext('Online'), 'degraded' => gettext('Degraded'), 'offline' => gettext('Offline'), 'new' => gettext('Joining'),
-	'version' => gettext('Version'), 'tunnel' => gettext('Tunnel'), 'seen' => gettext('Last seen'), 'never' => gettext('never'),
+	'version' => gettext('Version'), 'backup' => gettext('Last backup'), 'tunnel' => gettext('Tunnel'), 'seen' => gettext('Last seen'), 'never' => gettext('never'),
 	'role' => gettext('Role'), 'managed' => gettext('Managed'), 'monitor' => gettext('Monitor only'), 'rollback' => gettext('No rollback'),
 	'rollback_hint' => gettext('UFS: a failed update cannot roll back by itself'), 'carp' => gettext('CARP'),
 	'breakglass' => gettext('Lock suspended'), 'checked' => gettext('Checked %s'), 'not_checked' => gettext('Not checked yet'),
@@ -61,6 +61,9 @@ $filters = array(
 );
 
 include('head.inc');
+if (($_GET['started'] ?? '') === 'backup') {
+	print_info_box(htmlspecialchars(gettext('Backing up every firewall that is not offline. Each firewall shows its last backup when it is done.')), 'info');
+}
 ?>
 <link rel="stylesheet" href="<?=$asset('fleet.css')?>">
 <?php
@@ -94,6 +97,7 @@ if ($manage) {
 			<a class="btn btn-primary" href="/fleet/fleet.php" data-fleet="pending"><i class="fa-solid fa-hourglass-half icon-embed-btn" aria-hidden="true"></i><?=sprintf(gettext('%d waiting for approval'), $data['counts']['pending'])?></a>
 <?php endif; ?>
 <?php if ($manage): ?>
+			<form method="post" action="/fleet/fleet.php"><button class="btn btn-outline-secondary" name="backup_all" value="1"<?=($data['total'] === 0) ? ' disabled' : ''?>><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Back up all now')?></button></form>
 			<a class="btn btn-outline-secondary" href="/fleet/fleet.php"><i class="fa-solid fa-plus icon-embed-btn" aria-hidden="true"></i><?=gettext('Add a firewall')?></a>
 <?php endif; ?>
 		</div>
