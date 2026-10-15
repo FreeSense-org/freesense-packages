@@ -336,7 +336,7 @@ if ($savemsg) {
 <div class="panel panel-default fs-fleet-review" role="region" aria-labelledby="review-title">
 	<div class="panel-heading"><h2 id="review-title" class="panel-title"><?=sprintf(gettext('Restore the backup from %s?'), htmlspecialchars(date('Y-m-d H:i', (int)$review['time'])))?></h2></div>
 	<div class="panel-body fs-fleet-pad">
-		<p class="fs-fleet-lead"><?=sprintf(gettext('The firewall gets this configuration back. Its current configuration is backed up first, and it keeps its place in the fleet. If it does not answer within %d minutes afterwards, it goes back by itself. Rules and aliases apply at once; some interface and service settings need a reboot.'), FLEET_RESTORE_CONFIRM / 60)?></p>
+		<p class="fs-fleet-lead"><?=sprintf(gettext('The firewall gets this configuration back. Its current configuration is backed up first, and it keeps its place in the fleet. If it does not answer within %d minutes afterwards, it goes back by itself. Rules and aliases apply at once; some interface and service settings need a reboot.'), fleet_opt('restore_confirm'))?></p>
 <?php if ($fetch_error !== null): ?>
 		<p class="fs-fleet-problem"><?=htmlspecialchars($fetch_error)?></p>
 <?php elseif (trim((string)$change) === ''): ?>

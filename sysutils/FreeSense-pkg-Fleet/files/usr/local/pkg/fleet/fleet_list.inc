@@ -29,7 +29,6 @@
 
 require_once('fleet/fleet_store.inc');
 
-define('FLEET_LIST_PER_PAGE', 25);
 
 /* What the Activity filters offer: value => label. */
 define('FLEET_OPS_STATES', array('running' => 'Running', 'done' => 'Done', 'failed' => 'Failed'));
@@ -68,7 +67,8 @@ function fleet_list_filters(array $get, array $allowed): array {
 }
 
 /* pure: which page to show; a page past the end shows the last one. */
-function fleet_list_page(int $total, int $page, int $per = FLEET_LIST_PER_PAGE): array {
+function fleet_list_page(int $total, int $page, int $per = 0): array {
+	$per = ($per > 0) ? $per : fleet_opt('per_page');
 	$pages = max(1, (int)ceil($total / $per));
 	$page = min(max(1, $page), $pages);
 	return array('page' => $page, 'pages' => $pages, 'per' => $per, 'offset' => ($page - 1) * $per, 'total' => $total,

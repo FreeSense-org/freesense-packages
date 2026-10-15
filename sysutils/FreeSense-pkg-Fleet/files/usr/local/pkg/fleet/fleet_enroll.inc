@@ -33,9 +33,7 @@
 require_once('fleet_join.inc');
 require_once('fleet/fleet_store.inc');
 
-define('FLEET_INVITE_TTL_DEFAULT', 86400);
 define('FLEET_INVITE_TTL_MAX', 30 * 86400);
-define('FLEET_INVITE_MAX_FAILURES', 5);
 define('FLEET_CHALLENGE_TTL', 300);
 define('FLEET_ENROLL_PENDING_TTL', 3600);
 define('FLEET_FIRST_HOST', 16);
@@ -166,7 +164,7 @@ function fleet_enroll_enroll(array $body, string $bearer, string $ip, int $now, 
 	$want = fleet_join_proof((string)$okm, $challenge, $nonce, $inv['token_id'], $node_pub, $cert);
 	if (($okm === null) || !hash_equals($want, (string)($body['proof'] ?? ''))) {
 		$failures = (int)$inv['failures'] + 1;
-		$burned = $failures >= FLEET_INVITE_MAX_FAILURES;
+		$burned = $failures >= fleet_opt('invite_failures');
 		fleet_db()->prepare('UPDATE invitations SET failures = ?, state = ? WHERE token_id = ?')
 		    ->execute(array($failures, $burned ? 'burned' : 'open', $inv['token_id']));
 		fleet_audit('enrollment', $burned ? 'burned' : 'bad_proof', "{$inv['token_id']} from {$ip} ({$failures})");

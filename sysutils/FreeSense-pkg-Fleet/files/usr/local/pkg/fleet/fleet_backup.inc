@@ -31,10 +31,6 @@
 require_once('fleet/fleet_store.inc');
 
 define('FLEET_BACKUP_DIR', FLEET_DATA . '/backups');
-/* A configuration must have been quiet this long before an on-change backup. */
-define('FLEET_BACKUP_QUIET', 300);
-/* How many boxes "Back up all now" works on at the same time. */
-define('FLEET_BACKUP_PARALLEL', 10);
 
 /* ------------------------------------------------------------------ */
 /* Pure                                                                */
@@ -78,7 +74,7 @@ function fleet_backup_meta(string $xml): array {
 /*
  * pure: should the status check take an on-change backup now? Yes when the
  * box's configuration differs from the newest backup and was last saved at
- * least FLEET_BACKUP_QUIET seconds ago.
+ * least the backup_quiet setting (minutes) ago.
  */
 function fleet_backup_due(?array $latest, array $status, int $now): bool {
 	$rev = (array)($status['config_revision'] ?? array());
@@ -89,7 +85,7 @@ function fleet_backup_due(?array $latest, array $status, int $now): bool {
 	if (($latest !== null) && hash_equals((string)$latest['sha256'], $sha)) {
 		return false;
 	}
-	return ($now - (int)($rev['time'] ?? 0)) >= FLEET_BACKUP_QUIET;
+	return ($now - (int)($rev['time'] ?? 0)) >= 60 * fleet_opt('backup_quiet');
 }
 
 /* pure: where a backup's file lives, relative to FLEET_BACKUP_DIR. */
@@ -199,8 +195,6 @@ function fleet_backup_box(array $box, string $reason, string $who): array {
 	return fleet_backup_store($box, fleet_backup_fetch($box), $reason, $who, time());
 }
 
-/* How long the box waits for the controller to confirm a restore before it goes back by itself. */
-define('FLEET_RESTORE_CONFIRM', 300);
 
 /* pure: the error text of a box's JSON answer. */
 function fleet_box_error(int $code, array $json): string {
@@ -232,7 +226,7 @@ function fleet_backup_restore(array $box, array $row, string $who, ?callable $sl
 	$step('Asking the firewall for a snapshot', 30);
 	$when = date('Y-m-d H:i', (int)$row['time']);
 	list($code, $json) = fleet_box_call($box, 'POST', '/api/v1/management/commit-confirm',
-	    array('seconds' => FLEET_RESTORE_CONFIRM, 'label' => "Fleet: restore of the backup from {$when}"));
+	    array('seconds' => 60 * fleet_opt('restore_confirm'), 'label' => "Fleet: restore of the backup from {$when}"));
 	$id = (string)($json['data']['id'] ?? '');
 	if (($code !== 201) || ($id === '')) {
 		throw new RuntimeException('The box could not take a snapshot first: ' . fleet_box_error($code, $json));
@@ -264,7 +258,7 @@ function fleet_backup_restore(array $box, array $row, string $who, ?callable $sl
 	}
 	fleet_audit($who, 'restore_failed', "{$box['node_id']} ({$box['label']}): no answer after the restore of {$when}; it reverts by itself");
 	throw new RuntimeException('FLEET-E310: The firewall did not answer after the restore. It goes back to its previous configuration by itself within ' .
-	    (FLEET_RESTORE_CONFIRM / 60) . ' minutes.');
+	    fleet_opt('restore_confirm') . ' minutes.');
 }
 
 /*
@@ -289,7 +283,7 @@ function fleet_backup_diff(string $old, string $new): string {
 }
 
 /*
- * Back up many boxes, FLEET_BACKUP_PARALLEL at a time (each in its own
+ * Back up many boxes, the backup_parallel setting at a time (each in its own
  * process, so one slow box does not hold up the rest). Returns
  * array(node_id => 'stored' | 'unchanged' | error text).
  */
@@ -314,7 +308,7 @@ function fleet_backup_many(array $boxes, string $reason, string $who, ?int $grou
 	if ($group_op !== null) {
 		fleet_op_group_update($group_op);
 	}
-	foreach (array_chunk(array_values($boxes), FLEET_BACKUP_PARALLEL) as $chunk) {
+	foreach (array_chunk(array_values($boxes), fleet_opt('backup_parallel')) as $chunk) {
 		$procs = array();
 		foreach ($chunk as $box) {
 			if (isset($tasks[$box['node_id']])) {
