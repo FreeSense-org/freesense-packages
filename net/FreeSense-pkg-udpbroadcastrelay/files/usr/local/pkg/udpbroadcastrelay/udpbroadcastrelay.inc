@@ -512,7 +512,7 @@ function udpbr_get_config(): array|null {
  * 
  * @return array|null Instance(s) configuration if any exist.
  */
-function udpbr_get_instance_config(int $id = null): array|null {
+function udpbr_get_instance_config(?int $id = null): array|null {
 	global $udpbr_global;
 
 	// config for specific instance
@@ -565,7 +565,7 @@ function udpbr_set_config(array $config): void {
  * @param array $config Instance configuration.
  * @param int $id (Optional) Configuration item to replace.
  */
-function udpbr_set_instance_config(array $config, int $id = null): void {
+function udpbr_set_instance_config(array $config, ?int $id = null): void {
 	global $udpbr_global;
 
 	if (isset($id) && config_get_path("{$udpbr_global['config_path']}/item/{$id}")) {

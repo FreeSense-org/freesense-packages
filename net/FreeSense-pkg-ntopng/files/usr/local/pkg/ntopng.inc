@@ -453,7 +453,6 @@ function ntopng_update_geolite2_db($account, $key) {
 			$status = ntopng_update_geolite2_db_file($ch, $name);
 		}
 	}
-	curl_close($ch);
 	if (!$status) {
 		logger(LOG_ERR, localize_text("Failed to update geolocation databases."), LOG_PREFIX_PKG_NTOPNG);
 		return (FALSE);
