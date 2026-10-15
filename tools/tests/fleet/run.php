@@ -607,4 +607,43 @@ try {
 }
 check(fleet_keep_rule_text(array('last' => 10, 'daily' => 14, 'weekly' => 0, 'monthly' => 12)) === 'last 10, 14 daily, 12 monthly', 'rule as text');
 
+/* ---- backup copies and Recover fleet ---- */
+$rk = fleet_recovery_key_new(str_repeat("\x5a", 20));
+check(preg_match('/^FRK(-[0-9A-HJKMNP-TV-Z]{4}){8}$/', $rk) === 1 && fleet_recovery_key_bytes($rk) === str_repeat("\x5a", 20) &&
+    fleet_recovery_key_bytes(strtolower(str_replace('-', ' ', $rk))) === str_repeat("\x5a", 20) && fleet_recovery_key_bytes('FRK-1234') === null,
+    'recovery keys: 160 bits in Crockford base32, typed loosely');
+$rw = fleet_replica_wanted(array(array('id' => 7, 'node_id' => 'n1', 'time' => 5, 'file' => 'n1/a.enc', 'file_sha' => 'aa'),
+    array('id' => 8, 'node_id' => 'n1', 'time' => 6, 'file' => 'n1/b.enc', 'file_sha' => '')), array('id' => 'ctl.self.9', 'sha256' => 'ss', 'created' => 9), 'ee', 10);
+check(array_keys($rw) === array('cfg.n1.7', 'ctl.self.9', 'ctl.recovery') && $rw['cfg.n1.7']['label'] === 'n1/a.enc', 'a peer holds every backup file, the newest self-backup and the envelope');
+check(fleet_replica_plan($rw, array('cfg.n1.7' => 'aa', 'ctl.self.1' => 'x', 'theirs' => 'y', 'ctl.recovery' => 'old')) === array(array('ctl.self.9', 'ctl.recovery'), array('ctl.self.1')),
+    'sync uploads what is missing or changed and removes only Fleet\'s own leftovers');
+$rk2 = fleet_recovery_create('test');
+$exp = fleet_archive_export();
+$udir = FLEET_DATA . '/unpack-test';
+@mkdir($udir);
+exec('tar -xzf ' . escapeshellarg($exp) . ' -C ' . escapeshellarg($udir), $o, $trc);
+check($trc === 0 && is_file("{$udir}/ctl.recovery.blob") && count(glob("{$udir}/ctl.self.*.blob")) === 1, 'the export is a vault archive with the envelope and a self-backup');
+try {
+	fleet_recover_open($udir, fleet_recovery_key_new());
+	check(false, 'a wrong recovery key does not open the archive');
+} catch (InvalidArgumentException $e) {
+	check(strpos($e->getMessage(), 'FLEET-E805') === 0, 'a wrong recovery key says so');
+}
+$opened = fleet_recover_open($udir, $rk2);
+$sum = fleet_recover_summary($opened);
+$boxes_before = (int)fleet_db()->query('SELECT COUNT(*) FROM boxes')->fetchColumn();
+check($opened[0] === fleet_master_key() && $sum['boxes'] === $boxes_before, 'the right key opens it: master key and the database are back');
+fleet_db()->exec("INSERT INTO settings (name, value) VALUES ('after_export', '1')");
+try {
+	if ($boxes_before > 0) {
+		fleet_recover_apply($opened, false, 'test');
+		check(false, 'recovering over a controller with firewalls needs a confirmation');
+	}
+} catch (RuntimeException $e) {
+}
+fleet_recover_apply($opened, true, 'test');
+check(fleet_setting('after_export') === null && (int)fleet_db()->query('SELECT COUNT(*) FROM boxes')->fetchColumn() === $boxes_before,
+    'Recover fleet puts the database back as it was in the copy');
+exec('rm -rf ' . escapeshellarg($udir));
+
 echo "Fleet controller tests: OK\n";

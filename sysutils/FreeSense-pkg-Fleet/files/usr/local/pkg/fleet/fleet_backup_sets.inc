@@ -224,3 +224,44 @@ function fleet_backup_pin(int $id, bool $pin, string $who): void {
 	fleet_db()->prepare('UPDATE backups SET pinned = ? WHERE id = ?')->execute(array((int)$pin, $id));
 	fleet_audit($who, 'backup_pin', sprintf('%s: backup of %s %s', $row['node_id'], date('Y-m-d H:i', (int)$row['time']), $pin ? 'pinned (never removed)' : 'unpinned'));
 }
+
+/*
+ * Test restore: for every firewall, read one backup back (a random one,
+ * and always the newest), decrypt it, check its hash and that it is a
+ * configuration this Fleet could restore. Results per firewall in the
+ * verify setting; a failure is FLEET-E806 in the audit log.
+ */
+function fleet_backup_verify_all(string $who): array {
+	$results = array();
+	foreach (fleet_db()->query('SELECT DISTINCT node_id FROM backups')->fetchAll(PDO::FETCH_COLUMN) as $node) {
+		$q = fleet_db()->prepare('SELECT * FROM backups WHERE node_id = ? ORDER BY time DESC');
+		$q->execute(array($node));
+		$rows = $q->fetchAll();
+		$pick = array($rows[0]);
+		if (count($rows) > 1) {
+			$pick[] = $rows[random_int(1, count($rows) - 1)];
+		}
+		$bad = array();
+		foreach ($pick as $r) {
+			$xml = fleet_backup_read($r);
+			$problem = ($xml === null) ? 'it could not be decrypted or its hash does not match' : fleet_backup_problem($xml);
+			if ($problem !== null) {
+				$bad[] = date('Y-m-d H:i', (int)$r['time']) . ': ' . $problem;
+			}
+		}
+		$results[$node] = array('time' => time(), 'tested' => count($pick), 'problems' => $bad);
+		if (!empty($bad)) {
+			fleet_audit($who, 'backup_verify', "FLEET-E806: {$node}: " . implode('; ', $bad));
+		}
+	}
+	fleet_setting_set('verify_results', json_encode($results));
+	fleet_setting_set('verify_last', (string)time());
+	$failed = count(array_filter($results, function ($r) { return !empty($r['problems']); }));
+	fleet_audit($who, 'backup_verify', sprintf('%d firewalls tested, %d with problems', count($results), $failed));
+	return $results;
+}
+
+function fleet_backup_verify_results(): array {
+	return json_decode((string)fleet_setting('verify_results', '{}'), true) ?: array();
+}
+

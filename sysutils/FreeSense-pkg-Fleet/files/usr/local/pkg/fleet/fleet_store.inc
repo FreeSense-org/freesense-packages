@@ -154,8 +154,12 @@ function fleet_tls_pem(): string {
 /* Database                                                            */
 /* ------------------------------------------------------------------ */
 
-function fleet_db(): PDO {
+/* The database; $reopen after the file was replaced (Recover fleet). */
+function fleet_db(bool $reopen = false): PDO {
 	static $db = null;
+	if ($reopen) {
+		$db = null;
+	}
 	if ($db === null) {
 		$db = new PDO('sqlite:' . FLEET_DATA . '/fleet.db', null, null, array(PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
 		    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC));

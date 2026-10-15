@@ -47,6 +47,7 @@ require_once('fleet/fleet_updates.inc');
 require_once('fleet/fleet_rollouts.inc');
 require_once('fleet/fleet_schedules.inc');
 require_once('fleet/fleet_backup_sets.inc');
+require_once('fleet/fleet_replicas.inc');
 
 define('FLEET_CTL_IF', 'wgfctl0');
 define('FLEET_ENROLL_CONF', '/var/etc/fleet-enroll.conf');
@@ -462,6 +463,14 @@ function fleet_event_text(string $node_id, string $action, string $detail): arra
 		return array('Updated', $rest);
 	case 'update_failed':
 		return array('Update failed', $rest);
+	case 'replicas':
+		return array('Backup copies', $rest);
+	case 'recovery_key':
+		return array('Recovery key', $rest);
+	case 'recover':
+		return array('Fleet recovered', $rest);
+	case 'backup_verify':
+		return array('Backups tested', $rest);
 	case 'backup_set':
 		return array('Backup set', $rest);
 	case 'backup_prune':
