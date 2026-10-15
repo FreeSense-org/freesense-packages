@@ -26,6 +26,9 @@
  *     only when the one before is back online (the status poll decides
  *     that from its boot time). The first failure stops it; the rest are
  *     skipped and say why.
+ *   freesense-fleet-run update-group <op id>
+ *     The same one at a time for system updates: the next starts when the
+ *     one before is updated and has stayed healthy; a rollback stops it.
  *   freesense-fleet-run restore <op id> <backup id>
  *     Restores a backup onto its firewall (safety backup, snapshot,
  *     restore, keep it only when the firewall still answers).
@@ -38,8 +41,8 @@ require_once('fleet.inc');
 
 $cmd = $argv[1] ?? '';
 $op_id = (int)($argv[2] ?? 0);
-if (!in_array($cmd, array('reboot-group', 'restore'), true) || ($op_id <= 0)) {
-	echo "usage: freesense-fleet-run reboot-group <op id> | restore <op id> <backup id>\n";
+if (!in_array($cmd, array('reboot-group', 'update-group', 'restore'), true) || ($op_id <= 0)) {
+	echo "usage: freesense-fleet-run reboot-group|update-group <op id> | restore <op id> <backup id>\n";
 	exit(64);
 }
 $lock = fopen("/var/run/fleet-op-{$op_id}.lock", 'c');
@@ -92,9 +95,13 @@ while (true) {
 		if ($box === null) {
 			throw new RuntimeException('Not in the fleet any more.');
 		}
-		fleet_box_reboot($box, (string)$t['who'], (int)$t['id']);
+		if ($cmd === 'update-group') {
+			fleet_box_update($box, (string)$t['who'], (int)$t['id']);
+		} else {
+			fleet_box_reboot($box, (string)$t['who'], (int)$t['id']);
+		}
 	} catch (RuntimeException $e) {
-		fleet_op_set((int)$t['id'], 'failed', 'Reboot refused: ' . $e->getMessage());
+		fleet_op_set((int)$t['id'], 'failed', (($cmd === 'update-group') ? 'Update refused: ' : 'Reboot refused: ') . $e->getMessage());
 	}
 	fleet_op_group_update($op_id);
 }

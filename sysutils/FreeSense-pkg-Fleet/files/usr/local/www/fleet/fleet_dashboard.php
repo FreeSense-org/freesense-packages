@@ -32,7 +32,7 @@ $pgtitle = array(gettext('Status'), gettext('FreeSense Fleet'));
 $s = fleet_ctl_settings();
 $ready = $s['enable'] && is_file(FLEET_DATA . '/fleet.db');
 $data = $ready ? fleet_dashboard_data(
-    fleet_db()->query('SELECT node_id, name, label, overlay, role, state, last_seen, error, status, (SELECT MAX(time) FROM backups b WHERE b.node_id = boxes.node_id) AS last_backup FROM boxes')->fetchAll(),
+    fleet_db()->query('SELECT node_id, name, label, overlay, role, state, last_seen, error, status, update_info, (SELECT MAX(time) FROM backups b WHERE b.node_id = boxes.node_id) AS last_backup FROM boxes')->fetchAll(),
     (int)fleet_db()->query("SELECT COUNT(*) FROM enrollments WHERE state = 'pending'")->fetchColumn(), time(), fleet_groups_by_box(), fleet_ops_for_tiles(time()), fleet_ops_groups_running())
     : fleet_dashboard_data(array(), 0, time());
 $asset = function ($f) {
@@ -58,6 +58,7 @@ $strings = array(
 	'change_group' => gettext('Change the group'), 'n_fw' => gettext('%d firewalls'), 'one_fw' => gettext('1 firewall'),
 	'n_attention' => gettext('%d need attention'), 'one_attention' => gettext('1 needs attention'), 'all_ok' => gettext('All online'),
 	'version_unknown' => gettext('Version unknown'), 'firewalls' => gettext('Firewalls'), 'collapse' => gettext('Show or hide %s'), 'backup_all' => gettext('Back up all now'), 'backup_group' => gettext('Back up %s now'), 'reboot_group' => gettext('Reboot %s...'),
+	'update_group' => gettext('Update %s...'), 'updates' => gettext('Updates'),
 	'none_match' => gettext('No firewall is %s.'), 'none_in_group' => gettext('No firewall in this group matches.'), 'show_all' => gettext('Show all'),
 );
 

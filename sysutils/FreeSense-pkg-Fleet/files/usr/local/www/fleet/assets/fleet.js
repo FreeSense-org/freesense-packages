@@ -148,6 +148,7 @@
 				form.elements.group.value = String(g.id);
 				form.submit();
 			}, busy);
+			menuItem(menu, T.update_group.replace('%s', g.name), 'fa-download', '/fleet/fleet_group_action.php?action=update&group=' + g.id);
 			menuItem(menu, T.reboot_group.replace('%s', g.name), 'fa-power-off', '/fleet/fleet_group_action.php?action=reboot&group=' + g.id);
 			menuSeparator(menu);
 		}
@@ -334,6 +335,9 @@
 			chip.style.setProperty('--fs-fleet-group', 'var(--fs-series-' + g.color + ')');
 			foot.appendChild(chip);
 		});
+		if (b.update) {
+			foot.appendChild(badge(b.update[0] === 'info' ? 'info' : 'new', b.update[1]));
+		}
 		if (b.rollback === false) {
 			foot.appendChild(badge('warn', T.rollback, T.rollback_hint));
 		}
@@ -481,6 +485,7 @@
 		menuItem(menu, T.open, 'fa-arrow-right', page);
 		menuItem(menu, T.webui, 'fa-up-right-from-square', page + '&view=overview#webui');
 		menuItem(menu, T.events, 'fa-list', page + '&view=events');
+		menuItem(menu, b.update && b.update[0] === 'info' ? b.update[1] : T.updates, 'fa-download', page + '&view=updates');
 		if (canManage) {
 			menuSeparator(menu);
 			menuItem(menu, T.backup_now, 'fa-floppy-disk', function () { act(b, 'backup', T.backing_up); }, busy || down);
@@ -640,7 +645,7 @@
 	var searchInput = root.querySelector('[data-fleet="search"]');
 	var query = '';
 	function haystack(b) {
-		return [b.label, b.host, b.version, b.overlay, b.id, b.problem, b.role === 'managed' ? T.managed : T.monitor, T[b.state]]
+		return [b.label, b.host, b.version, b.overlay, b.id, b.problem, b.role === 'managed' ? T.managed : T.monitor, T[b.state], b.update ? b.update[1] : '']
 			.concat((b.groups || []).map(function (g) { return g.name; })).join(' ').toLowerCase();
 	}
 	function matches(b) {

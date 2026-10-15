@@ -674,3 +674,8 @@ fieldset.fs-fleet-field legend { float: none; width: auto; font-size: inherit; }
 /* ---- dashboard search ---- */
 .fs-fleet-wallsearch { flex: 1 1 18rem; max-width: 22rem; margin-right: var(--fs-sp-2); }
 @media (max-width: 720px) { .fs-fleet-wallsearch { max-width: none; flex-basis: 100%; margin-right: 0; } }
+
+/* ---- updates ---- */
+.fs-fleet-subtitle { margin: var(--fs-sp-3) 0 var(--fs-sp-2); font-size: var(--fs-fs-md); font-weight: 600; }
+.fs-fleet-checks { display: flex; flex-direction: column; gap: var(--fs-sp-2); margin: 0; padding: 0; list-style: none; }
+.fs-fleet-checks li { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--fs-sp-2); }

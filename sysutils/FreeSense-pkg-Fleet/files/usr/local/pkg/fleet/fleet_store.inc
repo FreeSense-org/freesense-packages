@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 6);
+define('FLEET_DB_SCHEMA', 7);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -235,6 +235,14 @@ SQL);
 		$db->exec(<<<'SQL'
 ALTER TABLE ops ADD COLUMN progress INTEGER;
 PRAGMA user_version = 6;
+SQL);
+	}
+	if ($version < 7) {
+		/* Updates: an operation's own data (from, to, when the new version answered); each box's last update check. */
+		$db->exec(<<<'SQL'
+ALTER TABLE ops ADD COLUMN data TEXT;
+ALTER TABLE boxes ADD COLUMN update_info TEXT;
+PRAGMA user_version = 7;
 SQL);
 	}
 	$db->exec('COMMIT');
