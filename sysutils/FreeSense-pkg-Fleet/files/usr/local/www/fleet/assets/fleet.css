@@ -670,3 +670,7 @@ fieldset.fs-fleet-field legend { float: none; width: auto; font-size: inherit; }
 .fs-fleet-wsec-count { color: var(--fs-text-muted); font-size: var(--fs-fs-sm); }
 .fs-fleet-wsec-health { flex: none; font-size: var(--fs-fs-sm); }
 @media (prefers-reduced-motion: reduce) { .fs-fleet-wsec-chev { transition: none; } }
+
+/* ---- dashboard search ---- */
+.fs-fleet-wallsearch { flex: 1 1 18rem; max-width: 22rem; margin-right: var(--fs-sp-2); }
+@media (max-width: 720px) { .fs-fleet-wallsearch { max-width: none; flex-basis: 100%; margin-right: 0; } }

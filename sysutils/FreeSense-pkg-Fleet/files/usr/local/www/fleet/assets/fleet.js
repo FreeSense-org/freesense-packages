@@ -636,8 +636,60 @@
 		activityEl.hidden = !(data.activity || []).length;
 	}
 
+	/* ---- search: every word must match somewhere on the tile ---- */
+	var searchInput = root.querySelector('[data-fleet="search"]');
+	var query = '';
+	function haystack(b) {
+		return [b.label, b.host, b.version, b.overlay, b.id, b.problem, b.role === 'managed' ? T.managed : T.monitor, T[b.state]]
+			.concat((b.groups || []).map(function (g) { return g.name; })).join(' ').toLowerCase();
+	}
+	function matches(b) {
+		if (query === '') {
+			return true;
+		}
+		var h = haystack(b);
+		return query.split(/\s+/).every(function (w) { return h.indexOf(w) !== -1; });
+	}
+	if (searchInput) {
+		var initial = new URLSearchParams(window.location.search).get('q') || '';
+		searchInput.value = initial;
+		query = initial.trim().toLowerCase();
+		var searchTimer = null;
+		searchInput.addEventListener('input', function () {
+			clearTimeout(searchTimer);
+			searchTimer = setTimeout(function () {
+				query = searchInput.value.trim().toLowerCase();
+				/* In the URL, so a link or a reload keeps it. */
+				var u = new URL(window.location.href);
+				if (query) {
+					u.searchParams.set('q', searchInput.value.trim());
+				} else {
+					u.searchParams.delete('q');
+				}
+				history.replaceState(null, '', u);
+				render();
+			}, 150);
+		});
+		searchInput.addEventListener('keydown', function (e) {
+			if (e.key === 'Escape' && searchInput.value !== '') {
+				e.preventDefault();
+				searchInput.value = '';
+				searchInput.dispatchEvent(new Event('input'));
+			}
+		});
+		/* "/" jumps to the search, unless the user is typing somewhere already. */
+		document.addEventListener('keydown', function (e) {
+			var t = e.target;
+			if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !(t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))) {
+				e.preventDefault();
+				searchInput.focus();
+				searchInput.select();
+			}
+		});
+	}
+
 	function inGroup(b) {
-		return (group === '') || (b.groups || []).some(function (g) { return String(g.id) === group; });
+		return matches(b) && ((group === '') || (b.groups || []).some(function (g) { return String(g.id) === group; }));
 	}
 
 	function visible(b) {
@@ -689,7 +741,7 @@
 		wall.hidden = data.total === 0;
 		if (shown === 0 && data.total > 0) {
 			var label = root.querySelector('[data-filter="' + filter + '"] .fs-tile-label').textContent.toLowerCase();
-			filterEmpty.textContent = ((filter === 'all') ? T.none_in_group : T.none_match.replace('%s', label)) + ' ';
+			filterEmpty.textContent = (query !== '' ? T.none_search.replace('%s', searchInput.value.trim()) : ((filter === 'all') ? T.none_in_group : T.none_match.replace('%s', label))) + ' ';
 			var all = el('button', 'btn btn-link p-0 align-baseline', T.show_all);
 			all.type = 'button';
 			all.addEventListener('click', function () {
@@ -697,6 +749,13 @@
 					groupSelect.value = '';
 				}
 				group = '';
+				if (searchInput) {
+					searchInput.value = '';
+					query = '';
+					var u = new URL(window.location.href);
+					u.searchParams.delete('q');
+					history.replaceState(null, '', u);
+				}
 				setFilter('all');
 			});
 			filterEmpty.appendChild(all);
