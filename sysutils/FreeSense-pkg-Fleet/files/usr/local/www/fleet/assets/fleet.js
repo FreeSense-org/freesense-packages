@@ -33,6 +33,7 @@
 	var deferred = false;
 	/* A message for one tile after its action was refused: id => text. */
 	var notes = {};
+	var activityEl = root.querySelector('[data-fleet="activity"]');
 	/* Server clock minus browser clock, so "ago" is right when the two disagree. */
 	var skew = data.now * 1000 - Date.now();
 
@@ -117,7 +118,7 @@
 		top.appendChild(side);
 		li.appendChild(top);
 
-		var running = b.op && b.op.state === 'running';
+		var running = isBusy(b);
 		if (running) {
 			li.setAttribute('data-busy', 'true');
 		}
@@ -127,7 +128,8 @@
 		if (notes[b.id]) {
 			li.appendChild(el('p', 'fs-fleet-problem', notes[b.id]));
 		}
-		if (b.problem && !running) {
+		/* A failed action usually says the same as the problem; say it once. */
+		if (b.problem && !running && !(b.op && b.op.text.indexOf(b.problem) !== -1)) {
 			li.appendChild(el('p', 'fs-fleet-problem', b.problem));
 		}
 		if (confirming === b.id) {
@@ -168,7 +170,7 @@
 		var p = el('p', 'fs-fleet-op');
 		p.setAttribute('data-op', op.state);
 		p.setAttribute('role', 'status');
-		var icon = { running: 'fa-spinner', done: 'fa-circle-check', failed: 'fa-circle-xmark' }[op.state] || 'fa-circle-info';
+		var icon = { running: 'fa-spinner', queued: 'fa-clock', done: 'fa-circle-check', failed: 'fa-circle-xmark', skipped: 'fa-forward' }[op.state] || 'fa-circle-info';
 		var i = el('i', 'fa-solid ' + icon);
 		i.setAttribute('aria-hidden', 'true');
 		p.appendChild(i);
@@ -266,7 +268,7 @@
 		var menu = el('ul', 'fs-fleet-menu-list');
 		menu.setAttribute('role', 'menu');
 		var page = '/fleet/fleet_box.php?id=' + encodeURIComponent(b.id);
-		var busy = b.op && b.op.state === 'running';
+		var busy = isBusy(b);
 		var down = b.state === 'offline' || b.state === 'new';
 		menuItem(menu, T.open, 'fa-arrow-right', page);
 		menuItem(menu, T.webui, 'fa-up-right-from-square', page + '&view=overview#webui');
@@ -358,7 +360,11 @@
 		wireMenu(wrap, wrap.querySelector('.fs-fleet-menu-btn'), wrap.querySelector('.fs-fleet-menu-list'), 'page');
 		Array.prototype.forEach.call(wrap.querySelectorAll('[data-submit]'), function (b) {
 			b.addEventListener('click', function () {
-				document.getElementById(b.getAttribute('data-submit')).submit();
+				var form = document.getElementById(b.getAttribute('data-submit'));
+				if (form.elements.group) {
+					form.elements.group.value = group;
+				}
+				form.submit();
 			});
 		});
 	});
@@ -396,6 +402,41 @@
 			});
 	}
 
+	function isBusy(b) {
+		return !!b.op && (b.op.state === 'running' || b.op.state === 'queued');
+	}
+
+	/* A strip per running group operation: "Back up Denmark  5 of 8 done" with a bar. */
+	function renderActivity() {
+		if (!activityEl) {
+			return;
+		}
+		var frag = document.createDocumentFragment();
+		(data.activity || []).forEach(function (op) {
+			var row = el('a', 'fs-fleet-activity');
+			row.href = '/fleet/fleet_activity.php?op=' + op.id;
+			var i = el('i', 'fa-solid fa-spinner');
+			i.setAttribute('aria-hidden', 'true');
+			row.appendChild(i);
+			row.appendChild(el('strong', null, op.title));
+			row.appendChild(el('span', 'fs-fleet-activity-text', op.text));
+			var bar = el('span', 'fs-fleet-bar');
+			bar.setAttribute('role', 'progressbar');
+			bar.setAttribute('aria-valuenow', op.percent);
+			bar.setAttribute('aria-valuemin', '0');
+			bar.setAttribute('aria-valuemax', '100');
+			bar.setAttribute('aria-label', op.title);
+			var fill = el('span', 'fs-fleet-bar-fill');
+			fill.style.width = op.percent + '%';
+			bar.appendChild(fill);
+			row.appendChild(bar);
+			row.appendChild(el('span', 'fs-fleet-activity-link', T.details));
+			frag.appendChild(row);
+		});
+		activityEl.replaceChildren(frag);
+		activityEl.hidden = !(data.activity || []).length;
+	}
+
 	function inGroup(b) {
 		return (group === '') || (b.groups || []).some(function (g) { return String(g.id) === group; });
 	}
@@ -421,6 +462,7 @@
 		}
 		deferred = false;
 		headline.textContent = data.headline;
+		renderActivity();
 		/* The tiles count the firewalls in the chosen group. */
 		var counts = { all: 0, online: 0, degraded: 0, offline: 0, 'new': 0, unprotected: 0 };
 		data.boxes.forEach(function (b) {
@@ -495,10 +537,18 @@
 			groupSelect.value = wanted;
 			group = wanted;
 		}
+		var allLabel = root.querySelector('[data-fleet="backup-all-label"]');
+		var labelGroup = function () {
+			if (allLabel) {
+				allLabel.textContent = group === '' ? T.backup_all : T.backup_group.replace('%s', groupSelect.options[groupSelect.selectedIndex].text.replace(/ \(\d+\)$/, ''));
+			}
+		};
 		groupSelect.addEventListener('change', function () {
 			group = groupSelect.value;
+			labelGroup();
 			render();
 		});
+		labelGroup();
 	}
 
 	function poll() {
@@ -537,7 +587,7 @@
 	var timer = null;
 	function schedule() {
 		clearTimeout(timer);
-		var busy = data.boxes.some(function (b) { return b.op && b.op.state === 'running'; });
+		var busy = data.boxes.some(isBusy) || (data.activity || []).length > 0;
 		timer = setTimeout(poll, document.hidden ? 60000 : (busy ? 2000 : 10000));
 	}
 	/* The running time on a busy tile counts every second. */

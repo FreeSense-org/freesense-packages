@@ -144,7 +144,7 @@ function fleet_box_state(int $misses): string {
  * $groups: node_id => the firewall's groups (fleet_groups_by_box()).
  * $ops: node_id => the operation shown on its tile (fleet_ops_for_tiles()).
  */
-function fleet_dashboard_data(array $rows, int $pending, int $now, array $groups = array(), array $ops = array()): array {
+function fleet_dashboard_data(array $rows, int $pending, int $now, array $groups = array(), array $ops = array(), array $activity = array()): array {
 	$rank = array('offline' => 0, 'degraded' => 1, 'new' => 2, 'online' => 3);
 	$boxes = array();
 	$counts = array('online' => 0, 'degraded' => 0, 'offline' => 0, 'new' => 0, 'unprotected' => 0);
@@ -191,7 +191,7 @@ function fleet_dashboard_data(array $rows, int $pending, int $now, array $groups
 		$headline = "{$attention} of {$total} " . (($total === 1) ? 'firewall needs' : 'firewalls need') . ' attention';
 	}
 	return array('headline' => $headline, 'total' => $total, 'counts' => $counts + array('pending' => $pending),
-	    'boxes' => $boxes, 'checked' => $last_check ?: null, 'now' => $now);
+	    'boxes' => $boxes, 'checked' => $last_check ?: null, 'now' => $now, 'activity' => $activity);
 }
 
 /* ------------------------------------------------------------------ */

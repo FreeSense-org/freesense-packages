@@ -186,6 +186,7 @@ include('head.inc');
 if ($manage) {
 	$tab_array = array(
 		array(gettext('Dashboard'), true, '/fleet/fleet_dashboard.php'),
+		array(gettext('Activity'), false, '/fleet/fleet_activity.php'),
 		array(gettext('Firewalls'), false, '/fleet/fleet.php'),
 		array(gettext('Settings'), false, '/fleet/fleet.php?tab=settings'),
 	);

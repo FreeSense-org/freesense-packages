@@ -73,25 +73,86 @@ function fleet_op_view(?array $op, int $now): ?array {
 	if ($op === null) {
 		return null;
 	}
-	if (($op['state'] !== 'running') && (($now - (int)$op['finished']) > FLEET_OP_SHOW_DONE)) {
+	if (!in_array($op['state'], array('running', 'queued'), true) && (($now - (int)$op['finished']) > FLEET_OP_SHOW_DONE)) {
 		return null;
 	}
 	return array('id' => (int)$op['id'], 'kind' => (string)$op['kind'], 'state' => (string)$op['state'], 'text' => (string)$op['text'],
 	    'started' => (int)$op['started'], 'by' => (string)$op['who']);
 }
 
+/* pure: a group operation's progress from its tasks' states. */
+function fleet_op_progress(array $states): array {
+	$n = count($states);
+	$done = count(array_filter($states, function ($s) { return $s !== 'running' && $s !== 'queued'; }));
+	$failed = count(array_keys($states, 'failed', true));
+	return array('total' => $n, 'finished' => $done, 'failed' => $failed, 'percent' => ($n === 0) ? 100 : (int)floor(100 * $done / $n));
+}
+
+/* pure: the words for a group operation's state. */
+function fleet_op_summary(array $p, bool $over): string {
+	if (!$over) {
+		return sprintf('%d of %d done', $p['finished'], $p['total']);
+	}
+	if ($p['failed'] === 0) {
+		return ($p['total'] === 1) ? 'Done' : sprintf('All %d done', $p['total']);
+	}
+	return sprintf('%d of %d failed', $p['failed'], $p['total']);
+}
+
 /* ------------------------------------------------------------------ */
 /* Storage                                                             */
 /* ------------------------------------------------------------------ */
 
-function fleet_op_start(string $node_id, string $kind, string $text, string $who): int {
-	fleet_db()->prepare("INSERT INTO ops (node_id, kind, state, text, who, started, updated) VALUES (?, ?, 'running', ?, ?, ?, ?)")
-	    ->execute(array($node_id, $kind, $text, $who, time(), time()));
+function fleet_op_start(string $node_id, string $kind, string $text, string $who, ?int $parent = null, string $state = 'running'): int {
+	fleet_db()->prepare('INSERT INTO ops (node_id, kind, state, text, who, started, updated, parent) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+	    ->execute(array($node_id, $kind, $state, $text, $who, time(), time(), $parent));
 	return (int)fleet_db()->lastInsertId();
 }
 
+/* A group operation: no firewall of its own, a title, its tasks point at it. */
+function fleet_op_group_start(string $kind, string $title, string $who): int {
+	fleet_db()->prepare("INSERT INTO ops (node_id, kind, state, text, who, started, updated, title) VALUES ('', ?, 'running', 'Starting', ?, ?, ?, ?)")
+	    ->execute(array($kind, $who, time(), time(), $title));
+	return (int)fleet_db()->lastInsertId();
+}
+
+/* Recount a group operation from its tasks; it is over when none is waiting or running. */
+function fleet_op_group_update(int $id): array {
+	$q = fleet_db()->prepare('SELECT state FROM ops WHERE parent = ?');
+	$q->execute(array($id));
+	$p = fleet_op_progress($q->fetchAll(PDO::FETCH_COLUMN));
+	$over = $p['finished'] === $p['total'];
+	fleet_op_set($id, $over ? (($p['failed'] > 0) ? 'failed' : 'done') : 'running', fleet_op_summary($p, $over));
+	return $p;
+}
+
+/* Running group operations with their progress, for the dashboard strip. */
+function fleet_ops_groups_running(): array {
+	$out = array();
+	foreach (fleet_db()->query("SELECT * FROM ops WHERE node_id = '' AND state = 'running' ORDER BY id")->fetchAll() as $op) {
+		$q = fleet_db()->prepare('SELECT state FROM ops WHERE parent = ?');
+		$q->execute(array($op['id']));
+		$out[] = array('id' => (int)$op['id'], 'title' => (string)$op['title'], 'text' => (string)$op['text'], 'started' => (int)$op['started'],
+		    'by' => (string)$op['who']) + fleet_op_progress($q->fetchAll(PDO::FETCH_COLUMN));
+	}
+	return $out;
+}
+
+/* The Activity list: operations started on their own or as a group (not the group's tasks), newest first. */
+function fleet_ops_history(int $limit = 50): array {
+	$q = fleet_db()->prepare('SELECT o.*, b.label FROM ops o LEFT JOIN boxes b ON b.node_id = o.node_id WHERE o.parent IS NULL ORDER BY o.id DESC LIMIT ?');
+	$q->execute(array($limit));
+	return $q->fetchAll();
+}
+
+function fleet_op_tasks(int $parent): array {
+	$q = fleet_db()->prepare('SELECT o.*, b.label FROM ops o LEFT JOIN boxes b ON b.node_id = o.node_id WHERE o.parent = ? ORDER BY (o.state = \'failed\') DESC, b.label');
+	$q->execute(array($parent));
+	return $q->fetchAll();
+}
+
 function fleet_op_set(int $id, string $state, string $text): void {
-	$finished = ($state === 'running') ? null : time();
+	$finished = in_array($state, array('running', 'queued'), true) ? null : time();
 	fleet_db()->prepare('UPDATE ops SET state = ?, text = ?, updated = ?, finished = COALESCE(finished, ?) WHERE id = ?')
 	    ->execute(array($state, $text, time(), $finished, $id));
 }
@@ -99,7 +160,7 @@ function fleet_op_set(int $id, string $state, string $text): void {
 /* The newest operation of each firewall (running, or finished a moment ago), as node_id => view. */
 function fleet_ops_for_tiles(int $now): array {
 	$out = array();
-	$q = fleet_db()->prepare('SELECT * FROM ops WHERE state = \'running\' OR finished >= ? ORDER BY id');
+	$q = fleet_db()->prepare("SELECT * FROM ops WHERE node_id != '' AND (state IN ('running', 'queued') OR finished >= ?) ORDER BY id");
 	$q->execute(array($now - FLEET_OP_SHOW_DONE));
 	foreach ($q->fetchAll() as $op) {
 		$view = fleet_op_view($op, $now);
@@ -112,7 +173,7 @@ function fleet_ops_for_tiles(int $now): array {
 
 /* The running operation of a firewall, or null. */
 function fleet_op_running(string $node_id): ?array {
-	$q = fleet_db()->prepare("SELECT * FROM ops WHERE node_id = ? AND state = 'running' ORDER BY id DESC LIMIT 1");
+	$q = fleet_db()->prepare("SELECT * FROM ops WHERE node_id = ? AND state IN ('running', 'queued') ORDER BY id DESC LIMIT 1");
 	$q->execute(array($node_id));
 	$row = $q->fetch();
 	return is_array($row) ? $row : null;
