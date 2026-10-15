@@ -18,6 +18,8 @@
 	var buttons = Array.prototype.slice.call(root.querySelectorAll('[data-filter]'));
 	var data = JSON.parse(document.getElementById('fs-fleet-initial').textContent);
 	var filter = 'all';
+	var groupSelect = root.querySelector('[data-fleet="group"]');
+	var group = '';
 	var etag = null;
 	var stale = false;
 	/* Server clock minus browser clock, so "ago" is right when the two disagree. */
@@ -116,6 +118,11 @@
 		li.appendChild(dl);
 
 		var foot = el('div', 'fs-fleet-box-foot');
+		(b.groups || []).forEach(function (g) {
+			var chip = el('span', 'fs-fleet-group', g.name);
+			chip.style.setProperty('--fs-fleet-group', 'var(--fs-series-' + g.color + ')');
+			foot.appendChild(chip);
+		});
 		if (b.rollback === false) {
 			foot.appendChild(badge('warn', T.rollback, T.rollback_hint));
 		}
@@ -129,7 +136,14 @@
 		return li;
 	}
 
+	function inGroup(b) {
+		return (group === '') || (b.groups || []).some(function (g) { return String(g.id) === group; });
+	}
+
 	function visible(b) {
+		if (!inGroup(b)) {
+			return false;
+		}
 		if (filter === 'all') {
 			return true;
 		}
@@ -141,9 +155,20 @@
 
 	function render() {
 		headline.textContent = data.headline;
+		/* The tiles count the firewalls in the chosen group. */
+		var counts = { all: 0, online: 0, degraded: 0, offline: 0, 'new': 0, unprotected: 0 };
+		data.boxes.forEach(function (b) {
+			if (inGroup(b)) {
+				counts.all++;
+				counts[b.state]++;
+				if (b.rollback === false) {
+					counts.unprotected++;
+				}
+			}
+		});
 		buttons.forEach(function (btn) {
 			var key = btn.getAttribute('data-filter');
-			var n = key === 'all' ? data.total : data.counts[key];
+			var n = counts[key];
 			btn.querySelector('[data-count]').textContent = n;
 			btn.setAttribute('aria-pressed', key === filter ? 'true' : 'false');
 		});
@@ -159,10 +184,16 @@
 		wall.hidden = data.total === 0;
 		if (shown === 0 && data.total > 0) {
 			var label = root.querySelector('[data-filter="' + filter + '"] .fs-tile-label').textContent.toLowerCase();
-			filterEmpty.textContent = T.none_match.replace('%s', label) + ' ';
+			filterEmpty.textContent = ((filter === 'all') ? T.none_in_group : T.none_match.replace('%s', label)) + ' ';
 			var all = el('button', 'btn btn-link p-0 align-baseline', T.show_all);
 			all.type = 'button';
-			all.addEventListener('click', function () { setFilter('all'); });
+			all.addEventListener('click', function () {
+				if (groupSelect) {
+					groupSelect.value = '';
+				}
+				group = '';
+				setFilter('all');
+			});
 			filterEmpty.appendChild(all);
 			filterEmpty.hidden = false;
 		} else {
@@ -188,6 +219,18 @@
 	buttons.forEach(function (btn) {
 		btn.addEventListener('click', function () { setFilter(btn.getAttribute('data-filter')); });
 	});
+	if (groupSelect) {
+		/* fleet_dashboard.php?group=<id> opens the dashboard on that group (the Groups page links here). */
+		var wanted = new URLSearchParams(window.location.search).get('group') || '';
+		if (wanted !== '' && groupSelect.querySelector('option[value="' + wanted.replace(/[^0-9]/g, '') + '"]')) {
+			groupSelect.value = wanted;
+			group = wanted;
+		}
+		groupSelect.addEventListener('change', function () {
+			group = groupSelect.value;
+			render();
+		});
+	}
 
 	function poll() {
 		var headers = { 'Accept': 'application/json' };

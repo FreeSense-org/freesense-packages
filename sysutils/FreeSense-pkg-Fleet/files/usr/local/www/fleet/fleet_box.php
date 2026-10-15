@@ -75,6 +75,10 @@ if ($manage && isset($_POST['restore_id'])) {
 		}
 	}
 }
+if ($manage && isset($_POST['set_groups'])) {
+	fleet_box_set_groups($box, (array)($_POST['groups'] ?? array()), $who);
+	$savemsg = gettext('Groups saved.');
+}
 if ($manage && ($_POST['backup_now'] ?? false)) {
 	try {
 		list($result) = fleet_backup_box($box, 'manual', $who);
@@ -208,9 +212,38 @@ if ($savemsg) {
 <?php if ($manage): $latest = fleet_backup_latest($box['node_id']); ?>
 					<dt><?=gettext('Last backup')?></dt><dd><?=$latest ? $when($latest['time']) . ' <a class="fs-fleet-inline-link" href="' . $here('backups') . '">' . gettext('Backups') . '</a>' : $when(0)?></dd>
 <?php endif; ?>
+					<dt><?=gettext('Groups')?></dt><dd><?php $mine = fleet_box_groups($box['node_id']); ?>
+<?php if (empty($mine)): ?>
+						<span class="fs-muted"><?=gettext('None')?></span>
+<?php else: ?>
+						<span class="fs-fleet-groups"><?php foreach ($mine as $grp): ?><span class="fs-fleet-group" style="--fs-fleet-group: var(--fs-series-<?=htmlspecialchars(fleet_group_color((string)$grp['color']))?>)"><?=htmlspecialchars($grp['name'])?></span><?php endforeach; ?></span>
+<?php endif; ?>
+<?php if ($manage): ?>
+						<a class="fs-fleet-inline-link" href="<?=$here('overview', array('groups' => 'edit'))?>"><?=gettext('Change')?></a>
+<?php endif; ?>
+					</dd>
 					<dt><?=gettext('Box ID')?></dt><dd class="fs-mono"><?=htmlspecialchars($box['node_id'])?></dd>
 				</dl>
 			</div>
+<?php if ($manage && (($_GET['groups'] ?? '') === 'edit')): $all = fleet_groups_all(); $in = array_column($mine, 'id'); ?>
+			<div class="panel-footer">
+<?php if (empty($all)): ?>
+				<span class="small fs-muted"><?=gettext('There are no groups yet.')?> <a class="fs-fleet-inline-link" href="/fleet/fleet.php?view=groups"><?=gettext('Add a group')?></a></span>
+<?php else: ?>
+				<form method="post" action="<?=$here('overview')?>" class="fs-fleet-groupform">
+					<fieldset>
+						<legend class="visually-hidden"><?=gettext('Groups')?></legend>
+<?php foreach ($all as $grp): ?>
+						<label class="form-check fs-fleet-groupcheck"><input class="form-check-input" type="checkbox" name="groups[]" value="<?=(int)$grp['id']?>"<?=in_array($grp['id'], $in) ? ' checked' : ''?>/>
+							<span class="fs-fleet-group" style="--fs-fleet-group: var(--fs-series-<?=htmlspecialchars(fleet_group_color((string)$grp['color']))?>)"><?=htmlspecialchars($grp['name'])?></span></label>
+<?php endforeach; ?>
+					</fieldset>
+					<button class="btn btn-sm btn-primary" type="submit" name="set_groups" value="1"><?=gettext('Save groups')?></button>
+					<a class="btn btn-sm btn-outline-secondary" href="<?=$here('overview')?>"><?=gettext('Cancel')?></a>
+				</form>
+<?php endif; ?>
+			</div>
+<?php endif; ?>
 		</div>
 	</div>
 </div>

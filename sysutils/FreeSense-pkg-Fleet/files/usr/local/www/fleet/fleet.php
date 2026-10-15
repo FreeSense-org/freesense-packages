@@ -83,6 +83,23 @@ if ($_POST['save_settings'] ?? false) {
 	mwexec_bg('/usr/local/bin/php /usr/local/sbin/freesense-fleet-backup all ' . escapeshellarg($who));
 	header('Location: /fleet/fleet_dashboard.php?started=backup');
 	exit;
+} elseif (isset($_POST['group_save']) && $s['enable']) {
+	$edit_id = ((int)($_POST['group_id'] ?? 0) > 0) ? (int)$_POST['group_id'] : null;
+	try {
+		fleet_group_save($edit_id, (string)($_POST['group_name'] ?? ''), (string)($_POST['group_description'] ?? ''),
+		    (string)($_POST['group_color'] ?? ''), $who);
+		$savemsg = ($edit_id === null) ? gettext('Group created. Add firewalls to it on each firewall\'s Overview.') : gettext('Group saved.');
+	} catch (InvalidArgumentException $e) {
+		$input_errors[] = $e->getMessage();
+		$_GET['edit'] = $edit_id;
+	}
+} elseif (isset($_POST['group_delete']) && $s['enable']) {
+	try {
+		fleet_group_delete((int)$_POST['group_delete'], $who);
+		$savemsg = gettext('Group deleted. Its firewalls were not changed.');
+	} catch (RuntimeException $e) {
+		$input_errors[] = $e->getMessage();
+	}
 } elseif (isset($_POST['revoke']) && $s['enable']) {
 	fleet_invite_revoke((string)$_POST['revoke'], $who);
 	$savemsg = gettext('Invitation revoked. Its link and key no longer work.');
@@ -119,7 +136,68 @@ if ($savemsg) {
 }
 ?>
 
-<?php if ($tab === 'firewalls'): ?>
+<?php if ($tab === 'firewalls'):
+	$fw_view = fs_view_param(array('invite', 'groups'), (isset($_POST['group_save']) || isset($_POST['group_delete'])) ? 'groups' : 'invite');
+	fs_view_switch(array('invite' => gettext('Add and approve'), 'groups' => gettext('Groups')), $fw_view);
+?>
+<?php if ($fw_view === 'groups'):
+	$groups = fleet_groups_all();
+	$editing = isset($_GET['edit']) ? fleet_group_get((int)$_GET['edit']) : null;
+	/* After an error the form keeps what was typed; after a save it is empty again. */
+	$typed = (isset($_POST['group_save']) && !empty($input_errors)) ? $_POST : array();
+	$form = array('id' => $editing['id'] ?? 0, 'name' => (string)($typed['group_name'] ?? ($editing['name'] ?? '')),
+	    'description' => (string)($typed['group_description'] ?? ($editing['description'] ?? '')),
+	    'color' => fleet_group_color((string)($typed['group_color'] ?? ($editing['color'] ?? (string)((count($groups) % 8) + 1)))));
+?>
+<div class="panel panel-default">
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Groups')?> <span class="fs-count"><?=count($groups)?></span></h2></div>
+<?php if (empty($groups)): ?>
+	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint"><?=gettext('No groups yet. Group firewalls by place, customer or role, for example Denmark, Retail or Canary. Policies, backups and updates can then target a group.')?></p></div>
+<?php else: ?>
+	<div class="panel-body table-responsive"><table class="table fs-table">
+		<thead><tr><th><?=gettext('Name')?></th><th><?=gettext('Description')?></th><th><?=gettext('Firewalls')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
+		<tbody>
+<?php foreach ($groups as $grp): ?>
+		<tr><td><span class="fs-fleet-group" style="--fs-fleet-group: var(--fs-series-<?=htmlspecialchars(fleet_group_color((string)$grp['color']))?>)"><?=htmlspecialchars($grp['name'])?></span></td>
+			<td><?=($grp['description'] !== '') ? htmlspecialchars($grp['description']) : '<span class="fs-muted">-</span>'?></td>
+			<td><a class="fs-fleet-inline-link" href="/fleet/fleet_dashboard.php?group=<?=(int)$grp['id']?>"><?=(int)$grp['members']?></a></td>
+			<td class="text-end text-nowrap">
+				<a class="btn btn-sm btn-link" href="?view=groups&amp;edit=<?=(int)$grp['id']?>"><?=gettext('Change')?></a>
+				<form method="post" action="?view=groups" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="group_delete" value="<?=(int)$grp['id']?>" title="<?=gettext('Its firewalls stay in the fleet')?>"><?=gettext('Delete')?></button></form>
+			</td></tr>
+<?php endforeach; ?>
+		</tbody></table></div>
+<?php endif; ?>
+	<div class="panel-footer small fs-muted"><?=gettext('A firewall can be in several groups. Deleting a group never changes its firewalls; a group that a policy, backup set or update ring uses cannot be deleted.')?></div>
+</div>
+
+<div class="panel panel-default">
+	<div class="panel-heading"><h2 class="panel-title"><?=($editing !== null) ? sprintf(gettext('Change %s'), htmlspecialchars($editing['name'])) : gettext('Add a group')?></h2></div>
+	<div class="panel-body fs-fleet-pad">
+		<form method="post" action="?view=groups" class="fs-fleet-form">
+			<input type="hidden" name="group_id" value="<?=(int)$form['id']?>"/>
+			<div class="fs-fleet-field"><label class="form-label" for="group_name"><?=gettext('Name')?></label>
+				<input class="form-control" id="group_name" name="group_name" maxlength="40" required value="<?=htmlspecialchars($form['name'])?>" placeholder="<?=gettext('Retail')?>"/></div>
+			<div class="fs-fleet-field fs-fleet-field--wide"><label class="form-label" for="group_description"><?=gettext('Description')?></label>
+				<input class="form-control" id="group_description" name="group_description" maxlength="200" value="<?=htmlspecialchars($form['description'])?>" placeholder="<?=gettext('Shops and pop-up stores')?>"/></div>
+			<fieldset class="fs-fleet-field">
+				<legend class="form-label"><?=gettext('Colour')?></legend>
+				<div class="fs-fleet-swatches">
+<?php foreach (FLEET_GROUP_COLORS as $c): ?>
+					<label class="fs-fleet-swatch" style="--fs-fleet-group: var(--fs-series-<?=$c?>)"><input type="radio" name="group_color" value="<?=$c?>"<?=($form['color'] === $c) ? ' checked' : ''?>/><span class="visually-hidden"><?=sprintf(gettext('Colour %s'), $c)?></span></label>
+<?php endforeach; ?>
+				</div>
+			</fieldset>
+			<div class="fs-fleet-field fs-fleet-field--button">
+				<button class="btn btn-primary" type="submit" name="group_save" value="1"><i class="fa-solid <?=($editing !== null) ? 'fa-floppy-disk' : 'fa-plus'?> icon-embed-btn" aria-hidden="true"></i><?=($editing !== null) ? gettext('Save') : gettext('Add group')?></button>
+<?php if ($editing !== null): ?>
+				<a class="btn btn-outline-secondary" href="?view=groups"><?=gettext('Cancel')?></a>
+<?php endif; ?>
+			</div>
+		</form>
+	</div>
+</div>
+<?php else: ?>
 
 <?php if ($new_invite !== null): list($link, $key, $tid, $expires) = $new_invite; ?>
 <section class="fs-fleet-block fs-fleet-invite" aria-labelledby="invite-title">
@@ -207,6 +285,7 @@ if ($savemsg) {
 </section>
 <?php endif; ?>
 
+<?php endif; ?>
 <?php else: ?>
 
 <section class="fs-fleet-block" aria-labelledby="settings-title">
