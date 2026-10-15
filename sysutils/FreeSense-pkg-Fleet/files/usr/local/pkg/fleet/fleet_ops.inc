@@ -256,3 +256,37 @@ function fleet_ops_follow(array $box, ?array $status, int $now): void {
 		}
 	}
 }
+
+/* ------------------------------------------------------------------ */
+/* The top-bar item (plugin_navbar)                                    */
+/* ------------------------------------------------------------------ */
+
+/* A failed action stays in the top bar this long, so it is seen. */
+define('FLEET_NAV_SHOW_FAILED', 600);
+
+/*
+ * pure: the top-bar item from what runs and what failed lately. Out of
+ * sight when the fleet is quiet; a spinner and a count while actions run;
+ * a red count for a while after one failed.
+ */
+function fleet_nav_item(int $running, int $failed): array {
+	$item = array('id' => 'activity', 'icon' => 'fa-server', 'href' => '/fleet/fleet_activity.php', 'poll' => '/fleet/fleet_nav.php',
+	    'busy' => $running > 0, 'hidden' => ($running === 0) && ($failed === 0));
+	if ($running > 0) {
+		return $item + array('badge' => $running, 'kind' => 'info',
+		    'label' => ($running === 1) ? 'FreeSense Fleet: 1 action running' : "FreeSense Fleet: {$running} actions running");
+	}
+	if ($failed > 0) {
+		return $item + array('badge' => $failed, 'kind' => 'block',
+		    'label' => ($failed === 1) ? 'FreeSense Fleet: 1 action failed' : "FreeSense Fleet: {$failed} actions failed");
+	}
+	return $item + array('badge' => 0, 'kind' => 'info', 'label' => 'FreeSense Fleet activity');
+}
+
+/* The item now: running operations (a group counts once) and recent failures. */
+function fleet_nav_now(int $now): array {
+	$running = (int)fleet_db()->query("SELECT COUNT(*) FROM ops WHERE parent IS NULL AND state IN ('running', 'queued')")->fetchColumn();
+	$q = fleet_db()->prepare("SELECT COUNT(*) FROM ops WHERE parent IS NULL AND state = 'failed' AND finished >= ?");
+	$q->execute(array($now - FLEET_NAV_SHOW_FAILED));
+	return fleet_nav_item($running, (int)$q->fetchColumn());
+}
