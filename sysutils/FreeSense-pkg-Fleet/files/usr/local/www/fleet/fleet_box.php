@@ -131,6 +131,19 @@ if ($manage && isset($_POST['set_groups'])) {
 	fleet_box_set_groups($box, (array)($_POST['groups'] ?? array()), $who);
 	$savemsg = gettext('Groups saved.');
 }
+if ($manage && (isset($_POST['pin']) || isset($_POST['unpin']))) {
+	$pid = (int)($_POST['pin'] ?? $_POST['unpin']);
+	$prow = fleet_backup_get($pid);
+	try {
+		if (($prow === null) || ($prow['node_id'] !== $box['node_id'])) {
+			throw new RuntimeException(gettext('That backup does not exist any more.'));
+		}
+		fleet_backup_pin($pid, isset($_POST['pin']), $who);
+		$savemsg = isset($_POST['pin']) ? gettext('Pinned: this backup is never removed.') : gettext('Unpinned: the keep rules decide again.');
+	} catch (RuntimeException $e) {
+		$input_errors[] = $e->getMessage();
+	}
+}
 if ($manage && ($_POST['backup_now'] ?? false)) {
 	try {
 		list($result) = fleet_backup_box($box, 'manual', $who);
@@ -210,6 +223,7 @@ if ($manage) {
 		array(gettext('Activity'), false, '/fleet/fleet_activity.php'),
 		array(gettext('Updates'), false, '/fleet/fleet_updates.php'),
 		array(gettext('Schedules'), false, '/fleet/fleet_schedules.php'),
+		array(gettext('Backups'), false, '/fleet/fleet_backups.php'),
 		array(gettext('Firewalls'), false, '/fleet/fleet.php'),
 		array(gettext('Settings'), false, '/fleet/fleet.php?tab=settings'),
 	);
@@ -341,7 +355,11 @@ if ($savemsg) {
 <?php endif; ?>
 
 <?php elseif ($view === 'backups'):
-	$backups = fleet_backup_list($box['node_id']);
+	$backups = fleet_backup_list($box['node_id'], 200);
+	/* Why each backup is kept (or that the next clean-up removes it): the same rules as the nightly clean-up. */
+	list($box_rules, $box_sets) = fleet_backup_rules_by_box()[$box['node_id']] ?? array(array(fleet_backup_default_rule()), array());
+	$kept = fleet_backup_keep(fleet_db()->query('SELECT id, time, reason, pinned FROM backups WHERE node_id = ' . fleet_db()->quote($box['node_id']))->fetchAll(),
+	    $box_rules, time(), fleet_opt('backup_safety_days'), fleet_tz());
 	$diff_id = (int)($_GET['diff'] ?? 0);
 	$review = isset($_GET['restore']) ? fleet_backup_get((int)$_GET['restore']) : null;
 	if (($review !== null) && ($review['node_id'] === $box['node_id'])):
@@ -383,6 +401,8 @@ if ($savemsg) {
 <div class="panel panel-default">
 	<div class="panel-heading fs-fleet-panel-head">
 		<h2 class="panel-title"><?=gettext('Backups')?> <span class="fs-count"><?=count($backups)?></span></h2>
+		<span class="fs-muted small"><?=empty($box_sets) ? sprintf(gettext('Keeps the default: %s'), htmlspecialchars(fleet_keep_rule_text(fleet_backup_default_rule()))) : sprintf(gettext('Kept by %s'), htmlspecialchars(implode(', ', $box_sets)))?>
+			(<a href="/fleet/fleet_backups.php?view=sets"><?=gettext('sets')?></a>)</span>
 		<a class="btn btn-sm btn-link" href="/fleet/fleet_schedules.php?node=<?=urlencode($box['node_id'])?>"><?=gettext('Schedule...')?></a>
 		<form method="post" action="<?=$here('backups')?>"><button class="btn btn-sm btn-outline-secondary" name="backup_now" value="1" <?=($state === 'offline') ? 'disabled' : ''?>><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Back up now')?></button></form>
 	</div>
@@ -396,12 +416,17 @@ if ($savemsg) {
 			<li<?=($diff_id === (int)$b['id']) ? ' class="is-open"' : ''?>>
 				<time datetime="<?=date('c', (int)$b['time'])?>"><?=htmlspecialchars(date('Y-m-d H:i', (int)$b['time']))?></time>
 				<span class="fs-fleet-backup-what"><?=htmlspecialchars(((string)$b['description'] !== '') ? $b['description'] : gettext('No description'))?>
-					<span class="fs-muted"><?=htmlspecialchars(fleet_backup_reason_text($b['reason']))?>, <?=htmlspecialchars(format_bytes((int)$b['size']))?></span></span>
+						<span class="fs-muted"><?=htmlspecialchars(fleet_backup_reason_text($b['reason']))?>, <?=htmlspecialchars(format_bytes((int)$b['size']))?>.
+						<?=isset($kept[(int)$b['id']]) ? htmlspecialchars(sprintf(gettext('Kept: %s'), gettext($kept[(int)$b['id']]))) : '<span class="fs-fleet-warn-text">' . gettext('Removed at the next clean-up') . '</span>'?></span>
+						<?=!empty($b['pinned']) ? fs_badge('info', gettext('Pinned')) : ''?></span>
 				<span class="fs-fleet-backup-actions">
 <?php if ($prev !== null): ?>
 					<a class="btn btn-sm btn-link" href="<?=$here('backups', ($diff_id === (int)$b['id']) ? array() : array('diff' => (int)$b['id']))?>"<?=($diff_id === (int)$b['id']) ? ' aria-expanded="true"' : ''?>><?=($diff_id === (int)$b['id']) ? gettext('Hide changes') : gettext('Changes')?></a>
 <?php endif; ?>
 					<a class="btn btn-sm btn-link" href="<?=$here('backups', array('download' => (int)$b['id']))?>"><i class="fa-solid fa-download icon-embed-btn" aria-hidden="true"></i><?=gettext('Download')?></a>
+<?php if ($manage): ?>
+					<form method="post" action="<?=$here('backups')?>" class="d-inline"><button class="btn btn-sm btn-link" name="<?=!empty($b['pinned']) ? 'unpin' : 'pin'?>" value="<?=(int)$b['id']?>" title="<?=!empty($b['pinned']) ? gettext('Let the keep rules remove it again') : gettext('Never remove this backup')?>"><?=!empty($b['pinned']) ? gettext('Unpin') : gettext('Pin')?></button></form>
+<?php endif; ?>
 <?php if (($running_sha !== '') && hash_equals($running_sha, (string)$b['sha256'])): ?>
 					<span class="fs-fleet-current"><?=gettext('Current')?></span>
 <?php else: ?>

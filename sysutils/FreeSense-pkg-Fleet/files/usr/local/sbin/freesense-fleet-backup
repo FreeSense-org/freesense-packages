@@ -80,6 +80,10 @@ if (($cmd === 'nightly') || ($cmd === 'all') || ($cmd === 'nodes')) {
 	}));
 	fleet_audit($who, 'backup_all', sprintf('%d firewalls: %d stored, %d unchanged, %d failed', count($results),
 	    count(array_keys($results, 'stored', true)), count(array_keys($results, 'unchanged', true)), $failed));
+	if ($cmd === 'nightly') {
+		/* Once a day, after the nightly backup: remove what no keep rule wants any more. */
+		fleet_backup_prune('schedule');
+	}
 	exit(0);
 }
 

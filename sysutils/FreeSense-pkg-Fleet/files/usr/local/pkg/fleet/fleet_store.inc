@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 11);
+define('FLEET_DB_SCHEMA', 12);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -284,6 +284,16 @@ UPDATE schedules SET ran_at = last_run WHERE last_result IS NOT NULL;
 UPDATE schedules SET targets = CASE WHEN node_id IS NOT NULL THEN json_array('n:' || node_id)
     WHEN group_id > 0 THEN json_array('g:' || group_id) ELSE json_array('all') END;
 PRAGMA user_version = 11;
+SQL);
+	}
+	if ($version < 12) {
+		/* Backup sets (which firewalls keep how many backups) and pinned backups. */
+		$db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS backup_sets (
+	id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE COLLATE NOCASE, targets TEXT NOT NULL,
+	keep_last INTEGER NOT NULL, keep_daily INTEGER NOT NULL, keep_weekly INTEGER NOT NULL, keep_monthly INTEGER NOT NULL, created INTEGER NOT NULL);
+ALTER TABLE backups ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+PRAGMA user_version = 12;
 SQL);
 	}
 	$db->exec('COMMIT');
