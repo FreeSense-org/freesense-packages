@@ -158,6 +158,7 @@ $tab_array = array(
 	array(gettext('Dashboard'), false, '/fleet/fleet_dashboard.php'),
 	array(gettext('Activity'), false, '/fleet/fleet_activity.php'),
 	array(gettext('Updates'), false, '/fleet/fleet_updates.php'),
+	array(gettext('Schedules'), false, '/fleet/fleet_schedules.php'),
 	array(gettext('Firewalls'), $tab === 'firewalls', '/fleet/fleet.php'),
 	array(gettext('Settings'), $tab === 'settings', '/fleet/fleet.php?tab=settings'),
 );

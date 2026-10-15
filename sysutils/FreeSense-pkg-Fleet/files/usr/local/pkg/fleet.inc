@@ -45,6 +45,7 @@ require_once('fleet/fleet_ops.inc');
 require_once('fleet/fleet_list.inc');
 require_once('fleet/fleet_updates.inc');
 require_once('fleet/fleet_rollouts.inc');
+require_once('fleet/fleet_schedules.inc');
 
 define('FLEET_CTL_IF', 'wgfctl0');
 define('FLEET_ENROLL_CONF', '/var/etc/fleet-enroll.conf');
@@ -63,7 +64,7 @@ define('FLEET_POLL_INTERVALS', array(10, 15, 30, 60));
  * elsewhere. New features add their values here.
  */
 define('FLEET_SETTINGS_SECTIONS', array('controller' => 'Controller', 'monitoring' => 'Monitoring', 'actions' => 'Actions and notices',
-    'backups' => 'Backups', 'updates' => 'Updates', 'advanced' => 'Advanced'));
+    'backups' => 'Backups', 'updates' => 'Updates', 'schedules' => 'Schedules', 'advanced' => 'Advanced'));
 define('FLEET_TUNABLES', array(
 	'poll_interval' => array('monitoring', 'choice', 15, array(10, 15, 30, 60), null, 'Check each firewall every',
 	    'How quickly the dashboard sees a change. Shorter intervals cost a little more traffic over each tunnel.'),
@@ -97,6 +98,8 @@ define('FLEET_TUNABLES', array(
 	    'Time to notice a problem in one ring before the next ring updates. The default for new rollouts.'),
 	'update_ufs_in_groups' => array('updates', 'bool', false, null, null, 'Include firewalls without rollback (UFS) in group updates',
 	    'Off: group updates leave them out, so a failed update never needs a reinstall by surprise. You can still update one by itself.'),
+	'schedule_grace' => array('schedules', 'min', 15, 2, 240, 'Run a schedule late by at most',
+	    'When the controller was off at the time, a job starts when it is back if it is no later than this; otherwise it is recorded as missed.'),
 	'invite_hours' => array('advanced', 'h', 24, 1, 720, 'Invitations are valid for',
 	    'The default when you invite a firewall (you can change it per invitation).'),
 	'invite_failures' => array('advanced', 'count', 5, 3, 20, 'An invitation is burned after this many wrong join keys',
@@ -451,6 +454,8 @@ function fleet_event_text(string $node_id, string $action, string $detail): arra
 		return array('Updated', $rest);
 	case 'update_failed':
 		return array('Update failed', $rest);
+	case 'schedule':
+		return array('Schedule', $rest);
 	case 'rollout':
 		return array('Rollout', $rest);
 	case 'window':
