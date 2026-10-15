@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 7);
+define('FLEET_DB_SCHEMA', 8);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -243,6 +243,18 @@ SQL);
 ALTER TABLE ops ADD COLUMN data TEXT;
 ALTER TABLE boxes ADD COLUMN update_info TEXT;
 PRAGMA user_version = 7;
+SQL);
+	}
+	if ($version < 8) {
+		/* Maintenance windows (a group may have one) and rollouts (rings of groups, one group operation each). */
+		$db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS windows (
+	id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE COLLATE NOCASE, days TEXT NOT NULL, start INTEGER NOT NULL, length INTEGER NOT NULL);
+ALTER TABLE fleet_groups ADD COLUMN window_id INTEGER;
+CREATE TABLE IF NOT EXISTS rollouts (
+	id INTEGER PRIMARY KEY AUTOINCREMENT, op_id INTEGER NOT NULL, target TEXT NOT NULL, rings TEXT NOT NULL, ring_done TEXT NOT NULL DEFAULT '{}',
+	acked TEXT NOT NULL DEFAULT '[]', state TEXT NOT NULL, gap INTEGER NOT NULL, who TEXT NOT NULL, created INTEGER NOT NULL);
+PRAGMA user_version = 8;
 SQL);
 	}
 	$db->exec('COMMIT');

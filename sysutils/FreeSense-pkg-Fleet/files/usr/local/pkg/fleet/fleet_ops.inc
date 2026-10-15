@@ -256,9 +256,13 @@ function fleet_ops_for_tiles(int $now): array {
 	return $out;
 }
 
-/* The running operation of a firewall, or null. */
+/*
+ * The running operation of a firewall, or null. A task still waiting its
+ * turn (a rollout ring can wait days for its window) does not make the
+ * firewall busy: it can still be backed up or rebooted meanwhile.
+ */
 function fleet_op_running(string $node_id): ?array {
-	$q = fleet_db()->prepare("SELECT * FROM ops WHERE node_id = ? AND state IN ('running', 'queued') ORDER BY id DESC LIMIT 1");
+	$q = fleet_db()->prepare("SELECT * FROM ops WHERE node_id = ? AND state = 'running' ORDER BY id DESC LIMIT 1");
 	$q->execute(array($node_id));
 	$row = $q->fetch();
 	return is_array($row) ? $row : null;

@@ -8,6 +8,7 @@ pkg/fleet/fleet_groups.inc
 pkg/fleet/fleet_list.inc
 pkg/fleet/fleet_manage.inc
 pkg/fleet/fleet_ops.inc
+pkg/fleet/fleet_rollouts.inc
 pkg/fleet/fleet_updates.inc
 pkg/fleet/fleet_store.inc
 sbin/freesense-fleet-backup
@@ -23,5 +24,6 @@ www/fleet/fleet_activity.php
 www/fleet/fleet_box.php
 www/fleet/fleet_group_action.php
 www/fleet/fleet_nav.php
+www/fleet/fleet_updates.php
 www/fleet/fleet_dashboard.php
 www/fleet/fleet_data.php
