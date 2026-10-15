@@ -502,16 +502,17 @@ $state_badge = function (string $state) {
 							<div><?=$field($rid, $pname, $def, $vals[$pname] ?? $def[2])?></div>
 <?php endforeach; ?>
 <?php if ($lockable): $mname = 'rule[' . htmlspecialchars($rid) . '][mode]'; $mid = 'm-' . preg_replace('/[^A-Za-z0-9-]/', '-', $rid); ?>
-							<fieldset class="fs-fleet-mode"><legend class="form-label small"><?=gettext('When it is broken')?></legend>
+							<div class="fs-fleet-mode-wrap"><div class="form-label small" id="<?=$mid?>-l"><?=gettext('When it is broken')?></div>
+							<fieldset class="fs-fleet-mode" aria-labelledby="<?=$mid?>-l">
 								<label><input type="radio" name="<?=$mname?>" value="audit"<?=($mode_now !== 'lock') ? ' checked' : ''?> data-rule-mode/>
-									<span><i class="fa-solid fa-eye" aria-hidden="true"></i> <?=gettext('Report it')?></span></label>
+									<span title="<?=gettext('Fleet reports it; nothing changes on the firewall')?>"><i class="fa-solid fa-eye" aria-hidden="true"></i> <?=gettext('Report')?></span></label>
 <?php if ($fixable): ?>
 								<label><input type="radio" name="<?=$mname?>" value="remediate"<?=($mode_now === 'remediate') ? ' checked' : ''?> data-rule-mode/>
-									<span><i class="fa-solid fa-wrench" aria-hidden="true"></i> <?=gettext('Fix it')?></span></label>
+									<span title="<?=gettext('Fleet has the firewall correct it in its maintenance window')?>"><i class="fa-solid fa-wrench" aria-hidden="true"></i> <?=gettext('Fix')?></span></label>
 <?php endif; ?>
 								<label><input type="radio" name="<?=$mname?>" value="lock"<?=($mode_now === 'lock') ? ' checked' : ''?> data-rule-mode/>
-									<span><i class="fa-solid fa-lock" aria-hidden="true"></i> <?=gettext('Lock: refuse the save')?></span></label>
-							</fieldset>
+									<span title="<?=gettext('The firewall refuses local saves that break it')?>"><i class="fa-solid fa-lock" aria-hidden="true"></i> <?=gettext('Lock')?></span></label>
+							</fieldset></div>
 <?php endif; ?>
 						</div>
 <?php endif; ?>
@@ -524,10 +525,10 @@ $state_badge = function (string $state) {
 			</div>
 		</div>
 	</div>
-	<div class="fs-fleet-review-actions">
+	<div class="fs-fleet-review-actions fs-fleet-policy-actions">
 		<button class="btn btn-primary" type="submit" name="policy_save" value="1"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save policy')?></button>
 		<a class="btn btn-outline-secondary" href="?view=policies"><?=gettext('Cancel')?></a>
-		<span class="fs-muted small"><?=gettext('Fix it: Fleet has the firewall correct the setting in its maintenance window, after a safety backup, and does not retry a failed fix by itself. Lock: the firewall refuses saves that break the rule, also while the controller is offline; a console administrator can suspend it (break-glass).')?></span>
+		<p class="fs-fleet-policy-note"><?=gettext('Fix: Fleet has the firewall correct the setting in its maintenance window, after a safety backup, and does not retry a failed fix by itself. Lock: the firewall refuses saves that break the rule, also while the controller is offline; a console administrator can suspend it (break-glass).')?></p>
 	</div>
 </form>
 <?php endif; ?>
