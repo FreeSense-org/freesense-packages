@@ -726,11 +726,54 @@ a.fs-fleet-tile-link:hover, a.fs-fleet-tile-link:focus-visible { border-color: v
 .fs-fleet-meter > span { display: block; height: 100%; background: var(--fs-info); }
 .fs-fleet-meter.is-full > span { background: var(--fs-warn); }
 
-/* ---- policy editor ---- */
-.fs-fleet-rules { display: flex; flex-direction: column; gap: var(--fs-sp-2); margin: 0; padding: 0; list-style: none; }
-.fs-fleet-rule { padding: var(--fs-sp-2) var(--fs-sp-3); border: 1px solid var(--fs-border); border-radius: var(--fs-r-md); }
-.fs-fleet-rule.is-used, .fs-fleet-rule:has(> .fs-fleet-rule-head input:checked) { border-color: var(--fs-info); }
-.fs-fleet-rule-head .form-check-label { display: flex; flex-direction: column; gap: 2px; }
-.fs-fleet-rule-head .form-check-input:not(:checked) { border-color: var(--fs-text-muted); }
-.fs-fleet-rule-params { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: var(--fs-sp-2); margin: var(--fs-sp-2) 0 0 1.75rem; }
-.fs-fleet-rule:not(:has(> .fs-fleet-rule-head input:checked)) .fs-fleet-rule-params { opacity: .55; }
+/* ---- policy editor: rule picker ---- */
+.fs-fleet-picker { margin-bottom: var(--fs-sp-3); }
+.fs-fleet-picker-bar { position: sticky; top: 0; z-index: 3; display: flex; flex-wrap: wrap; align-items: center; gap: var(--fs-sp-2) var(--fs-sp-3);
+	padding: var(--fs-sp-2) var(--fs-sp-3); margin-bottom: var(--fs-sp-3); background: var(--bs-body-bg); border: 1px solid var(--fs-border); border-radius: var(--fs-r-md); }
+.fs-fleet-picker-sum { display: flex; gap: var(--fs-sp-3); color: var(--fs-text-muted); font-size: .875rem; }
+.fs-fleet-picker-sum strong { color: var(--bs-body-color); }
+.fs-fleet-picker-search { flex: 1 1 14rem; max-width: 28rem; }
+.fs-fleet-seg { display: inline-flex; border: 1px solid var(--fs-border); border-radius: var(--fs-r-md); overflow: hidden; }
+.fs-fleet-seg button { padding: .25rem .7rem; border: 0; background: transparent; color: var(--fs-text-muted); font-size: .8125rem; }
+.fs-fleet-seg button + button { border-left: 1px solid var(--fs-border); }
+.fs-fleet-seg button.is-active { background: var(--bs-primary); color: #fff; }
+.fs-fleet-seg button:focus-visible { outline: 2px solid var(--fs-info); outline-offset: -2px; }
+.fs-fleet-picker-body { display: grid; grid-template-columns: 12rem 1fr; gap: var(--fs-sp-3); align-items: start; }
+.fs-fleet-picker-nav { position: sticky; top: 4rem; display: flex; flex-direction: column; gap: 2px; }
+.fs-fleet-picker-nav a { display: flex; align-items: center; gap: var(--fs-sp-2); padding: .4rem .6rem; border-radius: var(--fs-r-md); color: var(--bs-body-color); text-decoration: none; font-size: .875rem; }
+.fs-fleet-picker-nav a i { width: 1.1rem; text-align: center; color: var(--fs-text-muted); }
+.fs-fleet-picker-nav a .fs-count { margin-left: auto; }
+.fs-fleet-picker-nav a:hover, .fs-fleet-picker-nav a:focus-visible { background: var(--bs-tertiary-bg); }
+.fs-fleet-picker-nav a.is-empty { opacity: .45; }
+.fs-fleet-area { scroll-margin-top: 4.5rem; margin-bottom: var(--fs-sp-4, 1.5rem); }
+.fs-fleet-area-head { display: flex; gap: var(--fs-sp-3); align-items: flex-start; margin-bottom: var(--fs-sp-2); }
+.fs-fleet-area-head h2 { margin: 0; font-size: 1rem; font-weight: 600; }
+.fs-fleet-area-head p { margin: 2px 0 0; color: var(--fs-text-muted); font-size: .8125rem; max-width: 60ch; }
+.fs-fleet-area-icon { display: grid; place-items: center; width: 2.25rem; height: 2.25rem; flex: none; border-radius: var(--fs-r-md); background: var(--bs-tertiary-bg); color: var(--fs-info); }
+.fs-fleet-rule-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr)); gap: var(--fs-sp-2); }
+.fs-fleet-rcard { display: flex; flex-direction: column; gap: var(--fs-sp-2); padding: var(--fs-sp-3); border: 1px solid var(--fs-border); border-radius: var(--fs-r-md); background: var(--bs-body-bg); }
+.fs-fleet-rcard.is-on { border-color: var(--fs-info); background: var(--bs-tertiary-bg); }
+.fs-fleet-rcard-head { display: flex; gap: var(--fs-sp-2); align-items: flex-start; }
+.fs-fleet-rcard-title { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.fs-fleet-rcard-title label { font-weight: 600; cursor: pointer; }
+.fs-fleet-rcard-icon { display: grid; place-items: center; width: 2rem; height: 2rem; flex: none; border-radius: 50%; background: var(--bs-secondary-bg); color: var(--fs-text-muted); }
+.fs-fleet-rcard.is-on .fs-fleet-rcard-icon.fs-fleet-sev-high { color: var(--fs-coral-text); }
+.fs-fleet-rcard.is-on .fs-fleet-rcard-icon.fs-fleet-sev-medium { color: var(--fs-warn, #d9a441); }
+.fs-fleet-rcard.is-on .fs-fleet-rcard-icon.fs-fleet-sev-low { color: var(--fs-info); }
+.fs-fleet-rcard .form-switch .form-check-input { width: 2.4em; height: 1.3em; cursor: pointer; }
+.fs-fleet-rcard .form-switch .form-check-input:not(:checked) { border-color: var(--fs-text-muted); }
+.fs-fleet-rcard-help { margin: 0; color: var(--fs-text-muted); font-size: .8125rem; }
+.fs-fleet-rcard-settings { display: grid; gap: var(--fs-sp-2); padding-top: var(--fs-sp-2); border-top: 1px solid var(--fs-border); }
+.fs-fleet-mode { display: flex; flex-wrap: wrap; gap: var(--fs-sp-2); margin: 0; padding: 0; border: 0; }
+.fs-fleet-mode legend { width: 100%; margin-bottom: 0; }
+.fs-fleet-mode label { position: relative; }
+.fs-fleet-mode input { position: absolute; opacity: 0; }
+.fs-fleet-mode span { display: inline-flex; align-items: center; gap: .35rem; padding: .25rem .6rem; border: 1px solid var(--fs-border); border-radius: 999px; font-size: .8125rem; color: var(--fs-text-muted); cursor: pointer; }
+.fs-fleet-mode input:checked + span { border-color: var(--fs-info); color: var(--bs-body-color); background: var(--bs-body-bg); }
+.fs-fleet-mode input[value="lock"]:checked + span { border-color: var(--fs-coral-text); }
+.fs-fleet-mode input:focus-visible + span { outline: 2px solid var(--fs-info); outline-offset: 1px; }
+@media (max-width: 768px) {
+	.fs-fleet-picker-body { grid-template-columns: 1fr; }
+	.fs-fleet-picker-nav { position: static; flex-direction: row; overflow-x: auto; }
+	.fs-fleet-picker-nav a span:not(.fs-count) { white-space: nowrap; }
+}
