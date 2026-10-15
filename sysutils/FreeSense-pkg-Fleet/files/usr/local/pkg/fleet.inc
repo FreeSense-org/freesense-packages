@@ -87,14 +87,25 @@ function fleet_enroll_nginx_conf(int $port, string $tls, string $socket = '/var/
 	    "\t\tlocation / {\n\t\t\treturn 404 '{\"error\":{\"code\":\"not_found\"}}';\n\t\t}\n\t}\n}\n";
 }
 
-/* pure: the pass rules for the enrollment port and the tunnel. */
+/* pure: the pass rules for the enrollment port and the tunnel port (normal filter rules). */
 function fleet_ctl_filter_rules(array $s): string {
 	if (!$s['enable']) {
 		return '';
 	}
 	return "pass in quick proto tcp from any to (self) port {$s['enroll_port']} keep state label \"USER_RULE: FreeSense Fleet enrollment\"\n" .
-	    "pass in quick proto udp from any to (self) port {$s['wg_port']} keep state label \"USER_RULE: FreeSense Fleet tunnel\"\n" .
-	    "pass in quick on " . FLEET_CTL_IF . " all keep state label \"USER_RULE: FreeSense Fleet overlay\"\n";
+	    "pass in quick proto udp from any to (self) port {$s['wg_port']} keep state label \"USER_RULE: FreeSense Fleet tunnel\"\n";
+}
+
+/*
+ * pure: the overlay rules, both directions. Early rules: they come before
+ * "Block all IPv6", so the IPv6 overlay works when "Allow IPv6" is off.
+ */
+function fleet_ctl_early_rules(array $s): string {
+	if (!$s['enable']) {
+		return '';
+	}
+	return "pass in quick on " . FLEET_CTL_IF . " all keep state label \"USER_RULE: FreeSense Fleet overlay\"\n" .
+	    "pass out quick on " . FLEET_CTL_IF . " all keep state label \"USER_RULE: FreeSense Fleet overlay out\"\n";
 }
 
 /* pure: a box's state from its consecutive missed polls. */
@@ -214,7 +225,13 @@ function fleet_sync_config(): array {
 }
 
 function fleet_generate_rules(string $type): string {
-	return ($type === 'filter') ? fleet_ctl_filter_rules(fleet_ctl_settings()) : '';
+	switch ($type) {
+	case 'filter':
+		return fleet_ctl_filter_rules(fleet_ctl_settings());
+	case 'pfearly':
+		return fleet_ctl_early_rules(fleet_ctl_settings());
+	}
+	return '';
 }
 
 function fleet_remove_config(): void {

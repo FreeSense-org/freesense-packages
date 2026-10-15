@@ -42,7 +42,11 @@ check(fleet_ctl_settings_from(array())['enable'] === false, 'off by default');
 check(fleet_hostport('fd12::1', 8443) === '[fd12::1]:8443' && fleet_hostport('hq', 1) === 'hq:1', 'host:port');
 $rules = fleet_ctl_filter_rules(fleet_ctl_settings_from(array('enable' => 'on', 'enroll_port' => '9443', 'wg_port' => '51999')));
 check(strpos($rules, 'proto tcp from any to (self) port 9443') !== false && strpos($rules, 'proto udp from any to (self) port 51999') !== false &&
-    strpos($rules, 'on wgfctl0') !== false, 'pass rules for both ports and the overlay');
+    strpos($rules, 'wgfctl0') === false, 'pass rules for both ports');
+$early = fleet_ctl_early_rules(fleet_ctl_settings_from(array('enable' => 'on')));
+check(strpos($early, 'pass in quick on wgfctl0') !== false && strpos($early, 'pass out quick on wgfctl0') !== false &&
+    fleet_ctl_early_rules(fleet_ctl_settings_from(array())) === '',
+    'overlay rules in both directions, as early rules (they must come before "Block all IPv6")');
 check(fleet_ctl_filter_rules(fleet_ctl_settings_from(array())) === '', 'no rules while off');
 $conf = fleet_enroll_nginx_conf(8443, '/fleet/tls.pem');
 check(strpos($conf, 'location ^~ /fleet/join/') !== false && strpos($conf, "return 404") !== false && strpos($conf, 'limit_req zone=fleetjoin') !== false &&
