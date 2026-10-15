@@ -19,7 +19,11 @@
  * limitations under the License.
  */
 
-/* The top-bar item as JSON, asked every 15 s by freesense-ui.js (plugin_navbar). */
+/*
+ * The top-bar item as JSON, asked every 15 s by freesense-ui.js
+ * (plugin_navbar), with the notices for actions that finished since the
+ * last ask (?since=<time>; the first ask only gets the cursor).
+ */
 
 require_once('guiconfig.inc');
 require_once('fleet.inc');
@@ -27,4 +31,13 @@ require_once('fleet.inc');
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 $item = fleet_plugin_navbar(array());
-echo json_encode(($item === null) ? array('hidden' => true, 'badge' => 0) : $item);
+if ($item === null) {
+	echo json_encode(array('hidden' => true, 'badge' => 0));
+	exit;
+}
+$now = time();
+$since = (string)($_GET['since'] ?? '');
+$item['cursor'] = $now;
+$item['toasts'] = ctype_digit($since)
+    ? fleet_nav_toasts(fleet_ops_finished_since(max((int)$since, $now - 3600), $now), fleet_opt('toast_done'), fleet_opt('toast_failed')) : array();
+echo json_encode($item);
