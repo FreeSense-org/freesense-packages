@@ -37,6 +37,11 @@
  *
  * Vault ids: cfg.<node>.<backup id> (label: the backup's file),
  * ctl.self.<time>, ctl.recovery.
+ *
+ * Off-site: the same items go to storage targets set up in System >
+ * Backup > Remote (S3, WebDAV, SFTP; System keeps the credentials), as
+ * fleet-<id>.<sha12>.blob and .json, so they never mix with System's own
+ * remote backups.
  */
 
 require_once('fleet/fleet_store.inc');
@@ -291,11 +296,15 @@ function fleet_replica_sync_peer(array $box, array $wanted): array {
  */
 function fleet_replica_sync(string $who): ?int {
 	$peers = fleet_replica_peers();
-	if (empty($peers)) {
+	if (empty($peers) && empty(fleet_offsite_ids())) {
 		return null;
 	}
 	fleet_self_backup();
 	$wanted = fleet_replica_wanted_now();
+	fleet_offsite_sync($wanted, $who);
+	if (empty($peers)) {
+		return null;
+	}
 	$op = fleet_op_group_start('replica_sync', 'Sync backup copies', $who);
 	$tasks = array();
 	foreach ($peers as $p) {
@@ -469,3 +478,131 @@ function fleet_recover_apply(array $opened, bool $replace, string $who): array {
 	fleet_audit($who, 'recover', sprintf('Fleet recovered from copies of %s: %d backup files', date('Y-m-d H:i', (int)$bundle['created']), count($backups)));
 	return (array)$bundle['settings'];
 }
+
+/* ------------------------------------------------------------------ */
+/* Off-site copies                                                     */
+/* ------------------------------------------------------------------ */
+
+/* pure: off-site file names for one item. */
+function fleet_offsite_names(string $id, string $sha256): array {
+	$base = 'fleet-' . $id . '.' . substr($sha256, 0, 12);
+	return array($base . '.blob', $base . '.json');
+}
+
+/* pure: id => sha12 for the items in a remote listing (only complete pairs Fleet wrote). */
+function fleet_offsite_held(array $names): array {
+	$set = array_flip($names);
+	$held = array();
+	foreach ($names as $n) {
+		if (preg_match('/^fleet-((?:cfg|ctl)\.[A-Za-z0-9._-]+)\.([0-9a-f]{12})\.blob$/D', $n, $m) && isset($set['fleet-' . $m[1] . '.' . $m[2] . '.json'])) {
+			$held[$m[1]] = $m[2];
+		}
+	}
+	return $held;
+}
+
+function fleet_offsite_available(): bool {
+	if (!is_file('/etc/inc/remote_backup.inc')) {
+		return false;
+	}
+	require_once('remote_backup.inc');
+	return function_exists('remote_backup_driver');
+}
+
+/* The storage targets chosen for off-site copies (ids of System's remote backup targets). */
+function fleet_offsite_ids(): array {
+	$ids = json_decode((string)fleet_setting('offsite_targets', '[]'), true);
+	return is_array($ids) ? array_values(array_filter($ids, 'is_string')) : array();
+}
+
+function fleet_offsite_ids_set(array $ids, string $who): void {
+	$known = fleet_offsite_available() ? array_column(remote_backup_targets(), 'id') : array();
+	$ids = array_values(array_intersect(array_map('strval', $ids), $known));
+	fleet_setting_set('offsite_targets', json_encode($ids));
+	fleet_audit($who, 'replicas', empty($ids) ? 'Off-site copies turned off' : sprintf('Off-site copies to %d storage targets', count($ids)));
+}
+
+/* Bring one storage target up to date. Returns array(uploaded, removed, held after). */
+function fleet_offsite_sync_target(array $t, array $wanted): array {
+	$names = remote_backup_driver($t, 'list');
+	if (!is_array($names)) {
+		throw new RuntimeException('FLEET-E807: The storage could not be listed: ' . $names);
+	}
+	$held = fleet_offsite_held($names);
+	$want12 = array_map(function ($w) { return array('sha256' => substr($w['sha256'], 0, 12)) + $w; }, $wanted);
+	list($put, $del) = fleet_replica_plan($want12, $held);
+	foreach ($put as $id) {
+		$bytes = fleet_replica_bytes($id, $wanted[$id]);
+		list($blob, $meta) = fleet_offsite_names($id, $wanted[$id]['sha256']);
+		$json = json_encode(array('sha256' => hash('sha256', $bytes), 'size' => strlen($bytes), 'owner' => $wanted[$id]['owner'], 'kind' => $wanted[$id]['kind'],
+		    'created' => $wanted[$id]['created'], 'label' => $wanted[$id]['label'], 'stored' => time()));
+		foreach (array($blob => $bytes, $meta => $json) as $name => $data) {
+			$r = remote_backup_driver($t, 'put', $name, $data);
+			if ($r !== true) {
+				throw new RuntimeException('FLEET-E807: An upload failed: ' . $r);
+			}
+		}
+	}
+	foreach ($del as $id) {
+		foreach (fleet_offsite_names($id, str_pad($held[$id], 64, '0')) as $name) {
+			remote_backup_driver($t, 'delete', $name);
+		}
+	}
+	return array(count($put), count($del), count($held) - count($del) + count($put));
+}
+
+/* Sync every chosen storage target; results kept per target. */
+function fleet_offsite_sync(array $wanted, string $who): void {
+	$ids = fleet_offsite_ids();
+	if (empty($ids) || !fleet_offsite_available()) {
+		return;
+	}
+	$status = json_decode((string)fleet_setting('offsite_status', '{}'), true) ?: array();
+	foreach ($ids as $id) {
+		list(, $t) = remote_backup_find_target($id);
+		if ($t === null) {
+			$status[$id] = array('time' => time(), 'error' => 'The storage target was removed in System > Backup > Remote.') + ($status[$id] ?? array());
+			continue;
+		}
+		try {
+			$r = fleet_offsite_sync_target($t, $wanted);
+			$status[$id] = array('time' => time(), 'synced' => time(), 'held' => $r[2], 'error' => null);
+		} catch (RuntimeException $e) {
+			$status[$id] = array('time' => time(), 'error' => $e->getMessage()) + ($status[$id] ?? array());
+			fleet_audit($who, 'replicas', ($t['descr'] ?: $id) . ': ' . $e->getMessage());
+		}
+	}
+	fleet_setting_set('offsite_status', json_encode($status));
+}
+
+function fleet_offsite_status(): array {
+	return json_decode((string)fleet_setting('offsite_status', '{}'), true) ?: array();
+}
+
+/* Fetch Fleet's items from a storage target into a directory laid out like a vault (for Recover fleet). Returns how many items. */
+function fleet_offsite_fetch(string $target_id, string $dir): int {
+	if (!fleet_offsite_available()) {
+		throw new RuntimeException('This firewall has no remote backup storage support.');
+	}
+	list(, $t) = remote_backup_find_target($target_id);
+	if ($t === null) {
+		throw new RuntimeException('Set up the storage in System > Backup > Remote first (the same bucket or server as before).');
+	}
+	$names = remote_backup_driver($t, 'list');
+	if (!is_array($names)) {
+		throw new RuntimeException('FLEET-E807: The storage could not be listed: ' . $names);
+	}
+	$n = 0;
+	foreach (fleet_offsite_held($names) as $id => $sha12) {
+		foreach (array('blob', 'json') as $ext) {
+			$data = remote_backup_driver($t, 'get', 'fleet-' . $id . '.' . $sha12 . '.' . $ext);
+			if (is_array($data)) {
+				throw new RuntimeException('FLEET-E807: A download failed: ' . ($data['error'] ?? '?'));
+			}
+			file_put_contents("{$dir}/{$id}.{$ext}", $data);
+		}
+		$n++;
+	}
+	return $n;
+}
+

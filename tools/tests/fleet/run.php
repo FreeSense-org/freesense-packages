@@ -646,4 +646,9 @@ check(fleet_setting('after_export') === null && (int)fleet_db()->query('SELECT C
     'Recover fleet puts the database back as it was in the copy');
 exec('rm -rf ' . escapeshellarg($udir));
 
+list($ob, $oj) = fleet_offsite_names('cfg.n1.7', str_repeat('ab', 32));
+check($ob === 'fleet-cfg.n1.7.abababababab.blob' && $oj === 'fleet-cfg.n1.7.abababababab.json', 'off-site names carry the id and a short hash');
+check(fleet_offsite_held(array($ob, $oj, 'fleet-ctl.self.9.0123456789ab.blob', 'fw1-20261016-010000-deadbeef.xml', 'fleet-x.y.zz.blob')) === array('cfg.n1.7' => 'abababababab'),
+    'only complete Fleet pairs count as held; System\'s own remote backups are never touched');
+
 echo "Fleet controller tests: OK\n";
