@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 3);
+define('FLEET_DB_SCHEMA', 4);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -209,6 +209,16 @@ CREATE TABLE IF NOT EXISTS fleet_groups (
 	color TEXT NOT NULL DEFAULT '1', created INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS box_groups (node_id TEXT NOT NULL, group_id INTEGER NOT NULL REFERENCES fleet_groups(id), PRIMARY KEY (node_id, group_id));
 PRAGMA user_version = 3;
+SQL);
+	}
+	if ($version < 4) {
+		/* Operations on firewalls (a reboot, a backup) and their current step. */
+		$db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS ops (
+	id INTEGER PRIMARY KEY AUTOINCREMENT, node_id TEXT NOT NULL, kind TEXT NOT NULL, state TEXT NOT NULL, text TEXT NOT NULL,
+	who TEXT NOT NULL, started INTEGER NOT NULL, updated INTEGER NOT NULL, finished INTEGER);
+CREATE INDEX IF NOT EXISTS ops_node ON ops (node_id, state);
+PRAGMA user_version = 4;
 SQL);
 	}
 	$db->exec('COMMIT');

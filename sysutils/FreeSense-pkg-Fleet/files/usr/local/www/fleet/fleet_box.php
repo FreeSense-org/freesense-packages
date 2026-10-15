@@ -282,7 +282,7 @@ if ($savemsg) {
 </div>
 
 <?php if ($manage): ?>
-<div class="panel panel-default">
+<div class="panel panel-default" id="webui">
 	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Open WebUI')?></h2></div>
 	<div class="panel-body fs-fleet-pad">
 <?php if (empty($users)): ?>

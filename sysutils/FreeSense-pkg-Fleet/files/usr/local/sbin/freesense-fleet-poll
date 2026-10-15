@@ -19,8 +19,10 @@
  */
 
 /*
- * freesense-fleet-poll: run every minute by cron. Reads each managed box's
- * status through the tunnel (certificate pinned) and updates the box list:
+ * freesense-fleet-poll: started every minute by cron; checks each box
+ * every poll_interval seconds (10 to 60) within the minute. Reads each
+ * managed box's status through the tunnel (certificate pinned) and updates
+ * the box list:
  * online, degraded after 3 missed polls, offline after 10. A box whose
  * configuration changed (and has been quiet for 5 minutes) is backed up.
  */
@@ -36,16 +38,32 @@ $lock = fopen('/var/run/fleet-poll.lock', 'c');
 if (!flock($lock, LOCK_EX | LOCK_NB)) {
 	exit(0);
 }
-$due = array();
-foreach (fleet_db()->query('SELECT * FROM boxes ORDER BY host_no')->fetchAll() as $box) {
-	if (fleet_poll_box($box, time()) === 'online') {
-		/* A changed configuration that has been quiet for a while gets a backup. */
-		$status = json_decode((string)fleet_box_get($box['node_id'])['status'], true) ?: array();
-		if (fleet_backup_due(fleet_backup_latest($box['node_id']), $status, time())) {
-			$due[] = $box;
+/*
+ * cron starts this every minute; it checks every firewall every
+ * poll_interval seconds until the minute is nearly over. On-change backups
+ * are looked at once per run.
+ */
+$interval = fleet_ctl_settings()['poll_interval'];
+$until = time() + 55;
+$first = true;
+do {
+	$round = time();
+	$due = array();
+	foreach (fleet_db()->query('SELECT * FROM boxes ORDER BY host_no')->fetchAll() as $box) {
+		if ((fleet_poll_box($box, time(), $interval) === 'online') && $first) {
+			/* A changed configuration that has been quiet for a while gets a backup. */
+			$status = json_decode((string)fleet_box_get($box['node_id'])['status'], true) ?: array();
+			if (fleet_backup_due(fleet_backup_latest($box['node_id']), $status, time())) {
+				$due[] = $box;
+			}
 		}
 	}
-}
-if (!empty($due)) {
-	fleet_backup_many($due, 'change', 'system');
-}
+	if (!empty($due)) {
+		fleet_backup_many($due, 'change', 'system');
+	}
+	$first = false;
+	$next = $round + $interval;
+	if ($next < $until) {
+		sleep(max(0, $next - time()));
+	}
+} while ($next < $until);

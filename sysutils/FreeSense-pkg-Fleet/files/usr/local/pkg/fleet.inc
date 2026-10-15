@@ -41,6 +41,7 @@ require_once('fleet/fleet_enroll.inc');
 require_once('fleet/fleet_backup.inc');
 require_once('fleet/fleet_groups.inc');
 require_once('fleet/fleet_manage.inc');
+require_once('fleet/fleet_ops.inc');
 
 define('FLEET_CTL_IF', 'wgfctl0');
 define('FLEET_ENROLL_CONF', '/var/etc/fleet-enroll.conf');
@@ -49,6 +50,10 @@ define('FLEET_ENROLL_DOCROOT', '/usr/local/pkg/fleet/enroll');
 define('FLEET_NODE_API_PORT_DEFAULT', 8444);
 define('FLEET_MISSES_DEGRADED', 3);
 define('FLEET_MISSES_OFFLINE', 10);
+define('FLEET_POLL_INTERVALS', array(10, 15, 30, 60));
+/* Silence before a firewall is degraded / offline, at least (longer when the interval is long). */
+define('FLEET_SILENT_DEGRADED', 60);
+define('FLEET_SILENT_OFFLINE', 300);
 
 /* ------------------------------------------------------------------ */
 /* Pure                                                                */
@@ -64,6 +69,8 @@ function fleet_ctl_settings_from(array $s): array {
 		'public_host' => trim((string)($s['public_host'] ?? '')),
 		'enroll_port' => $port($s['enroll_port'] ?? '', 8443),
 		'wg_port' => $port($s['wg_port'] ?? '', 51830),
+		/* How often each firewall is asked for its status, in seconds. */
+		'poll_interval' => in_array((int)($s['poll_interval'] ?? 0), FLEET_POLL_INTERVALS, true) ? (int)$s['poll_interval'] : 15,
 	);
 }
 
@@ -112,6 +119,17 @@ function fleet_ctl_early_rules(array $s): string {
 }
 
 /* pure: a box's state from its consecutive missed polls. */
+/*
+ * pure: a firewall's state from how long it has not answered. Based on time,
+ * not missed checks, so a shorter interval does not make boxes flap.
+ */
+function fleet_box_state_for(int $silent, int $interval): string {
+	if ($silent >= max(FLEET_SILENT_OFFLINE, 10 * $interval)) {
+		return 'offline';
+	}
+	return ($silent >= max(FLEET_SILENT_DEGRADED, 3 * $interval)) ? 'degraded' : 'online';
+}
+
 function fleet_box_state(int $misses): string {
 	if ($misses >= FLEET_MISSES_OFFLINE) {
 		return 'offline';
@@ -124,8 +142,9 @@ function fleet_box_state(int $misses): string {
  * of boxes waiting for approval. Boxes are ordered worst state first, then
  * by label; nothing secret (API keys, certificates) leaves this function.
  * $groups: node_id => the firewall's groups (fleet_groups_by_box()).
+ * $ops: node_id => the operation shown on its tile (fleet_ops_for_tiles()).
  */
-function fleet_dashboard_data(array $rows, int $pending, int $now, array $groups = array()): array {
+function fleet_dashboard_data(array $rows, int $pending, int $now, array $groups = array(), array $ops = array()): array {
 	$rank = array('offline' => 0, 'degraded' => 1, 'new' => 2, 'online' => 3);
 	$boxes = array();
 	$counts = array('online' => 0, 'degraded' => 0, 'offline' => 0, 'new' => 0, 'unprotected' => 0);
@@ -154,6 +173,8 @@ function fleet_dashboard_data(array $rows, int $pending, int $now, array $groups
 			'seen' => $r['last_seen'] ? (int)$r['last_seen'] : null,
 			'backup' => !empty($r['last_backup']) ? (int)$r['last_backup'] : null,
 			'groups' => $groups[(string)$r['node_id']] ?? array(),
+			'op' => $ops[(string)$r['node_id']] ?? null,
+			'managed' => ($r['role'] ?? '') === 'managed',
 			'problem' => ($state === 'online') ? '' : (string)$r['error'],
 		);
 	}
@@ -409,7 +430,7 @@ function fleet_box_handoff(array $box, string $user, string $operator): string {
 }
 
 /* Poll one box; returns its new state. */
-function fleet_poll_box(array $box, int $now): string {
+function fleet_poll_box(array $box, int $now, int $interval = 60): string {
 	$key = fleet_unseal((string)$box['api_key'], fleet_master_key());
 	$target = fleet_box_target($box);
 	$status = null;
@@ -425,9 +446,11 @@ function fleet_poll_box(array $box, int $now): string {
 		$error = fleet_poll_problem($e->fleet_code, $e->getMessage());
 	}
 	$misses = ($status === null) ? ((int)$box['misses'] + 1) : 0;
-	$state = ($status === null) ? fleet_box_state($misses) : 'online';
+	$silent = $now - (int)($box['last_seen'] ?: $box['joined']);
+	$state = ($status === null) ? fleet_box_state_for($silent, $interval) : 'online';
 	fleet_db()->prepare('UPDATE boxes SET misses = ?, state = ?, last_seen = COALESCE(?, last_seen), status = COALESCE(?, status), error = ? WHERE node_id = ?')
 	    ->execute(array($misses, $state, ($status === null) ? null : $now, ($status === null) ? null : json_encode($status), $error, $box['node_id']));
+	fleet_ops_follow($box, $status, $now);
 	if ($state !== $box['state']) {
 		fleet_audit('poll', 'state', "{$box['node_id']} ({$box['label']}): {$box['state']} -> {$state}" . (($error !== '') ? " ({$error})" : ''));
 	}

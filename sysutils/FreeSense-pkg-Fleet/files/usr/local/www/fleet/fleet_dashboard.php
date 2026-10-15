@@ -33,7 +33,7 @@ $s = fleet_ctl_settings();
 $ready = $s['enable'] && is_file(FLEET_DATA . '/fleet.db');
 $data = $ready ? fleet_dashboard_data(
     fleet_db()->query('SELECT node_id, name, label, overlay, role, state, last_seen, error, status, (SELECT MAX(time) FROM backups b WHERE b.node_id = boxes.node_id) AS last_backup FROM boxes')->fetchAll(),
-    (int)fleet_db()->query("SELECT COUNT(*) FROM enrollments WHERE state = 'pending'")->fetchColumn(), time(), fleet_groups_by_box())
+    (int)fleet_db()->query("SELECT COUNT(*) FROM enrollments WHERE state = 'pending'")->fetchColumn(), time(), fleet_groups_by_box(), fleet_ops_for_tiles(time()))
     : fleet_dashboard_data(array(), 0, time());
 $asset = function ($f) {
 	return '/fleet/assets/' . $f . '?v=' . (int)@filemtime('/usr/local/www/fleet/assets/' . $f);
@@ -49,6 +49,11 @@ $strings = array(
 	'breakglass' => gettext('Lock suspended'), 'checked' => gettext('Checked %s'), 'not_checked' => gettext('Not checked yet'),
 	'stale' => gettext('Could not refresh. Showing the last known state.'),
 	'ago_s' => gettext('%d s ago'), 'ago_m' => gettext('%d min ago'), 'ago_h' => gettext('%d h ago'), 'ago_d' => gettext('%d days ago'),
+	'actions' => gettext('Actions'), 'actions_for' => gettext('Actions for %s'), 'open' => gettext('Open'), 'webui' => gettext('Open WebUI'),
+	'events' => gettext('Events'), 'backup_now' => gettext('Back up now'), 'services' => gettext('Services'), 'reboot' => gettext('Reboot...'),
+	'reboot_q' => gettext('Reboot %s?'), 'reboot_hint' => gettext('It stops forwarding for a minute or two and comes back by itself.'),
+	'reboot_now' => gettext('Reboot now'), 'cancel' => gettext('Cancel'), 'rebooting' => gettext('Rebooting'), 'backing_up' => gettext('Backing up'),
+	'action_failed' => gettext('The controller did not answer. Try again.'), 'secs' => gettext('%d s'), 'mins' => gettext('%d min %s s'),
 	'none_match' => gettext('No firewall is %s.'), 'none_in_group' => gettext('No firewall in this group matches.'), 'show_all' => gettext('Show all'),
 );
 
@@ -86,7 +91,7 @@ if ($manage) {
 </div>
 <?php include('foot.inc'); exit; endif; ?>
 
-<div id="fs-fleet" data-src="/fleet/fleet_data.php" data-strings="<?=htmlspecialchars(json_encode($strings))?>">
+<div id="fs-fleet" data-src="/fleet/fleet_data.php" data-manage="<?=$manage ? '1' : '0'?>" data-strings="<?=htmlspecialchars(json_encode($strings))?>">
 	<div class="fs-fleet-head">
 		<div>
 			<h2 class="fs-fleet-headline" data-fleet="headline" aria-live="polite"><?=htmlspecialchars(gettext($data['headline']))?></h2>
@@ -97,8 +102,17 @@ if ($manage) {
 			<a class="btn btn-primary" href="/fleet/fleet.php" data-fleet="pending"><i class="fa-solid fa-hourglass-half icon-embed-btn" aria-hidden="true"></i><?=sprintf(gettext('%d waiting for approval'), $data['counts']['pending'])?></a>
 <?php endif; ?>
 <?php if ($manage): ?>
-			<form method="post" action="/fleet/fleet.php"><button class="btn btn-outline-secondary" name="backup_all" value="1"<?=($data['total'] === 0) ? ' disabled' : ''?>><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Back up all now')?></button></form>
-			<a class="btn btn-outline-secondary" href="/fleet/fleet.php"><i class="fa-solid fa-plus icon-embed-btn" aria-hidden="true"></i><?=gettext('Add a firewall')?></a>
+			<form method="post" action="/fleet/fleet.php" id="fleet-backup-all" hidden><input type="hidden" name="backup_all" value="1"/></form>
+			<div class="fs-fleet-menu fs-fleet-menu--page" data-fleet-menu>
+				<button type="button" class="btn btn-outline-secondary fs-fleet-menu-btn" aria-haspopup="menu"><i class="fa-solid fa-ellipsis icon-embed-btn" aria-hidden="true"></i><?=gettext('Fleet actions')?></button>
+				<ul class="fs-fleet-menu-list" role="menu">
+					<li role="none"><button type="button" class="fs-fleet-menu-item" role="menuitem" tabindex="-1" data-submit="fleet-backup-all"<?=($data['total'] === 0) ? ' disabled' : ''?>><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i><?=gettext('Back up all now')?></button></li>
+					<li role="separator" class="fs-fleet-menu-sep"></li>
+					<li role="none"><a class="fs-fleet-menu-item" role="menuitem" tabindex="-1" href="/fleet/fleet.php"><i class="fa-solid fa-plus" aria-hidden="true"></i><?=gettext('Add a firewall')?></a></li>
+					<li role="none"><a class="fs-fleet-menu-item" role="menuitem" tabindex="-1" href="/fleet/fleet.php?view=groups"><i class="fa-solid fa-layer-group" aria-hidden="true"></i><?=gettext('Groups')?></a></li>
+					<li role="none"><a class="fs-fleet-menu-item" role="menuitem" tabindex="-1" href="/fleet/fleet.php?tab=settings"><i class="fa-solid fa-sliders" aria-hidden="true"></i><?=gettext('Settings')?></a></li>
+				</ul>
+			</div>
 <?php endif; ?>
 		</div>
 	</div>
