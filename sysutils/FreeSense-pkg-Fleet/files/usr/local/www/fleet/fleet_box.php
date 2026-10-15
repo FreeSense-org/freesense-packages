@@ -28,7 +28,6 @@
 require_once('guiconfig.inc');
 require_once('fleet.inc');
 
-$pgtitle = array(gettext('Status'), gettext('FreeSense Fleet'), gettext('Firewall'));
 $s = fleet_ctl_settings();
 $box = ($s['enable'] && is_file(FLEET_DATA . '/fleet.db')) ? fleet_box_get((string)($_REQUEST['id'] ?? '')) : null;
 if ($box === null) {
@@ -36,6 +35,8 @@ if ($box === null) {
 	exit;
 }
 $st = json_decode((string)$box['status'], true) ?: array();
+/* The page is named after the firewall; the breadcrumb leads back to the fleet. */
+$pgtitle = array(gettext('Status'), gettext('FreeSense Fleet'), (string)$box['label']);
 $manage = isAllowedPage('fleet/fleet.php');
 $who = (string)($_SESSION['Username'] ?? 'admin');
 $input_errors = array();
@@ -108,7 +109,7 @@ $state_names = array('online' => gettext('Online'), 'degraded' => gettext('Degra
 $when = function ($ts) {
 	return $ts ? htmlspecialchars(date('Y-m-d H:i', (int)$ts)) : '<span class="fs-muted">' . gettext('never') . '</span>';
 };
-$events = fleet_db()->prepare('SELECT time, who, action, detail FROM audit WHERE detail LIKE ? ORDER BY id DESC LIMIT 15');
+$events = fleet_db()->prepare('SELECT time, who, action, detail FROM audit WHERE detail LIKE ? ORDER BY id DESC LIMIT 100');
 $events->execute(array($box['node_id'] . '%'));
 $events = $events->fetchAll();
 $webgui = (array)($st['webgui'] ?? array());
@@ -131,10 +132,28 @@ $asset = function ($f) {
 	return '/fleet/assets/' . $f . '?v=' . (int)@filemtime('/usr/local/www/fleet/assets/' . $f);
 };
 
+$views = array('overview' => gettext('Overview'), 'backups' => gettext('Backups'), 'events' => gettext('Events'));
+if (!$manage) {
+	unset($views['backups']);
+}
+$view = fs_view_param(array_keys($views), 'overview');
+/* A link or form target on this page, in a view. */
+$here = function (string $view, array $more = array()) use ($box) {
+	return '?' . htmlspecialchars(http_build_query(array_merge(array('id' => $box['node_id'], 'view' => $view), $more)));
+};
+
 include('head.inc');
 ?>
 <link rel="stylesheet" href="<?=$asset('fleet.css')?>">
 <?php
+if ($manage) {
+	$tab_array = array(
+		array(gettext('Dashboard'), true, '/fleet/fleet_dashboard.php'),
+		array(gettext('Firewalls'), false, '/fleet/fleet.php'),
+		array(gettext('Settings'), false, '/fleet/fleet.php?tab=settings'),
+	);
+	display_top_tabs($tab_array);
+}
 if (!empty($input_errors)) {
 	print_input_errors($input_errors);
 }
@@ -142,89 +161,98 @@ if ($savemsg) {
 	print_info_box(htmlspecialchars($savemsg), 'success');
 }
 ?>
-<a class="fs-fleet-back" href="/fleet/fleet_dashboard.php"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i><?=gettext('All firewalls')?></a>
-
 <div class="fs-fleet-box-head" data-state="<?=$state?>">
 	<div class="fs-fleet-box-names">
-		<h2 class="fs-fleet-headline"><?=htmlspecialchars($box['label'])?></h2>
-		<div class="fs-fleet-checked"><?=htmlspecialchars((string)($st['hostname'] ?? $box['name']))?></div>
-	</div>
+		<a class="fs-fleet-back" href="/fleet/fleet_dashboard.php"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i><?=gettext('All firewalls')?></a>
+		<div class="fs-fleet-box-status">
 <?php if ($state === 'online'): ?>
-	<span class="fs-fleet-ok"><?=$state_names['online']?></span>
+			<span class="fs-fleet-ok"><?=$state_names['online']?></span>
 <?php else: ?>
-	<?=fs_badge($state === 'new' ? 'pending' : $state, $state_names[$state])?>
+			<?=fs_badge($state === 'new' ? 'pending' : $state, $state_names[$state])?>
 <?php endif; ?>
+			<span class="fs-fleet-checked"><?=htmlspecialchars((string)($st['hostname'] ?? $box['name']))?>, <?=htmlspecialchars((string)($st['version'] ?? ''))?></span>
+		</div>
+	</div>
 </div>
 <?php if ($state !== 'online' && (string)$box['error'] !== ''): ?>
 <p class="fs-fleet-problem fs-fleet-problem--lead"><?=htmlspecialchars($box['error'])?></p>
 <?php endif; ?>
+<?php fs_view_switch($views, $view); ?>
 
-<?php if ($manage): ?>
-<section class="fs-fleet-block" aria-labelledby="webui-title">
-	<h2 id="webui-title" class="fs-fleet-section-title"><?=gettext('Open WebUI')?></h2>
-<?php if (empty($users)): ?>
-	<p class="fs-fleet-lead"><?=gettext('This firewall does not allow sign-in from the controller. A local administrator turns it on, for chosen users only, on the firewall\'s console:')?></p>
-	<code class="fs-fleet-command">freesense-join handoff-users admin</code>
-<?php elseif (empty($webgui)): ?>
-	<p class="fs-fleet-lead"><?=gettext('This firewall has not reported a WebGUI address yet. It does so with its next status check.')?></p>
-<?php else: ?>
-	<p class="fs-fleet-lead"><?=gettext('Signs you in on the firewall\'s own WebUI with a one-time link that is valid for 60 seconds. Works only if your browser can reach the address you choose.')?></p>
-	<form method="post" class="fs-fleet-form">
-		<div class="fs-fleet-field fs-fleet-field--wide"><label class="form-label" for="base"><?=gettext('Address')?></label>
-			<select class="form-select" id="base" name="base">
-<?php foreach ($webgui as $w): ?>
-				<option value="<?=htmlspecialchars($w['url'])?>"><?=htmlspecialchars($w['name'] . ': ' . $w['url'])?></option>
-<?php endforeach; ?>
-			</select></div>
-		<div class="fs-fleet-field"><label class="form-label" for="user"><?=gettext('Sign in as')?></label>
-			<select class="form-select" id="user" name="user">
-<?php foreach ($users as $u): ?>
-				<option value="<?=htmlspecialchars($u)?>"><?=htmlspecialchars($u)?></option>
-<?php endforeach; ?>
-			</select></div>
-		<div class="fs-fleet-field fs-fleet-field--button">
-			<button class="btn btn-primary" type="submit" name="open_webui" value="1" <?=($state === 'offline') ? 'disabled' : ''?>><i class="fa-solid fa-arrow-up-right-from-square icon-embed-btn" aria-hidden="true"></i><?=gettext('Open WebUI')?></button>
+<?php if ($view === 'overview'): ?>
+<div class="row g-3 fs-fleet-panels">
+	<div class="col-lg-6">
+		<div class="panel panel-default h-100">
+			<div class="panel-heading"><h2 class="panel-title"><?=gettext('This firewall')?></h2></div>
+			<div class="panel-body fs-fleet-pad">
+				<dl class="fs-fleet-facts fs-fleet-facts--wide">
+					<dt><?=gettext('Version')?></dt><dd><?=htmlspecialchars((string)($st['version'] ?? '-'))?></dd>
+					<dt><?=gettext('Platform')?></dt><dd><?=htmlspecialchars((string)($st['platform'] ?? '-'))?></dd>
+					<dt><?=gettext('Configuration')?></dt><dd><?=$when($rev['time'] ?? 0)?><?php if (($rev['description'] ?? '') !== ''): ?><div class="fs-muted"><?=htmlspecialchars($rev['description'])?></div><?php endif; ?></dd>
+					<dt><?=gettext('Rollback protection')?></dt><dd><?php if (!isset($st['rollback_protection'])): ?>-<?php elseif ($st['rollback_protection']): ?><?=gettext('Yes (ZFS boot environments)')?><?php else: ?><?=fs_badge('warn', gettext('No rollback'))?> <span class="fs-muted"><?=gettext('A failed update cannot roll back by itself.')?></span><?php endif; ?></dd>
+					<dt><?=gettext('CARP')?></dt><dd><?=(($st['carp'] ?? 'none') === 'none') ? gettext('Not used') : ((($st['carp'] ?? '') === 'ok') ? gettext('OK') : fs_badge('degraded', (string)$st['carp']))?></dd>
+					<dt><?=gettext('Fleet policy')?></dt><dd><?=isset($st['policy_bundle']['version']) ? sprintf(gettext('Version %d'), (int)$st['policy_bundle']['version']) : gettext('None')?><?php if (!empty($st['breakglass'])): ?> <?=fs_badge('warn', gettext('Lock suspended'))?><?php endif; ?></dd>
+				</dl>
+			</div>
 		</div>
-	</form>
+	</div>
+	<div class="col-lg-6">
+		<div class="panel panel-default h-100">
+			<div class="panel-heading"><h2 class="panel-title"><?=gettext('In the fleet')?></h2></div>
+			<div class="panel-body fs-fleet-pad">
+				<dl class="fs-fleet-facts fs-fleet-facts--wide">
+					<dt><?=gettext('Access')?></dt><dd><?=($box['role'] === 'managed') ? gettext('Managed') : gettext('Monitor only')?></dd>
+					<dt><?=gettext('Tunnel address')?></dt><dd class="fs-mono"><?=htmlspecialchars($box['overlay'])?></dd>
+					<dt><?=gettext('Joined')?></dt><dd><?=$when($box['joined'])?></dd>
+					<dt><?=gettext('Last seen')?></dt><dd><?=$when($box['last_seen'])?></dd>
+<?php if ($manage): $latest = fleet_backup_latest($box['node_id']); ?>
+					<dt><?=gettext('Last backup')?></dt><dd><?=$latest ? $when($latest['time']) . ' <a class="fs-fleet-inline-link" href="' . $here('backups') . '">' . gettext('Backups') . '</a>' : $when(0)?></dd>
 <?php endif; ?>
-</section>
-<?php endif; ?>
-
-<div class="fs-fleet-columns">
-	<section class="fs-fleet-block" aria-labelledby="system-title">
-		<h2 id="system-title" class="fs-fleet-section-title"><?=gettext('This firewall')?></h2>
-		<dl class="fs-fleet-facts fs-fleet-facts--wide">
-			<dt><?=gettext('Version')?></dt><dd><?=htmlspecialchars((string)($st['version'] ?? '-'))?></dd>
-			<dt><?=gettext('Platform')?></dt><dd><?=htmlspecialchars((string)($st['platform'] ?? '-'))?></dd>
-			<dt><?=gettext('Configuration')?></dt><dd><?=$when($rev['time'] ?? 0)?><?php if (($rev['description'] ?? '') !== ''): ?><div class="fs-muted"><?=htmlspecialchars($rev['description'])?></div><?php endif; ?></dd>
-			<dt><?=gettext('Rollback protection')?></dt><dd><?php if (!isset($st['rollback_protection'])): ?>-<?php elseif ($st['rollback_protection']): ?><?=gettext('Yes (ZFS boot environments)')?><?php else: ?><?=fs_badge('warn', gettext('No rollback'))?> <span class="fs-muted"><?=gettext('A failed update cannot roll back by itself.')?></span><?php endif; ?></dd>
-			<dt><?=gettext('CARP')?></dt><dd><?=(($st['carp'] ?? 'none') === 'none') ? gettext('Not used') : ((($st['carp'] ?? '') === 'ok') ? gettext('OK') : fs_badge('degraded', (string)$st['carp']))?></dd>
-			<dt><?=gettext('Fleet policy')?></dt><dd><?=isset($st['policy_bundle']['version']) ? sprintf(gettext('Version %d'), (int)$st['policy_bundle']['version']) : gettext('None')?><?php if (!empty($st['breakglass'])): ?> <?=fs_badge('warn', gettext('Lock suspended'))?><?php endif; ?></dd>
-		</dl>
-	</section>
-	<section class="fs-fleet-block" aria-labelledby="fleet-title">
-		<h2 id="fleet-title" class="fs-fleet-section-title"><?=gettext('In the fleet')?></h2>
-		<dl class="fs-fleet-facts fs-fleet-facts--wide">
-			<dt><?=gettext('Access')?></dt><dd><?=($box['role'] === 'managed') ? gettext('Managed') : gettext('Monitor only')?></dd>
-			<dt><?=gettext('Tunnel address')?></dt><dd class="fs-mono"><?=htmlspecialchars($box['overlay'])?></dd>
-			<dt><?=gettext('Joined')?></dt><dd><?=$when($box['joined'])?></dd>
-			<dt><?=gettext('Last seen')?></dt><dd><?=$when($box['last_seen'])?></dd>
-			<dt><?=gettext('Box ID')?></dt><dd class="fs-mono"><?=htmlspecialchars($box['node_id'])?></dd>
-		</dl>
-	</section>
+					<dt><?=gettext('Box ID')?></dt><dd class="fs-mono"><?=htmlspecialchars($box['node_id'])?></dd>
+				</dl>
+			</div>
+		</div>
+	</div>
 </div>
 
-<?php if ($manage):
+<?php if ($manage): ?>
+<div class="panel panel-default">
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Open WebUI')?></h2></div>
+	<div class="panel-body fs-fleet-pad">
+<?php if (empty($users)): ?>
+		<p class="fs-fleet-lead"><?=gettext("This firewall does not allow sign-in from the controller. A local administrator turns it on, for chosen users only, on the firewall's console:")?></p>
+		<code class="fs-fleet-command">freesense-join handoff-users admin</code>
+<?php elseif (empty($webgui)): ?>
+		<p class="fs-fleet-lead"><?=gettext('This firewall has not reported a WebGUI address yet. It does so with its next status check.')?></p>
+<?php else: ?>
+		<form method="post" action="<?=$here('overview')?>" class="fs-fleet-form">
+			<div class="fs-fleet-field fs-fleet-field--wide"><label class="form-label" for="base"><?=gettext('Address')?></label>
+				<select class="form-select" id="base" name="base">
+<?php foreach ($webgui as $w): ?>
+					<option value="<?=htmlspecialchars($w['url'])?>"><?=htmlspecialchars($w['name'] . ': ' . $w['url'])?></option>
+<?php endforeach; ?>
+				</select></div>
+			<div class="fs-fleet-field"><label class="form-label" for="user"><?=gettext('Sign in as')?></label>
+				<select class="form-select" id="user" name="user">
+<?php foreach ($users as $u): ?>
+					<option value="<?=htmlspecialchars($u)?>"><?=htmlspecialchars($u)?></option>
+<?php endforeach; ?>
+				</select></div>
+			<div class="fs-fleet-field fs-fleet-field--button">
+				<button class="btn btn-primary" type="submit" name="open_webui" value="1" <?=($state === 'offline') ? 'disabled' : ''?>><i class="fa-solid fa-arrow-up-right-from-square icon-embed-btn" aria-hidden="true"></i><?=gettext('Open WebUI')?></button>
+			</div>
+		</form>
+<?php endif; ?>
+	</div>
+<?php if (!empty($users) && !empty($webgui)): ?>
+	<div class="panel-footer small fs-muted"><?=gettext("Signs you in on the firewall's own WebUI with a one-time link that is valid for 60 seconds. Works only if your browser can reach the address you choose.")?></div>
+<?php endif; ?>
+</div>
+<?php endif; ?>
+
+<?php elseif ($view === 'backups'):
 	$backups = fleet_backup_list($box['node_id']);
 	$diff_id = (int)($_GET['diff'] ?? 0);
-?>
-<section class="fs-fleet-block" id="backups" aria-labelledby="backups-title">
-	<div class="fs-fleet-section-head">
-		<h2 id="backups-title" class="fs-fleet-section-title"><?=gettext('Backups')?> <span class="fs-count"><?=count($backups)?></span></h2>
-		<form method="post" action="?id=<?=urlencode($box['node_id'])?>#backups"><button class="btn btn-sm btn-outline-secondary" name="backup_now" value="1" <?=($state === 'offline') ? 'disabled' : ''?>><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Back up now')?></button></form>
-	</div>
-	<p class="fs-fleet-lead"><?=gettext("A copy of this firewall's configuration is kept here, encrypted, when it changes and every night. Downloads contain secrets such as password hashes and keys.")?></p>
-<?php
 	$review = isset($_GET['restore']) ? fleet_backup_get((int)$_GET['restore']) : null;
 	if (($review !== null) && ($review['node_id'] === $box['node_id'])):
 		try {
@@ -237,8 +265,9 @@ if ($savemsg) {
 			$fetch_error = $e->getMessage();
 		}
 ?>
-	<div class="fs-fleet-block fs-fleet-invite fs-fleet-review" role="region" aria-labelledby="review-title">
-		<h3 id="review-title" class="fs-fleet-section-title"><?=sprintf(gettext('Restore the backup from %s?'), htmlspecialchars(date('Y-m-d H:i', (int)$review['time'])))?></h3>
+<div class="panel panel-default fs-fleet-review" role="region" aria-labelledby="review-title">
+	<div class="panel-heading"><h2 id="review-title" class="panel-title"><?=sprintf(gettext('Restore the backup from %s?'), htmlspecialchars(date('Y-m-d H:i', (int)$review['time'])))?></h2></div>
+	<div class="panel-body fs-fleet-pad">
 		<p class="fs-fleet-lead"><?=sprintf(gettext('The firewall gets this configuration back. Its current configuration is backed up first, and it keeps its place in the fleet. If it does not answer within %d minutes afterwards, it goes back by itself. Rules and aliases apply at once; some interface and service settings need a reboot.'), FLEET_RESTORE_CONFIRM / 60)?></p>
 <?php if ($fetch_error !== null): ?>
 		<p class="fs-fleet-problem"><?=htmlspecialchars($fetch_error)?></p>
@@ -250,68 +279,84 @@ if ($savemsg) {
 			<?php $render_diff($change, gettext('What changes on the firewall')); ?>
 		</div>
 <?php endif; ?>
-		<form method="post" action="?id=<?=urlencode($box['node_id'])?>#backups" class="fs-fleet-review-actions">
+	</div>
+	<div class="panel-footer">
+		<form method="post" action="<?=$here('backups')?>" class="fs-fleet-review-actions">
 			<input type="hidden" name="restore_id" value="<?=(int)$review['id']?>"/>
 			<button class="btn btn-primary" type="submit"<?=(($fetch_error !== null) || (trim((string)$change) === '') || ($state === 'offline')) ? ' disabled' : ''?>><i class="fa-solid fa-upload icon-embed-btn" aria-hidden="true"></i><?=gettext('Restore this backup')?></button>
-			<a class="btn btn-outline-secondary" href="?id=<?=urlencode($box['node_id'])?>#backups"><?=gettext('Cancel')?></a>
+			<a class="btn btn-outline-secondary" href="<?=$here('backups')?>"><?=gettext('Cancel')?></a>
 		</form>
 	</div>
+</div>
 <?php endif; ?>
+
+<div class="panel panel-default">
+	<div class="panel-heading fs-fleet-panel-head">
+		<h2 class="panel-title"><?=gettext('Backups')?> <span class="fs-count"><?=count($backups)?></span></h2>
+		<form method="post" action="<?=$here('backups')?>"><button class="btn btn-sm btn-outline-secondary" name="backup_now" value="1" <?=($state === 'offline') ? 'disabled' : ''?>><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Back up now')?></button></form>
+	</div>
+	<div class="panel-body fs-fleet-pad">
 <?php if (empty($backups)): ?>
-	<p class="fs-fleet-hint"><?=gettext('No backups yet. The first one is taken tonight, after the next configuration change, or now with Back up now.')?></p>
+		<p class="fs-fleet-hint"><?=gettext('No backups yet. The first one is taken tonight, after the next configuration change, or now with Back up now.')?></p>
 <?php else: ?>
-	<ol class="fs-fleet-backups">
+		<ol class="fs-fleet-backups">
 <?php $running_sha = (string)($st['config_revision']['sha256'] ?? ''); ?>
 <?php foreach ($backups as $i => $b): $prev = $backups[$i + 1] ?? null; ?>
-		<li<?=($diff_id === (int)$b['id']) ? ' class="is-open"' : ''?>>
-			<time datetime="<?=date('c', (int)$b['time'])?>"><?=htmlspecialchars(date('Y-m-d H:i', (int)$b['time']))?></time>
-			<span class="fs-fleet-backup-what"><?=htmlspecialchars(((string)$b['description'] !== '') ? $b['description'] : gettext('No description'))?>
-				<span class="fs-muted"><?=htmlspecialchars(fleet_backup_reason_text($b['reason']))?>, <?=htmlspecialchars(format_bytes((int)$b['size']))?></span></span>
-			<span class="fs-fleet-backup-actions">
+			<li<?=($diff_id === (int)$b['id']) ? ' class="is-open"' : ''?>>
+				<time datetime="<?=date('c', (int)$b['time'])?>"><?=htmlspecialchars(date('Y-m-d H:i', (int)$b['time']))?></time>
+				<span class="fs-fleet-backup-what"><?=htmlspecialchars(((string)$b['description'] !== '') ? $b['description'] : gettext('No description'))?>
+					<span class="fs-muted"><?=htmlspecialchars(fleet_backup_reason_text($b['reason']))?>, <?=htmlspecialchars(format_bytes((int)$b['size']))?></span></span>
+				<span class="fs-fleet-backup-actions">
 <?php if ($prev !== null): ?>
-				<a class="btn btn-sm btn-link" href="?id=<?=urlencode($box['node_id'])?>&amp;diff=<?=(int)$b['id']?>#backups"><?=gettext('Changes')?></a>
+					<a class="btn btn-sm btn-link" href="<?=$here('backups', ($diff_id === (int)$b['id']) ? array() : array('diff' => (int)$b['id']))?>"<?=($diff_id === (int)$b['id']) ? ' aria-expanded="true"' : ''?>><?=($diff_id === (int)$b['id']) ? gettext('Hide changes') : gettext('Changes')?></a>
 <?php endif; ?>
-				<a class="btn btn-sm btn-link" href="?id=<?=urlencode($box['node_id'])?>&amp;download=<?=(int)$b['id']?>"><i class="fa-solid fa-download icon-embed-btn" aria-hidden="true"></i><?=gettext('Download')?></a>
+					<a class="btn btn-sm btn-link" href="<?=$here('backups', array('download' => (int)$b['id']))?>"><i class="fa-solid fa-download icon-embed-btn" aria-hidden="true"></i><?=gettext('Download')?></a>
 <?php if (($running_sha !== '') && hash_equals($running_sha, (string)$b['sha256'])): ?>
-				<span class="fs-fleet-current"><?=gettext('Current')?></span>
+					<span class="fs-fleet-current"><?=gettext('Current')?></span>
 <?php else: ?>
-				<a class="btn btn-sm btn-link" href="?id=<?=urlencode($box['node_id'])?>&amp;restore=<?=(int)$b['id']?>#backups"><?=gettext('Restore')?>&hellip;</a>
+					<a class="btn btn-sm btn-link" href="<?=$here('backups', array('restore' => (int)$b['id']))?>"><?=gettext('Restore')?>&hellip;</a>
 <?php endif; ?>
-			</span>
+				</span>
 <?php if (($diff_id === (int)$b['id']) && ($prev !== null)):
 	$new = fleet_backup_read($b);
 	$old = fleet_backup_read($prev);
 	$diff = (($new !== null) && ($old !== null)) ? fleet_backup_diff($old, $new) : null;
 ?>
-			<div class="fs-fleet-diff">
+				<div class="fs-fleet-diff">
 <?php if ($diff === null): ?>
-				<p class="fs-fleet-hint"><?=gettext('FLEET-E802: One of the two backups could not be read.')?></p>
+					<p class="fs-fleet-hint"><?=gettext('FLEET-E802: One of the two backups could not be read.')?></p>
 <?php else: ?>
-				<div class="fs-fleet-hint"><?=sprintf(gettext('Changes since %s'), htmlspecialchars(date('Y-m-d H:i', (int)$prev['time'])))?></div>
-				<?php $render_diff($diff, gettext('Changes since the backup before')); ?>
+					<div class="fs-fleet-hint"><?=sprintf(gettext('Changes since %s'), htmlspecialchars(date('Y-m-d H:i', (int)$prev['time'])))?></div>
+					<?php $render_diff($diff, gettext('Changes since the backup before')); ?>
 <?php endif; ?>
-			</div>
+				</div>
 <?php endif; ?>
-		</li>
+			</li>
 <?php endforeach; ?>
-	</ol>
+		</ol>
 <?php endif; ?>
-</section>
-<?php endif; ?>
+	</div>
+	<div class="panel-footer small fs-muted"><?=gettext("A copy of this firewall's configuration is kept on the controller, encrypted, when it changes and every night. Downloads contain secrets such as password hashes and keys.")?></div>
+</div>
 
-<section class="fs-fleet-block" aria-labelledby="events-title">
-	<h2 id="events-title" class="fs-fleet-section-title"><?=gettext('Recent events')?></h2>
-<?php if (empty($events)): ?>
-	<p class="fs-fleet-lead"><?=gettext('Nothing has happened to this firewall yet.')?></p>
 <?php else: ?>
-	<ol class="fs-fleet-events">
+<div class="panel panel-default">
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Events')?> <span class="fs-count"><?=count($events)?></span></h2></div>
+	<div class="panel-body fs-fleet-pad">
+<?php if (empty($events)): ?>
+		<p class="fs-fleet-hint"><?=gettext('Nothing has happened to this firewall yet.')?></p>
+<?php else: ?>
+		<ol class="fs-fleet-events">
 <?php foreach ($events as $ev): ?>
 <?php list($what, $more) = fleet_event_text($box['node_id'], $ev['action'], $ev['detail']); ?>
-		<li><time class="fs-muted" datetime="<?=date('c', (int)$ev['time'])?>"><?=htmlspecialchars(date('Y-m-d H:i', (int)$ev['time']))?></time>
-			<span><?=htmlspecialchars($what)?><?php if ($more !== ''): ?> <span class="fs-muted"><?=htmlspecialchars($more)?></span><?php endif; ?></span>
-			<span class="fs-muted"><?=($ev['who'] === 'poll') ? '' : htmlspecialchars($ev['who'])?></span></li>
+			<li><time class="fs-muted" datetime="<?=date('c', (int)$ev['time'])?>"><?=htmlspecialchars(date('Y-m-d H:i', (int)$ev['time']))?></time>
+				<span><?=htmlspecialchars($what)?><?php if ($more !== ''): ?> <span class="fs-muted"><?=htmlspecialchars($more)?></span><?php endif; ?></span>
+				<span class="fs-muted"><?=in_array($ev['who'], array('poll', 'system', 'enrollment'), true) ? '' : htmlspecialchars($ev['who'])?></span></li>
 <?php endforeach; ?>
-	</ol>
+		</ol>
 <?php endif; ?>
-</section>
+	</div>
+	<div class="panel-footer small fs-muted"><?=gettext('The newest 100 events: status changes, backups, restores and sign-ins from the controller.')?></div>
+</div>
+<?php endif; ?>
 <?php include('foot.inc');
