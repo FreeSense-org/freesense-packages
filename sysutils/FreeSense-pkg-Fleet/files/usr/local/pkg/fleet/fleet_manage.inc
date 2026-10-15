@@ -85,11 +85,15 @@ function fleet_manage_require(array $box): void {
 /* Reboot a firewall. Returns the words for the result. */
 function fleet_box_reboot(array $box, string $who): string {
 	fleet_manage_require($box);
+	if (fleet_op_running($box['node_id']) !== null) {
+		throw new RuntimeException('Something is already running on this firewall. Wait until it is done.');
+	}
 	list($code, $json) = fleet_box_call($box, 'POST', '/api/v1/management/reboot', array('confirm' => true, 'operator' => fleet_operator($who)));
 	if ($code !== 202) {
 		throw new RuntimeException('The firewall refused the reboot: ' . fleet_box_error($code, $json));
 	}
 	fleet_audit($who, 'reboot', "{$box['node_id']} ({$box['label']}): reboot started");
+	fleet_op_start($box['node_id'], 'reboot', 'Rebooting', $who);
 	return 'The firewall is rebooting. It is usually back within a few minutes; the dashboard shows when it is online again.';
 }
 

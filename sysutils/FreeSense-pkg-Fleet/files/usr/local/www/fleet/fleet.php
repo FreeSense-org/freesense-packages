@@ -46,7 +46,8 @@ if ($_POST['save_settings'] ?? false) {
 	$tab = 'settings';
 	$host = trim((string)($_POST['public_host'] ?? ''));
 	$post = array('enable' => !empty($_POST['enable']) ? 'on' : '', 'public_host' => $host,
-	    'enroll_port' => (string)($_POST['enroll_port'] ?? ''), 'wg_port' => (string)($_POST['wg_port'] ?? ''));
+	    'enroll_port' => (string)($_POST['enroll_port'] ?? ''), 'wg_port' => (string)($_POST['wg_port'] ?? ''),
+	    'poll_interval' => (string)(int)($_POST['poll_interval'] ?? 15));
 	$check = fleet_ctl_settings_from($post);
 	if ($check['enable'] && !fleet_join_valid_authority($host)) {
 		$input_errors[] = gettext('Enter the host name or IP address firewalls use to reach this controller.');
@@ -305,6 +306,13 @@ if ($savemsg) {
 			<div class="fs-fleet-field"><label class="form-label" for="wg_port"><?=gettext('Tunnel port (UDP)')?></label>
 				<input class="form-control" id="wg_port" name="wg_port" inputmode="numeric" value="<?=(int)$s['wg_port']?>"/></div>
 		</div>
+		<div class="fs-fleet-field"><label class="form-label" for="poll_interval"><?=gettext('Check each firewall every')?></label>
+			<select class="form-select fs-fleet-narrow" id="poll_interval" name="poll_interval" aria-describedby="poll-help">
+<?php foreach (FLEET_POLL_INTERVALS as $sec): ?>
+				<option value="<?=$sec?>"<?=($s['poll_interval'] === $sec) ? ' selected' : ''?>><?=sprintf(gettext('%d seconds'), $sec)?><?=($sec === 15) ? ' ' . gettext('(recommended)') : ''?></option>
+<?php endforeach; ?>
+			</select>
+			<div id="poll-help" class="fs-fleet-hint"><?=gettext('How quickly the dashboard sees a change. A firewall is degraded after a minute without an answer and offline after five, whatever the interval. Shorter intervals cost a little more traffic over each tunnel.')?></div></div>
 <?php if ($ready && !fleet_data_on_zfs()): ?>
 		<div class="fs-fleet-note"><?=fs_badge('warn', gettext('No rollback'))?> <?=gettext('This controller runs on UFS. Fleet works, but a failed update of this controller cannot roll back automatically. ZFS is recommended for the controller.')?></div>
 <?php endif; ?>
