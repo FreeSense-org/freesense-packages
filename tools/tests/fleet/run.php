@@ -360,10 +360,10 @@ check(fleet_box_state_for(20, 10) === 'online' && fleet_box_state_for(60, 10) ==
     fleet_box_state_for(120, 60) === 'online' && fleet_box_state_for(180, 60) === 'degraded' && fleet_box_state_for(600, 60) === 'offline',
     'degraded after 1 min of silence and offline after 5 min, whatever the interval (longer when checks are rarer)');
 $rop = array('started' => 1000, 'text' => 'Rebooting');
-check(fleet_op_reboot_step($rop, array('boot_time' => 900), 1010) === array('running', 'Waiting for it to go down') &&
-    fleet_op_reboot_step($rop, null, 1030) === array('running', 'Restarting') &&
+check(fleet_op_reboot_step($rop, array('boot_time' => 900), 1010) === array('running', 'Waiting for it to go down', 25) &&
+    fleet_op_reboot_step($rop, null, 1030) === array('running', 'Restarting', 50) &&
     fleet_op_reboot_step(array('started' => 1000, 'text' => 'Restarting'), null, 1040) === null &&
-    fleet_op_reboot_step($rop, array('boot_time' => 1050), 1070) === array('done', 'Back online after 1 min 10 s') &&
+    fleet_op_reboot_step($rop, array('boot_time' => 1050), 1070) === array('done', 'Back online after 1 min 10 s', 100) &&
     fleet_op_reboot_step($rop, null, 1000 + FLEET_OP_REBOOT_TIMEOUT + 1)[0] === 'failed', 'a reboot is done only when the box answers with a new boot time');
 check(fleet_op_duration(45) === '45 s' && fleet_op_duration(120) === '2 min' && fleet_op_duration(-3) === '0 s', 'durations in words');
 check(fleet_op_view(array('id' => 1, 'kind' => 'reboot', 'state' => 'done', 'text' => 'x', 'started' => 1, 'who' => 'a', 'finished' => 100), 100 + FLEET_OP_SHOW_DONE + 1) === null &&
@@ -394,6 +394,7 @@ check(fleet_ops_groups_running() === array() && fleet_ops_history(5)[0]['state']
     count(fleet_op_tasks($gop)) === 2 && fleet_op_tasks($gop)[0]['state'] === 'failed', 'a group with a failed task ends failed; failures listed first; tasks are not in the history');
 
 check(fleet_event_text('n', 'reboot_done', 'n (L): Back online after 1 min 22 s') === array('Back online', 'after 1 min 22 s'), 'a finished reboot in words');
+check(fleet_op_progress(array('done', 'running', 'queued', 'queued'), array(50))['percent'] === 37, 'a firewall half way moves the group bar');
 /* ---- lists: filters, search, paging ---- */
 check(fleet_list_filters(array('state' => 'failed', 'kind' => 'evil', 'q' => "  cph\x01 ", 'since' => '7', 'x' => 'y'),
     array('q' => null, 'state' => FLEET_OPS_STATES, 'kind' => FLEET_OPS_KINDS, 'since' => FLEET_OPS_SINCE)) === array('q' => 'cph', 'state' => 'failed', 'since' => '7'),
@@ -448,5 +449,14 @@ check(fleet_rolling_next(array_column(fleet_op_tasks($rop), 'state'))['index'] =
 fleet_db()->prepare("UPDATE ops SET state = 'running', text = 'Rebooting', started = ? WHERE id = ?")->execute(array(time() - 30, $ra));
 fleet_ops_follow(array('node_id' => 'node-ra', 'label' => 'RA'), array('boot_time' => time()), time());
 check(fleet_op_group_update($rop)['finished'] === 1 && fleet_ops_history(1)[0]['text'] === 'Done', 'the poll finishes a group task the same way as a single reboot');
+
+check(strpos(fleet_progress_bar('running', null, 'x'), 'data-indeterminate') !== false && strpos(fleet_progress_bar('running', 40, 'x'), 'aria-valuenow="40"') !== false &&
+    strpos(fleet_progress_bar('done', null, 'x'), 'width: 100%') !== false, 'one bar: sliding when unknown, filling when known, full when over');
+$pop = fleet_op_start('node-pg', 'reboot', 'Rebooting', 'tester');
+fleet_op_set($pop, 'running', 'Restarting', 50);
+fleet_op_set($pop, 'running', 'Still restarting');
+check(fleet_ops_for_tiles(time())['node-pg']['progress'] === 50, 'progress is kept when a step does not say');
+fleet_op_set($pop, 'done', 'Back');
+check(fleet_ops_for_tiles(time())['node-pg']['progress'] === 100, 'a finished operation is at 100');
 
 echo "Fleet controller tests: OK\n";

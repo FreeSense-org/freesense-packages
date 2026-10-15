@@ -20,6 +20,11 @@
  */
 
 /*
+ * Every action reports its progress the same way, whatever it is (a
+ * reboot, an update, a policy change, a rule pushed to a router): a
+ * percentage when it knows one, NULL when it cannot, and one progress bar
+ * draws both (filling, or sliding while it cannot tell).
+ *
  * Operations: one record per action on a firewall (a reboot, a backup)
  * with its current step in words, so the dashboard can show a spinner and
  * "Restarting..." on the tile until the action is over, and any page or
@@ -47,14 +52,14 @@ define('FLEET_OP_SHOW_DONE', 90);
 function fleet_op_reboot_step(array $op, ?array $status, int $now): ?array {
 	if ($status !== null) {
 		if ((int)($status['boot_time'] ?? 0) > (int)$op['started']) {
-			return array('done', sprintf('Back online after %s', fleet_op_duration($now - (int)$op['started'])));
+			return array('done', sprintf('Back online after %s', fleet_op_duration($now - (int)$op['started'])), 100);
 		}
-		return ($op['text'] === 'Waiting for it to go down') ? null : array('running', 'Waiting for it to go down');
+		return ($op['text'] === 'Waiting for it to go down') ? null : array('running', 'Waiting for it to go down', 25);
 	}
 	if (($now - (int)$op['started']) > FLEET_OP_REBOOT_TIMEOUT) {
-		return array('failed', 'Not back after ' . fleet_op_duration(FLEET_OP_REBOOT_TIMEOUT) . '. Check its console.');
+		return array('failed', 'Not back after ' . fleet_op_duration(FLEET_OP_REBOOT_TIMEOUT) . '. Check its console.', 100);
 	}
-	return ($op['text'] === 'Restarting') ? null : array('running', 'Restarting');
+	return ($op['text'] === 'Restarting') ? null : array('running', 'Restarting', 50);
 }
 
 /* pure: "1 min 10 s", "45 s". */
@@ -77,16 +82,20 @@ function fleet_op_view(?array $op, int $now): ?array {
 		return null;
 	}
 	return array('id' => (int)$op['id'], 'kind' => (string)$op['kind'], 'state' => (string)$op['state'], 'text' => (string)$op['text'],
+	    'progress' => isset($op['progress']) ? (int)$op['progress'] : null,
 	    'started' => (int)$op['started'], 'by' => (string)$op['who']);
 }
 
-/* pure: a group operation's progress from its tasks' states. */
-function fleet_op_progress(array $states): array {
+/*
+ * pure: a group operation's progress from its tasks' states; $partial (the
+ * running tasks' own 0-100) moves the bar while a firewall is half way.
+ */
+function fleet_op_progress(array $states, array $partial = array()): array {
 	$n = count($states);
 	$done = count(array_filter($states, function ($s) { return $s !== 'running' && $s !== 'queued'; }));
 	$failed = count(array_keys($states, 'failed', true));
 	return array('total' => $n, 'finished' => $done, 'failed' => $failed, 'skipped' => count(array_keys($states, 'skipped', true)),
-	    'percent' => ($n === 0) ? 100 : (int)floor(100 * $done / $n));
+	    'percent' => ($n === 0) ? 100 : (int)floor((100 * $done + array_sum(array_map('intval', $partial))) / $n));
 }
 
 /*
@@ -163,22 +172,26 @@ function fleet_op_group_start(string $kind, string $title, string $who): int {
 
 /* Recount a group operation from its tasks; it is over when none is waiting or running. */
 function fleet_op_group_update(int $id): array {
-	$q = fleet_db()->prepare('SELECT state FROM ops WHERE parent = ?');
-	$q->execute(array($id));
-	$p = fleet_op_progress($q->fetchAll(PDO::FETCH_COLUMN));
+	$p = fleet_op_group_progress($id);
 	$over = $p['finished'] === $p['total'];
-	fleet_op_set($id, $over ? (($p['failed'] > 0) ? 'failed' : 'done') : 'running', fleet_op_summary($p, $over));
+	fleet_op_set($id, $over ? (($p['failed'] > 0) ? 'failed' : 'done') : 'running', fleet_op_summary($p, $over), $p['percent']);
 	return $p;
+}
+
+function fleet_op_group_progress(int $id): array {
+	$q = fleet_db()->prepare('SELECT state, progress FROM ops WHERE parent = ?');
+	$q->execute(array($id));
+	$rows = $q->fetchAll();
+	$partial = array_map(function ($r) { return (int)$r['progress']; }, array_filter($rows, function ($r) { return $r['state'] === 'running'; }));
+	return fleet_op_progress(array_column($rows, 'state'), $partial);
 }
 
 /* Running group operations with their progress, for the dashboard strip. */
 function fleet_ops_groups_running(): array {
 	$out = array();
 	foreach (fleet_db()->query("SELECT * FROM ops WHERE node_id = '' AND state = 'running' ORDER BY id")->fetchAll() as $op) {
-		$q = fleet_db()->prepare('SELECT state FROM ops WHERE parent = ?');
-		$q->execute(array($op['id']));
 		$out[] = array('id' => (int)$op['id'], 'title' => (string)$op['title'], 'text' => (string)$op['text'], 'started' => (int)$op['started'],
-		    'by' => (string)$op['who']) + fleet_op_progress($q->fetchAll(PDO::FETCH_COLUMN));
+		    'by' => (string)$op['who']) + fleet_op_group_progress((int)$op['id']);
 	}
 	return $out;
 }
@@ -196,10 +209,15 @@ function fleet_op_tasks(int $parent): array {
 	return $q->fetchAll();
 }
 
-function fleet_op_set(int $id, string $state, string $text): void {
-	$finished = in_array($state, array('running', 'queued'), true) ? null : time();
-	fleet_db()->prepare('UPDATE ops SET state = ?, text = ?, updated = ?, finished = COALESCE(finished, ?) WHERE id = ?')
-	    ->execute(array($state, $text, time(), $finished, $id));
+/* $progress: 0-100, or null to keep the last one; a finished operation is at 100. */
+function fleet_op_set(int $id, string $state, string $text, ?int $progress = null): void {
+	$over = !in_array($state, array('running', 'queued'), true);
+	$finished = $over ? time() : null;
+	if ($over) {
+		$progress = 100;
+	}
+	fleet_db()->prepare('UPDATE ops SET state = ?, text = ?, updated = ?, finished = COALESCE(finished, ?), progress = COALESCE(?, progress) WHERE id = ?')
+	    ->execute(array($state, $text, time(), $finished, ($progress === null) ? null : max(0, min(100, $progress)), $id));
 }
 
 /* The newest operation of each firewall (running, or finished a moment ago), as node_id => view. */
@@ -232,7 +250,7 @@ function fleet_ops_follow(array $box, ?array $status, int $now): void {
 	}
 	$step = fleet_op_reboot_step($op, $status, $now);
 	if ($step !== null) {
-		fleet_op_set((int)$op['id'], $step[0], $step[1]);
+		fleet_op_set((int)$op['id'], $step[0], $step[1], $step[2] ?? null);
 		if ($step[0] !== 'running') {
 			fleet_audit('poll', ($step[0] === 'done') ? 'reboot_done' : 'reboot_failed', "{$box['node_id']} ({$box['label']}): {$step[1]}");
 		}

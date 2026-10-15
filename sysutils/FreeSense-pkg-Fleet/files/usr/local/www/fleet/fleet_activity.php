@@ -120,7 +120,7 @@ if ($manage) {
 <?php elseif ($op !== null):
 	$op['label'] = fleet_box_get((string)$op['node_id'])['label'] ?? null;
 	$tasks = ($op['node_id'] === '') ? fleet_op_tasks((int)$op['id']) : array();
-	$p = fleet_op_progress(array_column($tasks, 'state'));
+	$p = ($op['node_id'] === '') ? fleet_op_group_progress((int)$op['id']) : fleet_op_progress(array());
 	/* Hundreds of firewalls: filter and page the rows (the bar always counts them all). */
 	$shown = array_values(array_filter($tasks, function ($t) use ($f) {
 		return (!isset($f['state']) || ($f['state'] === 'running' ? in_array($t['state'], array('running', 'queued'), true) : $t['state'] === $f['state'])) &&
@@ -135,8 +135,8 @@ if ($manage) {
 		<div class="panel-body fs-fleet-pad">
 			<p class="fs-fleet-lead" aria-live="polite"><?=htmlspecialchars((string)$op['text'])?></p>
 <?php if (!empty($tasks)): ?>
-			<span class="fs-fleet-bar fs-fleet-bar--wide" role="progressbar" aria-valuenow="<?=$p['percent']?>" aria-valuemin="0" aria-valuemax="100" aria-label="<?=gettext('Progress')?>" data-state="<?=htmlspecialchars((string)$op['state'])?>"><span class="fs-fleet-bar-fill" style="width: <?=$p['percent']?>%"></span></span>
 <?php endif; ?>
+			<?=fleet_progress_bar((string)$op['state'], !empty($tasks) ? $p['percent'] : (isset($op['progress']) ? (int)$op['progress'] : null), gettext('Progress'), 'wide')?>
 			<dl class="fs-fleet-facts fs-fleet-facts--inline">
 				<dt><?=gettext('Started')?></dt><dd><?=$when((int)$op['started'])?></dd>
 				<dt><?=gettext('By')?></dt><dd><?=htmlspecialchars((string)$op['who'])?></dd>
@@ -156,7 +156,7 @@ if ($manage) {
 <?php foreach ($shown as $t): ?>
 			<tr><td><a href="/fleet/fleet_box.php?id=<?=urlencode((string)$t['node_id'])?>"><?=htmlspecialchars((string)($t['label'] ?? $t['node_id']))?></a></td>
 				<td><?=$state_badge((string)$t['state'])?></td>
-				<td><?=htmlspecialchars((string)$t['text'])?></td>
+				<td><div class="fs-fleet-cellbar"><span><?=htmlspecialchars((string)$t['text'])?></span><?php if (in_array($t['state'], array('running', 'queued'), true)): ?><?=fleet_progress_bar((string)$t['state'], ($t['state'] === 'queued') ? 0 : (isset($t['progress']) ? (int)$t['progress'] : null), (string)($t['label'] ?? $t['node_id']), 'thin')?><?php endif; ?></div></td>
 				<td class="text-end fs-muted"><?=($t['state'] === 'queued') ? '-' : $took($t)?></td></tr>
 <?php endforeach; ?>
 			</tbody></table></div>
@@ -178,7 +178,7 @@ if ($manage) {
 <?php foreach ($history as $h): ?>
 			<tr><td><a href="?op=<?=(int)$h['id']?>&amp;from=<?=urlencode(http_build_query($f + array('page' => $pg['page'])))?>"><?=htmlspecialchars($what($h))?></a></td>
 				<td><?=$state_badge((string)$h['state'])?></td>
-				<td><?=htmlspecialchars((string)$h['text'])?></td>
+				<td><div class="fs-fleet-cellbar"><span><?=htmlspecialchars((string)$h['text'])?></span><?php if (in_array($h['state'], array('running', 'queued'), true)): ?><?=fleet_progress_bar((string)$h['state'], isset($h['progress']) ? (int)$h['progress'] : null, $what($h), 'thin')?><?php endif; ?></div></td>
 				<td class="fs-muted"><?=$when((int)$h['started'])?></td>
 				<td><?=htmlspecialchars((string)$h['who'])?></td>
 				<td class="text-end fs-muted"><?=$took($h)?></td></tr>

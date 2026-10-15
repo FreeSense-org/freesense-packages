@@ -225,3 +225,17 @@ function fleet_list_pager(array $p, array $base, array $f): string {
 	}
 	return $h . '</div>';
 }
+
+/*
+ * The progress bar every action uses: fills to $progress, with moving
+ * stripes while it runs; slides when the progress is unknown (null);
+ * green when done, red when failed. The same markup as fleet.js draws.
+ */
+function fleet_progress_bar(string $state, ?int $progress, string $label, string $size = ''): string {
+	$running = in_array($state, array('running', 'queued'), true);
+	$known = !$running || ($progress !== null);
+	$value = $running ? (int)$progress : 100;
+	$aria = 'role="progressbar" aria-label="' . htmlspecialchars($label) . '" aria-valuemin="0" aria-valuemax="100"' . ($known ? ' aria-valuenow="' . $value . '"' : '');
+	return '<span class="fs-fleet-bar' . ($size !== '' ? ' fs-fleet-bar--' . $size : '') . '" data-state="' . htmlspecialchars($state) . '"' .
+	    ($known ? '' : ' data-indeterminate') . ' ' . $aria . '><span class="fs-fleet-bar-fill" style="width: ' . ($known ? $value : 100) . '%"></span></span>';
+}
