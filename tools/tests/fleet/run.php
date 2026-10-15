@@ -567,4 +567,8 @@ check(fleet_schedule_due($sun, $utc('2026-10-11 00:00'), $utc('2026-10-18 09:00'
 check(fleet_schedule_due($sun, $utc('2026-10-18 03:00'), $utc('2026-10-18 03:59'), 900) === null, 'not before its time');
 check(fleet_schedule_next($sun, $utc('2026-10-18 04:00')) === $utc('2026-10-25 04:00') && fleet_schedule_next($sc, $utc('2026-10-16 03:00')) === $utc('2026-10-17 02:30'), 'next run');
 
+$s1 = fleet_schedule_from(array('name' => 'Edge', 'kind' => 'reboot', 'target' => 'n:node-abc', 'days' => array(7), 'time' => '04:00'));
+$s2 = fleet_schedule_from(array('name' => 'Shops', 'kind' => 'backup', 'target' => 'g:2', 'days' => array(7), 'time' => '04:00'));
+check($s1['node_id'] === 'node-abc' && $s1['group_id'] === 0 && $s2['group_id'] === 2 && $s2['node_id'] === null &&
+    fleet_schedule_from(array('name' => 'All', 'kind' => 'backup', 'target' => 'all', 'days' => array(7), 'time' => '04:00'))['group_id'] === 0, 'a schedule targets one firewall, a group or all');
 echo "Fleet controller tests: OK\n";
