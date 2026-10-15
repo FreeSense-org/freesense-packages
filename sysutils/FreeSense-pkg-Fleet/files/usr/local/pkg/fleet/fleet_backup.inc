@@ -217,13 +217,19 @@ function fleet_box_error(int $code, array $json): string {
  * a RuntimeException says what went wrong (the box reverts by itself when
  * it was left unconfirmed).
  */
-function fleet_backup_restore(array $box, array $row, string $who, ?callable $sleep = null): string {
+function fleet_backup_restore(array $box, array $row, string $who, ?callable $sleep = null, ?callable $step = null): string {
 	$sleep = $sleep ?? 'sleep';
+	/* $step(text, percent): where the restore is, for its operation's progress bar. */
+	$step = $step ?? function (string $text, int $percent): void {
+	};
+	$step('Reading the backup', 5);
 	$xml = fleet_backup_read($row);
 	if ($xml === null) {
 		throw new RuntimeException('FLEET-E802: That backup could not be read. Its file is missing or damaged.');
 	}
+	$step('Taking a safety backup', 15);
 	fleet_backup_box($box, 'safety', $who);
+	$step('Asking the firewall for a snapshot', 30);
 	$when = date('Y-m-d H:i', (int)$row['time']);
 	list($code, $json) = fleet_box_call($box, 'POST', '/api/v1/management/commit-confirm',
 	    array('seconds' => FLEET_RESTORE_CONFIRM, 'label' => "Fleet: restore of the backup from {$when}"));
@@ -231,6 +237,7 @@ function fleet_backup_restore(array $box, array $row, string $who, ?callable $sl
 	if (($code !== 201) || ($id === '')) {
 		throw new RuntimeException('The box could not take a snapshot first: ' . fleet_box_error($code, $json));
 	}
+	$step('Sending the configuration', 45);
 	list($code, $json) = fleet_box_call($box, 'POST', '/api/v1/management/restore',
 	    array('config' => $xml, 'commit_confirm' => $id, 'description' => "Restored from the Fleet backup of {$when} by {$who}"));
 	if ($code !== 200) {
@@ -244,6 +251,7 @@ function fleet_backup_restore(array $box, array $row, string $who, ?callable $sl
 	}
 	/* The box reloads its rules; it must still answer before the restore is kept. */
 	for ($try = 0; $try < 12; $try++) {
+		$step('Checking that the firewall still answers', 60 + 3 * $try);
 		$sleep(5);
 		try {
 			list($code) = fleet_box_call($box, 'POST', '/api/v1/management/commit-confirm/' . rawurlencode($id) . '/confirm');

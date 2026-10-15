@@ -33,7 +33,7 @@ define('FLEET_LIST_PER_PAGE', 25);
 
 /* What the Activity filters offer: value => label. */
 define('FLEET_OPS_STATES', array('running' => 'Running', 'done' => 'Done', 'failed' => 'Failed'));
-define('FLEET_OPS_KINDS', array('backup_all' => 'Group backups', 'reboot_group' => 'Group reboots', 'backup' => 'Backups', 'reboot' => 'Reboots'));
+define('FLEET_OPS_KINDS', array('backup_all' => 'Group backups', 'reboot_group' => 'Group reboots', 'backup' => 'Backups', 'reboot' => 'Reboots', 'restore' => 'Restores'));
 define('FLEET_OPS_SINCE', array('1' => 'Last 24 hours', '7' => 'Last 7 days', '30' => 'Last 30 days'));
 
 /* A firewall's events by type: value => array(label, audit actions). */
@@ -111,7 +111,7 @@ function fleet_ops_where(array $f, int $now): array {
 	if (isset($f['kind'])) {
 		$where[] = 'o.kind = ?';
 		$params[] = $f['kind'];
-		if (in_array($f['kind'], array('backup', 'reboot'), true)) {
+		if (in_array($f['kind'], array('backup', 'reboot', 'restore'), true)) {
 			$where[] = "o.node_id != ''";
 		}
 	}
