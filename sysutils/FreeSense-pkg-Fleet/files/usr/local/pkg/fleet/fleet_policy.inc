@@ -30,8 +30,12 @@
  * Rules are checked against what the controller knows: the status the
  * firewall reports, its update check, its backups, and its newest
  * configuration backup (config.xml). Custom rules are config-path
- * predicates only, never code. Modes: audit (report). Remediate and lock
- * come later; the mode is stored already.
+ * predicates only, never code. Modes: audit (report) and lock (the
+ * firewall itself refuses a local save that would break the rule; only
+ * configuration rules). Lock rules travel to each firewall as a bundle
+ * signed with the controller's key; the firewall keeps it, so Lock holds
+ * while the controller is offline, and a console administrator can
+ * suspend it with break-glass (System, fleet_guard.inc).
  */
 
 require_once('fleet/fleet_store.inc');
@@ -79,7 +83,7 @@ function fleet_policy_catalog(): array {
 	);
 }
 
-define('FLEET_POLICY_MODES', array('audit' => 'Audit'));
+define('FLEET_POLICY_MODES', array('audit' => 'Audit', 'lock' => 'Lock'));
 
 /* ------------------------------------------------------------------ */
 /* Pure: rules                                                         */
@@ -127,7 +131,46 @@ function fleet_policy_rule_from(string $id, array $in): array {
 	if (!isset(FLEET_POLICY_MODES[$mode])) {
 		throw new InvalidArgumentException("{$id}: unknown mode.");
 	}
+	if (($mode === 'lock') && !fleet_policy_lockable($base)) {
+		throw new InvalidArgumentException("{$id}: only configuration rules can be locked.");
+	}
 	return array($id, $params, $mode);
+}
+
+/* pure: can a rule be locked on the firewall? (configuration rules only: the firewall checks them itself) */
+function fleet_policy_lockable(string $base): bool {
+	return (fleet_policy_catalog()[$base]['kind'] ?? '') === 'config';
+}
+
+/*
+ * pure: the firewall's form of a lock rule: {id, title, mode, path, op,
+ * value} as System's fleet_guard.inc checks it. Custom rules get ids
+ * CUS-<n>; "set and not empty" becomes a regex.
+ */
+function fleet_policy_node_rule(string $rid, array $params): array {
+	$base = preg_replace('/:\d+$/', '', $rid);
+	$rule = fleet_policy_catalog()[$base];
+	$op = $rule['op'] ?? $params['op'];
+	$value = (string)($rule['value'] ?? ($params['value'] ?? ($params['regex'] ?? '')));
+	$out = array('id' => ($base === 'CUSTOM') ? sprintf('CUS-%03d', (int)substr($rid, 7) % 1000) : $rid, 'title' => fleet_policy_rule_title($rid, $params),
+	    'mode' => 'lock', 'path' => $rule['path'] ?? $params['path'], 'op' => ($op === 'nonempty') ? 'regex' : $op);
+	if ($op === 'nonempty') {
+		$out['value'] = '.';
+	} elseif (!in_array($op, array('present', 'absent'), true)) {
+		$out['value'] = $value;
+	}
+	return $out;
+}
+
+/* pure: a firewall's lock rules from its effective rules, in a stable order. */
+function fleet_policy_lock_rules(array $effective): array {
+	$out = array();
+	foreach ($effective as $rid => list($params, $mode)) {
+		if (($mode === 'lock') && fleet_policy_lockable(preg_replace('/:\d+$/', '', $rid))) {
+			$out[] = fleet_policy_node_rule($rid, $params);
+		}
+	}
+	return $out;
 }
 
 /* pure: the text values at a path in a configuration (SimpleXML), or null when the configuration is not known. */
@@ -490,6 +533,7 @@ function fleet_compliance_refresh(?string $only = null): void {
 	if ($only === null) {
 		fleet_setting_set('compliance_checked', (string)$now);
 	}
+	fleet_bundles_push(($only === null) ? null : array($only));
 }
 
 /* node_id => array(pass, fail, unknown, excepted, conflicts) */
@@ -529,5 +573,91 @@ function fleet_policy_update_blocks(array $boxes, array $infos, ?string $target 
 		}
 	}
 	return $out;
+}
+
+/* ------------------------------------------------------------------ */
+/* Lock bundles                                                        */
+/* ------------------------------------------------------------------ */
+
+/* node_id => {hash, version, sent, error, rules} of the last bundle Fleet tried to send. */
+function fleet_bundle_state(): array {
+	return json_decode((string)fleet_setting('bundles', '{}'), true) ?: array();
+}
+
+/* The signed bundle text for a firewall: array(text, signature base64). Versions only grow (time-based). */
+function fleet_bundle_make(string $node, array $rules, int $version): array {
+	$text = json_encode(array('version' => $version, 'node_id' => $node, 'issued' => time(), 'rules' => $rules), JSON_UNESCAPED_SLASHES);
+	$sig = '';
+	if (!openssl_sign($text, $sig, openssl_pkey_get_private(fleet_signing_pem()), OPENSSL_ALGO_SHA256)) {
+		throw new RuntimeException('The bundle could not be signed.');
+	}
+	return array($text, base64_encode($sig));
+}
+
+/*
+ * Send each online managed firewall its lock rules when they changed (or
+ * the last try failed). A firewall that never had lock rules gets nothing.
+ */
+function fleet_bundles_push(?array $only = null): void {
+	$state = fleet_bundle_state();
+	$policies = fleet_policies_all();
+	$groups = fleet_box_group_ids();
+	foreach (fleet_db()->query('SELECT * FROM boxes')->fetchAll() as $box) {
+		if ((($only !== null) && !in_array($box['node_id'], $only, true)) || !fleet_manage_allowed($box)) {
+			continue;
+		}
+		$rules = fleet_policy_lock_rules(fleet_box_effective($box['node_id'], $policies, $groups));
+		$hash = hash('sha256', json_encode($rules));
+		$prev = $state[$box['node_id']] ?? null;
+		if ((($prev === null) && empty($rules)) || (($prev !== null) && ($prev['hash'] === $hash) && empty($prev['error']))) {
+			continue;
+		}
+		if ($box['state'] !== 'online') {
+			$state[$box['node_id']] = array('hash' => $hash, 'version' => $prev['version'] ?? 0, 'sent' => $prev['sent'] ?? null,
+			    'error' => 'Waiting for the firewall to come online', 'rules' => count($rules));
+			continue;
+		}
+		$version = max(time(), (int)($prev['version'] ?? 0) + 1);
+		try {
+			list($text, $sig) = fleet_bundle_make($box['node_id'], $rules, $version);
+			list($code, $json) = fleet_box_call($box, 'PUT', '/api/v1/management/policy-bundle', array('bundle' => $text, 'signature' => $sig));
+			if ($code !== 200) {
+				throw new RuntimeException('FLEET-E320: The firewall refused the lock rules: ' . fleet_box_error($code, $json));
+			}
+			$state[$box['node_id']] = array('hash' => $hash, 'version' => $version, 'sent' => time(), 'error' => null, 'rules' => count($rules));
+			fleet_audit('fleet', 'policy', sprintf('%s: %d lock rules sent (bundle %d)', $box['label'], count($rules), $version));
+		} catch (RuntimeException $e) {
+			$state[$box['node_id']] = array('hash' => $hash, 'version' => $prev['version'] ?? 0, 'sent' => $prev['sent'] ?? null,
+			    'error' => $e->getMessage(), 'rules' => count($rules));
+		}
+	}
+	fleet_setting_set('bundles', json_encode($state));
+}
+
+/*
+ * After each poll: a break-glass the firewall did not have before raises
+ * FLEET-E321 at once; a firewall holding an older bundle than Fleet sent
+ * (restored, reinstalled) gets it again with the next push.
+ */
+function fleet_lock_follow(array $box, array $status): void {
+	$old = json_decode((string)($box['status'] ?? ''), true) ?: array();
+	$bg = $status['breakglass'] ?? null;
+	if (is_array($bg) && ((int)($bg['since'] ?? 0) !== (int)($old['breakglass']['since'] ?? 0))) {
+		$text = sprintf('FLEET-E321: Lock suspended on %s until %s by %s: %s', $box['label'], date('Y-m-d H:i', (int)($bg['until'] ?? 0)),
+		    (string)($bg['by'] ?? '?'), (string)($bg['reason'] ?? ''));
+		fleet_audit('poll', 'policy', $text);
+		if (function_exists('file_notice')) {
+			file_notice('fleet', $text, 'FreeSense Fleet', '');
+		}
+	} elseif (($bg === null) && is_array($old['breakglass'] ?? null)) {
+		fleet_audit('poll', 'policy', sprintf('%s: Lock is in force again (break-glass ended)', $box['label']));
+	}
+	$state = fleet_bundle_state();
+	$sent = $state[$box['node_id']] ?? null;
+	$held = (int)($status['policy_bundle']['version'] ?? 0);
+	if (($sent !== null) && empty($sent['error']) && ($held < (int)$sent['version'])) {
+		$state[$box['node_id']]['error'] = 'The firewall holds an older bundle; sending again';
+		fleet_setting_set('bundles', json_encode($state));
+	}
 }
 

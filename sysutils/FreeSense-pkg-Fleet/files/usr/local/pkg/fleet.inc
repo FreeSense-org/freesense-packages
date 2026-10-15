@@ -581,6 +581,9 @@ function fleet_poll_box(array $box, int $now, int $interval = 60): string {
 	    ->execute(array($misses, $state, ($status === null) ? null : $now, ($status === null) ? null : json_encode($status), $error, $box['node_id']));
 	fleet_ops_follow($box, $status, $now);
 	fleet_update_follow($box, $status, $now);
+	if ($status !== null) {
+		fleet_lock_follow($box, $status);
+	}
 	if ($state !== $box['state']) {
 		fleet_audit('poll', 'state', "{$box['node_id']} ({$box['label']}): {$box['state']} -> {$state}" . (($error !== '') ? " ({$error})" : ''));
 	}

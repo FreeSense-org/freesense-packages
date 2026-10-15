@@ -549,19 +549,29 @@ if ($savemsg) {
 	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint mb-0"><?=gettext('No policy covers this firewall. Add a policy for all firewalls, one of its groups, or this firewall.')?></p></div>
 <?php else: ?>
 	<div class="panel-body table-responsive"><table class="table fs-table">
-		<thead><tr><th><?=gettext('Rule')?></th><th><?=gettext('State')?></th><th><?=gettext('Found')?></th><th><?=gettext('From policy')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
+		<thead><tr><th><?=gettext('Rule')?></th><th><?=gettext('State')?></th><th><?=gettext('Found')?></th><th><?=gettext('Mode')?></th><th><?=gettext('From policy')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
 		<tbody>
 <?php foreach ($peff as $rid => list($params, $mode, $pid, $pname, $conflict)): $res = $pres[$rid] ?? null; ?>
 		<tr><td><?=htmlspecialchars(fleet_policy_rule_title($rid, $params))?> <span class="fs-muted small"><?=htmlspecialchars(preg_replace('/:\d+$/', '', $rid))?></span></td>
 			<td><?=($res === null) ? '<span class="fs-muted">' . gettext('Not checked yet') . '</span>' : ($pbadge[$res['state']] ?? htmlspecialchars($res['state']))?></td>
 			<td class="small"><?=htmlspecialchars((string)($res['detail'] ?? ''))?></td>
+			<td><?=($mode === 'lock') ? '<i class="fa-solid fa-lock" aria-hidden="true"></i> ' . gettext('Lock') : '<span class="fs-muted">' . gettext('Audit') . '</span>'?></td>
 			<td><a href="/fleet/fleet_policies.php?view=edit&amp;id=<?=(int)$pid?>"><?=htmlspecialchars($pname)?></a>
 				<?=($conflict !== null) ? fs_badge('warn', sprintf(gettext('Conflicts with %s'), $conflict)) : ''?></td>
 			<td class="text-end"><?php if ($manage && (($res['state'] ?? '') === 'fail')): ?><a class="btn btn-sm btn-link" href="/fleet/fleet_policies.php?view=exceptions&amp;node=<?=urlencode($box['node_id'])?>&amp;rule=<?=urlencode($rid)?>"><?=gettext('Exception...')?></a><?php endif; ?></td></tr>
 <?php endforeach; ?>
 		</tbody></table></div>
 <?php endif; ?>
-	<div class="panel-footer small fs-muted"><?=gettext('Checked every 15 minutes against what the firewall reports and its newest configuration backup.')?></div>
+	<div class="panel-footer small fs-muted"><?=gettext('Checked every 15 minutes against what the firewall reports and its newest configuration backup.')?>
+<?php $bs = fleet_bundle_state()[$box['node_id']] ?? null; $bst = json_decode((string)($box['status'] ?? ''), true) ?: array(); $bg = $bst['breakglass'] ?? null; ?>
+<?php if ($bs !== null): ?>
+		<div class="mt-1"><?=!empty($bs['error']) ? '<span class="fs-fleet-problem">' . htmlspecialchars(sprintf(gettext('Lock rules not on the firewall yet: %s'), $bs['error'])) . '</span>' :
+		    htmlspecialchars(sprintf(gettext('%1$d lock rules on the firewall since %2$s.'), (int)$bs['rules'], date('Y-m-d H:i', (int)$bs['sent'])))?></div>
+<?php endif; ?>
+<?php if (is_array($bg) && !empty($bg['until'])): ?>
+		<div class="mt-1"><?=fs_badge('warn', gettext('Break-glass'))?> <?=htmlspecialchars(sprintf(gettext('Lock suspended on the firewall until %1$s by %2$s: %3$s'), date('Y-m-d H:i', (int)$bg['until']), (string)($bg['by'] ?? '?'), (string)($bg['reason'] ?? '')))?></div>
+<?php endif; ?>
+	</div>
 </div>
 
 <?php elseif ($view === 'manage'):
