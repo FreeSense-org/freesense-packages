@@ -20,8 +20,9 @@
  */
 
 /*
- * Schedules: recurring backups, reboots and updates on one firewall, a group or every
- * firewall (fleet_schedules.inc; the poll runs them).
+ * Schedules: recurring backups, reboots and updates on any mix of groups
+ * and firewalls, or every firewall (fleet_schedules.inc; the poll runs
+ * them). The list comes first; adding and changing happen in a modal.
  */
 
 require_once('guiconfig.inc');
@@ -33,6 +34,7 @@ $ready = fleet_ctl_settings()['enable'] && is_file(FLEET_DATA . '/fleet.db');
 $manage = isAllowedPage('fleet/fleet.php');
 $input_errors = array();
 $savemsg = null;
+$reopen = null;
 
 if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 	try {
@@ -55,7 +57,26 @@ if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 		}
 	} catch (InvalidArgumentException | RuntimeException $e) {
 		$input_errors[] = $e->getMessage();
+		if (isset($_POST['save'])) {
+			/* The modal opens again with what was typed. */
+			$reopen = array('id' => (string)($_POST['id'] ?? ''), 'name' => (string)($_POST['name'] ?? ''), 'kind' => (string)($_POST['kind'] ?? ''),
+			    'targets[]' => array_values((array)($_POST['targets'] ?? array())), 'days[]' => array_values((array)($_POST['days'] ?? array())),
+			    'time' => (string)($_POST['time'] ?? ''), 'enabled' => !empty($_POST['enabled']));
+		}
 	}
+}
+
+$groups = $ready ? fleet_groups_all() : array();
+$boxes = $ready ? fleet_db()->query('SELECT node_id, label FROM boxes ORDER BY label COLLATE NOCASE')->fetchAll(PDO::FETCH_KEY_PAIR) : array();
+$names = $ready ? fleet_target_names() : array();
+/* From a firewall's page (?node=...): the modal opens for that firewall. */
+if (($reopen === null) && isset($boxes[$_GET['node'] ?? ''])) {
+	$reopen = array('targets[]' => array('n:' . $_GET['node']), 'kind' => 'backup', 'days[]' => array('1', '2', '3', '4', '5', '6', '7'), 'time' => '02:30', 'enabled' => true,
+	    'name' => sprintf(gettext('Back up %s'), $boxes[$_GET['node']]));
+}
+if ($ready && $manage) {
+	fs_page_action(gettext('Add schedule'), '#', 'fa-plus', 'primary', array('data-fs-modal' => '#sched-modal', 'data-fs-modal-title' => gettext('Add a schedule'),
+	    'data-fs-fill' => json_encode(array('targets[]' => array('all'), 'days[]' => array('1', '2', '3', '4', '5', '6', '7'), 'time' => '02:30', 'enabled' => true))));
 }
 
 include('head.inc');
@@ -83,61 +104,100 @@ if (!$ready): ?>
 <div class="fs-fleet-empty"><strong><?=gettext('This firewall is not a fleet controller')?></strong></div>
 <?php include('foot.inc'); exit; endif;
 
-$groups = array_column(fleet_groups_all(), null, 'id');
 $kinds = array_map('gettext', FLEET_SCHEDULE_KINDS);
 $day_names = array(1 => gettext('Mon'), 2 => gettext('Tue'), 3 => gettext('Wed'), 4 => gettext('Thu'), 5 => gettext('Fri'), 6 => gettext('Sat'), 7 => gettext('Sun'));
 $all = fleet_schedules_all();
 /* Filters live in the URL, so a filtered list can be shared and survives a reload. */
 $q = trim((string)($_GET['q'] ?? ''));
 $fk = isset($kinds[$_GET['kind'] ?? '']) ? (string)$_GET['kind'] : '';
-$boxes = fleet_db()->query('SELECT node_id, label FROM boxes ORDER BY label COLLATE NOCASE')->fetchAll(PDO::FETCH_KEY_PAIR);
-$list = array_values(array_filter($all, function ($s) use ($q, $fk, $groups, $boxes) {
-	$target = !empty($s['node_id']) ? ($boxes[$s['node_id']] ?? '') : (($s['group_id'] > 0) ? ($groups[$s['group_id']]['name'] ?? '') : 'All firewalls');
-	return (($fk === '') || ($s['kind'] === $fk)) && (($q === '') || (stripos($s['name'] . ' ' . $target, $q) !== false));
+$fs = in_array($_GET['state'] ?? '', array('on', 'paused'), true) ? (string)$_GET['state'] : '';
+$ft = (string)($_GET['on'] ?? '');
+$ft = (($ft === 'all') || isset($names[$ft])) ? $ft : '';
+$list = array_values(array_filter($all, function ($s) use ($q, $fk, $fs, $ft, $names) {
+	$on = fleet_targets_text($s['targets'], $names);
+	return (($fk === '') || ($s['kind'] === $fk)) && (($fs === '') || (($fs === 'on') === $s['enabled'])) &&
+	    (($ft === '') || in_array($ft, $s['targets'], true)) && (($q === '') || (stripos($s['name'] . ' ' . $on, $q) !== false));
 }));
-$edit = isset($_GET['edit']) ? fleet_schedule_get((int)$_GET['edit']) : null;
-/* ?node=... (from a firewall's page) starts a schedule for that firewall. */
-$f = $edit ?? array('id' => 0, 'name' => '', 'kind' => 'backup', 'group_id' => 0, 'node_id' => isset($boxes[$_GET['node'] ?? '']) ? (string)$_GET['node'] : null, 'days' => array(1, 2, 3, 4, 5, 6, 7), 'time' => 150, 'enabled' => true);
+$filtered = ($q !== '') || ($fk !== '') || ($fs !== '') || ($ft !== '');
 $now = time();
+
+/* The target choices: All firewalls, then groups, then each firewall. */
+$target_options = function (string $selected = '') use ($groups, $boxes) {
+	ob_start(); ?>
+	<option value="all"<?=($selected === 'all') ? ' selected' : ''?>><?=gettext('All firewalls')?></option>
+<?php if (!empty($groups)): ?>
+	<optgroup label="<?=gettext('Groups')?>">
+<?php foreach ($groups as $grp): ?>
+		<option value="g:<?=(int)$grp['id']?>"<?=($selected === 'g:' . $grp['id']) ? ' selected' : ''?>><?=htmlspecialchars($grp['name'])?></option>
+<?php endforeach; ?>
+	</optgroup>
+<?php endif; ?>
+	<optgroup label="<?=gettext('Firewalls')?>">
+<?php foreach ($boxes as $node => $label): ?>
+		<option value="n:<?=htmlspecialchars($node)?>"<?=($selected === 'n:' . $node) ? ' selected' : ''?>><?=htmlspecialchars($label)?></option>
+<?php endforeach; ?>
+	</optgroup>
+<?php return ob_get_clean();
+};
 ?>
 <div class="panel panel-default">
 	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Schedules')?></h2></div>
 <?php if (empty($all)): ?>
-	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint"><?=gettext('No schedules yet. A schedule backs up, reboots or updates a group at a set time, for example the Retail shops every night at 02:30.')?></p></div>
+	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint"><?=gettext('No schedules yet. A schedule backs up, reboots or updates firewalls at a set time, for example the Retail shops every night at 02:30.')?></p></div>
 <?php else: ?>
 	<div class="panel-body fs-fleet-pad">
 		<form method="get" class="fs-fleet-filterbar" role="search">
-			<input class="form-control form-control-sm" type="search" name="q" value="<?=htmlspecialchars($q)?>" placeholder="<?=gettext('Search name or group')?>" aria-label="<?=gettext('Search schedules')?>"/>
+			<input class="form-control form-control-sm" type="search" name="q" value="<?=htmlspecialchars($q)?>" placeholder="<?=gettext('Search name, group or firewall')?>" aria-label="<?=gettext('Search schedules')?>"/>
 			<select class="form-select form-select-sm" name="kind" aria-label="<?=gettext('What it does')?>">
 				<option value=""><?=gettext('Any job')?></option>
 <?php foreach ($kinds as $k => $label): ?>
 				<option value="<?=$k?>"<?=($fk === $k) ? ' selected' : ''?>><?=htmlspecialchars($label)?></option>
 <?php endforeach; ?>
 			</select>
+			<select class="form-select form-select-sm" name="on" aria-label="<?=gettext('For')?>">
+				<option value=""><?=gettext('Any target')?></option>
+				<?=$target_options($ft)?>
+			</select>
+			<select class="form-select form-select-sm" name="state" aria-label="<?=gettext('State')?>">
+				<option value=""><?=gettext('On or paused')?></option>
+				<option value="on"<?=($fs === 'on') ? ' selected' : ''?>><?=gettext('On')?></option>
+				<option value="paused"<?=($fs === 'paused') ? ' selected' : ''?>><?=gettext('Paused')?></option>
+			</select>
 			<button class="btn btn-sm btn-outline-secondary" type="submit"><?=gettext('Filter')?></button>
-<?php if (($q !== '') || ($fk !== '')): ?>
+<?php if ($filtered): ?>
 			<a class="btn btn-sm btn-link" href="?"><?=gettext('Clear')?></a>
 <?php endif; ?>
+			<span class="fs-muted small ms-auto"><?=$filtered ? sprintf(gettext('%1$d of %2$d'), count($list), count($all)) : sprintf(ngettext('%d schedule', '%d schedules', count($all)), count($all))?></span>
 		</form>
 	</div>
 	<div class="panel-body table-responsive"><table class="table fs-table">
-		<thead><tr><th><?=gettext('Name')?></th><th><?=gettext('Does')?></th><th><?=gettext('On')?></th><th><?=gettext('When')?></th><th><?=gettext('Next')?></th><th><?=gettext('Last result')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
+		<thead><tr><th><?=gettext('Name')?></th><th><?=gettext('Does')?></th><th><?=gettext('For')?></th><th><?=gettext('When')?></th><th><?=gettext('Next')?></th><th><?=gettext('Last result')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
 		<tbody>
 <?php if (empty($list)): ?>
-		<tr><td colspan="7" class="fs-muted"><?=gettext('No schedule matches.')?></td></tr>
+		<tr><td colspan="7" class="fs-muted"><?=gettext('No schedule matches.')?> <a href="?"><?=gettext('Clear the filters')?></a></td></tr>
 <?php endif; ?>
 <?php foreach ($list as $s): $next = $s['enabled'] ? fleet_schedule_next($s, $now, fleet_tz()) : null; ?>
 		<tr><td><?=htmlspecialchars($s['name'])?></td>
 			<td><?=htmlspecialchars($kinds[$s['kind']] ?? $s['kind'])?></td>
-<?php if (!empty($s['node_id'])): ?>
-			<td><?=isset($boxes[$s['node_id']]) ? '<a href="/fleet/fleet_box.php?id=' . urlencode($s['node_id']) . '">' . htmlspecialchars($boxes[$s['node_id']]) . '</a>' : fs_badge('warn', gettext('Firewall removed'))?></td>
-<?php else: ?>
-			<td><?=($s['group_id'] > 0) ? (isset($groups[$s['group_id']]) ? htmlspecialchars($groups[$s['group_id']]['name']) : fs_badge('warn', gettext('Group deleted'))) : gettext('All firewalls')?></td>
-<?php endif; ?>
+			<td><?php
+	$parts = array();
+	foreach ($s['targets'] as $t) {
+		if ($t === 'all') {
+			$parts[] = htmlspecialchars(gettext('All firewalls'));
+		} elseif (!isset($names[$t])) {
+			$parts[] = fs_badge('warn', ($t[0] === 'g') ? gettext('Group deleted') : gettext('Firewall removed'));
+		} elseif ($t[0] === 'n') {
+			$parts[] = '<a href="/fleet/fleet_box.php?id=' . urlencode(substr($t, 2)) . '">' . htmlspecialchars($names[$t]) . '</a>';
+		} else {
+			$parts[] = '<a href="/fleet/fleet_dashboard.php?group=' . (int)substr($t, 2) . '">' . htmlspecialchars($names[$t]) . '</a>';
+		}
+	}
+	echo implode(', ', $parts);
+?></td>
 			<td><?=htmlspecialchars(fleet_schedule_text($s))?></td>
 			<td><?=$s['enabled'] ? htmlspecialchars(date('D H:i', (int)$next)) : fs_badge('neutral', gettext('Paused'))?></td>
 			<td class="small"><?php if ($s['last_result'] === null): ?><span class="fs-muted"><?=gettext('Not run yet')?></span><?php else: ?>
-				<?=htmlspecialchars(date('D H:i', (int)$s['last_run']))?>: <?=htmlspecialchars((string)$s['last_result'])?>
+				<?=htmlspecialchars(date('D H:i', (int)$s['ran_at']))?>: <?=htmlspecialchars((string)$s['last_result'])?>
 				<?php if ($s['last_op']): ?><a href="/fleet/fleet_activity.php?op=<?=(int)$s['last_op']?>"><?=gettext('Activity')?></a><?php endif; ?><?php endif; ?></td>
 			<td class="text-end text-nowrap">
 <?php if ($manage): ?>
@@ -145,7 +205,9 @@ $now = time();
 					<button class="btn btn-sm btn-link" name="run" value="<?=(int)$s['id']?>"><?=gettext('Run now')?></button>
 					<button class="btn btn-sm btn-link" name="<?=$s['enabled'] ? 'pause' : 'resume'?>" value="<?=(int)$s['id']?>"><?=$s['enabled'] ? gettext('Pause') : gettext('Resume')?></button>
 				</form>
-				<a class="btn btn-sm btn-link" href="?edit=<?=(int)$s['id']?>"><?=gettext('Change')?></a>
+				<button type="button" class="btn btn-sm btn-link" data-fs-modal="#sched-modal" data-fs-modal-title="<?=htmlspecialchars(sprintf(gettext('Change %s'), $s['name']))?>"
+				    data-fs-fill="<?=htmlspecialchars(json_encode(array('id' => (string)$s['id'], 'name' => $s['name'], 'kind' => $s['kind'], 'targets[]' => $s['targets'],
+				    'days[]' => array_map('strval', $s['days']), 'time' => sprintf('%02d:%02d', intdiv($s['time'], 60), $s['time'] % 60), 'enabled' => $s['enabled'])))?>"><?=gettext('Change')?></button>
 				<form method="post" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="delete" value="<?=(int)$s['id']?>"><?=gettext('Delete')?></button></form>
 <?php endif; ?>
 			</td></tr>
@@ -155,54 +217,36 @@ $now = time();
 	<div class="panel-footer small fs-muted"><?=sprintf(gettext('Times are the controller\'s time zone (%1$s). Reboots and updates go one firewall at a time and stop at the first failure, like from the dashboard. A run the controller misses by more than %2$d minutes is recorded as missed, not run late.'), htmlspecialchars(fleet_tz()), fleet_opt('schedule_grace'))?></div>
 </div>
 
-<?php if ($manage): ?>
-<div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=($edit !== null) ? sprintf(htmlspecialchars(gettext('Change %s')), htmlspecialchars($edit['name'])) : gettext('Add a schedule')?></h2></div>
-	<div class="panel-body fs-fleet-pad">
-		<form method="post" action="?" class="fs-fleet-form">
-			<input type="hidden" name="id" value="<?=(int)$f['id']?>"/>
-			<div class="fs-fleet-field"><label class="form-label" for="sname"><?=gettext('Name')?></label>
-				<input class="form-control" id="sname" name="name" maxlength="60" required value="<?=htmlspecialchars($f['name'])?>" placeholder="<?=gettext('Nightly Retail backup')?>"/></div>
-			<div class="fs-fleet-field"><label class="form-label" for="skind"><?=gettext('Does')?></label>
-				<select class="form-select" id="skind" name="kind">
+<?php if ($manage):
+	fs_modal_form_begin('sched-modal', gettext('Add a schedule'), '/fleet/fleet_schedules.php', array('id' => ''), $reopen);
+?>
+	<div class="mb-3"><label class="form-label" for="sname"><?=gettext('Name')?></label>
+		<input class="form-control" id="sname" name="name" maxlength="60" required placeholder="<?=gettext('Nightly Retail backup')?>"/></div>
+	<div class="mb-3"><label class="form-label" for="skind"><?=gettext('Does')?></label>
+		<select class="form-select" id="skind" name="kind">
 <?php foreach ($kinds as $k => $label): ?>
-					<option value="<?=$k?>"<?=($f['kind'] === $k) ? ' selected' : ''?>><?=htmlspecialchars($label)?></option>
+			<option value="<?=$k?>"><?=htmlspecialchars($label)?></option>
 <?php endforeach; ?>
-				</select></div>
-			<div class="fs-fleet-field"><label class="form-label" for="sgroup"><?=gettext('On')?></label>
-				<select class="form-select" id="sgroup" name="target">
-					<option value="all"><?=gettext('All firewalls')?></option>
-<?php if (!empty($groups)): ?>
-					<optgroup label="<?=gettext('Groups')?>">
-<?php foreach ($groups as $grp): ?>
-					<option value="g:<?=(int)$grp['id']?>"<?=(empty($f['node_id']) && ($f['group_id'] === (int)$grp['id'])) ? ' selected' : ''?>><?=htmlspecialchars($grp['name'])?></option>
-<?php endforeach; ?>
-					</optgroup>
-<?php endif; ?>
-					<optgroup label="<?=gettext('One firewall')?>">
-<?php foreach ($boxes as $node => $label): ?>
-					<option value="n:<?=htmlspecialchars($node)?>"<?=(($f['node_id'] ?? null) === $node) ? ' selected' : ''?>><?=htmlspecialchars($label)?></option>
-<?php endforeach; ?>
-					</optgroup>
-				</select></div>
-			<fieldset class="fs-fleet-field"><legend class="form-label"><?=gettext('Days')?></legend>
-				<div class="fs-fleet-days">
+		</select></div>
+	<div class="mb-3"><label class="form-label" for="stargets"><?=gettext('For')?></label>
+		<select class="form-select" id="stargets" name="targets[]" multiple size="8" data-fs-multiselect data-fs-exclusive="all"
+		    data-fs-text-search="<?=gettext('Search groups and firewalls…')?>" data-fs-text-none="<?=gettext('Choose firewalls…')?>" data-fs-text-more="<?=gettext('+%d more')?>">
+			<?=$target_options()?>
+		</select>
+		<div class="form-text"><?=gettext('Any mix of groups and firewalls. A firewall in two chosen groups is done once.')?></div></div>
+	<fieldset class="mb-3"><legend class="form-label"><?=gettext('Days')?></legend>
+		<div class="fs-fleet-days">
 <?php foreach ($day_names as $d => $label): ?>
-					<label class="fs-fleet-day"><input type="checkbox" name="days[]" value="<?=$d?>"<?=in_array($d, $f['days'], true) ? ' checked' : ''?>/><span><?=htmlspecialchars($label)?></span></label>
+			<label class="fs-fleet-day"><input type="checkbox" name="days[]" value="<?=$d?>"/><span><?=htmlspecialchars($label)?></span></label>
 <?php endforeach; ?>
-				</div></fieldset>
-			<div class="fs-fleet-field"><label class="form-label" for="stime"><?=gettext('At')?></label>
-				<input class="form-control" type="time" id="stime" name="time" required value="<?=sprintf('%02d:%02d', intdiv($f['time'], 60), $f['time'] % 60)?>"/></div>
-			<div class="fs-fleet-field"><label class="form-check"><input class="form-check-input" type="checkbox" name="enabled" value="1"<?=$f['enabled'] ? ' checked' : ''?>/> <span class="form-check-label"><?=gettext('On')?></span></label></div>
-			<div class="fs-fleet-field fs-fleet-field--button">
-				<button class="btn btn-primary" type="submit" name="save" value="1"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=($edit !== null) ? gettext('Save') : gettext('Add schedule')?></button>
-<?php if ($edit !== null): ?>
-				<a class="btn btn-outline-secondary" href="?"><?=gettext('Cancel')?></a>
-<?php endif; ?>
-			</div>
-		</form>
-		<p class="fs-fleet-hint"><?=gettext('Updates on a schedule follow the Updates settings: firewalls without rollback (UFS) are left out unless allowed there. For updates ring by ring with maintenance windows, use Updates > Rollouts.')?></p>
+		</div></fieldset>
+	<div class="row g-3 align-items-end">
+		<div class="col-sm-5"><label class="form-label" for="stime"><?=gettext('At')?></label>
+			<input class="form-control" type="time" id="stime" name="time" required value="02:30"/></div>
+		<div class="col-sm-7"><label class="form-check"><input class="form-check-input" type="checkbox" name="enabled" value="1" checked/> <span class="form-check-label"><?=gettext('On (runs at its times)')?></span></label></div>
 	</div>
-</div>
-<?php endif; ?>
+	<p class="fs-fleet-hint mt-3 mb-0"><?=gettext('Updates on a schedule follow the Updates settings: firewalls without rollback (UFS) are left out unless allowed there. For updates ring by ring with maintenance windows, use Updates > Rollouts.')?></p>
+<?php
+	fs_modal_form_end(gettext('Save schedule'), 'save', '1', 'fa-floppy-disk');
+endif; ?>
 <?php include('foot.inc');

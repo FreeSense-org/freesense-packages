@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 10);
+define('FLEET_DB_SCHEMA', 11);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -272,6 +272,18 @@ SQL);
 		$db->exec(<<<'SQL'
 ALTER TABLE schedules ADD COLUMN node_id TEXT;
 PRAGMA user_version = 10;
+SQL);
+	}
+	if ($version < 11) {
+		/* Several targets per schedule: ["all"] or any of "g:<group>" and "n:<node>". */
+		$db->exec(<<<'SQL'
+ALTER TABLE schedules ADD COLUMN targets TEXT;
+-- when the last result happened (last_run also moves when a schedule is changed)
+ALTER TABLE schedules ADD COLUMN ran_at INTEGER;
+UPDATE schedules SET ran_at = last_run WHERE last_result IS NOT NULL;
+UPDATE schedules SET targets = CASE WHEN node_id IS NOT NULL THEN json_array('n:' || node_id)
+    WHEN group_id > 0 THEN json_array('g:' || group_id) ELSE json_array('all') END;
+PRAGMA user_version = 11;
 SQL);
 	}
 	$db->exec('COMMIT');
