@@ -81,8 +81,10 @@ if ($_POST['save_settings'] ?? false) {
 	}
 } elseif (($_POST['backup_all'] ?? false) && $s['enable']) {
 	/* In the background: many boxes take a while, and the page must not wait. */
-	mwexec_bg('/usr/local/bin/php /usr/local/sbin/freesense-fleet-backup all ' . escapeshellarg($who));
-	header('Location: /fleet/fleet_dashboard.php?started=backup');
+	$group = (int)($_POST['group'] ?? 0);
+	mwexec_bg('/usr/local/bin/php /usr/local/sbin/freesense-fleet-backup all ' . escapeshellarg($who) . ' ' . $group);
+	/* The dashboard shows its progress; back on the same group. */
+	header('Location: /fleet/fleet_dashboard.php' . ($group > 0 ? '?group=' . $group : ''));
 	exit;
 } elseif (isset($_POST['group_save']) && $s['enable']) {
 	$edit_id = ((int)($_POST['group_id'] ?? 0) > 0) ? (int)$_POST['group_id'] : null;
@@ -125,6 +127,7 @@ include('head.inc');
 <?php
 $tab_array = array(
 	array(gettext('Dashboard'), false, '/fleet/fleet_dashboard.php'),
+	array(gettext('Activity'), false, '/fleet/fleet_activity.php'),
 	array(gettext('Firewalls'), $tab === 'firewalls', '/fleet/fleet.php'),
 	array(gettext('Settings'), $tab === 'settings', '/fleet/fleet.php?tab=settings'),
 );

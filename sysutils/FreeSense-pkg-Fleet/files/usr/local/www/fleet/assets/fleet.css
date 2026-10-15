@@ -544,3 +544,41 @@ fieldset.fs-fleet-field legend { float: none; width: auto; font-size: inherit; }
 .fs-fleet-confirm-actions { display: flex; gap: var(--fs-sp-2); margin-top: var(--fs-sp-1); }
 
 .fs-fleet-narrow { max-width: 16rem; }
+
+/* ---- group operations on the dashboard ---- */
+.fs-fleet-activities { display: flex; flex-direction: column; gap: var(--fs-sp-2); margin-bottom: var(--fs-sp-3); }
+.fs-fleet-activity {
+	display: grid;
+	grid-template-columns: auto auto 1fr minmax(8rem, 16rem) auto;
+	align-items: center;
+	gap: var(--fs-sp-3);
+	padding: var(--fs-sp-2) var(--fs-sp-3);
+	border: 1px solid var(--fs-border);
+	border-left: 4px solid var(--fs-info);
+	border-radius: var(--fs-r-md);
+	background: var(--fs-surface);
+	color: var(--fs-text);
+	text-decoration: none;
+}
+.fs-fleet-activity:hover { background: var(--fs-surface-raised); color: var(--fs-text); }
+.fs-fleet-activity > i { color: var(--fs-info); animation: fs-fleet-spin 1s linear infinite; }
+.fs-fleet-activity-text { color: var(--fs-text-muted); font-variant-numeric: tabular-nums; }
+.fs-fleet-activity-link { color: var(--fs-info); font-weight: 600; }
+.fs-fleet-bar { display: block; height: 6px; overflow: hidden; border-radius: 3px; background: rgb(127 127 127 / 20%); }
+.fs-fleet-bar-fill { display: block; height: 100%; border-radius: 3px; background: var(--fs-info); transition: width var(--fs-t) var(--fs-ease); }
+.fs-fleet-bar[data-state="done"] .fs-fleet-bar-fill { background: var(--fs-pass); }
+.fs-fleet-bar[data-state="failed"] .fs-fleet-bar-fill { background: var(--fs-block); }
+.fs-fleet-op[data-op="queued"] i, .fs-fleet-op[data-op="skipped"] i { color: var(--fs-text-muted); }
+.fs-fleet-box[data-busy] .fs-fleet-op[data-op="queued"] { font-weight: 400; }
+@media (prefers-reduced-motion: reduce) { .fs-fleet-activity > i { animation: none; } .fs-fleet-bar-fill { transition: none; } }
+@media (max-width: 720px) {
+	.fs-fleet-activity { grid-template-columns: auto 1fr auto; }
+	.fs-fleet-activity .fs-fleet-bar { grid-column: 1 / -1; }
+	.fs-fleet-activity-text { display: none; }
+}
+
+/* ---- Activity page ---- */
+.fs-fleet-back { display: inline-flex; align-items: center; gap: var(--fs-sp-2); }
+.fs-fleet-bar--wide { height: 8px; margin: var(--fs-sp-2) 0 var(--fs-sp-3); }
+.fs-fleet-facts--inline { display: flex; flex-wrap: wrap; gap: var(--fs-sp-1) var(--fs-sp-3); margin: 0; }
+.fs-fleet-facts--inline dd { margin: 0 var(--fs-sp-3) 0 0; }

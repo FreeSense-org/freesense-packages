@@ -285,11 +285,33 @@ function fleet_backup_diff(string $old, string $new): string {
  * process, so one slow box does not hold up the rest). Returns
  * array(node_id => 'stored' | 'unchanged' | error text).
  */
-function fleet_backup_many(array $boxes, string $reason, string $who): array {
+function fleet_backup_many(array $boxes, string $reason, string $who, ?int $group_op = null): array {
 	$results = array();
-	foreach (array_chunk($boxes, FLEET_BACKUP_PARALLEL) as $chunk) {
+	/* With a group operation, every firewall gets a task: its tile shows Waiting, Backing up, then the result. */
+	$tasks = array();
+	foreach ($boxes as $i => $box) {
+		if ($group_op === null) {
+			continue;
+		}
+		$busy = fleet_op_running($box['node_id']);
+		if ($busy !== null) {
+			$tasks[$box['node_id']] = fleet_op_start($box['node_id'], 'backup', 'Skipped: busy (' . lcfirst($busy['text']) . ')', $who, $group_op, 'skipped');
+			fleet_op_set($tasks[$box['node_id']], 'skipped', 'Skipped: busy (' . lcfirst($busy['text']) . ')');
+			$results[$box['node_id']] = 'skipped';
+			unset($boxes[$i]);
+			continue;
+		}
+		$tasks[$box['node_id']] = fleet_op_start($box['node_id'], 'backup', 'Waiting', $who, $group_op, 'queued');
+	}
+	if ($group_op !== null) {
+		fleet_op_group_update($group_op);
+	}
+	foreach (array_chunk(array_values($boxes), FLEET_BACKUP_PARALLEL) as $chunk) {
 		$procs = array();
 		foreach ($chunk as $box) {
+			if (isset($tasks[$box['node_id']])) {
+				fleet_op_set($tasks[$box['node_id']], 'running', 'Backing up');
+			}
 			$spec = array(1 => array('pipe', 'w'), 2 => array('file', '/dev/null', 'w'));
 			$p = proc_open(array('/usr/local/bin/php', '/usr/local/sbin/freesense-fleet-backup', 'one', $box['node_id'], $reason, $who), $spec, $pipes);
 			if (is_resource($p)) {
@@ -302,6 +324,12 @@ function fleet_backup_many(array $boxes, string $reason, string $who): array {
 			$results[$node_id] = trim((string)stream_get_contents($out)) ?: 'The backup stopped without an answer.';
 			fclose($out);
 			proc_close($p);
+			if (isset($tasks[$node_id])) {
+				$r = $results[$node_id];
+				fleet_op_set($tasks[$node_id], in_array($r, array('stored', 'unchanged'), true) ? 'done' : 'failed',
+				    ($r === 'stored') ? 'Backed up and checked' : (($r === 'unchanged') ? 'No change since the last backup' : 'Backup failed: ' . $r));
+				fleet_op_group_update($group_op);
+			}
 		}
 	}
 	return $results;

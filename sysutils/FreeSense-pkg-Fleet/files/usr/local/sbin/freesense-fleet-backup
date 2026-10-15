@@ -21,7 +21,7 @@
 /*
  * freesense-fleet-backup: central configuration backups.
  *   freesense-fleet-backup nightly              every box (cron, 03:17)
- *   freesense-fleet-backup all <who>            every box ("Back up all now")
+ *   freesense-fleet-backup all <who> [group]    every box, or one group's ("Back up all now")
  *   freesense-fleet-backup one <node> <reason> <who>
  *                                               one box; prints stored, unchanged or the problem
  */
@@ -59,8 +59,16 @@ if (($cmd === 'nightly') || ($cmd === 'all')) {
 		exit(0);
 	}
 	$who = ($cmd === 'all') ? (string)($argv[2] ?? 'system') : 'schedule';
+	$group = ($cmd === 'all') ? fleet_group_get((int)($argv[3] ?? 0)) : null;
 	$boxes = fleet_db()->query("SELECT * FROM boxes WHERE state != 'offline' ORDER BY host_no")->fetchAll();
-	$results = fleet_backup_many($boxes, $cmd, $who);
+	if ($group !== null) {
+		$members = array_column(fleet_db()->query('SELECT node_id FROM box_groups WHERE group_id = ' . (int)$group['id'])->fetchAll(), 'node_id');
+		$boxes = array_values(array_filter($boxes, function ($b) use ($members) { return in_array($b['node_id'], $members, true); }));
+	}
+	$title = ($group !== null) ? sprintf('Back up %s', $group['name']) : (($cmd === 'nightly') ? 'Nightly backup' : 'Back up all firewalls');
+	$op = fleet_op_group_start('backup_all', $title, $who);
+	$results = fleet_backup_many($boxes, $cmd, $who, $op);
+	fleet_op_group_update($op);
 	$failed = count(array_filter($results, function ($r) {
 		return !in_array($r, array('stored', 'unchanged'), true);
 	}));

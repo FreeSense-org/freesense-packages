@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 4);
+define('FLEET_DB_SCHEMA', 5);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -219,6 +219,15 @@ CREATE TABLE IF NOT EXISTS ops (
 	who TEXT NOT NULL, started INTEGER NOT NULL, updated INTEGER NOT NULL, finished INTEGER);
 CREATE INDEX IF NOT EXISTS ops_node ON ops (node_id, state);
 PRAGMA user_version = 4;
+SQL);
+	}
+	if ($version < 5) {
+		/* Group operations: one parent ("Back up 12 firewalls") with a task per firewall. */
+		$db->exec(<<<'SQL'
+ALTER TABLE ops ADD COLUMN parent INTEGER;
+ALTER TABLE ops ADD COLUMN title TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS ops_parent ON ops (parent);
+PRAGMA user_version = 5;
 SQL);
 	}
 	$db->exec('COMMIT');
