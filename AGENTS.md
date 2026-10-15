@@ -12,3 +12,6 @@ Optional FreeSense package integrations. Release rules are in
 - A package change needs a PORTVERSION or PORTREVISION bump to reach installed systems.
 - An Optional-Packages-only change does not justify a Stable patch on its own unless it is a security fix (R8); it ships with the next patch.
 - Merge with `gh pr merge --rebase` (keeps the `dev@freesense.org` author).
+- Coding style: follow `freesense/docs/coding-standards.md` in the `freesense`
+  repository; a package uses the same rules (it may namespace inside its own
+  directory).
