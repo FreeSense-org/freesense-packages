@@ -85,7 +85,49 @@ function fleet_op_progress(array $states): array {
 	$n = count($states);
 	$done = count(array_filter($states, function ($s) { return $s !== 'running' && $s !== 'queued'; }));
 	$failed = count(array_keys($states, 'failed', true));
-	return array('total' => $n, 'finished' => $done, 'failed' => $failed, 'percent' => ($n === 0) ? 100 : (int)floor(100 * $done / $n));
+	return array('total' => $n, 'finished' => $done, 'failed' => $failed, 'skipped' => count(array_keys($states, 'skipped', true)),
+	    'percent' => ($n === 0) ? 100 : (int)floor(100 * $done / $n));
+}
+
+/*
+ * pure: the next step of a rolling operation (one firewall at a time) from
+ * its tasks' states in order: 'start' the task at index, 'wait' for the
+ * one running, 'stop' after a failure, or 'done'.
+ */
+function fleet_rolling_next(array $states): array {
+	$states = array_values($states);
+	if (in_array('failed', $states, true)) {
+		return array('do' => in_array('running', $states, true) ? 'wait' : 'stop');
+	}
+	if (in_array('running', $states, true)) {
+		return array('do' => 'wait');
+	}
+	$next = array_search('queued', $states, true);
+	return ($next === false) ? array('do' => 'done') : array('do' => 'start', 'index' => $next);
+}
+
+/*
+ * pure: which firewalls a group reboot touches, in order, and which it
+ * leaves out and why. $busy: node_id => what is running on it.
+ */
+function fleet_group_reboot_plan(array $boxes, array $busy): array {
+	$go = array();
+	$skip = array();
+	usort($boxes, function ($a, $b) {
+		return strcasecmp((string)$a['label'], (string)$b['label']);
+	});
+	foreach ($boxes as $b) {
+		if (($b['role'] ?? '') !== 'managed') {
+			$skip[] = array($b, 'Monitor only: the controller may not reboot it');
+		} elseif (in_array($b['state'] ?? '', array('offline', 'new'), true)) {
+			$skip[] = array($b, 'Offline');
+		} elseif (isset($busy[$b['node_id']])) {
+			$skip[] = array($b, 'Busy: ' . lcfirst($busy[$b['node_id']]));
+		} else {
+			$go[] = $b;
+		}
+	}
+	return array('go' => $go, 'skip' => $skip);
 }
 
 /* pure: the words for a group operation's state. */
@@ -95,6 +137,9 @@ function fleet_op_summary(array $p, bool $over): string {
 	}
 	if ($p['failed'] === 0) {
 		return ($p['total'] === 1) ? 'Done' : sprintf('All %d done', $p['total']);
+	}
+	if (($p['skipped'] ?? 0) > 0) {
+		return sprintf('%d of %d failed, %d left alone', $p['failed'], $p['total'], $p['skipped']);
 	}
 	return sprintf('%d of %d failed', $p['failed'], $p['total']);
 }
@@ -146,7 +191,7 @@ function fleet_ops_history(int $limit = 50): array {
 }
 
 function fleet_op_tasks(int $parent): array {
-	$q = fleet_db()->prepare('SELECT o.*, b.label FROM ops o LEFT JOIN boxes b ON b.node_id = o.node_id WHERE o.parent = ? ORDER BY (o.state = \'failed\') DESC, b.label');
+	$q = fleet_db()->prepare('SELECT o.*, b.label FROM ops o LEFT JOIN boxes b ON b.node_id = o.node_id WHERE o.parent = ? ORDER BY (o.state = \'failed\') DESC, o.id');
 	$q->execute(array($parent));
 	return $q->fetchAll();
 }

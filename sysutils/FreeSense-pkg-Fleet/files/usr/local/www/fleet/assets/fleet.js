@@ -538,7 +538,16 @@
 			group = wanted;
 		}
 		var allLabel = root.querySelector('[data-fleet="backup-all-label"]');
+		var rebootItem = root.querySelector('[data-fleet="reboot-group"]');
 		var labelGroup = function () {
+			/* "Reboot Canary..." only when a group is chosen: rebooting the whole fleet is not one click away. */
+			if (rebootItem) {
+				var name = group === '' ? '' : groupSelect.options[groupSelect.selectedIndex].text.replace(/ \(\d+\)$/, '');
+				rebootItem.hidden = group === '';
+				rebootItem.parentNode.hidden = group === '';
+				rebootItem.href = '/fleet/fleet_group_action.php?action=reboot&group=' + encodeURIComponent(group);
+				rebootItem.querySelector('[data-fleet="reboot-group-label"]').textContent = T.reboot_group.replace('%s', name);
+			}
 			if (allLabel) {
 				allLabel.textContent = group === '' ? T.backup_all : T.backup_group.replace('%s', groupSelect.options[groupSelect.selectedIndex].text.replace(/ \(\d+\)$/, ''));
 			}

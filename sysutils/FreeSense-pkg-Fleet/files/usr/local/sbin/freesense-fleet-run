@@ -1,0 +1,76 @@
+#!/usr/local/bin/php
+<?php
+/*
+ * part of FreeSense (https://www.freesense.org)
+ * Copyright (c) 2026 The FreeSense Project
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/*
+ * freesense-fleet-run: runs a group operation in the background.
+ *   freesense-fleet-run reboot-group <op id>
+ * Reboots the operation's firewalls one at a time: the next starts only
+ * when the one before is back online (the status poll decides that from
+ * its boot time). The first failure stops it; the rest are skipped and
+ * say why. Started by the WebUI; one runner per operation.
+ */
+
+require_once('config.inc');
+require_once('functions.inc');
+require_once('fleet.inc');
+
+$cmd = $argv[1] ?? '';
+$op_id = (int)($argv[2] ?? 0);
+if (($cmd !== 'reboot-group') || ($op_id <= 0)) {
+	echo "usage: freesense-fleet-run reboot-group <op id>\n";
+	exit(64);
+}
+$lock = fopen("/var/run/fleet-op-{$op_id}.lock", 'c');
+if (!flock($lock, LOCK_EX | LOCK_NB)) {
+	exit(0);
+}
+
+while (true) {
+	$tasks = fleet_op_tasks($op_id);
+	$step = fleet_rolling_next(array_column($tasks, 'state'));
+	if ($step['do'] === 'wait') {
+		sleep(5);
+		continue;
+	}
+	if ($step['do'] === 'stop') {
+		foreach ($tasks as $t) {
+			if ($t['state'] === 'queued') {
+				fleet_op_set((int)$t['id'], 'skipped', 'Skipped: stopped after a failure');
+			}
+		}
+		break;
+	}
+	if ($step['do'] === 'done') {
+		break;
+	}
+	$t = $tasks[$step['index']];
+	$box = fleet_box_get((string)$t['node_id']);
+	try {
+		if ($box === null) {
+			throw new RuntimeException('Not in the fleet any more.');
+		}
+		fleet_box_reboot($box, (string)$t['who'], (int)$t['id']);
+	} catch (RuntimeException $e) {
+		fleet_op_set((int)$t['id'], 'failed', 'Reboot refused: ' . $e->getMessage());
+	}
+	fleet_op_group_update($op_id);
+}
+fleet_op_group_update($op_id);
+exit(0);

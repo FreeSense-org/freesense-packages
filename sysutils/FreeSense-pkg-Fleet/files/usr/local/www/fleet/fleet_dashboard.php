@@ -54,7 +54,7 @@ $strings = array(
 	'reboot_q' => gettext('Reboot %s?'), 'reboot_hint' => gettext('It stops forwarding for a minute or two and comes back by itself.'),
 	'reboot_now' => gettext('Reboot now'), 'cancel' => gettext('Cancel'), 'rebooting' => gettext('Rebooting'), 'backing_up' => gettext('Backing up'),
 	'action_failed' => gettext('The controller did not answer. Try again.'), 'secs' => gettext('%d s'), 'mins' => gettext('%d min %s s'),
-	'details' => gettext('Details'), 'backup_all' => gettext('Back up all now'), 'backup_group' => gettext('Back up %s now'),
+	'details' => gettext('Details'), 'backup_all' => gettext('Back up all now'), 'backup_group' => gettext('Back up %s now'), 'reboot_group' => gettext('Reboot %s...'),
 	'none_match' => gettext('No firewall is %s.'), 'none_in_group' => gettext('No firewall in this group matches.'), 'show_all' => gettext('Show all'),
 );
 
@@ -106,6 +106,7 @@ if ($manage) {
 				<button type="button" class="btn btn-outline-secondary fs-fleet-menu-btn" aria-haspopup="menu"><i class="fa-solid fa-ellipsis icon-embed-btn" aria-hidden="true"></i><?=gettext('Fleet actions')?></button>
 				<ul class="fs-fleet-menu-list" role="menu">
 					<li role="none"><button type="button" class="fs-fleet-menu-item" role="menuitem" tabindex="-1" data-submit="fleet-backup-all"<?=($data['total'] === 0) ? ' disabled' : ''?>><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i><span data-fleet="backup-all-label"><?=gettext('Back up all now')?></span></button></li>
+					<li role="none"><a class="fs-fleet-menu-item" role="menuitem" tabindex="-1" href="#" data-fleet="reboot-group" hidden><i class="fa-solid fa-power-off" aria-hidden="true"></i><span data-fleet="reboot-group-label"></span></a></li>
 					<li role="none"><a class="fs-fleet-menu-item" role="menuitem" tabindex="-1" href="/fleet/fleet_activity.php"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i><?=gettext('Activity')?></a></li>
 					<li role="separator" class="fs-fleet-menu-sep"></li>
 					<li role="none"><a class="fs-fleet-menu-item" role="menuitem" tabindex="-1" href="/fleet/fleet.php"><i class="fa-solid fa-plus" aria-hidden="true"></i><?=gettext('Add a firewall')?></a></li>
