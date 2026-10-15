@@ -41,6 +41,7 @@ $manage = isAllowedPage('fleet/fleet.php');
 $who = (string)($_SESSION['Username'] ?? 'admin');
 $input_errors = array();
 $savemsg = null;
+$rebooting = false;
 
 /* Backups hold the whole configuration (secrets included): only for those who manage the fleet. */
 if ($manage && isset($_GET['download'])) {
@@ -73,6 +74,38 @@ if ($manage && isset($_POST['restore_id'])) {
 		} catch (RuntimeException $e) {
 			$input_errors[] = $e->getMessage();
 		}
+	}
+}
+/* Manage: reboot, a service, the state table. The box refuses these itself unless it joined as Managed. */
+if ($manage && isset($_POST['manage_action'])) {
+	try {
+		switch ((string)$_POST['manage_action']) {
+		case 'reboot':
+			$savemsg = fleet_box_reboot($box, $who);
+			$rebooting = true;
+			break;
+		case 'states':
+			$savemsg = fleet_box_states_reset($box, $who);
+			break;
+		case 'start':
+		case 'stop':
+		case 'restart':
+			$svc = null;
+			foreach (fleet_box_services($box) as $candidate) {
+				if (($candidate['name'] === (string)($_POST['service'] ?? '')) &&
+				    ((string)($candidate['vpnid'] ?? '') === (string)($_POST['vpnid'] ?? '')) &&
+				    ((string)($candidate['zone'] ?? '') === (string)($_POST['zone'] ?? ''))) {
+					$svc = $candidate;
+				}
+			}
+			if ($svc === null) {
+				throw new RuntimeException(gettext('That service is not on this firewall any more. Reload the page.'));
+			}
+			$savemsg = fleet_box_service($box, $svc, (string)$_POST['manage_action'], $who);
+			break;
+		}
+	} catch (RuntimeException $e) {
+		$input_errors[] = $e->getMessage();
 	}
 }
 if ($manage && isset($_POST['set_groups'])) {
@@ -136,9 +169,9 @@ $asset = function ($f) {
 	return '/fleet/assets/' . $f . '?v=' . (int)@filemtime('/usr/local/www/fleet/assets/' . $f);
 };
 
-$views = array('overview' => gettext('Overview'), 'backups' => gettext('Backups'), 'events' => gettext('Events'));
+$views = array('overview' => gettext('Overview'), 'backups' => gettext('Backups'), 'manage' => gettext('Manage'), 'events' => gettext('Events'));
 if (!$manage) {
-	unset($views['backups']);
+	unset($views['backups'], $views['manage']);
 }
 $view = fs_view_param(array_keys($views), 'overview');
 /* A link or form target on this page, in a view. */
@@ -371,6 +404,102 @@ if ($savemsg) {
 	</div>
 	<div class="panel-footer small fs-muted"><?=gettext("A copy of this firewall's configuration is kept on the controller, encrypted, when it changes and every night. Downloads contain secrets such as password hashes and keys.")?></div>
 </div>
+
+<?php elseif ($view === 'manage'):
+	$review = (string)($_GET['review'] ?? '');
+	$offline = ($state === 'offline');
+?>
+<?php if (!fleet_manage_allowed($box)): ?>
+<div class="panel panel-default">
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Manage')?></h2></div>
+	<div class="panel-body fs-fleet-pad">
+		<p class="fs-fleet-lead"><?=gettext('This firewall joined as Monitor only: the controller reads its status and backups but may not change it. To manage it from here, let it leave the fleet and invite it again with Managed access.')?></p>
+	</div>
+</div>
+<?php else: ?>
+<?php if (in_array($review, array('reboot', 'states'), true)): ?>
+<div class="panel panel-default fs-fleet-review" role="region" aria-labelledby="review-title">
+	<div class="panel-heading"><h2 id="review-title" class="panel-title"><?=($review === 'reboot') ? sprintf(gettext('Reboot %s?'), htmlspecialchars($box['label'])) : sprintf(gettext('Reset the state table on %s?'), htmlspecialchars($box['label']))?></h2></div>
+	<div class="panel-body fs-fleet-pad">
+<?php if ($review === 'reboot'): ?>
+		<p class="fs-fleet-lead"><?=gettext('The firewall stops forwarding while it restarts, usually for one to three minutes. A CARP backup takes over where there is one. It comes back by itself; the dashboard shows when it is online again.')?></p>
+<?php else: ?>
+		<p class="fs-fleet-lead"><?=gettext('Every connection through the firewall is dropped and has to start again: calls, downloads and VPN sessions are cut. The management tunnel reconnects by itself.')?></p>
+<?php endif; ?>
+	</div>
+	<div class="panel-footer">
+		<form method="post" action="<?=$here('manage')?>" class="fs-fleet-review-actions">
+			<button class="btn btn-primary" type="submit" name="manage_action" value="<?=$review === 'reboot' ? 'reboot' : 'states'?>"<?=$offline ? ' disabled' : ''?>><i class="fa-solid <?=($review === 'reboot') ? 'fa-power-off' : 'fa-arrow-rotate-right'?> icon-embed-btn" aria-hidden="true"></i><?=($review === 'reboot') ? gettext('Reboot now') : gettext('Reset the state table')?></button>
+			<a class="btn btn-outline-secondary" href="<?=$here('manage')?>"><?=gettext('Cancel')?></a>
+		</form>
+	</div>
+</div>
+<?php endif; ?>
+
+<div class="row g-3 fs-fleet-panels">
+	<div class="col-lg-6">
+		<div class="panel panel-default h-100">
+			<div class="panel-heading"><h2 class="panel-title"><?=gettext('Power')?></h2></div>
+			<div class="panel-body fs-fleet-pad">
+				<p class="fs-fleet-lead"><?=gettext('Restart the firewall. You see what happens before anything is done.')?></p>
+				<a class="btn btn-outline-secondary<?=$offline ? ' disabled' : ''?>" href="<?=$here('manage', array('review' => 'reboot'))?>"><i class="fa-solid fa-power-off icon-embed-btn" aria-hidden="true"></i><?=gettext('Reboot')?>&hellip;</a>
+			</div>
+			<div class="panel-footer small fs-muted"><?=gettext('Shutting down is not offered: a firewall that is off cannot be started again from here.')?></div>
+		</div>
+	</div>
+	<div class="col-lg-6">
+		<div class="panel panel-default h-100">
+			<div class="panel-heading"><h2 class="panel-title"><?=gettext('State table')?></h2></div>
+			<div class="panel-body fs-fleet-pad">
+				<p class="fs-fleet-lead"><?=gettext('Drop every connection through the firewall, for example after changing rules that existing connections still bypass.')?></p>
+				<a class="btn btn-outline-secondary<?=$offline ? ' disabled' : ''?>" href="<?=$here('manage', array('review' => 'states'))?>"><i class="fa-solid fa-arrow-rotate-right icon-embed-btn" aria-hidden="true"></i><?=gettext('Reset the state table')?>&hellip;</a>
+			</div>
+		</div>
+	</div>
+</div>
+
+<div class="panel panel-default">
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Services')?></h2></div>
+<?php
+	try {
+		/* Right after a reboot the box is going down: asking it for its services would only wait for a timeout. */
+		$services = ($offline || $rebooting) ? null : fleet_box_services($box);
+		$svc_error = $rebooting ? gettext('The firewall is rebooting. Its services show here again when it is back.') : ($offline ? gettext('The firewall is offline.') : null);
+	} catch (RuntimeException $e) {
+		$services = null;
+		$svc_error = $e->getMessage();
+	}
+?>
+<?php if ($services === null): ?>
+	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-problem"><?=htmlspecialchars($svc_error)?></p></div>
+<?php elseif (empty($services)): ?>
+	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint"><?=gettext('No services are enabled on this firewall.')?></p></div>
+<?php else: ?>
+	<div class="panel-body table-responsive"><table class="table fs-table">
+		<thead><tr><th><?=gettext('Service')?></th><th><?=gettext('Status')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
+		<tbody>
+<?php foreach ($services as $svc): ?>
+		<tr><td><?=htmlspecialchars($svc['description'] ?: $svc['name'])?> <span class="fs-muted small fs-mono"><?=htmlspecialchars($svc['name'])?></span></td>
+			<td><?=$svc['running'] ? '<span class="fs-fleet-ok">' . gettext('Running') . '</span>' : fs_badge('down', gettext('Stopped'))?></td>
+			<td class="text-end text-nowrap">
+				<form method="post" action="<?=$here('manage')?>" class="d-inline">
+					<input type="hidden" name="service" value="<?=htmlspecialchars($svc['name'])?>"/>
+					<input type="hidden" name="vpnid" value="<?=htmlspecialchars((string)($svc['vpnid'] ?? ''))?>"/>
+					<input type="hidden" name="zone" value="<?=htmlspecialchars((string)($svc['zone'] ?? ''))?>"/>
+<?php if ($svc['running']): ?>
+					<button class="btn btn-sm btn-link" name="manage_action" value="restart"><i class="fa-solid fa-arrow-rotate-right icon-embed-btn" aria-hidden="true"></i><?=gettext('Restart')?></button>
+					<button class="btn btn-sm btn-link" name="manage_action" value="stop"><i class="fa-solid fa-stop icon-embed-btn" aria-hidden="true"></i><?=gettext('Stop')?></button>
+<?php else: ?>
+					<button class="btn btn-sm btn-link" name="manage_action" value="start"><i class="fa-solid fa-play icon-embed-btn" aria-hidden="true"></i><?=gettext('Start')?></button>
+<?php endif; ?>
+				</form>
+			</td></tr>
+<?php endforeach; ?>
+		</tbody></table></div>
+<?php endif; ?>
+	<div class="panel-footer small fs-muted"><?=gettext('The services as the firewall reports them now, like Status > Services on the firewall itself.')?></div>
+</div>
+<?php endif; ?>
 
 <?php else: ?>
 <div class="panel panel-default">

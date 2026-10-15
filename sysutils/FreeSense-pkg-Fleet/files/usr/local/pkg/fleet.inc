@@ -40,6 +40,7 @@ require_once('fleet/fleet_store.inc');
 require_once('fleet/fleet_enroll.inc');
 require_once('fleet/fleet_backup.inc');
 require_once('fleet/fleet_groups.inc');
+require_once('fleet/fleet_manage.inc');
 
 define('FLEET_CTL_IF', 'wgfctl0');
 define('FLEET_ENROLL_CONF', '/var/etc/fleet-enroll.conf');
@@ -346,6 +347,14 @@ function fleet_event_text(string $node_id, string $action, string $detail): arra
 		return array('Restored a backup', preg_replace('/^backup of /', 'from ', $rest));
 	case 'restore_failed':
 		return array('Restore failed', $rest);
+	case 'reboot':
+		return array('Rebooted', 'by the controller');
+	case 'service':
+		return array('Service', $rest);
+	case 'states_reset':
+		return array('State table reset', '');
+	case 'groups':
+		return array('Groups changed', $rest);
 	case 'backup_download':
 		return array('Downloaded a backup', preg_replace('/^backup of /', 'from ', $rest));
 	}

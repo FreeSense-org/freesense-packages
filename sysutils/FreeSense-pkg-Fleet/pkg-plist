@@ -5,6 +5,7 @@ pkg/fleet/enroll/index.php
 pkg/fleet/fleet_backup.inc
 pkg/fleet/fleet_enroll.inc
 pkg/fleet/fleet_groups.inc
+pkg/fleet/fleet_manage.inc
 pkg/fleet/fleet_store.inc
 sbin/freesense-fleet-backup
 sbin/freesense-fleet-poll
