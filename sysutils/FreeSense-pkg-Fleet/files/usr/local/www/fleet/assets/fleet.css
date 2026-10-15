@@ -716,3 +716,12 @@ a.fs-fleet-tile-link:hover, a.fs-fleet-tile-link:focus-visible { border-color: v
 
 .fs-fleet-warn-text { color: var(--fs-warn); }
 .fs-fleet-backup-what .fs-badge { align-self: flex-start; width: auto; }
+
+/* the recovery key, shown once */
+.fs-fleet-key { display: flex; flex-wrap: wrap; align-items: center; gap: var(--fs-sp-2); }
+.fs-fleet-key code { padding: var(--fs-sp-2) var(--fs-sp-3); border: 1px dashed var(--fs-border); border-radius: var(--fs-r-sm); font-size: 1.05rem; letter-spacing: .04em; user-select: all; }
+
+/* a quiet meter for space used (not a progress bar: nothing is running) */
+.fs-fleet-meter { display: inline-block; width: 8rem; height: .4rem; vertical-align: middle; border-radius: 999px; background: var(--fs-border); overflow: hidden; }
+.fs-fleet-meter > span { display: block; height: 100%; background: var(--fs-info); }
+.fs-fleet-meter.is-full > span { background: var(--fs-warn); }

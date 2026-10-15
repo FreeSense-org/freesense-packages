@@ -9,6 +9,7 @@ pkg/fleet/fleet_groups.inc
 pkg/fleet/fleet_list.inc
 pkg/fleet/fleet_manage.inc
 pkg/fleet/fleet_ops.inc
+pkg/fleet/fleet_replicas.inc
 pkg/fleet/fleet_rollouts.inc
 pkg/fleet/fleet_schedules.inc
 pkg/fleet/fleet_updates.inc

@@ -24,6 +24,8 @@
  *   freesense-fleet-backup all <who> [group]    every box, or one group's ("Back up all now")
  *   freesense-fleet-backup nodes <who> <title> <node,node,...>
  *                                               these boxes (schedules with several targets)
+ *   freesense-fleet-backup replicate <who>      sync the copies on other firewalls now
+ *   freesense-fleet-backup verify <who>         test-restore every firewall's backups now
  *   freesense-fleet-backup one <node> <reason> <who>
  *                                               one box; prints stored, unchanged or the problem
  */
@@ -36,6 +38,19 @@ if (!fleet_ctl_settings()['enable'] || !is_file(FLEET_DATA . '/fleet.db')) {
 	exit(0);
 }
 $cmd = $argv[1] ?? '';
+
+if ($cmd === 'replicate') {
+	$lock = fopen('/var/run/fleet-replicate.lock', 'c');
+	if (!flock($lock, LOCK_EX | LOCK_NB)) {
+		exit(0);
+	}
+	fleet_replica_sync((string)($argv[2] ?? 'system'));
+	exit(0);
+}
+if ($cmd === 'verify') {
+	fleet_backup_verify_all((string)($argv[2] ?? 'system'));
+	exit(0);
+}
 
 if ($cmd === 'one') {
 	$box = fleet_box_get((string)($argv[2] ?? ''));
@@ -83,6 +98,15 @@ if (($cmd === 'nightly') || ($cmd === 'all') || ($cmd === 'nodes')) {
 	if ($cmd === 'nightly') {
 		/* Once a day, after the nightly backup: remove what no keep rule wants any more. */
 		fleet_backup_prune('schedule');
+		/* Then the copies on other firewalls (with a fresh self-backup), and once a week a test restore of every firewall's backups. */
+		try {
+			fleet_replica_sync('schedule');
+		} catch (Throwable $e) {
+			fleet_audit('schedule', 'replicas', 'Sync failed: ' . $e->getMessage());
+		}
+		if (time() - (int)fleet_setting('verify_last', '0') >= 7 * 86400 - 3600) {
+			fleet_backup_verify_all('schedule');
+		}
 	}
 	exit(0);
 }
