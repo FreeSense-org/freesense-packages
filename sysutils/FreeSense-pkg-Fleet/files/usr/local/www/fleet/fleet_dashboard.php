@@ -54,7 +54,7 @@ $strings = array(
 	'reboot_q' => gettext('Reboot %s?'), 'reboot_hint' => gettext('It stops forwarding for a minute or two and comes back by itself.'),
 	'reboot_now' => gettext('Reboot now'), 'cancel' => gettext('Cancel'), 'rebooting' => gettext('Rebooting'), 'backing_up' => gettext('Backing up'),
 	'action_failed' => gettext('The controller did not answer. Try again.'), 'secs' => gettext('%d s'), 'mins' => gettext('%d min %s s'),
-	'details' => gettext('Details'), 'ungrouped' => gettext('Ungrouped'), 'only_group' => gettext('Show only this group'), 'group_activity' => gettext('Activity'),
+	'details' => gettext('Details'), 'ungrouped' => gettext('Ungrouped'), 'none_search' => gettext('No firewall matches "%s".'), 'clear_search' => gettext('Clear the search'), 'only_group' => gettext('Show only this group'), 'group_activity' => gettext('Activity'),
 	'change_group' => gettext('Change the group'), 'n_fw' => gettext('%d firewalls'), 'one_fw' => gettext('1 firewall'),
 	'n_attention' => gettext('%d need attention'), 'one_attention' => gettext('1 needs attention'), 'all_ok' => gettext('All online'),
 	'version_unknown' => gettext('Version unknown'), 'firewalls' => gettext('Firewalls'), 'collapse' => gettext('Show or hide %s'), 'backup_all' => gettext('Back up all now'), 'backup_group' => gettext('Back up %s now'), 'reboot_group' => gettext('Reboot %s...'),
@@ -123,6 +123,10 @@ if ($manage) {
 
 <?php $all_groups = $ready ? fleet_groups_all() : array(); ?>
 	<div class="fs-fleet-groupbar">
+		<div class="fs-fleet-search fs-fleet-wallsearch">
+			<i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+			<input type="search" class="form-control form-control-sm" data-fleet="search" placeholder="<?=gettext('Search name, host, version, address...')?>" aria-label="<?=gettext('Search firewalls')?>" aria-keyshortcuts="/"/>
+		</div>
 <?php if (!empty($all_groups)): ?>
 		<label for="fleet-group" class="fs-muted"><?=gettext('Group')?></label>
 		<select id="fleet-group" class="form-select form-select-sm" data-fleet="group">
