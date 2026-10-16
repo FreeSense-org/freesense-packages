@@ -7,6 +7,7 @@ pkg/fleet/fleet_backup_sets.inc
 pkg/fleet/fleet_enroll.inc
 pkg/fleet/fleet_groups.inc
 pkg/fleet/fleet_ha.inc
+pkg/fleet/fleet_ha_setup.inc
 pkg/fleet/fleet_stats.inc
 pkg/fleet/fleet_list.inc
 pkg/fleet/fleet_manage.inc
@@ -47,6 +48,7 @@ www/fleet/fleet_activity.php
 www/fleet/fleet_backups.php
 www/fleet/fleet_box.php
 www/fleet/fleet_box_metrics.php
+www/fleet/fleet_ha.php
 www/fleet/fleet_group_action.php
 www/fleet/fleet_nav.php
 www/fleet/fleet_policies.php

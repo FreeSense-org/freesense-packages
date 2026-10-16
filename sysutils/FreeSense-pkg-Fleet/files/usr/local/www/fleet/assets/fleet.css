@@ -917,3 +917,7 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 .fs-fleet-chart-area { fill: color-mix(in srgb, var(--fs-series-1, #4f8cc9) 18%, transparent); stroke: none; }
 .fs-fleet-chart-in { stroke: var(--bs-secondary-color); stroke-dasharray: 4 4; stroke-width: 1.5; }
 .fs-fleet-chart-in-key { border-top: 2px dashed var(--bs-secondary-color); height: 0; }
+
+/* HA pair setup. */
+.fs-fleet-ha-pick { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--fs-sp-3); }
+.fs-fleet-ha-review { border-top: 1px solid var(--fs-border); }

@@ -415,12 +415,17 @@ function fleet_tlist_apply_box(array $t, array $box, string $who, ?callable $pro
 	foreach ($steps as $p) {
 		$n++;
 		$say(ucfirst($p['action']) . ' ' . $p['name'], 20 + (int)(45 * $n / max(1, count($steps))));
-		if ($p['action'] === 'delete') {
-			list($code, $json) = fleet_box_call($box, 'DELETE', "{$route}/" . (int)$p['id']);
-		} elseif ($p['action'] === 'update') {
-			list($code, $json) = fleet_box_call($box, 'PUT', "{$route}/" . (int)$p['id'], fleet_tlist_body($kind, (int)$t['id'], $items[$p['name']]));
-		} else {
-			list($code, $json) = fleet_box_call($box, 'POST', $route, fleet_tlist_body($kind, (int)$t['id'], $items[$p['name']]) + (($kind === 'rules') ? array('after' => -1) : array()));
+		/* A lost answer is an error like any other: the snapshot goes back below, so the window can never expire later under another change. */
+		try {
+			if ($p['action'] === 'delete') {
+				list($code, $json) = fleet_box_call($box, 'DELETE', "{$route}/" . (int)$p['id']);
+			} elseif ($p['action'] === 'update') {
+				list($code, $json) = fleet_box_call($box, 'PUT', "{$route}/" . (int)$p['id'], fleet_tlist_body($kind, (int)$t['id'], $items[$p['name']]));
+			} else {
+				list($code, $json) = fleet_box_call($box, 'POST', $route, fleet_tlist_body($kind, (int)$t['id'], $items[$p['name']]) + (($kind === 'rules') ? array('after' => -1) : array()));
+			}
+		} catch (Throwable $e) {
+			list($code, $json) = array(0, array('error' => array('message' => $e->getMessage())));
 		}
 		if (($code < 200) || ($code >= 300)) {
 			$errors[] = $p['name'] . ': ' . fleet_box_error($code, $json);
@@ -437,13 +442,17 @@ function fleet_tlist_apply_box(array $t, array $box, string $who, ?callable $pro
 					$errors[] = "Order on {$iface}: " . fleet_box_error($code, $json);
 				}
 			}
-		} catch (RuntimeException $e) {
+		} catch (Throwable $e) {
 			$errors[] = $e->getMessage();
 		}
 	}
 	if (empty($errors)) {
 		$say('Reloading the filter', 75);
-		list($code, $json) = fleet_box_call($box, 'POST', '/api/v1/firewall/apply');
+		try {
+			list($code, $json) = fleet_box_call($box, 'POST', '/api/v1/firewall/apply');
+		} catch (Throwable $e) {
+			list($code, $json) = array(0, array('error' => array('message' => $e->getMessage())));
+		}
 		if (($code < 200) || ($code >= 300)) {
 			$errors[] = 'Reload: ' . fleet_box_error($code, $json);
 		}

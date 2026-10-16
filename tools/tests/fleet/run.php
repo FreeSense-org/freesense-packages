@@ -1317,4 +1317,32 @@ check((fleet_stats_audit_line('demo-909 (Demo: Pop-up store): online -> degraded
     (fleet_stats_audit_line('something else') === null), 'state changes are read back from the audit log');
 check(strpos(fleet_stats_svg($stl, 2, 0, 400, 100, function ($t) { return (string)$t; }, 'Up'), '<polyline') !== false, 'the timeline draws as SVG');
 
+/* ---- HA pair setup ---- */
+check((fleet_ha_bits('255.255.255.0') === 24) && (fleet_ha_bits('24') === 24) && (fleet_ha_bits('255.0.255.0') === null) && fleet_ha_in_net('10.1.0.9', '10.1.0.1', 24) && !fleet_ha_in_net('10.2.0.9', '10.1.0.1', 24),
+    'HA setup: masks and networks');
+$hfa = array('label' => 'A', 'role' => 'managed', 'state' => 'online', 'api_level' => 12, 'in_pair' => false, 'hasync_peer' => '', 'vhids' => array(1),
+    'ifaces' => fleet_ha_ifaces(array(array('name' => 'lan', 'description' => 'LAN', 'ipaddr' => '10.1.0.2', 'subnet' => '255.255.255.0', 'status' => 'up'),
+    array('name' => 'opt1', 'description' => 'SYNC', 'ipaddr' => '10.9.0.1', 'subnet' => '255.255.255.252', 'status' => 'up'))));
+$hfb = array('label' => 'B', 'vhids' => array(2), 'ifaces' => fleet_ha_ifaces(array(array('name' => 'lan', 'description' => 'LAN', 'ipaddr' => '10.1.0.3', 'subnet' => '255.255.255.0', 'status' => 'up'),
+    array('name' => 'opt1', 'description' => 'SYNC', 'ipaddr' => '10.9.0.2', 'subnet' => '255.255.255.252', 'status' => 'up')))) + $hfa;
+$hin = array('primary' => 'a', 'secondary' => 'b', 'vips' => array(array('iface' => 'lan', 'address' => '10.1.0.1')), 'sync_iface' => 'opt1', 'sections' => array('rules', 'users'));
+list($herr, $hplan) = fleet_ha_setup_plan($hin, $hfa, $hfb);
+check(empty($herr) && ($hplan['vips'][0]['vhid'] === 3) && ($hplan['vips'][0]['bits'] === 24) && ($hplan['secondary_sync_ip'] === '10.9.0.2') && ($hplan['sections'] === array('rules')),
+    'HA setup plan: a free VHID on both, the subnet from the interface, the peer from the sync interface; users are never synced');
+list($herr) = fleet_ha_setup_plan(array('vips' => array(array('iface' => 'lan', 'address' => '10.1.0.2'))) + $hin, $hfa, array('role' => 'monitor', 'hasync_peer' => '10.0.0.9') + $hfb);
+check((count($herr) === 4) && (strpos(implode(' ', $herr), 'monitor only') !== false) && (strpos(implode(' ', $herr), 'own address') !== false),
+    'HA setup refuses a monitored firewall, one that already syncs, and a firewall\'s own address as the shared one');
+list($herr) = fleet_ha_setup_plan(array('vips' => array(array('iface' => 'lan', 'address' => '10.7.0.1', 'vhid' => 2))) + $hin, $hfa, $hfb);
+check((count($herr) === 2) && (strpos($herr[0], '10.1.0.2/24') !== false), 'an address outside the network is refused');
+$hvb = fleet_ha_vip_body($hplan['vips'][0], 100, 'pw');
+$hsb = fleet_ha_sync_body($hplan, true, 'pw');
+check(($hvb['mode'] === 'carp') && ($hvb['advskew'] === '100') && (strpos($hvb['descr'], FLEET_HA_MARK) === 0) &&
+    ($hsb['synchronizetoip'] === '10.9.0.2') && ($hsb['synchronizerules'] === true) && ($hsb['synchronizenat'] === false) && !isset($hsb['synchronizeusers']) &&
+    !isset(fleet_ha_sync_body($hplan, false)['synchronizetoip']), 'the CARP address and HA sync bodies; the secondary pushes nothing');
+
+$hrb = fleet_ha_rule_bodies($hplan, false, 8443);
+check((count($hrb) === 2) && ($hrb[0]['proto'] === 'pfsync') && ($hrb[0]['src'] === '10.9.0.1') && ($hrb[1]['dsttype'] === 'opt1ip') && ($hrb[1]['dstbeginport'] === '8443') &&
+    (count(fleet_ha_rule_bodies($hplan, true, 443)) === 1) && (fleet_ha_rule_bodies($hplan, true, 443)[0]['src'] === '10.9.0.2') && (strpos($hrb[1]['descr'], FLEET_HA_MARK) === 0),
+    'the sync interface lets pfsync in from the peer on both, and the primary\'s configuration sync in on the secondary');
+
 echo "Fleet controller tests: OK\n";
