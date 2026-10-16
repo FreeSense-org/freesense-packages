@@ -12,7 +12,9 @@ $data = sys_get_temp_dir() . '/fleet-test-' . getmypid();
 mkdir($data, 0700);
 putenv("FLEET_DATA={$data}");
 set_include_path("{$src}/src/etc/inc" . PATH_SEPARATOR . "{$repo}/sysutils/FreeSense-pkg-Fleet/files/usr/local/pkg");
-function gettext($t) { return $t; }
+if (!function_exists('gettext')) {
+	function gettext($t) { return $t; }
+}
 require_once('fleet.inc');
 
 function check($condition, $message) {
