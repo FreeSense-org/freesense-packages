@@ -286,7 +286,7 @@ EOF;
 				$nsupdatekey = base64_decode($domain->NSUPDATE_KEY);
 
 				/* Set a default key algo of HMAC-MD5 if the key type is invalid. */
-				$key_algo = empty($domain->NSUPDATE_KEYALGO) || !array_key_exists($domain->NSUPDATE_KEYALGO, $acme_domain_validation_method['dns_nsupdate']['fields']['NSUPDATE_KEYALGO']['items']) ? '157' : $domain->NSUPDATE_KEYALGO;
+				$key_algo = empty($domain->NSUPDATE_KEYALGO) || !array_key_exists((string) $domain->NSUPDATE_KEYALGO, $acme_domain_validation_method['dns_nsupdate']['fields']['NSUPDATE_KEYALGO']['items']) ? '157' : $domain->NSUPDATE_KEYALGO;
 				$key_name = empty($domain->NSUPDATE_KEYNAME) ? "_acme-challenge.{$acmechalengedom}" : rtrim($domain->NSUPDATE_KEYNAME, '.');
 
 				/* Use ddns-confgen format key */

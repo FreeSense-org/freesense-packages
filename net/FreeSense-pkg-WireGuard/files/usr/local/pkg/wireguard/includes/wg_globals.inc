@@ -149,7 +149,7 @@ function &array_get_value(array &$array, $parents) {
 	$ref = &$array;
 
 	foreach ((array) $parents as $parent) {
-		if (is_array($ref) && array_key_exists($parent, $ref)) {
+		if (is_array($ref) && array_key_exists((string) $parent, $ref)) {
 			$ref = &$ref[$parent];
 		} else {
 			return null;

@@ -165,7 +165,7 @@ foreach ($a_accountkeys as $accountkey):
 	$name = (string)$accountkey['name'];
 	$accountname = htmlspecialchars($name);
 	$server = $accountkey['acmeserver'] ?? '';
-	$known = array_key_exists($server, $a_acmeserver);
+	$known = array_key_exists((string) $server, $a_acmeserver);
 	$sname = $known ? $a_acmeserver[$server]['name'] : '';
 	$sshort = trim(preg_replace('/\s*\(.*$/', '', $sname));
 	$kind = in_array($server, $custom_ids, true) ? 'custom' : ((stripos($sname, 'staging') !== false || stripos($sname, 'testing') !== false) ? 'staging' : 'production');

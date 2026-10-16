@@ -779,7 +779,7 @@ function next_wg_if() {
 function is_wg_tunnel_assigned($tunnel_name, $disabled = true) {
 	$if_list = get_configured_interface_list_by_realif($disabled);
 
-	return array_key_exists($tunnel_name, $if_list);
+	return array_key_exists((string) $tunnel_name, $if_list);
 }
 
 /*

@@ -256,9 +256,9 @@ if (!empty($act)) {
 
 	$want_cert = false;
 	if (($srvcfg['mode'] == "server_tls_user") && ($srvcfg['authmode'] == "Local Database")) {
-		if (array_key_exists($usrid, $a_user) &&
+		if (array_key_exists((string) $usrid, $a_user) &&
 		    array_key_exists('cert', $a_user[$usrid]) &&
-		    array_key_exists($crtid, $a_user[$usrid]['cert'])) {
+		    array_key_exists((string) $crtid, $a_user[$usrid]['cert'])) {
 			$want_cert = true;
 			$cert = lookup_cert($a_user[$usrid]['cert'][$crtid]);
 			$cert = $cert['item'];

@@ -311,7 +311,6 @@ function fleet_alert_send(array $ch, array $a): ?string {
 	curl_exec($c);
 	$code = (int)curl_getinfo($c, CURLINFO_RESPONSE_CODE);
 	$err = curl_error($c);
-	curl_close($c);
 	if (($code >= 200) && ($code < 300)) {
 		return null;
 	}
