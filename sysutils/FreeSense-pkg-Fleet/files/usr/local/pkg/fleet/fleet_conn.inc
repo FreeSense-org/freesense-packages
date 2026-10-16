@@ -43,7 +43,10 @@ define('FLEET_CONN_METHODS', array(
 	'wireguard' => array('Fleet tunnel (WireGuard)', 'fa-shield-halved'),
 	'direct' => array('Direct (LAN, MPLS or VPN)', 'fa-network-wired'),
 	'tailscale' => array('Tailscale', 'fa-circle-nodes'),
+	'both' => array('Direct and Tailscale', 'fa-route'),
 ));
+/* The paths of a method, in the order Fleet tries them (the tunnel is always last). */
+define('FLEET_CONN_PATHS', array('wireguard' => array(), 'direct' => array('direct'), 'tailscale' => array('tailscale'), 'both' => array('direct', 'tailscale')));
 /* Retry a path that stopped answering after this many seconds. */
 define('FLEET_CONN_RETRY', 600);
 
@@ -113,6 +116,8 @@ function fleet_conn_requirements(string $method): array {
 		    'For a VPN: the tunnel is up. When the route is down the firewall falls back to the Fleet tunnel.', 'Not on WAN: the API would face the internet (FLEET-E135).'),
 		'tailscale' => array('Tailscale runs on the controller and on every firewall, in the same tailnet.', 'The tailnet ACL lets the controller reach the firewalls on TCP 8444.',
 		    'Key expiry is off for the firewalls (FLEET-E136 otherwise).'),
+		'both' => array('What Direct and Tailscale each need; Fleet opens both, tries Direct first, then Tailscale, then the Fleet tunnel.',
+		    'If only one of them works, Fleet keeps that one and says why the other did not.'),
 	)[$method] ?? array();
 }
 
@@ -135,6 +140,20 @@ function fleet_conn_after(array $state, bool $ok, string $error, int $now): arra
 		$alert = 'up';
 	}
 	return array($state, $alert);
+}
+
+/*
+ * pure: the paths in a firewall's state, in order, each {method, address,
+ * ok, ...}: one for direct or tailscale, two for both, none for the tunnel.
+ */
+function fleet_conn_paths(?array $state): array {
+	if ($state === null) {
+		return array();
+	}
+	if (($state['method'] ?? '') === 'both') {
+		return array_values((array)($state['paths'] ?? array()));
+	}
+	return (($state['method'] ?? 'wireguard') === 'wireguard') ? array() : array($state);
 }
 
 /* pure: should a call use the path now? (It answered last time, or it is time to try again.) */
@@ -163,7 +182,7 @@ function fleet_conn_cfg_from(array $in, bool $fleet_level): array {
 		throw new InvalidArgumentException('Choose how Fleet reaches these firewalls.');
 	}
 	$iface = strtolower(trim((string)($in['conn_iface'] ?? '')));
-	if ($method === 'direct') {
+	if (($method === 'direct') || ($method === 'both')) {
 		if (!fleet_conn_iface_ok($iface)) {
 			throw new InvalidArgumentException('Give the interface the controller reaches the firewalls on, like lan or opt2 (not wan).');
 		}
@@ -222,7 +241,7 @@ function fleet_conn_pending(array $row): bool {
 	if ($method !== $have) {
 		return true;
 	}
-	return ($method === 'direct') && ((string)($st['iface'] ?? '') !== $iface);
+	return (($method === 'direct') || ($method === 'both')) && ((string)($st['iface'] ?? '') !== $iface);
 }
 
 /* ------------------------------------------------------------------ */
@@ -265,24 +284,36 @@ function fleet_conn_state_save(string $node, ?array $state): void {
 function fleet_conn_call(array $box, string $method, string $path, ?array $body, string $key): array {
 	$state = json_decode((string)($box['conn_state'] ?? ''), true) ?: null;
 	$now = time();
-	if (fleet_conn_use_path($state, $now)) {
+	foreach (fleet_conn_paths($state) as $i => $p) {
+		if (!fleet_conn_use_path($p, $now)) {
+			continue;
+		}
+		$idx = (($state['method'] ?? '') === 'both') ? $i : null;
 		try {
-			$r = fleet_http_pinned(fleet_conn_target($box, (string)$state['address']), $method, $path, $body, $key);
-			if (empty($state['ok']) || ($now - (int)($state['checked'] ?? 0) > 60)) {
-				fleet_conn_note($box, $state, true, '', $now);
+			$r = fleet_http_pinned(fleet_conn_target($box, (string)$p['address']), $method, $path, $body, $key);
+			if (empty($p['ok']) || ($now - (int)($p['checked'] ?? 0) > 60)) {
+				fleet_conn_note($box, $p, true, '', $now, $idx);
 			}
 			return $r;
 		} catch (FleetJoinError $e) {
-			fleet_conn_note($box, $state, false, $e->getMessage(), $now);
+			fleet_conn_note($box, $p, false, $e->getMessage(), $now, $idx);
+			$box = fleet_box_get($box['node_id']) ?? $box;
 		}
 	}
 	return fleet_http_pinned(fleet_box_target($box), $method, $path, $body, $key);
 }
 
 /* Record how a path answered; a path that stops (or starts again) answering raises an alert once. */
-function fleet_conn_note(array $box, array $state, bool $ok, string $error, int $now): void {
+function fleet_conn_note(array $box, array $state, bool $ok, string $error, int $now, ?int $index = null): void {
 	list($state, $alert) = fleet_conn_after($state, $ok, $error, $now);
-	fleet_conn_state_save($box['node_id'], $state);
+	if ($index === null) {
+		fleet_conn_state_save($box['node_id'], $state);
+	} else {
+		/* One of several paths: kept inside the firewall's state. */
+		$full = json_decode((string)(fleet_box_get($box['node_id'])['conn_state'] ?? ''), true) ?: array('method' => 'both', 'paths' => array());
+		$full['paths'][$index] = $state;
+		fleet_conn_state_save($box['node_id'], $full);
+	}
 	if (($alert !== null) && function_exists('fleet_alert')) {
 		fleet_alert($alert === 'down' ? 'path_down' : 'path_up', $box['node_id'], sprintf($alert === 'down' ?
 		    '%1$s: the %2$s path (%3$s) does not answer (%4$s); Fleet uses the tunnel until it does.' : '%1$s: the %2$s path (%3$s) answers again.',
@@ -307,12 +338,16 @@ function fleet_conn_apply_box(array $box, array $want, string $who, ?callable $s
 			throw new RuntimeException('Over the tunnel: ' . fleet_poll_problem($e->fleet_code, $e->getMessage()));
 		}
 	};
-	$st = json_decode((string)($box['conn_state'] ?? ''), true) ?: array('method' => 'wireguard');
-	if ($method === 'wireguard') {
-		if (($st['method'] ?? 'wireguard') !== 'wireguard') {
-			$say('Removing the ' . $st['method'] . ' path', 50);
-			$tunnel('DELETE', '/api/v1/management/paths/' . $st['method']);
+	$st = json_decode((string)($box['conn_state'] ?? ''), true) ?: null;
+	$wanted = FLEET_CONN_PATHS[$method] ?? array();
+	/* Paths that are no longer wanted go away first. */
+	foreach (fleet_conn_paths($st) as $p) {
+		if (!in_array($p['method'], $wanted, true)) {
+			$say('Removing the ' . $p['method'] . ' path', 20);
+			$tunnel('DELETE', '/api/v1/management/paths/' . $p['method']);
 		}
+	}
+	if (empty($wanted)) {
 		fleet_conn_state_save($box['node_id'], null);
 		fleet_audit($who, 'connections', "{$box['label']}: the Fleet tunnel only");
 		return 'Uses the Fleet tunnel.';
@@ -327,6 +362,36 @@ function fleet_conn_apply_box(array $box, array $want, string $who, ?callable $s
 		throw new RuntimeException('The firewall\'s interfaces could not be read: ' . fleet_box_error($code, $json));
 	}
 	$choices = (array)($json['data']['choices'] ?? array());
+	$opened = array();
+	$problems = array();
+	$notes = '';
+	foreach ($wanted as $n => $m) {
+		try {
+			list($opened[], $note) = fleet_conn_open_path($box, $tunnel, $key, $choices, $m, $iface, $who, function ($t, $pct) use ($say, $n, $wanted) {
+				$say($t, (int)(20 + (($n * 100 + $pct) / count($wanted)) * 0.8));
+			});
+			$notes .= $note;
+		} catch (RuntimeException $e) {
+			$problems[] = $e->getMessage();
+		}
+	}
+	if (empty($opened)) {
+		fleet_conn_state_save($box['node_id'], null);
+		throw new RuntimeException(implode(' ', $problems));
+	}
+	$now = time();
+	fleet_conn_state_save($box['node_id'], ($method === 'both') ?
+	    array('method' => 'both', 'iface' => $iface, 'paths' => $opened, 'ok' => true, 'checked' => $now, 'since' => $now, 'error' => '') : $opened[0]);
+	$words = array_map(function ($p) { return "the {$p['method']} path on {$p['address']}"; }, $opened);
+	return 'Uses ' . implode(', then ', $words) . '; the Fleet tunnel is the fallback.' . (empty($problems) ? '' : ' Not opened: ' . implode(' ', $problems)) . $notes;
+}
+
+/*
+ * Open one path (direct or tailscale) over the tunnel and prove the
+ * controller reaches the firewall over it. Returns array(path state,
+ * note); a path that does not answer is removed again (throws).
+ */
+function fleet_conn_open_path(array $box, callable $tunnel, string $key, array $choices, string $method, string $iface, string $who, callable $say): array {
 	$want_key = ($method === 'tailscale') ? 'tailscale' : $iface;
 	if (!isset($choices[$want_key])) {
 		throw new RuntimeException(($method === 'tailscale') ? 'FLEET-E131: Tailscale is not running on this firewall (no tailnet address).' :
@@ -340,18 +405,12 @@ function fleet_conn_apply_box(array $box, array $want, string $who, ?callable $s
 	if ($src === null) {
 		throw new RuntimeException("FLEET-E134: The controller has no route to {$address}. Check the routing (or the tailnet) between them.");
 	}
-	/* Another method's path first goes away: a firewall has one path besides the tunnel. */
-	foreach (array('direct', 'tailscale') as $other) {
-		if (($other !== $method) && (($st['method'] ?? '') === $other)) {
-			$tunnel('DELETE', '/api/v1/management/paths/' . $other);
-		}
-	}
 	$say("Opening the {$method} path on {$address} for {$src}", 40);
 	list($code, $json) = $tunnel('PUT', '/api/v1/management/paths/' . $method, array('address' => $want_key, 'allowed' => array($src)));
 	if (($code < 200) || ($code >= 300)) {
 		throw new RuntimeException(fleet_box_error($code, $json));
 	}
-	$say('Checking the controller reaches the firewall over it', 70);
+	$say("Checking the controller reaches the firewall over {$method}", 70);
 	$ok = false;
 	$err = '';
 	for ($i = 0; ($i < 5) && !$ok; $i++) {
@@ -366,9 +425,8 @@ function fleet_conn_apply_box(array $box, array $want, string $who, ?callable $s
 	}
 	if (!$ok) {
 		$tunnel('DELETE', '/api/v1/management/paths/' . $method);
-		fleet_conn_state_save($box['node_id'], null);
 		fleet_audit($who, 'connections', "{$box['label']}: FLEET-E134 {$method} path on {$address} did not answer ({$err}); removed, the tunnel stays");
-		throw new RuntimeException("FLEET-E134: The controller could not reach {$address}:" . FLEET_NODE_API_PORT_DEFAULT . " ({$err}). The path was removed again; the firewall stays on the Fleet tunnel. " .
+		throw new RuntimeException("FLEET-E134: The controller could not reach {$address}:" . FLEET_NODE_API_PORT_DEFAULT . " over {$method} ({$err}); that path was removed again. " .
 		    (($method === 'tailscale') ? 'Check the tailnet ACL allows the controller to TCP 8444.' : 'Check the route and any firewall between the controller and that address.'));
 	}
 	$now = time();
@@ -384,10 +442,8 @@ function fleet_conn_apply_box(array $box, array $want, string $who, ?callable $s
 			$note = ' (Tailscale API: ' . $e->getMessage() . ')';
 		}
 	}
-	fleet_conn_state_save($box['node_id'], array('method' => $method, 'iface' => $iface, 'address' => $address, 'source' => $src, 'ok' => true, 'since' => $now,
-	    'checked' => $now, 'error' => ''));
 	fleet_audit($who, 'connections', "{$box['label']}: {$method} path on {$address} (allowed {$src}), the tunnel stays as fallback");
-	return "Uses the {$method} path on {$address}; the Fleet tunnel is the fallback." . $note;
+	return array(array('method' => $method, 'iface' => $iface, 'address' => $address, 'source' => $src, 'ok' => true, 'since' => $now, 'checked' => $now, 'error' => ''), $note);
 }
 
 /* Firewalls that joined over Tailscale get their path by themselves once they answer with a System that has paths. */

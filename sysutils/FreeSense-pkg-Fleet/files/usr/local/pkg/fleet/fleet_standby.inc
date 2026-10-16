@@ -377,8 +377,13 @@ function fleet_standby_handle(string $method, string $path, string $bearer, arra
 		return array(404, array('error' => array('code' => 'not_found')));
 	}
 	$addr = trim((string)($body['addr'] ?? ''));
+	$was = (string)($p['peer_addr'] ?? '');
 	if (($addr !== '') && preg_match('/^(\[[0-9a-fA-F:.]+\]|[0-9a-fA-F:.]+|[A-Za-z0-9][A-Za-z0-9.-]*)$/D', $addr)) {
 		$p['peer_addr'] = trim($addr, '[]');
+	}
+	/* A new standby address joins the allowed list. */
+	if (($p['peer_addr'] !== $was) && function_exists('fleet_access_reload')) {
+		fleet_access_reload();
 	}
 	$p['peer_seen'] = $now;
 	$p['peer_version'] = substr((string)($body['version'] ?? ''), 0, 64);

@@ -1399,4 +1399,46 @@ $sbix = (string)file_get_contents($repo . '/sysutils/FreeSense-pkg-Fleet/files/u
 check((strpos($sbpoll, 'fleet_standby_endpoints_tick()') !== false) && (strpos($sbpoll, 'fleet_standby_fence_tick(') !== false) && (strpos($sbix, 'fleet_standby_handle(') !== false) &&
     (strpos(fleet_enroll_nginx_conf(8443, '/fleet/tls.pem'), 'location ^~ /fleet/standby/') !== false),
     'the poll keeps the standby copy and the firewalls\' endpoints current, and the enrollment port serves the standby');
+/* Controller access. */
+check((fleet_access_cidr(' 203.0.113.5 ') === '203.0.113.5') && (fleet_access_cidr('203.0.113.0/24') === '203.0.113.0/24') && (fleet_access_cidr('203.0.113.5/32') === '203.0.113.5') &&
+    (fleet_access_cidr('2001:db8::/48') === '2001:db8::/48') && (fleet_access_cidr('203.0.113.0/33') === null) && (fleet_access_cidr('x') === null) && (fleet_access_cidr('1.2.3.4/0') === null),
+    'the allowed list takes addresses and networks, IPv4 and IPv6');
+check(fleet_access_in('203.0.113.77', '203.0.113.0/24') && !fleet_access_in('203.0.114.1', '203.0.113.0/24') && fleet_access_in('203.0.113.5', '203.0.113.5') &&
+    fleet_access_in('2001:db8:0:1::9', '2001:db8::/48') && !fleet_access_in('2001:db9::1', '2001:db8::/48') && fleet_access_in('10.1.2.3', '10.0.0.0/9') && !fleet_access_in('10.200.0.1', '10.0.0.0/9') &&
+    !fleet_access_in('203.0.113.5', '2001:db8::/48'), 'an address is in a network only within its mask');
+$acd = fleet_access_from(array());
+check(($acd['enroll'] === 'any') && ($acd['tunnel'] === 'any') && $acd['firewalls'] && $acd['block'] && ($acd['block_after'] === 5) && ($acd['block_minutes'] === 60),
+    'access defaults: open as before, firewalls allowed automatically, wrong keys blocked after 5 for an hour');
+$acl = fleet_access_from(array('enroll' => 'list', 'entries' => array(array('cidr' => '198.51.100.0/24', 'note' => 'Office'), array('cidr' => 'bad'))));
+$alw = fleet_access_allowed($acl, array('Shop' => '203.0.113.9'), array(array('ip' => '192.0.2.4', 'label' => 'New', 'expires' => 2000), array('ip' => '192.0.2.5', 'label' => 'Old', 'expires' => 500)),
+    array('192.0.2.200' => 'Standby controller'), 1000);
+check(($alw === array('198.51.100.0/24' => 'Office', '203.0.113.9' => 'Firewall Shop', '192.0.2.4' => 'Invitation New', '192.0.2.200' => 'Standby controller')) &&
+    !isset(fleet_access_allowed(array('firewalls' => false) + $acl, array('Shop' => '203.0.113.9'), array(), array(), 1000)['203.0.113.9']),
+    'the allowed list: entries, firewalls\' addresses, open invitations and the standby (an expired invitation is gone)');
+$ars = array('enable' => true, 'enroll_port' => 8443, 'wg_port' => 51830);
+$arl = fleet_access_rules($ars, $acl, $alw + array('2001:db8::/48' => 'v6'), array('198.18.0.9' => 5000, '198.18.0.10' => 10), 1000);
+check((strpos($arl, 'block in quick proto tcp from { 198.18.0.9 } to (self) port 8443') !== false) && (strpos($arl, '198.18.0.10') === false) &&
+    (strpos($arl, 'pass in quick inet proto tcp from { 198.51.100.0/24 203.0.113.9 192.0.2.4 192.0.2.200 } to (self) port 8443') !== false) &&
+    (strpos($arl, 'pass in quick inet6 proto tcp from { 2001:db8::/48 } to (self) port 8443') !== false) &&
+    (strpos($arl, 'pass in quick proto udp from any to (self) port 51830') !== false) &&
+    (strpos(fleet_access_rules($ars, array('open_until' => 2000) + $acl, array(), array(), 1000), 'pass in quick proto tcp from any to (self) port 8443') !== false) &&
+    (strpos(fleet_access_rules($ars, $acl, array(), array(), 1000), 'port 8443') === false) && (fleet_access_rules(array('enable' => false) + $ars, $acl, $alw, array(), 1000) === ''),
+    'the port rules: blocked first, then anyone or only the allowed list per port (nothing when it is empty), open for joining lets anyone join for a while');
+list($afl, $afn) = fleet_access_fail_add(array('198.18.0.1' => array(100, 990), '198.18.0.2' => array(10)), '198.18.0.1', 1000);
+check(($afn === 2) && !isset($afl['198.18.0.2']) && (fleet_access_fail_add($afl, '198.18.0.1', 1000 + FLEET_ACCESS_WINDOW + 1)[1] === 1),
+    'wrong keys count within ten minutes; old ones are forgotten');
+check((fleet_access_endpoints_parse(array("k1=\t203.0.113.9:51820", "k2=\t[2001:db8::7]:4000", "k3=\t(none)")) === array('k1=' => '203.0.113.9', 'k2=' => '2001:db8::7')),
+    'the addresses firewalls connect from, read from the tunnel');
+check((fleet_access_reach_kind(array('203.0.113.1'), array('203.0.113.1', '10.0.0.1'))[0] === 'local') && (fleet_access_reach_kind(array('198.51.100.1'), array('10.0.0.1'))[0] === 'forward') &&
+    (fleet_access_reach_kind(array(), array('10.0.0.1'))[0] === 'unresolved'), 'the public address is on this controller, or forwarded to it');
+$aix = (string)file_get_contents($repo . '/sysutils/FreeSense-pkg-Fleet/files/usr/local/pkg/fleet/enroll/index.php');
+check((substr_count($aix, 'fleet_access_failed(') === 2) && (strpos((string)file_get_contents($repo . '/sysutils/FreeSense-pkg-Fleet/files/usr/local/pkg/fleet.inc'), 'fleet_access_filter_rules(') !== false),
+    'wrong keys at the enrollment port and the standby route count; the filter takes the access rules');
+$cpb = array('method' => 'both', 'iface' => 'opt1', 'paths' => array(array('method' => 'direct', 'address' => '10.0.0.2', 'ok' => true), array('method' => 'tailscale', 'address' => '100.64.0.2', 'ok' => false)));
+check((fleet_conn_paths(null) === array()) && (fleet_conn_paths(array('method' => 'wireguard')) === array()) && (count(fleet_conn_paths($cpb)) === 2) &&
+    (fleet_conn_paths(array('method' => 'tailscale', 'address' => 'x'))[0]['method'] === 'tailscale') && (FLEET_CONN_PATHS['both'] === array('direct', 'tailscale')) &&
+    !fleet_conn_pending(array('want' => array('both', 'opt1'), 'state' => $cpb)) && fleet_conn_pending(array('want' => array('both', 'lan'), 'state' => $cpb)) &&
+    fleet_conn_pending(array('want' => array('direct', 'opt1'), 'state' => $cpb)) && (fleet_conn_cfg_from(array('conn_method' => 'both', 'conn_iface' => 'opt1'), true)['method'] === 'both') && !empty(fleet_conn_requirements('both')),
+    'a firewall can use Direct and Tailscale together: both paths in order, then the tunnel');
+
 echo "Fleet controller tests: OK\n";

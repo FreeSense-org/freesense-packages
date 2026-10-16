@@ -18,7 +18,7 @@
 			picked = modal.querySelector('input[name=conn_method][value="' + (kind === 'fleet' ? 'wireguard' : '') + '"]');
 			picked.checked = true;
 		}
-		var direct = picked.value === 'direct';
+		var direct = (picked.value === 'direct') || (picked.value === 'both');
 		modal.querySelector('[data-conn-iface]').hidden = !direct;
 		modal.querySelector('input[name=conn_iface]').required = direct;
 	}

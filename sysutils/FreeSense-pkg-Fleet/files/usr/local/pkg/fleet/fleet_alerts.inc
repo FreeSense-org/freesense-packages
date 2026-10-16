@@ -60,6 +60,7 @@ define('FLEET_ALERT_EVENTS', array(
 	'controller_takeover' => array('The standby controller took over, or this controller stepped down', 'critical'),
 	'standby_problem' => array('The standby controller stopped fetching copies', 'warning'),
 	'standby_ok' => array('The standby controller fetches copies again', 'info'),
+	'access_blocked' => array('An address was blocked after wrong join keys', 'warning'),
 	'test' => array('Test', 'info'),
 ));
 define('FLEET_ALERT_SEVERITIES', array('info' => 1, 'warning' => 2, 'critical' => 3));

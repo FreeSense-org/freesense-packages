@@ -62,6 +62,7 @@ require_once('fleet/fleet_tailscale.inc');
 require_once('fleet/fleet_ha.inc');
 require_once('fleet/fleet_ha_setup.inc');
 require_once('fleet/fleet_standby.inc');
+require_once('fleet/fleet_access.inc');
 require_once('fleet/fleet_stats.inc');
 
 define('FLEET_CTL_IF', 'wgfctl0');
@@ -81,7 +82,7 @@ define('FLEET_POLL_INTERVALS', array(10, 15, 30, 60));
  * elsewhere. New features add their values here.
  */
 define('FLEET_SETTINGS_SECTIONS', array('controller' => 'Controller', 'monitoring' => 'Monitoring', 'actions' => 'Actions and notices',
-    'backups' => 'Backups', 'updates' => 'Updates', 'schedules' => 'Schedules', 'standby' => 'Standby server', 'advanced' => 'Advanced'));
+    'backups' => 'Backups', 'updates' => 'Updates', 'schedules' => 'Schedules', 'access' => 'Access', 'standby' => 'Standby server', 'advanced' => 'Advanced'));
 define('FLEET_TUNABLES', array(
 	'poll_interval' => array('monitoring', 'choice', 15, array(10, 15, 30, 60), null, 'Check each firewall every',
 	    'How quickly the dashboard sees a change. Shorter intervals cost a little more traffic over each tunnel.'),
@@ -419,7 +420,8 @@ function fleet_sync_config(): array {
 function fleet_generate_rules(string $type): string {
 	switch ($type) {
 	case 'filter':
-		return fleet_ctl_filter_rules(fleet_ctl_settings());
+		/* The public ports: anyone or the allowed list, minus blocked addresses (fleet_access.inc). */
+		return fleet_access_filter_rules(fleet_ctl_settings());
 	case 'pfearly':
 		return fleet_ctl_early_rules(fleet_ctl_settings());
 	}
