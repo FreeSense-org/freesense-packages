@@ -89,8 +89,8 @@ $fleet_groups = (fleet_ctl_settings()['enable'] && is_file(FLEET_DATA . '/fleet.
 		<div class="col-sm-8">
 			<select class="form-select" id="<?=htmlspecialchars($widgetkey)?>-fleet-group" name="fleet_group">
 				<option value="0"><?=gettext('All firewalls')?></option>
-<?php foreach ($fleet_groups as $g): ?>
-				<option value="<?=(int)$g['id']?>"<?=((int)$g['id'] === $fleet_cfg['group']) ? ' selected' : ''?>><?=htmlspecialchars(sprintf(gettext('Group %s'), $g['name']))?></option>
+<?php foreach ($fleet_groups as $fleet_grp): ?>
+				<option value="<?=(int)$fleet_grp['id']?>"<?=((int)$fleet_grp['id'] === $fleet_cfg['group']) ? ' selected' : ''?>><?=htmlspecialchars(sprintf(gettext('Group %s'), $fleet_grp['name']))?></option>
 <?php endforeach; ?>
 			</select>
 		</div>

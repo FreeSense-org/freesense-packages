@@ -22,3 +22,4 @@
 /* The dashboard widget's title and where it links (widgets/widgets/fleet.widget.php). */
 $fleet_title = gettext('FreeSense Fleet');
 $fleet_title_link = 'fleet/fleet_dashboard.php';
+$fleet_icon = array('fa-tower-broadcast', '7');
