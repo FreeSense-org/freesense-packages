@@ -41,6 +41,52 @@ define('FLEET_TEMPLATE_ALIAS_TYPES', array('host' => 'Hosts', 'network' => 'Netw
 define('FLEET_TEMPLATE_MAX_ITEMS', 200);
 define('FLEET_TEMPLATE_MAX_ENTRIES', 5000);
 
+/*
+ * Ready-made starting points: a starter fills the editor; nothing is saved
+ * until the admin saves it. Entries are "address  # note" lines.
+ */
+function fleet_template_starters(): array {
+	return array(
+		'private' => array('icon' => 'fa-house-lock', 'name' => 'Private networks', 'description' => 'Every private and local address range, for rules like "block private networks on WAN" or "allow LAN only".',
+		    'aliases' => array(
+			array('name' => 'fleet_private_v4', 'type' => 'network', 'description' => 'Private IPv4 ranges (RFC 1918) and CGNAT',
+			    'entries' => "10.0.0.0/8  # RFC 1918\n172.16.0.0/12  # RFC 1918\n192.168.0.0/16  # RFC 1918\n100.64.0.0/10  # CGNAT (RFC 6598)"),
+			array('name' => 'fleet_private_v6', 'type' => 'network', 'description' => 'Unique local and link-local IPv6',
+			    'entries' => "fc00::/7  # Unique local (RFC 4193)\nfe80::/10  # Link-local"),
+		)),
+		'mgmt' => array('icon' => 'fa-screwdriver-wrench', 'name' => 'Management access', 'description' => 'The ports used to manage firewalls, and a list for the networks admins work from (fill in yours).',
+		    'aliases' => array(
+			array('name' => 'fleet_mgmt_ports', 'type' => 'port', 'description' => 'Firewall management', 'entries' => "22  # SSH\n443  # WebGUI\n8443  # Fleet join"),
+			array('name' => 'fleet_admin_nets', 'type' => 'network', 'description' => 'Networks admins work from', 'entries' => "192.0.2.0/24  # Replace with your admin network"),
+		)),
+		'web' => array('icon' => 'fa-globe', 'name' => 'Web services', 'description' => 'Ports for web servers and proxies, for publishing or allowing web traffic.',
+		    'aliases' => array(
+			array('name' => 'fleet_web_ports', 'type' => 'port', 'description' => 'Web', 'entries' => "80  # HTTP\n443  # HTTPS\n8080  # HTTP alternative\n8443  # HTTPS alternative"),
+		)),
+		'mail' => array('icon' => 'fa-envelope', 'name' => 'Mail', 'description' => 'Ports for sending and reading mail.',
+		    'aliases' => array(
+			array('name' => 'fleet_mail_ports', 'type' => 'port', 'description' => 'Mail', 'entries' => "25  # SMTP\n465  # SMTPS\n587  # Submission\n993  # IMAPS\n995  # POP3S"),
+		)),
+		'dns' => array('icon' => 'fa-signs-post', 'name' => 'Public DNS resolvers', 'description' => 'Well-known public resolvers and the DNS ports, for allowing (or blocking) DNS that bypasses your own resolver.',
+		    'aliases' => array(
+			array('name' => 'fleet_public_dns', 'type' => 'host', 'description' => 'Public DNS resolvers',
+			    'entries' => "1.1.1.1  # Cloudflare\n1.0.0.1  # Cloudflare\n8.8.8.8  # Google\n8.8.4.4  # Google\n9.9.9.9  # Quad9\n149.112.112.112  # Quad9\n2606:4700:4700::1111  # Cloudflare\n2001:4860:4860::8888  # Google\n2620:fe::fe  # Quad9"),
+			array('name' => 'fleet_dns_ports', 'type' => 'port', 'description' => 'DNS', 'entries' => "53  # DNS\n853  # DNS over TLS"),
+		)),
+		'ad' => array('icon' => 'fa-building', 'name' => 'Windows domain', 'description' => 'The ports Active Directory clients use to reach domain controllers (add your controllers to the host list).',
+		    'aliases' => array(
+			array('name' => 'fleet_ad_ports', 'type' => 'port', 'description' => 'Active Directory',
+			    'entries' => "53  # DNS\n88  # Kerberos\n135  # RPC\n389  # LDAP\n445  # SMB\n464  # Kerberos password\n636  # LDAPS\n3268:3269  # Global catalog\n49152:65535  # RPC dynamic"),
+			array('name' => 'fleet_ad_servers', 'type' => 'host', 'description' => 'Domain controllers', 'entries' => "192.0.2.10  # Replace with your domain controllers"),
+		)),
+		'voip' => array('icon' => 'fa-phone', 'name' => 'VoIP', 'description' => 'SIP signalling and the usual RTP media range for phones and PBXs.',
+		    'aliases' => array(
+			array('name' => 'fleet_sip_ports', 'type' => 'port', 'description' => 'SIP', 'entries' => "5060  # SIP\n5061  # SIP over TLS"),
+			array('name' => 'fleet_rtp_ports', 'type' => 'port', 'description' => 'RTP media', 'entries' => "10000:20000  # RTP"),
+		)),
+	);
+}
+
 /* ------------------------------------------------------------------ */
 /* Pure                                                                */
 /* ------------------------------------------------------------------ */
