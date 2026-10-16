@@ -817,4 +817,11 @@ check(fleet_template_get($tid)['items'][0]['name'] === 'office_nets', 'a templat
 fleet_template_delete($tid, 'test');
 check(fleet_template_get($tid) === null, 'and deleted');
 
+foreach (fleet_template_starters() as $sk => $st) {
+	foreach ($st['aliases'] as $sa) {
+		fleet_template_alias_from($sa);
+	}
+	check(count($st['aliases']) > 0, "starter {$sk} is valid");
+}
+
 echo "Fleet controller tests: OK\n";

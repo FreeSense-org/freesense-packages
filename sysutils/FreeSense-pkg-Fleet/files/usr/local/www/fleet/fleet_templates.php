@@ -175,6 +175,26 @@ $action_badge = function (string $a, int $n = 0) {
 	<div class="panel-footer small fs-muted"><?=gettext('"In sync" is worked out from each firewall\'s newest configuration backup, so a local change shows here after the next backup.')?></div>
 <?php endif; ?>
 </div>
+<?php if ($manage): ?>
+<section class="fs-fleet-area">
+	<header class="fs-fleet-area-head"><span class="fs-fleet-area-icon"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i></span>
+		<div><h2><?=gettext('Start from a ready-made template')?></h2><p><?=gettext('Pick one to open it in the editor. Change what you like, choose the firewalls, then save. Nothing is pushed until you apply it.')?></p></div></header>
+	<div class="fs-fleet-rule-grid">
+<?php foreach (fleet_template_starters() as $key => $s): $n = array_sum(array_map(function ($a) { return count(array_filter(explode("\n", $a['entries']))); }, $s['aliases'])); ?>
+		<a class="fs-fleet-rcard fs-fleet-starter" href="?view=edit&amp;starter=<?=urlencode($key)?>">
+			<div class="fs-fleet-rcard-head">
+				<span class="fs-fleet-rcard-icon"><i class="fa-solid <?=$s['icon']?>" aria-hidden="true"></i></span>
+				<div class="fs-fleet-rcard-title"><strong><?=htmlspecialchars(gettext($s['name']))?></strong>
+					<span class="fs-muted small"><?=htmlspecialchars(sprintf(ngettext('%1$d alias, %2$d entries', '%1$d aliases, %2$d entries', count($s['aliases'])), count($s['aliases']), $n))?></span></div>
+				<i class="fa-solid fa-chevron-right fs-muted" aria-hidden="true"></i>
+			</div>
+			<p class="fs-fleet-rcard-help"><?=htmlspecialchars(gettext($s['description']))?></p>
+			<div class="fs-fleet-starter-names"><?=htmlspecialchars(implode(' · ', array_column($s['aliases'], 'name')))?></div>
+		</a>
+<?php endforeach; ?>
+	</div>
+</section>
+<?php endif; ?>
 
 <?php elseif ($view === 'preview'):
 	$t = fleet_template_get((int)($_GET['id'] ?? 0));
@@ -284,6 +304,10 @@ $action_badge = function (string $a, int $n = 0) {
 	if ($typed !== null) {
 		$t = array('id' => (int)($typed['template_id'] ?? 0), 'name' => (string)($typed['name'] ?? ''), 'description' => (string)($typed['description'] ?? ''),
 		    'targets' => (array)($typed['targets'] ?? array()), 'items' => array(), 'raw' => array_values((array)($typed['alias'] ?? array())));
+	}
+	$starter = fleet_template_starters()[(string)($_GET['starter'] ?? '')] ?? null;
+	if (($t === null) && ($starter !== null)) {
+		$t = array('id' => 0, 'name' => $starter['name'], 'description' => $starter['description'], 'targets' => array('all'), 'items' => array(), 'raw' => $starter['aliases']);
 	}
 	$t = $t ?? array('id' => 0, 'name' => '', 'description' => '', 'targets' => array('all'), 'items' => array());
 	$cards = $t['raw'] ?? array_map(function ($i) {
