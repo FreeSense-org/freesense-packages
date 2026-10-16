@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 20);
+define('FLEET_DB_SCHEMA', 22);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -394,6 +394,22 @@ CREATE TABLE IF NOT EXISTS kiosk_keys (
 	id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, hash TEXT NOT NULL UNIQUE, networks TEXT NOT NULL, hide INTEGER NOT NULL DEFAULT 0,
 	created INTEGER NOT NULL, who TEXT NOT NULL, last_used INTEGER, last_ip TEXT, revoked INTEGER);
 PRAGMA user_version = 20;
+SQL);
+	}
+	if ($version < 21) {
+		/* Settings templates (time, DNS, SNMP, remote logging) beside alias templates. */
+		$db->exec(<<<'SQL'
+ALTER TABLE templates ADD COLUMN kind TEXT NOT NULL DEFAULT 'aliases';
+ALTER TABLE templates ADD COLUMN settings TEXT;
+PRAGMA user_version = 21;
+SQL);
+	}
+	if ($version < 22) {
+		/* Template drift: a firewall left alone by a template (Ignore), with who and why. */
+		$db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS template_ignores (
+	template_id INTEGER NOT NULL, node_id TEXT NOT NULL, reason TEXT NOT NULL, who TEXT NOT NULL, time INTEGER NOT NULL, PRIMARY KEY (template_id, node_id));
+PRAGMA user_version = 22;
 SQL);
 	}
 	$db->exec('COMMIT');

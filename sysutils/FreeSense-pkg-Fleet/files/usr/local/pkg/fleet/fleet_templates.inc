@@ -271,7 +271,63 @@ function fleet_template_aliases_in_config(string $xml): ?array {
 function fleet_template_row(array $r): array {
 	$r['targets'] = json_decode((string)$r['targets'], true) ?: array();
 	$r['items'] = json_decode((string)$r['items'], true) ?: array();
+	$r['kind'] = (string)($r['kind'] ?? 'aliases');
+	$r['settings'] = json_decode((string)($r['settings'] ?? ''), true) ?: array();
 	return $r;
+}
+
+/* A settings template's values with its secret (the SNMP community) opened, for sending and hashing. */
+function fleet_template_settings_open(array $t): array {
+	$s = $t['settings'];
+	if (isset($s['rocommunity']) && ($s['rocommunity'] !== '')) {
+		$s['rocommunity'] = (string)fleet_unseal((string)$s['rocommunity'], fleet_master_key());
+	}
+	return $s;
+}
+
+/* What a template wants, as a hash (the state of each firewall keeps it, so a changed template shows as "to apply"). */
+function fleet_template_hash(array $t): string {
+	return hash('sha256', json_encode(($t['kind'] === 'aliases') ? $t['items'] : fleet_template_settings_open($t)));
+}
+
+/* Save a settings template (time, DNS, SNMP, remote logging). */
+function fleet_template_save_settings(?int $id, string $kind, string $name, string $desc, array $targets, array $in, string $who): int {
+	$old = ($id !== null) ? fleet_template_get($id) : null;
+	$settings = fleet_tset_from($kind, $in, ($old !== null) ? fleet_template_settings_open($old) : array());
+	/* A firewall has one of each setting: two templates of a kind must not meet on a firewall. */
+	$mine = fleet_template_nodes($targets);
+	foreach (fleet_templates_all() as $t) {
+		if (((int)$t['id'] !== (int)$id) && ($t['kind'] === $kind) && !empty(array_intersect($mine, fleet_template_nodes($t['targets'])))) {
+			throw new InvalidArgumentException(sprintf('The template "%s" already sets %s on some of these firewalls. A firewall can have one of each.', $t['name'],
+			    strtolower(FLEET_TSET_KINDS[$kind][0])));
+		}
+	}
+	if (isset($settings['rocommunity'])) {
+		$settings['rocommunity'] = ($settings['rocommunity'] === '') ? '' : fleet_seal($settings['rocommunity'], fleet_master_key());
+	}
+	$args = array($name, $desc, json_encode($targets), '[]', json_encode($settings), time(), $who);
+	if ($id === null) {
+		fleet_db()->prepare('INSERT INTO templates (name, description, targets, items, settings, updated, who, kind, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+		    ->execute(array_merge($args, array($kind, time())));
+		$id = (int)fleet_db()->lastInsertId();
+	} else {
+		fleet_db()->prepare('UPDATE templates SET name = ?, description = ?, targets = ?, items = ?, settings = ?, updated = ?, who = ? WHERE id = ?')
+		    ->execute(array_merge($args, array($id)));
+	}
+	$shown = $settings;
+	unset($shown['rocommunity']);
+	fleet_audit($who, 'template', sprintf('%s (%s): %s for %s (not applied yet)', $name, FLEET_TSET_KINDS[$kind][0], fleet_tset_summary($kind, $shown + array('rocommunity' => '')),
+	    fleet_targets_text($targets, fleet_target_names())));
+	return $id;
+}
+
+/* pure: a settings difference as plan rows (the alias plan's shape, so lists and previews show both alike). */
+function fleet_template_settings_plan(string $kind, array $diff): array {
+	$out = array();
+	foreach ($diff as list($field, $label, $from, $to)) {
+		$out[] = array('action' => 'update', 'name' => $label, 'detail' => "{$from} -> {$to}", 'field' => $field);
+	}
+	return empty($out) ? array(array('action' => 'same', 'name' => FLEET_TSET_KINDS[$kind][0], 'detail' => '')) : $out;
 }
 
 function fleet_templates_all(): array {
@@ -297,6 +353,20 @@ function fleet_template_save(?int $id, array $in, string $who): int {
 	if (!empty($gone)) {
 		throw new InvalidArgumentException('A chosen group or firewall does not exist any more. Choose again.');
 	}
+	/* The kind of a template never changes; a new one says it in the form. */
+	$existing = ($id !== null) ? fleet_template_get($id) : null;
+	$kind = ($existing !== null) ? $existing['kind'] : (string)($in['kind'] ?? 'aliases');
+	if (($kind !== 'aliases') && !isset(FLEET_TSET_KINDS[$kind])) {
+		throw new InvalidArgumentException('Unknown template kind.');
+	}
+	$q = fleet_db()->prepare('SELECT COUNT(*) FROM templates WHERE name = ? COLLATE NOCASE AND id != ?');
+	$q->execute(array($name, $id ?? 0));
+	if ((int)$q->fetchColumn() > 0) {
+		throw new InvalidArgumentException('There is already a template with that name.');
+	}
+	if ($kind !== 'aliases') {
+		return fleet_template_save_settings($id, $kind, $name, $desc, $targets, $in, $who);
+	}
 	$items = array();
 	$seen = array();
 	foreach ((array)($in['alias'] ?? array()) as $a) {
@@ -321,7 +391,7 @@ function fleet_template_save(?int $id, array $in, string $who): int {
 	/* Another template must not push an alias with the same name to the same firewalls. */
 	$mine = fleet_template_nodes($targets);
 	foreach (fleet_templates_all() as $t) {
-		if ((int)$t['id'] === (int)$id) {
+		if (((int)$t['id'] === (int)$id) || ($t['kind'] !== 'aliases')) {
 			continue;
 		}
 		$both = array_intersect($mine, fleet_template_nodes($t['targets']));
@@ -348,7 +418,8 @@ function fleet_template_delete(int $id, string $who): void {
 	$t = fleet_template_get($id);
 	fleet_db()->prepare('DELETE FROM templates WHERE id = ?')->execute(array($id));
 	fleet_db()->prepare('DELETE FROM template_state WHERE template_id = ?')->execute(array($id));
-	fleet_audit($who, 'template', ($t['name'] ?? (string)$id) . ': deleted; its aliases stay on the firewalls');
+	fleet_db()->prepare('DELETE FROM template_ignores WHERE template_id = ?')->execute(array($id));
+	fleet_audit($who, 'template', ($t['name'] ?? (string)$id) . ': deleted; ' . ((($t['kind'] ?? 'aliases') === 'aliases') ? 'its aliases stay on the firewalls' : 'the firewalls keep their settings'));
 }
 
 /* ------------------------------------------------------------------ */
@@ -364,10 +435,36 @@ function fleet_template_remote(array $box): array {
 	return $json['data'];
 }
 
+/* Plan read from the firewall now, over the tunnel (either kind). */
+function fleet_template_live_plan(array $t, array $box): array {
+	if ($t['kind'] === 'aliases') {
+		return fleet_template_plan((int)$t['id'], $t['items'], fleet_template_remote($box));
+	}
+	return fleet_template_settings_plan($t['kind'], fleet_tset_diff($t['kind'], $t['settings'], fleet_template_settings_remote($t['kind'], $box)));
+}
+
+/* A firewall's settings of a kind now, over the tunnel. */
+function fleet_template_settings_remote(string $kind, array $box): array {
+	$need = FLEET_TSET_KINDS[$kind][4];
+	$st = json_decode((string)($box['status'] ?? ''), true) ?: array();
+	if ((int)($st['api_level'] ?? 0) < $need) {
+		throw new RuntimeException(sprintf('FLEET-E401: This firewall is too old for %s templates (it needs the System update with API level %d).', strtolower(FLEET_TSET_KINDS[$kind][0]), $need));
+	}
+	list($code, $json) = fleet_box_call($box, 'GET', FLEET_TSET_KINDS[$kind][3]);
+	if (($code !== 200) || !is_array($json['data'] ?? null)) {
+		throw new RuntimeException('The settings could not be read: ' . fleet_box_error($code, $json));
+	}
+	return fleet_tset_current($kind, $json['data']);
+}
+
 /* Plan from the newest configuration backup (no network); null when there is none. */
 function fleet_template_plan_from_backup(array $t, string $node): ?array {
 	$latest = fleet_backup_latest($node);
 	$text = ($latest === null) ? null : fleet_backup_read($latest);
+	if ($t['kind'] !== 'aliases') {
+		$cur = ($text === null) ? null : fleet_tset_from_config($t['kind'], $text);
+		return ($cur === null) ? null : fleet_template_settings_plan($t['kind'], fleet_tset_diff($t['kind'], $t['settings'], $cur));
+	}
 	$aliases = ($text === null) ? null : fleet_template_aliases_in_config($text);
 	return ($aliases === null) ? null : fleet_template_plan((int)$t['id'], $t['items'], $aliases);
 }
@@ -379,12 +476,15 @@ function fleet_template_plan_from_backup(array $t, string $node): ?array {
  */
 function fleet_template_apply_box(array $t, array $box, string $who, ?callable $progress = null): string {
 	fleet_manage_require($box);
+	if ($t['kind'] !== 'aliases') {
+		return fleet_template_apply_settings($t, $box, $who, $progress);
+	}
 	$say = $progress ?? function () {};
 	$say('Reading the aliases', 10);
 	$plan = fleet_template_plan((int)$t['id'], $t['items'], fleet_template_remote($box));
 	$c = fleet_template_plan_counts($plan);
 	$todo = $c['create'] + $c['update'] + $c['delete'];
-	$hash = hash('sha256', json_encode($t['items']));
+	$hash = fleet_template_hash($t);
 	if ($todo === 0) {
 		fleet_template_state_set((int)$t['id'], $box['node_id'], $hash, 'done', ($c['conflict'] > 0) ? sprintf('In sync; %d conflicts skipped', $c['conflict']) : 'In sync');
 		return ($c['conflict'] > 0) ? sprintf('Nothing to change; %d conflicts skipped.', $c['conflict']) : 'Already in sync.';
@@ -456,12 +556,15 @@ function fleet_template_launch(array $t, string $who, ?array $only = null): int 
 		throw new RuntimeException('The template is for no firewall.');
 	}
 	$op = fleet_op_group_start('template', 'Apply template ' . $t['name'], $who);
+	$ignored = fleet_template_ignores((int)$t['id']);
 	foreach ($nodes as $node) {
 		$box = fleet_box_get($node);
 		if ($box === null) {
 			continue;
 		}
-		if (!fleet_manage_allowed($box)) {
+		if (isset($ignored[$node]) && ($only === null)) {
+			fleet_op_set(fleet_op_start($node, 'template', '', $who, $op, 'skipped'), 'skipped', 'Skipped: ignored (' . $ignored[$node]['reason'] . ')');
+		} elseif (!fleet_manage_allowed($box)) {
 			fleet_op_set(fleet_op_start($node, 'template', '', $who, $op, 'skipped'), 'skipped', 'Skipped: monitor only');
 		} elseif ($box['state'] !== 'online') {
 			fleet_op_set(fleet_op_start($node, 'template', '', $who, $op, 'skipped'), 'skipped', 'Skipped: the firewall is ' . $box['state']);
@@ -473,4 +576,138 @@ function fleet_template_launch(array $t, string $who, ?array $only = null): int 
 	fleet_audit($who, 'template', sprintf('%s: applying to %d firewalls', $t['name'], count($nodes)));
 	mwexec_bg('/usr/local/bin/php /usr/local/sbin/freesense-fleet-run template ' . (int)$op . ' ' . (int)$t['id']);
 	return $op;
+}
+
+/*
+ * Apply a settings template to one firewall: read, compare, safety
+ * backup, one PUT with the template's values. A secret that cannot be
+ * read back (the SNMP community) is sent whenever the template changed
+ * since it was last applied here. Returns the words for the result.
+ */
+function fleet_template_apply_settings(array $t, array $box, string $who, ?callable $progress = null): string {
+	$say = $progress ?? function () {};
+	$kind = $t['kind'];
+	$want = fleet_template_settings_open($t);
+	$hash = fleet_template_hash($t);
+	$say('Reading the settings', 15);
+	$diff = fleet_tset_diff($kind, $want, fleet_template_settings_remote($kind, $box));
+	$applied = fleet_template_states((int)$t['id'])[$box['node_id']] ?? null;
+	$secret_changed = isset($want['rocommunity']) && !empty($want['enable']) && (($applied === null) || ($applied['hash'] !== $hash) || ($applied['result'] !== 'done'));
+	if (empty($diff) && !$secret_changed) {
+		fleet_template_state_set((int)$t['id'], $box['node_id'], $hash, 'done', 'In sync');
+		return 'Already in sync.';
+	}
+	$say('Safety backup', 30);
+	fleet_backup_box($box, 'template', $who);
+	$say('Changing ' . strtolower(FLEET_TSET_KINDS[$kind][0]), 60);
+	list($code, $json) = fleet_box_call($box, 'PUT', FLEET_TSET_KINDS[$kind][3], fleet_tset_body($kind, $want));
+	if (($code < 200) || ($code >= 300)) {
+		$err = fleet_box_error($code, $json);
+		fleet_template_state_set((int)$t['id'], $box['node_id'], $hash, 'failed', $err);
+		fleet_audit($who, 'template', "{$t['name']} on {$box['label']}: {$err}");
+		throw new RuntimeException($err);
+	}
+	try {
+		fleet_backup_box($box, 'change', $who);
+	} catch (RuntimeException $e) {
+	}
+	$words = empty($diff) ? 'The community was sent' : implode('; ', array_map(function ($d) { return "{$d[1]}: {$d[2]} -> {$d[3]}"; }, $diff));
+	fleet_template_state_set((int)$t['id'], $box['node_id'], $hash, 'done', $words);
+	fleet_audit($who, 'template', "{$t['name']} on {$box['label']}: {$words}");
+	return $words . '.';
+}
+
+/* ------------------------------------------------------------------ */
+/* Drift: adopt the firewall's version, or ignore the firewall         */
+/* ------------------------------------------------------------------ */
+
+/* node_id => {reason, who, time} for the firewalls a template leaves alone. */
+function fleet_template_ignores(int $tid): array {
+	$q = fleet_db()->prepare('SELECT node_id, reason, who, time FROM template_ignores WHERE template_id = ?');
+	$q->execute(array($tid));
+	return array_column($q->fetchAll(), null, 'node_id');
+}
+
+/* Leave a firewall alone (its local values win) until someone stops ignoring it. Applying "here" still works. */
+function fleet_template_ignore(array $t, string $node, string $reason, string $who): void {
+	$reason = mb_substr(trim(preg_replace('/[\x00-\x1f\x7f]/u', ' ', $reason)), 0, 200);
+	if ($reason === '') {
+		throw new InvalidArgumentException('Say why this firewall keeps its own values (for the next person).');
+	}
+	fleet_db()->prepare('INSERT OR REPLACE INTO template_ignores (template_id, node_id, reason, who, time) VALUES (?, ?, ?, ?, ?)')
+	    ->execute(array((int)$t['id'], $node, $reason, $who, time()));
+	$label = fleet_box_get($node)['label'] ?? $node;
+	fleet_audit($who, 'template', "{$t['name']}: {$label} ignored ({$reason})");
+}
+
+function fleet_template_unignore(array $t, string $node, string $who): void {
+	fleet_db()->prepare('DELETE FROM template_ignores WHERE template_id = ? AND node_id = ?')->execute(array((int)$t['id'], $node));
+	$label = fleet_box_get($node)['label'] ?? $node;
+	fleet_audit($who, 'template', "{$t['name']}: {$label} no longer ignored");
+}
+
+/*
+ * pure: a template with one firewall's version taken in. Aliases: the
+ * template's aliases that differ on the firewall get its entries and
+ * description (aliases it does not have are kept; the firewall's other
+ * aliases are not taken). Settings: the firewall's values (a secret the
+ * firewall cannot show is kept). Returns array(template fields, what
+ * changed).
+ */
+function fleet_template_adopted(array $t, array $remote): array {
+	$changed = array();
+	if ($t['kind'] === 'aliases') {
+		$by = array();
+		foreach ($remote as $a) {
+			$by[strtolower((string)($a['name'] ?? ''))] = $a;
+		}
+		$items = $t['items'];
+		foreach ($items as &$item) {
+			$r = $by[strtolower($item['name'])] ?? null;
+			if (($r === null) || (fleet_template_owner((string)($r['description'] ?? '')) !== (int)$t['id'])) {
+				continue;
+			}
+			$entries = array_map(function ($e) {
+				return array('address' => (string)($e['address'] ?? ''), 'detail' => (string)($e['detail'] ?? ''));
+			}, array_values((array)($r['entries'] ?? array())));
+			$descr = trim(substr((string)$r['description'], strlen(fleet_template_marker((int)$t['id']))));
+			if (($entries !== $item['entries']) || ($descr !== $item['description'])) {
+				$item['entries'] = $entries;
+				$item['description'] = $descr;
+				$changed[] = $item['name'];
+			}
+		}
+		unset($item);
+		return array(array('items' => $items), $changed);
+	}
+	$settings = $t['settings'];
+	foreach ($remote as $k => $v) {
+		if (array_key_exists($k, $settings) && ($settings[$k] !== $v)) {
+			$settings[$k] = $v;
+			$changed[] = fleet_tset_labels($t['kind'])[$k] ?? $k;
+		}
+	}
+	return array(array('settings' => $settings), $changed);
+}
+
+/*
+ * Adopt: read the firewall now and take its version into the template.
+ * The template then differs from its other firewalls, which the preview
+ * shows before anything is applied there. Returns what changed.
+ */
+function fleet_template_adopt(array $t, array $box, string $who): array {
+	$remote = ($t['kind'] === 'aliases') ? fleet_template_remote($box) : fleet_template_settings_remote($t['kind'], $box);
+	list($fields, $changed) = fleet_template_adopted($t, $remote);
+	if (empty($changed)) {
+		return array();
+	}
+	if (isset($fields['items'])) {
+		fleet_db()->prepare('UPDATE templates SET items = ?, updated = ?, who = ? WHERE id = ?')->execute(array(json_encode($fields['items']), time(), $who, (int)$t['id']));
+	} else {
+		fleet_db()->prepare('UPDATE templates SET settings = ?, updated = ?, who = ? WHERE id = ?')->execute(array(json_encode($fields['settings']), time(), $who, (int)$t['id']));
+	}
+	$t2 = fleet_template_get((int)$t['id']);
+	fleet_template_state_set((int)$t['id'], $box['node_id'], fleet_template_hash($t2), 'done', 'Adopted from this firewall');
+	fleet_audit($who, 'template', sprintf('%s: adopted %s from %s', $t['name'], implode(', ', $changed), $box['label']));
+	return $changed;
 }
