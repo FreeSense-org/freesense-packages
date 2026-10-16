@@ -1323,7 +1323,7 @@ check((fleet_ha_bits('255.255.255.0') === 24) && (fleet_ha_bits('24') === 24) &&
 $hfa = array('label' => 'A', 'role' => 'managed', 'state' => 'online', 'api_level' => 12, 'in_pair' => false, 'hasync_peer' => '', 'vhids' => array(1),
     'ifaces' => fleet_ha_ifaces(array(array('name' => 'lan', 'description' => 'LAN', 'ipaddr' => '10.1.0.2', 'subnet' => '255.255.255.0', 'status' => 'up'),
     array('name' => 'opt1', 'description' => 'SYNC', 'ipaddr' => '10.9.0.1', 'subnet' => '255.255.255.252', 'status' => 'up'))));
-$hfb = array('label' => 'B', 'vhids' => array(2), 'ifaces' => fleet_ha_ifaces(array(array('name' => 'lan', 'description' => 'LAN', 'ipaddr' => '10.1.0.3', 'subnet' => '255.255.255.0', 'status' => 'up'),
+$hfb = array('label' => 'B', 'gui_cert' => str_repeat('ab', 32), 'vhids' => array(2), 'ifaces' => fleet_ha_ifaces(array(array('name' => 'lan', 'description' => 'LAN', 'ipaddr' => '10.1.0.3', 'subnet' => '255.255.255.0', 'status' => 'up'),
     array('name' => 'opt1', 'description' => 'SYNC', 'ipaddr' => '10.9.0.2', 'subnet' => '255.255.255.252', 'status' => 'up')))) + $hfa;
 $hin = array('primary' => 'a', 'secondary' => 'b', 'vips' => array(array('iface' => 'lan', 'address' => '10.1.0.1')), 'sync_iface' => 'opt1', 'sections' => array('rules', 'users'));
 list($herr, $hplan) = fleet_ha_setup_plan($hin, $hfa, $hfb);
@@ -1338,11 +1338,14 @@ $hvb = fleet_ha_vip_body($hplan['vips'][0], 100, 'pw');
 $hsb = fleet_ha_sync_body($hplan, true, 'pw');
 check(($hvb['mode'] === 'carp') && ($hvb['advskew'] === '100') && (strpos($hvb['descr'], FLEET_HA_MARK) === 0) &&
     ($hsb['synchronizetoip'] === '10.9.0.2') && ($hsb['synchronizerules'] === true) && ($hsb['synchronizenat'] === false) && !isset($hsb['synchronizeusers']) &&
-    !isset(fleet_ha_sync_body($hplan, false)['synchronizetoip']), 'the CARP address and HA sync bodies; the secondary pushes nothing');
+    !isset(fleet_ha_sync_body($hplan, false)['synchronizetoip']) && ($hsb['syncpeerpin'] === str_repeat('ab', 32)), 'the CARP address and HA sync bodies (the secondary WebGUI certificate pinned); the secondary pushes nothing');
+list($herr) = fleet_ha_setup_plan($hin, $hfa, array('gui_cert' => '') + $hfb);
+check((count($herr) === 1) && (strpos($herr[0], 'WebGUI certificate') !== false) && empty(fleet_ha_setup_plan(array('sections' => array()) + $hin, $hfa, array('gui_cert' => '') + $hfb)[0]),
+    'configuration sync needs the secondary certificate to pin; without sync sections it is not needed');
 
-$hrb = fleet_ha_rule_bodies($hplan, false, 8443);
-check((count($hrb) === 2) && ($hrb[0]['proto'] === 'pfsync') && ($hrb[0]['src'] === '10.9.0.1') && ($hrb[1]['dsttype'] === 'opt1ip') && ($hrb[1]['dstbeginport'] === '8443') &&
-    (count(fleet_ha_rule_bodies($hplan, true, 443)) === 1) && (fleet_ha_rule_bodies($hplan, true, 443)[0]['src'] === '10.9.0.2') && (strpos($hrb[1]['descr'], FLEET_HA_MARK) === 0),
-    'the sync interface lets pfsync in from the peer on both, and the primary\'s configuration sync in on the secondary');
+$hrb = fleet_ha_rule_bodies($hplan, 8443);
+check((count($hrb) === 2) && ($hrb[0]['proto'] === 'pfsync') && ($hrb[0]['src'] === '10.9.0.0') && ($hrb[0]['srcmask'] === '30') && ($hrb[1]['src'] === '10.9.0.1') &&
+    ($hrb[1]['dsttype'] === 'opt1ip') && ($hrb[1]['dstbeginport'] === '8443') && (strpos($hrb[1]['descr'], FLEET_HA_MARK) === 0),
+    'the sync interface rules are the same on both and right on either (HA sync copies them): pfsync from the sync network, configuration sync from the primary');
 
 echo "Fleet controller tests: OK\n";
