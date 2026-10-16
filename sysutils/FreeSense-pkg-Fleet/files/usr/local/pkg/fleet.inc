@@ -56,6 +56,7 @@ require_once('fleet/fleet_factory.inc');
 require_once('fleet/fleet_alerts.inc');
 require_once('fleet/fleet_kiosk.inc');
 require_once('fleet/fleet_template_settings.inc');
+require_once('fleet/fleet_conn.inc');
 
 define('FLEET_CTL_IF', 'wgfctl0');
 define('FLEET_ENROLL_CONF', '/var/etc/fleet-enroll.conf');
@@ -574,11 +575,11 @@ function fleet_box_handoff(array $box, string $user, string $operator): string {
 /* Poll one box; returns its new state. */
 function fleet_poll_box(array $box, int $now, int $interval = 60): string {
 	$key = fleet_unseal((string)$box['api_key'], fleet_master_key());
-	$target = fleet_box_target($box);
 	$status = null;
 	$error = '';
 	try {
-		list($code, $json) = fleet_http_pinned($target, 'GET', '/api/v1/management/status', null, (string)$key);
+		/* Over the firewall's path when it has one (that also checks the path), otherwise over the tunnel. */
+		list($code, $json) = fleet_conn_call($box, 'GET', '/api/v1/management/status', null, (string)$key);
 		if (($code === 200) && is_array($json['data'] ?? null)) {
 			$status = $json['data'];
 		} else {

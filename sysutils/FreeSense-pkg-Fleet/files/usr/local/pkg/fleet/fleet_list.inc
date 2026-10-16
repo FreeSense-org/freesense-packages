@@ -32,7 +32,7 @@ require_once('fleet/fleet_store.inc');
 
 /* What the Activity filters offer: value => label. */
 define('FLEET_OPS_STATES', array('running' => 'Running', 'done' => 'Done', 'failed' => 'Failed'));
-define('FLEET_OPS_KINDS', array('backup_all' => 'Group backups', 'reboot_group' => 'Group reboots', 'update_group' => 'Group updates', 'rollout' => 'Rollouts', 'update' => 'Updates', 'backup' => 'Backups', 'reboot' => 'Reboots', 'restore' => 'Restores', 'template' => 'Templates', 'users' => 'User syncs'));
+define('FLEET_OPS_KINDS', array('backup_all' => 'Group backups', 'reboot_group' => 'Group reboots', 'update_group' => 'Group updates', 'rollout' => 'Rollouts', 'update' => 'Updates', 'backup' => 'Backups', 'reboot' => 'Reboots', 'restore' => 'Restores', 'template' => 'Templates', 'users' => 'User syncs', 'connections' => 'Connection changes'));
 define('FLEET_OPS_SINCE', array('1' => 'Last 24 hours', '7' => 'Last 7 days', '30' => 'Last 30 days'));
 
 /* A firewall's events by type: value => array(label, audit actions). */
@@ -304,6 +304,7 @@ function fleet_firewalls_nav(string $current, int $pending = 0): string {
 		'list' => array(gettext('All firewalls'), '/fleet/fleet.php'),
 		'invite' => array(gettext('Add and approve'), '/fleet/fleet.php?view=invite'),
 		'factory' => array(gettext('Deployment Factory'), '/fleet/fleet_factory.php'),
+		'connections' => array(gettext('Connections'), '/fleet/fleet_connections.php'),
 		'groups' => array(gettext('Groups'), '/fleet/fleet.php?view=groups'),
 	);
 	$h = '<nav class="fs-viewswitch" aria-label="' . htmlspecialchars(gettext('Firewalls')) . '">';
