@@ -511,6 +511,7 @@ if ($savemsg) {
 			<tbody data-m="ifs"></tbody></table></div>
 	</div>
 </div>
+<script src="<?=$asset('fleet-charts.js')?>"></script>
 <script src="<?=$asset('fleet-metrics.js')?>"></script>
 <?php elseif ($view === 'updates'):
 	$uinfo = fleet_update_info($box);

@@ -113,46 +113,6 @@
 		    .catch(function () { $('[data-m="live"]').innerHTML = '<p class="fs-fleet-problem mb-0">' + esc(T.noData) + '</p>'; });
 	}
 
-	/* A line chart of one or more series (0-100 %) over t, as SVG. */
-	function chart(t, series) {
-		/* Drawn at the panel's own width, so it fills it and the text stays sharp. */
-		var hb = $('[data-m="history"]'), hs = getComputedStyle(hb);
-		var W = Math.max(320, Math.round((hb.clientWidth || 720) - parseFloat(hs.paddingLeft) - parseFloat(hs.paddingRight))), H = 200, P = {l: 38, r: 8, t: 8, b: 22};
-		var n = t.length;
-		if (n < 2) {
-			return '<p class="fs-muted mb-0">' + esc(T.noHistory) + '</p>';
-		}
-		var x = function (i) { return P.l + (W - P.l - P.r) * i / (n - 1); };
-		var y = function (v) { return P.t + (H - P.t - P.b) * (1 - Math.max(0, Math.min(100, v)) / 100); };
-		var out = '<svg class="fs-fleet-chart" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' +
-		    esc(series.map(function (s) { return s.name; }).join(', ')) + '">';
-		[0, 25, 50, 75, 100].forEach(function (g) {
-			out += '<line class="fs-fleet-chart-grid" x1="' + P.l + '" x2="' + (W - P.r) + '" y1="' + y(g) + '" y2="' + y(g) + '"/>' +
-			    '<text class="fs-fleet-chart-axis" x="' + (P.l - 6) + '" y="' + (y(g) + 4) + '" text-anchor="end">' + g + '%</text>';
-		});
-		var fmt = function (ts) {
-			var dt = new Date(ts * 1000);
-			return (range === '7d' || range === '30d') ? dt.toLocaleDateString(undefined, {month: 'short', day: 'numeric'}) :
-			    dt.toLocaleTimeString(undefined, {hour: '2-digit', minute: '2-digit'});
-		};
-		[0, Math.floor((n - 1) / 2), n - 1].forEach(function (i, k) {
-			out += '<text class="fs-fleet-chart-axis" x="' + x(i) + '" y="' + (H - 6) + '" text-anchor="' + ['start', 'middle', 'end'][k] + '">' + esc(fmt(t[i])) + '</text>';
-		});
-		series.forEach(function (s, k) {
-			var d = '', pen = false;
-			s.data.forEach(function (v, i) {
-				if (v === null || isNaN(v)) {
-					pen = false;
-					return;
-				}
-				d += (pen ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1);
-				pen = true;
-			});
-			out += '<path class="fs-fleet-chart-line fs-fleet-chart-s' + (k + 1) + '" d="' + d + '"/>';
-		});
-		return out + '</svg>';
-	}
-
 	function history() {
 		var box = $('[data-m="history"]');
 		box.setAttribute('aria-busy', 'true');
@@ -173,10 +133,12 @@
 				var v = a.filter(function (x) { return x !== null && !isNaN(x); });
 				return v.length ? Math.round(Math.max.apply(null, v)) : null;
 			};
-			box.innerHTML = chart(h.t, [{name: T.cpu, data: h.cpu}, {name: T.memory, data: h.mem}]) +
-			    '<p class="fs-fleet-chart-legend small mb-0"><span class="fs-fleet-chart-key fs-fleet-chart-s1"></span>' + esc(T.cpu) + ' ' +
+			/* Drawn by fleet-charts.js; the legend adds the average and the peak. */
+			FleetCharts.draw(box, {type: 'line', t: h.t, max: 100, unit: '%', legend: false, empty: T.noHistory, label: T.cpu + ', ' + T.memory,
+			    series: [{name: T.cpu, data: h.cpu}, {name: T.memory, data: h.mem}]});
+			box.insertAdjacentHTML('beforeend', '<p class="fs-fleet-chart-legend small mb-0"><span class="fs-fc-key fs-fc-c1"></span>' + esc(T.cpu) + ' ' +
 			    esc(T.avg) + ' ' + avg(h.cpu) + '%, ' + esc(T.peak) + ' ' + peak(h.cpu) + '%' +
-			    ' <span class="fs-fleet-chart-key fs-fleet-chart-s2"></span>' + esc(T.memory) + ' ' + esc(T.avg) + ' ' + avg(h.mem) + '%, ' + esc(T.peak) + ' ' + peak(h.mem) + '%</p>';
+			    ' <span class="fs-fc-key fs-fc-c2"></span>' + esc(T.memory) + ' ' + esc(T.avg) + ' ' + avg(h.mem) + '%, ' + esc(T.peak) + ' ' + peak(h.mem) + '%</p>');
 		})
 		    .catch(function () { box.removeAttribute('aria-busy'); box.innerHTML = '<p class="fs-muted mb-0">' + esc(T.noHistory) + '</p>'; });
 	}
@@ -187,11 +149,6 @@
 			root.querySelectorAll('[data-range]').forEach(function (o) { o.setAttribute('aria-pressed', o === b ? 'true' : 'false'); });
 			history();
 		});
-	});
-	var resized;
-	window.addEventListener('resize', function () {
-		clearTimeout(resized);
-		resized = setTimeout(history, 300);
 	});
 	live();
 	history();

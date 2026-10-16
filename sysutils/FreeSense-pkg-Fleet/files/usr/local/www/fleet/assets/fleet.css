@@ -943,3 +943,52 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 .fs-fleet-widget-facts { display: grid; grid-template-columns: max-content 1fr; gap: var(--fs-sp-1) var(--fs-sp-3); margin: 0; font-size: .9rem; }
 .fs-fleet-widget-facts dt { font-weight: 500; color: var(--fs-text-muted); }
 .fs-fleet-widget-facts dd { margin: 0; }
+
+/* Fleet charts (assets/fleet-charts.js): series and state colours from the WebUI tokens. */
+.fs-fc { position: relative; }
+.fs-fc-c1 { --fc: var(--fs-series-1); } .fs-fc-c2 { --fc: var(--fs-series-2); } .fs-fc-c3 { --fc: var(--fs-series-3); } .fs-fc-c4 { --fc: var(--fs-series-4); }
+.fs-fc-c5 { --fc: var(--fs-series-5); } .fs-fc-c6 { --fc: var(--fs-series-6); } .fs-fc-c7 { --fc: var(--fs-series-7); } .fs-fc-c8 { --fc: var(--fs-series-8); }
+.fs-fc-pass { --fc: var(--fs-pass); } .fs-fc-warn { --fc: var(--fs-warn); } .fs-fc-block { --fc: var(--fs-block); } .fs-fc-info { --fc: var(--fs-info); } .fs-fc-neutral { --fc: var(--fs-neutral); }
+.fs-fc .fs-fleet-chart-line { stroke: var(--fc); }
+.fs-fc-dash.fs-fleet-chart-line { stroke-dasharray: 5 4; }
+.fs-fc-band { fill: color-mix(in srgb, var(--fc) 16%, transparent); stroke: none; }
+.fs-fc-fill { fill: color-mix(in srgb, var(--fc) 20%, transparent); stroke: none; }
+.fs-fc-bar { fill: var(--fc); }
+.fs-fc-hit { fill: transparent; }
+.fs-fc-hit:hover { fill: color-mix(in srgb, var(--fs-text) 6%, transparent); }
+.fs-fc-cross { stroke: var(--fs-text-muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.fs-fc-mark { stroke: var(--fs-warn); stroke-width: 1; stroke-dasharray: 6 4; }
+.fs-fc-mark-label { fill: var(--fs-warn); }
+.fs-fc-key { display: inline-block; width: 12px; height: 4px; border-radius: 2px; vertical-align: middle; margin: 0 .35rem 0 .75rem; background: var(--fc); }
+.fs-fleet-chart-legend .fs-fc-key:first-child { margin-left: 0; }
+.fs-fc-tip { position: absolute; z-index: 5; pointer-events: none; display: grid; gap: 2px; padding: 6px 9px; border-radius: var(--fs-r-sm); font-size: .8rem;
+	background: var(--fs-surface-raised); border: 1px solid var(--fs-border); box-shadow: var(--fs-shadow-overlay); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fs-fc-tip[hidden] { display: none; }
+.fs-fc-tip .fs-fc-key { margin: 0 .35rem 0 0; }
+/* Heat map: five steps of the warm series colour, empty cells faint. */
+.fs-fc-heat { fill: color-mix(in srgb, var(--fs-series-2) var(--hl), var(--fs-surface)); }
+.fs-fc-heat.l0 { --hl: 8%; } .fs-fc-heat.l1 { --hl: 25%; } .fs-fc-heat.l2 { --hl: 45%; } .fs-fc-heat.l3 { --hl: 65%; } .fs-fc-heat.l4 { --hl: 82%; } .fs-fc-heat.l5 { --hl: 100%; }
+.fs-fc-heat.lnone { fill: transparent; stroke: var(--fs-border); stroke-width: .5; }
+/* The Fleet pulse: one row per firewall, one cell per half hour. Healthy is a calm band; trouble stands out. */
+.fs-fc-pulse { fill: color-mix(in srgb, var(--fs-pass) 55%, var(--fs-surface)); }
+.fs-fc-pulse.s-degraded { fill: var(--fs-warn); }
+.fs-fc-pulse.s-offline { fill: var(--fs-block); }
+.fs-fc-pulse.s-new { fill: color-mix(in srgb, var(--fs-neutral) 45%, var(--fs-surface)); }
+.fs-fc-pulse.s-none { fill: transparent; stroke: var(--fs-border); stroke-width: .5; }
+.fs-fc-pulse:hover { stroke: var(--fs-text-strong); stroke-width: 1.5; }
+.fs-fc-pulse-label { fill: var(--fs-text); font-size: 12px; }
+.fs-fc-pulse-row:hover .fs-fc-pulse-label, .fs-fc-pulse-row:focus .fs-fc-pulse-label { fill: var(--fs-info); text-decoration: underline; }
+.fs-fc-arc { fill: none; stroke: var(--fc); }
+.fs-fc-donut-empty { fill: none; stroke: var(--fs-border); }
+.fs-fc-donut { display: flex; align-items: center; gap: var(--fs-sp-3); flex-wrap: wrap; }
+.fs-fc-donut-n { fill: var(--fs-text-strong); font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.fs-fc-donut-keys { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--fs-sp-1); font-size: .9rem; }
+.fs-fc-donut-keys .fs-fc-key { margin-left: 0; }
+.fs-fc-hbar { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--fs-sp-2); font-size: .88rem; }
+.fs-fc-hbar li { display: grid; grid-template-columns: minmax(6rem, 34%) 1fr auto; gap: var(--fs-sp-2); align-items: center; }
+.fs-fc-hbar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fs-fc-hbar-track { height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--fs-text) 8%, transparent); overflow: hidden; }
+.fs-fc-hbar-fill { display: block; height: 100%; border-radius: 4px; background: var(--fc); }
+.fs-fc-hbar-v { font-variant-numeric: tabular-nums; color: var(--fs-text-muted); min-width: 3.5rem; text-align: right; }
+.fs-fc-spark { display: inline-block; vertical-align: middle; }
+.fs-fc-spark .fs-fleet-chart-line { stroke-width: 1.5; }

@@ -38,6 +38,7 @@ sbin/freesense-fleet-run
 sbin/freesense-fleet-standby
 share/FreeSense-pkg-Fleet/info.xml
 www/fleet/assets/fleet-list.js
+www/fleet/assets/fleet-charts.js
 www/fleet/assets/fleet-metrics.js
 www/fleet/assets/fleet-naming.js
 www/fleet/assets/fleet-policy.js
