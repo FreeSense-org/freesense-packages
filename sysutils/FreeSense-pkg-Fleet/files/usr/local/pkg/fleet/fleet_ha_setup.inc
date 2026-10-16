@@ -180,11 +180,15 @@ function fleet_ha_setup_plan(array $in, array $p, array $s): array {
 		$e[] = 'Choose a sync interface with an IPv4 address on both firewalls.';
 	}
 	$sections = array_values(array_intersect((array)($in['sections'] ?? array()), array_keys(FLEET_HA_SECTIONS)));
+	if (!empty($sections) && !preg_match('/^[0-9a-f]{64}$/D', (string)($s['gui_cert'] ?? ''))) {
+		$e[] = ($s['label'] ?? 'The secondary') . ' does not report its WebGUI certificate yet (it needs the System update); without it the primary cannot trust it for configuration sync. Update it, or choose no sync sections.';
+	}
 	if (!empty($e)) {
 		return array(array_values(array_unique($e)), null);
 	}
 	return array(array(), array('primary' => $in['primary'], 'secondary' => $in['secondary'], 'vips' => $vips, 'sync_iface' => $sync,
-	    'primary_sync_ip' => $ps['ip'], 'secondary_sync_ip' => $ss['ip'], 'sections' => $sections));
+	    'primary_sync_ip' => $ps['ip'], 'secondary_sync_ip' => $ss['ip'], 'sync_bits' => (int)$ps['bits'],
+	    'sync_net' => long2ip(ip2long($ps['ip']) & ((0xffffffff << (32 - (int)$ps['bits'])) & 0xffffffff)), 'sections' => $sections, 'secondary_cert' => (string)($s['gui_cert'] ?? '')));
 }
 
 /* pure: the virtual IP body for one address on one firewall. */
@@ -199,7 +203,8 @@ function fleet_ha_sync_body(array $plan, bool $primary, string $password = ''): 
 	$b = array('pfsyncenabled' => true, 'pfsyncinterface' => $plan['sync_iface'],
 	    'pfsyncpeerip' => $primary ? $plan['secondary_sync_ip'] : $plan['primary_sync_ip']);
 	if ($primary) {
-		$b += array('synchronizetoip' => $plan['secondary_sync_ip'], 'username' => 'fleet-hasync', 'password' => $password);
+		/* The secondary's WebGUI certificate is pinned: sync trusts exactly it (System > High Availability, peer certificate fingerprint). */
+		$b += array('synchronizetoip' => $plan['secondary_sync_ip'], 'username' => 'fleet-hasync', 'password' => $password, 'syncpeerpin' => (string)($plan['secondary_cert'] ?? ''));
 		foreach (array_keys(FLEET_HA_SECTIONS) as $sec) {
 			$b['synchronize' . $sec] = in_array($sec, $plan['sections'], true);
 		}
@@ -208,21 +213,22 @@ function fleet_ha_sync_body(array $plan, bool $primary, string $password = ''): 
 }
 
 /*
- * pure: the rules the sync interface needs on one firewall: pfsync from
- * the peer on both, and on the secondary the primary's configuration sync
- * to its WebGUI ($gui_port).
+ * pure: the rules the sync interface needs. The same on both firewalls,
+ * and right on either: HA sync copies the primary's rules to the
+ * secondary, so they must not name "the other one". pfsync from the sync
+ * network; the primary's configuration sync to this interface's address
+ * on the secondary's WebGUI port ($gui_port).
  */
-function fleet_ha_rule_bodies(array $plan, bool $primary, int $gui_port): array {
-	$peer = $primary ? $plan['secondary_sync_ip'] : $plan['primary_sync_ip'];
-	$base = array('type' => 'pass', 'interface' => $plan['sync_iface'], 'ipprotocol' => 'inet', 'srctype' => 'single', 'src' => $peer, 'srcmask' => '',
-	    'log' => false);
-	$out = array($base + array('proto' => 'pfsync', 'dsttype' => 'any', 'dst' => '', 'dstmask' => '', 'dstbeginport' => '', 'dstendport' => '',
-	    'descr' => FLEET_HA_MARK . ' State sync (pfsync) from the HA peer'));
-	if (!$primary) {
-		$out[] = $base + array('proto' => 'tcp', 'dsttype' => $plan['sync_iface'] . 'ip', 'dst' => '', 'dstmask' => '', 'dstbeginport' => (string)$gui_port,
-		    'dstendport' => (string)$gui_port, 'descr' => FLEET_HA_MARK . ' Configuration sync from the HA primary');
-	}
-	return $out;
+function fleet_ha_rule_bodies(array $plan, int $gui_port): array {
+	$base = array('type' => 'pass', 'interface' => $plan['sync_iface'], 'ipprotocol' => 'inet', 'log' => false);
+	return array(
+		$base + array('proto' => 'pfsync', 'srctype' => 'network', 'src' => $plan['sync_net'], 'srcmask' => (string)$plan['sync_bits'],
+		    'dsttype' => 'any', 'dst' => '', 'dstmask' => '', 'dstbeginport' => '', 'dstendport' => '',
+		    'descr' => FLEET_HA_MARK . ' State sync (pfsync) on the sync network'),
+		$base + array('proto' => 'tcp', 'srctype' => 'single', 'src' => $plan['primary_sync_ip'], 'srcmask' => '',
+		    'dsttype' => $plan['sync_iface'] . 'ip', 'dst' => '', 'dstmask' => '', 'dstbeginport' => (string)$gui_port, 'dstendport' => (string)$gui_port,
+		    'descr' => FLEET_HA_MARK . ' Configuration sync from the HA primary'),
+	);
 }
 
 /* ------------------------------------------------------------------ */
@@ -254,6 +260,7 @@ function fleet_ha_setup_facts(array $box): array {
 	list($pairs) = fleet_ha_now();
 	$f = array('label' => $box['label'], 'role' => $box['role'], 'state' => $box['state'], 'api_level' => (int)($st['api_level'] ?? 0),
 	    'in_pair' => fleet_ha_pair_of($pairs, $box['node_id']) !== null, 'hasync_peer' => (string)($st['hasync']['peer'] ?? ''),
+	    'gui_cert' => (string)($st['webgui_cert_sha256'] ?? ''),
 	    'ifaces' => array(), 'vhids' => array());
 	if ($box['state'] !== 'online') {
 		return $f;
@@ -406,8 +413,10 @@ function fleet_ha_setup_undo(array $box, bool $primary): array {
 		if (!empty($rids)) {
 			fleet_box_call($box, 'POST', '/api/v1/firewall/apply');
 		}
+		/* syncpeerpin only where the System knows it (it then reports its WebGUI certificate). */
+		$knows_pin = isset((json_decode((string)$box['status'], true) ?: array())['webgui_cert_sha256']);
 		list($code, $json) = fleet_box_call($box, 'PUT', '/api/v1/system/hasync', $primary ?
-		    array('synchronizetoip' => '', 'username' => '', 'pfsyncenabled' => false, 'pfsyncpeerip' => '') : array('pfsyncenabled' => false, 'pfsyncpeerip' => ''));
+		    array('synchronizetoip' => '', 'username' => '', 'pfsyncenabled' => false, 'pfsyncpeerip' => '') + ($knows_pin ? array('syncpeerpin' => '') : array()) : array('pfsyncenabled' => false, 'pfsyncpeerip' => ''));
 		if (($code < 200) || ($code >= 300)) {
 			$problems[] = "{$box['label']}: HA sync settings: " . fleet_box_error($code, $json);
 		}
@@ -467,7 +476,7 @@ function fleet_ha_setup_run(int $op): void {
 	$steps = function (array $plan, bool $primary, string $carp_pass, string $sync_pass, int $gui_port): array {
 		$out = array();
 		/* The sync interface lets the peer's state and configuration sync in. */
-		foreach (fleet_ha_rule_bodies($plan, $primary, $gui_port) as $rb) {
+		foreach (fleet_ha_rule_bodies($plan, $gui_port) as $rb) {
 			$out[] = array('POST', '/api/v1/firewall/rules', $rb + array('after' => -1), 'Rule: ' . substr($rb['descr'], strlen(FLEET_HA_MARK) + 1),
 			    function (array $box) use ($rb) { return fleet_ha_has_rule($box, $rb['descr']); });
 		}
@@ -492,10 +501,17 @@ function fleet_ha_setup_run(int $op): void {
 		$out[] = array('POST', '/api/v1/firewall/apply', null, 'Reloading the filter', function (array $box) { return true; });
 		return $out;
 	};
+	/* The secondary's WebGUI port, which the primary's configuration sync connects to (the same rule on both). */
+	try {
+		$gui_port = fleet_ha_gui_port($s);
+	} catch (Throwable $e) {
+		$fail('The WebGUI port of the secondary could not be read: ' . $e->getMessage(), $ts);
+		return;
+	}
 	foreach (array(array($p, $tp, true), array($s, $ts, false)) as list($box, $task, $primary)) {
 		try {
 			fleet_op_set($task, 'running', 'Starting');
-			fleet_ha_setup_box($box, $who, FLEET_HA_LABEL, $steps($plan, $primary, $carp_pass, $sync_pass, $primary ? 443 : fleet_ha_gui_port($box)), function (string $t) use ($task) {
+			fleet_ha_setup_box($box, $who, FLEET_HA_LABEL, $steps($plan, $primary, $carp_pass, $sync_pass, $gui_port), function (string $t) use ($task) {
 				fleet_op_set($task, 'running', $t);
 			});
 			fleet_op_set($task, 'running', $primary ? 'Set up; waiting for the secondary' : 'Set up');
