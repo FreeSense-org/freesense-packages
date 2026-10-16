@@ -239,3 +239,77 @@ function fleet_progress_bar(string $state, ?int $progress, string $label, string
 	return '<span class="fs-fleet-bar' . ($size !== '' ? ' fs-fleet-bar--' . $size : '') . '" data-state="' . htmlspecialchars($state) . '"' .
 	    ($known ? '' : ' data-indeterminate') . ' ' . $aria . '><span class="fs-fleet-bar-fill" style="width: ' . ($known ? $value : 100) . '%"></span></span>';
 }
+
+/* ------------------------------------------------------------------ */
+/* The Firewalls tab                                                   */
+/* ------------------------------------------------------------------ */
+
+define('FLEET_FW_STATES', array('online' => 'Online', 'degraded' => 'Degraded', 'offline' => 'Offline', 'new' => 'Not seen yet'));
+define('FLEET_FW_SORTS', array('state' => 'Needs attention first', 'name' => 'Name', 'seen' => 'Last seen', 'version' => 'Version'));
+
+/*
+ * pure: the firewalls (fleet_dashboard_data()['boxes']) that match the
+ * filters q (label, hostname, overlay, version), state, group (id),
+ * version and problem (attention / unprotected / policy / update), in
+ * the chosen order.
+ */
+function fleet_firewalls_filter(array $boxes, array $f): array {
+	$q = strtolower($f['q'] ?? '');
+	$out = array_values(array_filter($boxes, function ($b) use ($f, $q) {
+		if (($q !== '') && (strpos(strtolower($b['label'] . ' ' . $b['host'] . ' ' . $b['overlay'] . ' ' . $b['version']), $q) === false)) {
+			return false;
+		}
+		if (isset($f['state']) && ($b['state'] !== $f['state'])) {
+			return false;
+		}
+		if (isset($f['group']) && !in_array((int)$f['group'], array_column($b['groups'], 'id'), true)) {
+			return false;
+		}
+		if (isset($f['version']) && ($b['version'] !== $f['version'])) {
+			return false;
+		}
+		switch ($f['problem'] ?? '') {
+		case 'attention':
+			return in_array($b['state'], array('offline', 'degraded'), true) || $b['breakglass'];
+		case 'unprotected':
+			return $b['rollback'] === false;
+		case 'policy':
+			return $b['policy'] > 0;
+		case 'update':
+			return ($b['update'][0] ?? '') === 'info';
+		}
+		return true;
+	}));
+	$sort = $f['sort'] ?? 'state';
+	if ($sort === 'name') {
+		usort($out, function ($a, $b) { return strcasecmp($a['label'], $b['label']); });
+	} elseif ($sort === 'seen') {
+		usort($out, function ($a, $b) { return (int)$b['seen'] <=> (int)$a['seen']; });
+	} elseif ($sort === 'version') {
+		usort($out, function ($a, $b) { return array(version_compare($b['version'], $a['version']), strcasecmp($a['label'], $b['label'])) <=> array(0, 0); });
+	}
+	return $out;
+}
+
+/* pure: the versions in the fleet, newest first, for the filter. */
+function fleet_firewalls_versions(array $boxes): array {
+	$v = array_values(array_unique(array_filter(array_column($boxes, 'version'))));
+	usort($v, function ($a, $b) { return version_compare($b, $a); });
+	return array_combine($v, $v) ?: array();
+}
+
+/* The views of the Firewalls tab, as the WebUI's segmented control. */
+function fleet_firewalls_nav(string $current, int $pending = 0): string {
+	$views = array(
+		'list' => array(gettext('All firewalls'), '/fleet/fleet.php'),
+		'invite' => array(gettext('Add and approve'), '/fleet/fleet.php?view=invite'),
+		'factory' => array(gettext('Deployment Factory'), '/fleet/fleet_factory.php'),
+		'groups' => array(gettext('Groups'), '/fleet/fleet.php?view=groups'),
+	);
+	$h = '<nav class="fs-viewswitch" aria-label="' . htmlspecialchars(gettext('Firewalls')) . '">';
+	foreach ($views as $k => list($label, $url)) {
+		$badge = (($k === 'invite') && ($pending > 0)) ? ' <span class="fs-fleet-count" title="' . htmlspecialchars(gettext('Waiting for approval')) . '">' . $pending . '</span>' : '';
+		$h .= '<a href="' . $url . '"' . (($k === $current) ? ' aria-current="page"' : '') . '>' . htmlspecialchars($label) . $badge . '</a>';
+	}
+	return $h . '</nav>';
+}

@@ -47,7 +47,7 @@ if ($ready && $manage && isset($_GET['download'])) {
 	}
 }
 
-$pgtitle = array(gettext('Status'), gettext('FreeSense Fleet'), gettext('Deployment Factory'));
+$pgtitle = array(gettext('Status'), gettext('FreeSense Fleet'), gettext('Firewalls'), gettext('Deployment Factory'));
 $input_errors = array();
 $savemsg = null;
 $view = fs_view_param(array('list', 'new', 'batch'), 'list');
@@ -111,11 +111,11 @@ if ($manage) {
 		array(gettext('Policies'), false, '/fleet/fleet_policies.php'),
 		array(gettext('Templates'), false, '/fleet/fleet_templates.php'),
 		array(gettext('Users'), false, '/fleet/fleet_users.php'),
-		array(gettext('Factory'), true, '/fleet/fleet_factory.php'),
-		array(gettext('Firewalls'), false, '/fleet/fleet.php'),
+		array(gettext('Firewalls'), true, '/fleet/fleet.php'),
 		array(gettext('Settings'), false, '/fleet/fleet.php?tab=settings'),
 	);
 	display_top_tabs($tab_array);
+	echo fleet_firewalls_nav('factory', $ready ? (int)fleet_db()->query("SELECT COUNT(*) FROM enrollments WHERE state = 'pending'")->fetchColumn() : 0);
 }
 if (!$ready): ?>
 <div class="fs-fleet-empty"><strong><?=gettext('This firewall is not a fleet controller')?></strong></div>

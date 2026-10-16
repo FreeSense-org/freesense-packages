@@ -818,3 +818,10 @@ a.fs-fleet-tile-link:hover, a.fs-fleet-tile-link:focus-visible { border-color: v
 .fs-fleet-modecard small { color: var(--fs-text-muted); }
 .fs-fleet-modecard input:checked + span { border-color: var(--bs-primary); background: var(--bs-tertiary-bg); }
 .fs-fleet-modecard input:focus-visible + span { outline: 2px solid var(--fs-info); outline-offset: 1px; }
+/* ---- firewalls list ---- */
+.fs-fleet-count { display: inline-block; min-width: 1.4em; padding: 0 .35em; border-radius: 999px; background: var(--bs-tertiary-bg); color: var(--fs-text-muted); font-size: .75em; text-align: center; }
+.fs-fleet-quick { display: flex; flex-wrap: wrap; gap: var(--fs-sp-2); margin-top: var(--fs-sp-3); }
+.fs-fleet-quick a { padding: .25rem .7rem; border: 1px solid var(--fs-border); border-radius: 999px; text-decoration: none; color: inherit; font-size: .85rem; }
+.fs-fleet-quick a[aria-current] { border-color: var(--bs-primary); background: var(--bs-tertiary-bg); }
+.fs-fleet-quick a:focus-visible { outline: 2px solid var(--fs-info); outline-offset: 1px; }
+.fs-fleet-area-actions { margin-left: auto; display: flex; gap: var(--fs-sp-2); flex-wrap: wrap; align-self: center; }
