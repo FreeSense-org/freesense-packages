@@ -53,6 +53,8 @@ www/fleet/fleet_kiosks.php
 www/fleet/fleet_connections.php
 www/fleet/kiosk.php
 www/fleet/kiosk_data.php
+www/fleet/noc.php
+www/fleet/noc_data.php
 www/fleet/assets/fleet-template.js
 www/fleet/fleet_schedules.php
 www/fleet/fleet_updates.php

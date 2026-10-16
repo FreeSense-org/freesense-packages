@@ -1,14 +1,21 @@
 /*
- * fleet-kiosk.js: the NOC screen. Reads the kiosk key from the URL
- * fragment, asks kiosk_data.php every 10 seconds, draws the tiles, turns
- * pages every 15 seconds when they do not fit (and holds page one while
- * a firewall is offline), and beeps for a newly offline firewall once
- * sound has been turned on with a click.
+ * fleet-kiosk.js: the NOC screen. A wall screen (kiosk.php) reads its
+ * kiosk key from the URL fragment and asks kiosk_data.php; the live view
+ * (noc.php) uses the WebUI session and noc_data.php. Every 10 seconds it
+ * draws the tiles, turns pages every 15 seconds when they do not fit
+ * (holding page one while a firewall is offline), and beeps for a newly
+ * offline firewall once sound has been turned on with a click. The look
+ * is a style class and data-theme on <html> (fleet-kiosk.css); a screen
+ * follows the style saved for it unless its URL pins one.
  */
 (function () {
 	'use strict';
-	var key = decodeURIComponent((location.hash || '').replace(/^#/, ''));
+	var live = document.body.getAttribute('data-mode') === 'live';
+	var fixed = document.body.getAttribute('data-fixed') === '1';
+	var root = document.documentElement;
+	var key = live ? '' : decodeURIComponent((location.hash || '').replace(/^#/, ''));
 	var $ = function (id) { return document.getElementById(id); };
+	var dark = window.matchMedia('(prefers-color-scheme: dark)');
 	var grid = $('k-grid');
 	var data = null;
 	var page = 0;
@@ -25,6 +32,23 @@
 		offline: ['Offline', '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="m4.1 3 3.9 3.9L11.9 3 13 4.1 9.1 8l3.9 3.9-1.1 1.1L8 9.1 4.1 13 3 11.9 6.9 8 3 4.1z"/></svg>'],
 		'new': ['Not seen yet', '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>']
 	};
+
+	/* The look: a style class on <html>, and data-theme (auto follows the screen's setting). */
+	function look(style, theme) {
+		root.className = root.className.replace(/\bk--\S+/g, '').trim() + ' k--' + style;
+		root.setAttribute('data-theme-choice', theme);
+		root.setAttribute('data-theme', theme === 'auto' ? (dark.matches ? 'dark' : 'light') : theme);
+		var t = $('k-theme');
+		if (t) { t.textContent = theme === 'auto' ? 'Auto' : (theme === 'dark' ? 'Dark' : 'Light'); }
+	}
+
+	/* The live view keeps its look in the URL, so a bookmark or a second screen opens the same. */
+	function keep(style, theme) {
+		var u = new URL(location.href);
+		u.searchParams.set('style', style);
+		u.searchParams.set('theme', theme);
+		history.replaceState(null, '', u.toString());
+	}
 
 	function el(tag, cls, text) {
 		var e = document.createElement(tag);
@@ -103,7 +127,12 @@
 	}
 
 	function tile(b) {
-		var t = el('article', 'k-tile k-' + b.state);
+		var t = el(live && b.id ? 'a' : 'article', 'k-tile k-' + b.state);
+		if (live && b.id) {
+			t.href = '/fleet/fleet_box.php?id=' + encodeURIComponent(b.id);
+			t.target = '_blank';
+			t.rel = 'noopener';
+		}
 		var s = STATES[b.state] || STATES['new'];
 		t.appendChild(el('div', 'k-name', b.name));
 		if (b.host) { t.appendChild(el('div', 'k-host', b.host)); }
@@ -174,13 +203,19 @@
 	}
 
 	function poll() {
-		fetch('/fleet/kiosk_data.php', { headers: { 'X-Kiosk-Key': key }, cache: 'no-store', credentials: 'omit' }).then(function (r) {
-			if (r.status === 403 || r.status === 405) {
+		var req = live ? fetch('/fleet/noc_data.php', { cache: 'no-store', credentials: 'same-origin', redirect: 'manual' }) :
+		    fetch('/fleet/kiosk_data.php', { headers: { 'X-Kiosk-Key': key }, cache: 'no-store', credentials: 'omit' });
+		req.then(function (r) {
+			/* A wall screen whose key is refused, or a live view whose session ended (the WebUI answers with its login page). */
+			if (r.status === 403 || r.status === 405 || r.type === 'opaqueredirect' || (r.headers.get('Content-Type') || '').indexOf('json') < 0) {
 				blocked();
 				throw new Error('blocked');
 			}
 			return r.json();
 		}).then(function (d) {
+			if (!live && !fixed && d.style) {
+				look(d.style, d.theme || 'auto');
+			}
 			$('k-blocked').hidden = true;
 			var newly = false;
 			var now = {};
@@ -210,8 +245,25 @@
 		if (document.fullscreenElement) { document.exitFullscreen(); } else if (document.documentElement.requestFullscreen) { document.documentElement.requestFullscreen(); }
 	});
 	window.addEventListener('resize', draw);
+	dark.addEventListener('change', function () {
+		if (root.getAttribute('data-theme-choice') === 'auto') { look((root.className.match(/\bk--(\S+)/) || [0, 'freesense'])[1], 'auto'); }
+	});
+	look((root.className.match(/\bk--(\S+)/) || [0, 'freesense'])[1], root.getAttribute('data-theme-choice') || 'auto');
+	if (live) {
+		$('k-style').addEventListener('change', function () {
+			look(this.value, root.getAttribute('data-theme-choice'));
+			keep(this.value, root.getAttribute('data-theme-choice'));
+			draw();
+		});
+		$('k-theme').addEventListener('click', function () {
+			var order = ['auto', 'dark', 'light'];
+			var next = order[(order.indexOf(root.getAttribute('data-theme-choice')) + 1) % 3];
+			look($('k-style').value, next);
+			keep($('k-style').value, next);
+		});
+	}
 
-	if (key.indexOf('fkk_') !== 0) {
+	if (!live && key.indexOf('fkk_') !== 0) {
 		blocked('This link has no kiosk key. Open the full link an administrator made for this screen.');
 		return;
 	}

@@ -64,4 +64,5 @@ if ($screen === null) {
 $data = fleet_dashboard_data(
     fleet_db()->query('SELECT node_id, name, label, overlay, role, state, last_seen, error, status, update_info, (SELECT MAX(time) FROM backups b WHERE b.node_id = boxes.node_id) AS last_backup FROM boxes')->fetchAll(),
     (int)fleet_db()->query("SELECT COUNT(*) FROM enrollments WHERE state = 'pending'")->fetchColumn(), $now, fleet_groups_by_box(), fleet_ops_for_tiles($now), array());
-echo json_encode(fleet_kiosk_view($data, fleet_ops_groups_running(), !empty($screen['hide']), (string)$screen['name']));
+echo json_encode(fleet_kiosk_view($data, fleet_ops_groups_running(), !empty($screen['hide']), (string)$screen['name'],
+    fleet_kiosk_look((string)($screen['style'] ?? ''), (string)($screen['theme'] ?? ''))));

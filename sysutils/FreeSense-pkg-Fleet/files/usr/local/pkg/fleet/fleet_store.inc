@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 24);
+define('FLEET_DB_SCHEMA', 25);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -430,6 +430,14 @@ ALTER TABLE invitations ADD COLUMN via TEXT NOT NULL DEFAULT '';
 ALTER TABLE invitations ADD COLUMN ts_key_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE boxes ADD COLUMN conn_auto INTEGER NOT NULL DEFAULT 0;
 PRAGMA user_version = 24;
+SQL);
+	}
+	if ($version < 25) {
+		/* NOC screens: each screen's look. */
+		$db->exec(<<<'SQL'
+ALTER TABLE kiosk_keys ADD COLUMN style TEXT NOT NULL DEFAULT 'freesense';
+ALTER TABLE kiosk_keys ADD COLUMN theme TEXT NOT NULL DEFAULT 'auto';
+PRAGMA user_version = 25;
 SQL);
 	}
 	$db->exec('COMMIT');
