@@ -31,6 +31,7 @@ sbin/freesense-fleet-poll
 sbin/freesense-fleet-run
 share/FreeSense-pkg-Fleet/info.xml
 www/fleet/assets/fleet-list.js
+www/fleet/assets/fleet-metrics.js
 www/fleet/assets/fleet-naming.js
 www/fleet/assets/fleet-policy.js
 www/fleet/assets/fleet-alerts.js
@@ -44,6 +45,7 @@ www/fleet/fleet_action.php
 www/fleet/fleet_activity.php
 www/fleet/fleet_backups.php
 www/fleet/fleet_box.php
+www/fleet/fleet_box_metrics.php
 www/fleet/fleet_group_action.php
 www/fleet/fleet_nav.php
 www/fleet/fleet_policies.php

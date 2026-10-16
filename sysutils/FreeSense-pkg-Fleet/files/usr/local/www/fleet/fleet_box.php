@@ -214,7 +214,7 @@ $asset = function ($f) {
 	return '/fleet/assets/' . $f . '?v=' . (int)@filemtime('/usr/local/www/fleet/assets/' . $f);
 };
 
-$views = array('overview' => gettext('Overview'), 'updates' => gettext('Updates'), 'policies' => gettext('Policies'), 'backups' => gettext('Backups'),
+$views = array('overview' => gettext('Overview'), 'system' => gettext('System'), 'updates' => gettext('Updates'), 'policies' => gettext('Policies'), 'backups' => gettext('Backups'),
     'manage' => gettext('Manage'), 'events' => gettext('Events'));
 if (!$manage) {
 	unset($views['backups'], $views['manage']);
@@ -476,6 +476,42 @@ if ($savemsg) {
 	<div class="panel-footer small fs-muted"><?=gettext("A copy of this firewall's configuration is kept on the controller, encrypted, when it changes and every night. Downloads contain secrets such as password hashes and keys.")?></div>
 </div>
 
+<?php elseif ($view === 'system'):
+	$mstrings = array('cpu' => gettext('CPU'), 'cores' => gettext('cores'), 'memory' => gettext('Memory'), 'swap' => gettext('Swap'), 'uptime' => gettext('Uptime'),
+	    'temperature' => gettext('Temperature'), 'load' => gettext('Load (1, 5, 15 min)'), 'loadHint' => gettext('processes waiting for the CPU'),
+	    'states' => gettext('States'), 'of' => gettext('of'), 'mbufs' => gettext('Network buffers'), 'up' => gettext('Up'), 'down' => gettext('Down'),
+	    'checked' => gettext('Checked'), 'noData' => gettext('The firewall did not answer.'), 'noHistory' => gettext('No history for this range yet.'),
+	    'showAll' => gettext('Show %d more ZFS datasets (they share the pool)'), 'avg' => gettext('average'), 'peak' => gettext('peak'), 'day' => gettext('day'), 'days' => gettext('days'));
+?>
+<div data-fleet-metrics="<?=htmlspecialchars($box['node_id'])?>" data-strings="<?=htmlspecialchars(json_encode($mstrings))?>">
+	<div class="fs-tiles fs-fleet-tiles-row" data-m="live" aria-live="polite"><p class="fs-muted mb-0"><?=gettext('Reading the firewall...')?></p></div>
+	<div class="fs-fleet-two">
+		<div class="panel panel-default">
+			<div class="panel-heading"><h2 class="panel-title"><?=gettext('Hardware')?></h2></div>
+			<div class="panel-body fs-fleet-pad"><dl class="fs-fleet-facts fs-fleet-facts--wide mb-1" data-m="hw"></dl><div class="fs-muted small" data-m="checked"></div></div>
+		</div>
+		<div class="panel panel-default">
+			<div class="panel-heading"><h2 class="panel-title"><?=gettext('Disks')?></h2></div>
+			<div class="panel-body table-responsive"><table class="table fs-table"><thead><tr><th><?=gettext('Mounted on')?></th><th><?=gettext('Type')?></th><th><?=gettext('Used')?></th><th class="text-end"><?=gettext('Size')?></th></tr></thead>
+				<tbody data-m="disks"></tbody></table></div>
+		</div>
+	</div>
+	<div class="panel panel-default">
+		<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('CPU and memory')?></h2>
+			<div class="btn-group btn-group-sm" role="group" aria-label="<?=gettext('Range')?>">
+<?php foreach (array('1h' => gettext('1 hour'), '24h' => gettext('24 hours'), '7d' => gettext('7 days'), '30d' => gettext('30 days')) as $rk => $rl): ?>
+				<button type="button" class="btn btn-outline-secondary" data-range="<?=$rk?>" aria-pressed="<?=($rk === '24h') ? 'true' : 'false'?>"><?=$rl?></button>
+<?php endforeach; ?>
+			</div></div>
+		<div class="panel-body fs-fleet-pad" data-m="history"></div>
+	</div>
+	<div class="panel panel-default">
+		<div class="panel-heading"><h2 class="panel-title"><?=gettext('Interfaces')?></h2></div>
+		<div class="panel-body table-responsive"><table class="table fs-table"><thead><tr><th><?=gettext('Interface')?></th><th><?=gettext('Link')?></th><th><?=gettext('Address')?></th><th><?=gettext('MAC')?></th><th class="text-end"><?=gettext('Errors')?></th></tr></thead>
+			<tbody data-m="ifs"></tbody></table></div>
+	</div>
+</div>
+<script src="<?=$asset('fleet-metrics.js')?>"></script>
 <?php elseif ($view === 'updates'):
 	$uinfo = fleet_update_info($box);
 	$protected = isset($st['rollback_protection']) ? (bool)$st['rollback_protection'] : null;
