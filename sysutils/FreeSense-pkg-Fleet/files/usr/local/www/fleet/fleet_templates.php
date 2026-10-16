@@ -134,13 +134,19 @@ $sets_text = function (array $t): string {
 	if ($t['kind'] === 'aliases') {
 		return implode(', ', array_column($t['items'], 'name'));
 	}
+	if (isset(FLEET_TLIST_KINDS[$t['kind']])) {
+		return implode(', ', array_column($t['items'], 'key'));
+	}
 	return fleet_tset_summary($t['kind'], $t['settings'] + array('rocommunity' => ''));
 };
 $kind_label = function (array $t): string {
-	return ($t['kind'] === 'aliases') ? gettext('Aliases') : gettext(FLEET_TSET_KINDS[$t['kind']][0]);
+	return ($t['kind'] === 'aliases') ? gettext('Aliases') : gettext((FLEET_TSET_KINDS[$t['kind']] ?? FLEET_TLIST_KINDS[$t['kind']])[0]);
 };
 $kind_icon = function (array $t): string {
-	return ($t['kind'] === 'aliases') ? 'fa-list-ul' : FLEET_TSET_KINDS[$t['kind']][1];
+	return ($t['kind'] === 'aliases') ? 'fa-list-ul' : (FLEET_TSET_KINDS[$t['kind']] ?? FLEET_TLIST_KINDS[$t['kind']])[1];
+};
+$is_list = function (array $t): bool {
+	return ($t['kind'] === 'aliases') || isset(FLEET_TLIST_KINDS[$t['kind']]);
 };
 ?>
 
@@ -149,7 +155,7 @@ $kind_icon = function (array $t): string {
 	$q = trim((string)($_GET['q'] ?? ''));
 	$shown = array_values(array_filter($all, function ($t) use ($q, $names) {
 		return ($q === '') || (stripos($t['name'] . ' ' . $t['description'] . ' ' . fleet_targets_text($t['targets'], $names) . ' ' . implode(' ', array_column($t['items'], 'name')) . ' ' .
-		    (($t['kind'] === 'aliases') ? 'aliases' : FLEET_TSET_KINDS[$t['kind']][0]), $q) !== false);
+		    implode(' ', array_column($t['items'], 'key')) . ' ' . (($t['kind'] === 'aliases') ? 'aliases' : (FLEET_TSET_KINDS[$t['kind']] ?? FLEET_TLIST_KINDS[$t['kind']])[0]), $q) !== false);
 	}));
 ?>
 <div class="panel panel-default">
@@ -222,6 +228,23 @@ $kind_icon = function (array $t): string {
 <?php endif; ?>
 </div>
 <?php if ($manage): ?>
+<section class="fs-fleet-area">
+	<header class="fs-fleet-area-head"><span class="fs-fleet-area-icon"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i></span>
+		<div><h2><?=gettext('Rules and port forwards for many firewalls')?></h2><p><?=gettext('Applied under commit-confirm: if a change cuts Fleet off from a firewall, the firewall puts its previous rules back by itself.')?></p></div></header>
+	<div class="fs-fleet-rule-grid">
+<?php foreach (FLEET_TLIST_KINDS as $k => $def): ?>
+		<a class="fs-fleet-rcard fs-fleet-starter" href="?view=edit&amp;kind=<?=$k?>">
+			<div class="fs-fleet-rcard-head">
+				<span class="fs-fleet-rcard-icon"><i class="fa-solid <?=$def[1]?>" aria-hidden="true"></i></span>
+				<div class="fs-fleet-rcard-title"><strong><?=htmlspecialchars(gettext($def[0]))?></strong>
+					<span class="fs-muted small"><?=htmlspecialchars(gettext($def[2]))?></span></div>
+				<i class="fa-solid fa-chevron-right fs-muted" aria-hidden="true"></i>
+			</div>
+			<p class="fs-fleet-rcard-help"><?=htmlspecialchars(sprintf(gettext('Needs FreeSense with API level %d or later on the firewall; older firewalls are skipped with FLEET-E401.'), $def[4]))?></p>
+		</a>
+<?php endforeach; ?>
+	</div>
+</section>
 <section class="fs-fleet-area">
 	<header class="fs-fleet-area-head"><span class="fs-fleet-area-icon"><i class="fa-solid fa-sliders" aria-hidden="true"></i></span>
 		<div><h2><?=gettext('Settings for many firewalls')?></h2><p><?=gettext('One set of settings, the same on every firewall it is for. A firewall can have one template of each kind.')?></p></div></header>
@@ -306,7 +329,25 @@ $kind_icon = function (array $t): string {
 	<div class="panel-body fs-fleet-pad">
 		<p class="fs-fleet-lead"><?=htmlspecialchars(sprintf(ngettext('For %1$s: %2$d firewall.', 'For %1$s: %2$d firewalls.', count($nodes)), fleet_targets_text($t['targets'], $names), count($nodes)))?>
 			<?=($t['description'] !== '') ? htmlspecialchars($t['description']) : ''?></p>
-<?php if ($t['kind'] !== 'aliases'): $lab = fleet_tset_labels($t['kind']); ?>
+<?php if (isset(FLEET_TLIST_KINDS[$t['kind']])): ?>
+		<div class="table-responsive"><table class="table fs-table fs-fleet-tlist-view">
+			<thead><tr><th><?=gettext('Name')?></th><?php if ($t['kind'] === 'rules'): ?><th><?=gettext('Action')?></th><th><?=gettext('On')?></th><th><?=gettext('Protocol')?></th><th><?=gettext('From')?></th><th><?=gettext('To')?></th><th><?=gettext('Port')?></th>
+<?php else: ?><th><?=gettext('On')?></th><th><?=gettext('Protocol')?></th><th><?=gettext('Port')?></th><th><?=gettext('Forward to')?></th><?php endif; ?><th><?=gettext('Description')?></th></tr></thead>
+			<tbody>
+<?php foreach ($t['items'] as $it): ?>
+			<tr><td class="fs-mono"><?=htmlspecialchars($it['key'])?></td>
+<?php if ($t['kind'] === 'rules'): ?>
+				<td><?=fs_badge(($it['action'] === 'pass') ? 'pass' : 'block', gettext(FLEET_TRULE_ACTIONS[$it['action']]))?><?=$it['log'] ? ' <span class="fs-muted small">' . gettext('logged') . '</span>' : ''?></td>
+				<td class="fs-mono"><?=htmlspecialchars($it['iface'])?></td><td><?=htmlspecialchars(gettext(FLEET_TRULE_PROTOS[$it['proto']]))?></td>
+				<td class="fs-mono"><?=htmlspecialchars($it['src'])?></td><td class="fs-mono"><?=htmlspecialchars($it['dst'])?></td><td class="fs-mono"><?=htmlspecialchars($it['port'] ?: '*')?></td>
+<?php else: ?>
+				<td class="fs-mono"><?=htmlspecialchars($it['iface'])?></td><td><?=htmlspecialchars(gettext(FLEET_TRULE_PROTOS[$it['proto']]))?></td>
+				<td class="fs-mono"><?=htmlspecialchars($it['port'])?></td><td class="fs-mono"><?=htmlspecialchars($it['target'] . ':' . $it['local'])?></td>
+<?php endif; ?>
+				<td class="small"><?=htmlspecialchars($it['descr'])?></td></tr>
+<?php endforeach; ?>
+			</tbody></table></div>
+<?php elseif ($t['kind'] !== 'aliases'): $lab = fleet_tset_labels($t['kind']); ?>
 		<dl class="fs-fleet-tset">
 <?php foreach ($t['settings'] as $k => $v): ?>
 			<dt><?=htmlspecialchars(gettext($lab[$k] ?? $k))?></dt><dd><?=htmlspecialchars(($k === 'rocommunity') ? (($v !== '') ? gettext('set (not shown)') : gettext('(none)')) : fleet_tset_text($v))?></dd>
@@ -314,7 +355,7 @@ $kind_icon = function (array $t): string {
 		</dl>
 <?php endif; ?>
 		<div class="fs-fleet-tpl-items">
-<?php foreach ($t['items'] as $item): ?>
+<?php foreach (($t['kind'] === 'aliases') ? $t['items'] : array() as $item): ?>
 			<div class="fs-fleet-tpl-chip"><i class="fa-solid <?=$type_icons[$item['type']]?>" aria-hidden="true"></i> <strong><?=htmlspecialchars($item['name'])?></strong>
 				<span class="fs-muted small"><?=sprintf(ngettext('%d entry', '%d entries', count($item['entries'])), count($item['entries']))?></span></div>
 <?php endforeach; ?>
@@ -323,9 +364,11 @@ $kind_icon = function (array $t): string {
 </div>
 <div class="fs-tiles fs-fleet-tiles-row">
 	<div class="fs-tile"><span class="fs-tile-label"><?=gettext('Firewalls with changes')?></span><span class="fs-tile-value"><?=$todo_boxes?></span></div>
-<?php if ($t['kind'] === 'aliases'): ?>
+<?php if ($is_list($t)): ?>
 	<div class="fs-tile"><span class="fs-tile-label"><?=gettext('Create / change / remove')?></span><span class="fs-tile-value"><?=$tot['create']?> / <?=$tot['update']?> / <?=$tot['delete']?></span></div>
+<?php if ($t['kind'] === 'aliases'): ?>
 	<div class="fs-tile"><span class="fs-tile-label"><?=gettext('Conflicts (skipped)')?></span><span class="fs-tile-value"><?=$tot['conflict']?></span></div>
+<?php endif; ?>
 <?php else: ?>
 	<div class="fs-tile"><span class="fs-tile-label"><?=gettext('Settings to change')?></span><span class="fs-tile-value"><?=$tot['update']?></span></div>
 	<div class="fs-tile"><span class="fs-tile-label"><?=gettext('Firewalls in sync')?></span><span class="fs-tile-value"><?=count(array_filter($rows, function ($r) use ($ignored) { return ($r[3] !== null) && ($r[3]['update'] === 0) && !isset($ignored[$r[0]]); }))?></span></div>
@@ -393,8 +436,8 @@ $kind_icon = function (array $t): string {
 	<div class="panel-footer fs-fleet-review-actions fs-fleet-policy-actions">
 <?php $n_apply = count($rows) - count(array_intersect_key($ignored, array_flip($nodes))); ?>
 		<form method="post"><button class="btn btn-primary" name="template_apply" value="<?=(int)$t['id']?>"<?=($n_apply === 0) ? ' disabled' : ''?>><i class="fa-solid fa-paper-plane icon-embed-btn" aria-hidden="true"></i><?=sprintf(ngettext('Apply to %d firewall', 'Apply to %d firewalls', $n_apply), $n_apply)?></button></form>
-		<p class="fs-fleet-policy-note"><?=($t['kind'] === 'aliases') ? gettext('Each firewall gets a safety backup first, then the changes and one filter reload. Conflicts are skipped: Fleet never changes an alias it did not push. The firewalls are read again when the apply starts, so a change made since the backup is not lost.') :
-		    gettext('Each firewall gets a safety backup first, then the template\'s settings in one change, applied at once. The firewalls are read again when the apply starts; one that already matches is left alone.')?></p>
+		<p class="fs-fleet-policy-note"><?=isset(FLEET_TLIST_KINDS[$t['kind']]) ? gettext('Each firewall gets a safety backup and a commit-confirm window first, then the changes and one filter reload. Fleet then checks it still reaches the firewall and only then confirms; if it cannot, the firewall puts its previous rules back by itself within 5 minutes (FLEET-E310). Fleet never changes an entry it did not push, and a template\'s rules come first on their interface.') : (($t['kind'] === 'aliases') ? gettext('Each firewall gets a safety backup first, then the changes and one filter reload. Conflicts are skipped: Fleet never changes an alias it did not push. The firewalls are read again when the apply starts, so a change made since the backup is not lost.') :
+		    gettext('Each firewall gets a safety backup first, then the template\'s settings in one change, applied at once. The firewalls are read again when the apply starts; one that already matches is left alone.'))?></p>
 	</div>
 <?php endif; ?>
 </div>
@@ -412,9 +455,41 @@ $kind_icon = function (array $t): string {
 	}
 	$t = $t ?? array('id' => 0, 'name' => '', 'description' => '', 'targets' => array('all'), 'items' => array());
 	$edit_kind = (string)($t['kind'] ?? (($typed !== null) ? ($typed['kind'] ?? 'aliases') : ($_GET['kind'] ?? 'aliases')));
-	if (($edit_kind !== 'aliases') && !isset(FLEET_TSET_KINDS[$edit_kind])) {
+	if (($edit_kind !== 'aliases') && !isset(FLEET_TSET_KINDS[$edit_kind]) && !isset(FLEET_TLIST_KINDS[$edit_kind])) {
 		$edit_kind = 'aliases';
 	}
+	/* The rows of a rule or port forward template: what was typed, the template's, or one to start from. */
+	$trows = ($typed !== null) ? array_values((array)($typed['row'] ?? array())) : $t['items'];
+	if (empty($trows)) {
+		$trows[] = ($edit_kind === 'nat') ? array('key' => 'web', 'iface' => 'wan', 'proto' => 'tcp', 'port' => '443', 'target' => '', 'local' => '443', 'descr' => '') :
+		    array('key' => 'allow-dns', 'action' => 'pass', 'iface' => 'lan', 'proto' => 'tcp/udp', 'src' => 'lan', 'dst' => 'lanip', 'port' => '53', 'log' => false, 'descr' => 'DNS to the firewall');
+	}
+	$trow = function (int $n, array $r) use ($edit_kind) {
+		$v = function ($k) use ($r) {
+			return htmlspecialchars((string)($r[$k] ?? ''));
+		};
+		$sel = function (string $name, array $opts, string $cur) use ($n) {
+			$h = '<select class="form-select form-select-sm" name="row[' . $n . '][' . $name . ']" aria-label="' . htmlspecialchars(ucfirst($name)) . '">';
+			foreach ($opts as $k => $label) {
+				$h .= '<option value="' . htmlspecialchars($k) . '"' . (($k === $cur) ? ' selected' : '') . '>' . htmlspecialchars(gettext($label)) . '</option>';
+			}
+			return $h . '</select>';
+		};
+		$in = function (string $name, string $ph, int $max = 64) use ($n, $v) {
+			return '<input class="form-control form-control-sm fs-mono" name="row[' . $n . '][' . $name . ']" value="' . $v($name) . '" maxlength="' . $max . '" placeholder="' . htmlspecialchars($ph) . '" aria-label="' . htmlspecialchars(ucfirst($name)) . '"/>';
+		};
+		$h = '<tr data-tl-row><td>' . $in('key', 'allow-dns', 24) . '</td>';
+		if ($edit_kind === 'rules') {
+			$h .= '<td>' . $sel('action', FLEET_TRULE_ACTIONS, (string)($r['action'] ?? 'pass')) . '</td><td>' . $in('iface', 'lan', 10) . '</td><td>' .
+			    $sel('proto', FLEET_TRULE_PROTOS, (string)($r['proto'] ?? 'any')) . '</td><td>' . $in('src', 'any') . '</td><td>' . $in('dst', 'any') . '</td><td>' . $in('port', '443', 31) .
+			    '</td><td class="text-center"><input class="form-check-input" type="checkbox" name="row[' . $n . '][log]" value="1"' . (!empty($r['log']) ? ' checked' : '') . ' aria-label="' . gettext('Log') . '"/></td>';
+		} else {
+			$h .= '<td>' . $in('iface', 'wan', 10) . '</td><td>' . $sel('proto', array('tcp' => 'TCP', 'udp' => 'UDP', 'tcp/udp' => 'TCP and UDP'), (string)($r['proto'] ?? 'tcp')) . '</td><td>' .
+			    $in('port', '443', 31) . '</td><td>' . $in('target', '10.0.0.10') . '</td><td>' . $in('local', '443', 31) . '</td>';
+		}
+		return $h . '<td>' . str_replace('fs-mono', '', $in('descr', '', 120)) . '</td><td><button type="button" class="btn btn-sm btn-link fs-fleet-danger-link" data-tl-remove aria-label="' .
+		    gettext('Remove this row') . '"><i class="fa-solid fa-trash" aria-hidden="true"></i></button></td></tr>';
+	};
 	/* The settings form's values: what was typed, the template's, or sensible starting values. */
 	$sv = ($typed !== null) ? $typed : array();
 	if (($typed === null) && !empty($t['settings'])) {
@@ -476,7 +551,7 @@ $kind_icon = function (array $t): string {
 	<input type="hidden" name="kind" value="<?=htmlspecialchars($edit_kind)?>"/>
 	<div class="panel panel-default">
 		<div class="panel-heading"><h2 class="panel-title"><?=$t['id'] ? sprintf(htmlspecialchars(gettext('Change %s')), htmlspecialchars($t['name'])) :
-		    htmlspecialchars(sprintf(gettext('Add a template: %s'), ($edit_kind === 'aliases') ? gettext('Aliases') : gettext(FLEET_TSET_KINDS[$edit_kind][0])))?></h2></div>
+		    htmlspecialchars(sprintf(gettext('Add a template: %s'), ($edit_kind === 'aliases') ? gettext('Aliases') : gettext((FLEET_TSET_KINDS[$edit_kind] ?? FLEET_TLIST_KINDS[$edit_kind])[0])))?></h2></div>
 		<div class="panel-body fs-fleet-pad">
 			<div class="row g-3">
 				<div class="col-md-4"><label class="form-label" for="tname"><?=gettext('Name')?></label>
@@ -503,7 +578,22 @@ $kind_icon = function (array $t): string {
 			</div>
 		</div>
 	</div>
-<?php if ($edit_kind !== 'aliases'): $def = FLEET_TSET_KINDS[$edit_kind]; ?>
+<?php if (isset(FLEET_TLIST_KINDS[$edit_kind])): $def = FLEET_TLIST_KINDS[$edit_kind]; ?>
+	<section class="fs-fleet-area">
+		<header class="fs-fleet-area-head"><span class="fs-fleet-area-icon"><i class="fa-solid <?=$def[1]?>" aria-hidden="true"></i></span>
+			<div><h2><?=htmlspecialchars(gettext($def[0]))?></h2><p><?=($edit_kind === 'rules') ?
+			    gettext('In this order, first on their interface. From and To: any, an interface network (lan, opt2) or address (lanip, wanip), an address, a CIDR network or an alias. Port: 443, 8000-8080 or an alias, for TCP or UDP.') :
+			    gettext('Traffic to the interface\'s address on Port goes to Forward to on Local port, with a firewall rule made for it. Ports: 443, 8000-8080 or an alias.')?></p></div></header>
+		<div class="panel panel-default"><div class="panel-body table-responsive"><table class="table fs-table fs-fleet-tlist-edit">
+			<thead><tr><th><?=gettext('Name')?></th><?php if ($edit_kind === 'rules'): ?><th><?=gettext('Action')?></th><th><?=gettext('On')?></th><th><?=gettext('Protocol')?></th><th><?=gettext('From')?></th><th><?=gettext('To')?></th><th><?=gettext('Port')?></th><th><?=gettext('Log')?></th>
+<?php else: ?><th><?=gettext('On')?></th><th><?=gettext('Protocol')?></th><th><?=gettext('Port')?></th><th><?=gettext('Forward to')?></th><th><?=gettext('Local port')?></th><?php endif; ?><th><?=gettext('Description')?></th><th><span class="visually-hidden"><?=gettext('Remove')?></span></th></tr></thead>
+			<tbody data-tl-list data-next="<?=count($trows)?>">
+<?php foreach (array_values($trows) as $n => $r) { echo $trow($n, $r); } ?>
+			</tbody></table></div>
+			<div class="panel-footer"><button type="button" class="btn btn-sm btn-outline-secondary" data-tl-add><i class="fa-solid fa-plus icon-embed-btn" aria-hidden="true"></i><?=($edit_kind === 'rules') ? gettext('Add rule') : gettext('Add port forward')?></button></div></div>
+		<template data-tl-blank><?=$trow(999999, array('key' => '', 'iface' => ($edit_kind === 'nat') ? 'wan' : 'lan', 'src' => 'any', 'dst' => 'any'))?></template>
+	</section>
+<?php elseif ($edit_kind !== 'aliases'): $def = FLEET_TSET_KINDS[$edit_kind]; ?>
 	<section class="fs-fleet-area">
 		<header class="fs-fleet-area-head"><span class="fs-fleet-area-icon"><i class="fa-solid <?=$def[1]?>" aria-hidden="true"></i></span>
 			<div><h2><?=htmlspecialchars(gettext($def[0]))?></h2><p><?=htmlspecialchars(gettext($def[2]))?>. <?=gettext('Every firewall the template is for gets exactly these values.')?></p></div></header>
@@ -569,5 +659,6 @@ $kind_icon = function (array $t): string {
 	</div>
 </form>
 <script src="/fleet/assets/fleet-template.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-template.js')?>"></script>
+<script src="/fleet/assets/fleet-tlist.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-tlist.js')?>"></script>
 <?php endif; ?>
 <?php include('foot.inc');

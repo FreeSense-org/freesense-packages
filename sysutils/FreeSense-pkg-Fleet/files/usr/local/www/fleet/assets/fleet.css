@@ -862,3 +862,8 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 .fs-fleet-style--hacker .fs-fleet-style-swatch { background: #000301; } .fs-fleet-style--hacker i:nth-child(1) { background: #00ff9c; } .fs-fleet-style--hacker i:nth-child(2) { background: #00e5ff; } .fs-fleet-style--hacker i:nth-child(3) { background: #ff2e63; }
 .fs-fleet-style--control .fs-fleet-style-swatch { background: #0d0b08; } .fs-fleet-style--control i:nth-child(1) { background: #ffb000; } .fs-fleet-style--control i:nth-child(2) { background: #ff7a1a; } .fs-fleet-style--control i:nth-child(3) { background: #ff3b30; }
 .fs-fleet-style--blueprint .fs-fleet-style-swatch { background: #0b2a4a; } .fs-fleet-style--blueprint i { border: 1px dashed #a9c4e4; } .fs-fleet-style--blueprint i:nth-child(3) { border-color: #ff8a7a; border-style: solid; }
+
+/* Rule and port forward templates: a compact row editor */
+.fs-fleet-tlist-edit td { vertical-align: middle; padding: .3rem .35rem; }
+.fs-fleet-tlist-edit td:first-child { min-width: 8rem; }
+.fs-fleet-tlist-edit .form-control, .fs-fleet-tlist-edit .form-select { min-width: 5.5rem; }
