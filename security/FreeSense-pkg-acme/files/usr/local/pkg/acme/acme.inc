@@ -3629,7 +3629,7 @@ function get_certificate($name) {
 			echo "server: $acmeserver \n";
 
 			global $a_acmeserver;
-			if (!array_key_exists($acmeserver, $a_acmeserver)) {
+			if (!array_key_exists((string) $acmeserver, $a_acmeserver)) {
 				echo "The ACME Server does not exist and cannot be used. Edit the account key and select a new ACME Server. Stopping.";
 				return false;
 			}

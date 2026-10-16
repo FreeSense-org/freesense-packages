@@ -306,7 +306,7 @@ if (!empty($pconfig['acmeaccount'])) {
 		}
 	}
 	if (!empty($acmeserver) &&
-	    !array_key_exists($acmeserver, $a_acmeserver)) {
+	    !array_key_exists((string) $acmeserver, $a_acmeserver)) {
 		$input_errors[] = gettext("The ACME Server stored on the current ACME Account Key no longer exists. " .
 					"This certificate will not function until the ACME Account Key is configured " .
 					"with a functional ACME Server value, or another valid ACME Account Key is selected.");
