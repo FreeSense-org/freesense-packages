@@ -81,6 +81,15 @@ function fleet_invite_revoke(string $token_id, string $who): bool {
 	return false;
 }
 
+/* pure: does what a firewall reports match what its invitation is bound to? (Nothing bound: yes.) */
+function fleet_enroll_binding_ok(string $serial, string $instance, array $inventory): bool {
+	if (($serial === '') && ($instance === '')) {
+		return true;
+	}
+	return (($serial !== '') && hash_equals($serial, (string)($inventory['serial'] ?? ''))) ||
+	    (($instance !== '') && hash_equals($instance, (string)($inventory['instance_id'] ?? '')));
+}
+
 /* pure: a JSON error answer in the form the join client maps to FLEET codes. */
 function fleet_enroll_error(int $status, string $code, string $message): array {
 	return array($status, array('error' => array('code' => $code, 'message' => $message)));
@@ -172,11 +181,20 @@ function fleet_enroll_enroll(array $body, string $bearer, string $ip, int $now, 
 		    fleet_enroll_error(403, 'bad_proof', 'The join key is wrong.');
 	}
 	$inventory = is_array($body['inventory'] ?? null) ? $body['inventory'] : array();
+	$bound = ((string)($inv['bind_serial'] ?? '') !== '') || ((string)($inv['bind_instance'] ?? '') !== '');
+	if (!fleet_enroll_binding_ok((string)($inv['bind_serial'] ?? ''), (string)($inv['bind_instance'] ?? ''), $inventory)) {
+		fleet_audit('enrollment', 'binding_mismatch', "{$inv['token_id']} from {$ip}: serial \"" . (string)($inventory['serial'] ?? '') . '"');
+		return fleet_enroll_error(403, 'binding_mismatch', 'This invitation is for another firewall (serial or instance id).');
+	}
 	$id = 'e-' . bin2hex(random_bytes(10));
 	$code = fleet_join_code($node_pub, $ctx['controller_wg_pub'], $challenge, $nonce);
 	fleet_db()->prepare('INSERT INTO enrollments (id, token_id, node_wg_pub, inventory, code, created, source_ip) VALUES (?, ?, ?, ?, ?, ?, ?)')
 	    ->execute(array($id, $inv['token_id'], base64_encode($node_pub), json_encode($inventory), $code, $now, $ip));
 	fleet_audit('enrollment', 'pending', "{$id} for {$inv['token_id']} from {$ip}, code {$code}");
+	/* A Factory invitation bound to this firewall's serial or instance id may be approved at once. */
+	if ($bound && !empty($inv['auto_approve'])) {
+		fleet_enroll_decide($id, true, 'factory (bound to this firewall)', $now);
+	}
 	return array(200, array('enrollment_id' => $id));
 }
 
@@ -226,7 +244,7 @@ function fleet_enroll_complete(array $body, string $bearer, int $now, array $ctx
 		$db->prepare('INSERT INTO boxes (node_id, name, label, host_no, overlay, wg_pub, api_key, cert_sha256, role, joined) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
 		    ->execute(array($node_id, $box['name'], $box['label'], $host, $box['overlay'], $box['wg_pub'], fleet_seal($api_key, fleet_master_key()),
 		    $cert, $box['role'], $now));
-		$db->prepare("UPDATE invitations SET state = 'used', okm = '' WHERE token_id = ?")->execute(array($inv['token_id']));
+		$db->prepare("UPDATE invitations SET state = 'used', okm = '', node_id = ? WHERE token_id = ?")->execute(array($node_id, $inv['token_id']));
 		/* The invitation's naming group: the firewall joins it and takes its name. */
 		if ((int)($inv['group_id'] ?? 0) > 0) {
 			$db->prepare('INSERT OR IGNORE INTO box_groups (node_id, group_id) VALUES (?, ?)')->execute(array($node_id, (int)$inv['group_id']));
