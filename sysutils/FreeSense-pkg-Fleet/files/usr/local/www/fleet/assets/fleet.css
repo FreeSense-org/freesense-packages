@@ -805,3 +805,5 @@ a.fs-fleet-tile-link:hover, a.fs-fleet-tile-link:focus-visible { border-color: v
 .fs-fleet-avatar { display: grid; place-items: center; width: 2rem; height: 2rem; flex: none; border-radius: 50%; background: var(--bs-tertiary-bg); color: var(--fs-info); font-size: .75rem; font-weight: 600; }
 .fs-fleet-priv-list { display: flex; flex-wrap: wrap; gap: .25rem; align-items: center; }
 .fs-fleet-chip { display: inline-flex; align-items: center; padding: .1rem .5rem; border: 1px solid var(--fs-border); border-radius: 999px; font-size: .75rem; background: var(--bs-tertiary-bg); white-space: nowrap; }
+.fs-fleet-lockrow { display: flex; flex-wrap: wrap; align-items: center; gap: var(--fs-sp-2) var(--fs-sp-3); padding: var(--fs-sp-2) var(--fs-sp-3); border: 1px solid var(--fs-border); border-radius: var(--fs-r-md); }
+.fs-fleet-lockrow .fs-muted { flex: 1 1 20rem; }

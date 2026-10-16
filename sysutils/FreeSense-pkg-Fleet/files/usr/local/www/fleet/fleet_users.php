@@ -56,6 +56,18 @@ if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 			$view = 'groups';
 			fleet_ugroup_delete((int)$_POST['group_delete'], $who);
 			$savemsg = gettext('Group deleted. The next sync removes it from the firewalls.');
+		} elseif (isset($_POST['users_lock'])) {
+			$view = 'sync';
+			fleet_users_lock_set(!empty($_POST['lock']), $who);
+			$savemsg = fleet_users_locked() ? gettext('Fleet users are locked: the firewalls refuse local edits to them.') : gettext('Fleet users are no longer locked.');
+		} elseif (isset($_POST['drift_adopt'])) {
+			$view = 'sync';
+			$n = fleet_users_drift_adopt((string)$_POST['drift_adopt'], $who);
+			$savemsg = sprintf(ngettext('%d user taken over as changed on the firewall. Sync to give the other firewalls the same.', '%d users taken over as changed on the firewall. Sync to give the other firewalls the same.', $n), $n);
+		} elseif (isset($_POST['drift_ignore'])) {
+			$view = 'sync';
+			fleet_users_drift_ignore((string)$_POST['drift_ignore'], $who);
+			$savemsg = gettext('Ignored until the firewall changes again.');
 		} elseif (isset($_POST['sync'])) {
 			$op = fleet_users_launch($who, isset($_POST['node']) ? array((string)$_POST['node']) : null);
 			header('Location: /fleet/fleet_activity.php?op=' . (int)$op);
@@ -289,12 +301,22 @@ $targets_select = function (string $id, array $chosen = array()) use ($fgroups, 
 <?php if ($manage && !$live && !empty($nodes)): ?>
 		<a class="btn btn-sm btn-link" href="?view=sync&amp;check=1"><?=gettext('Check what would change')?></a>
 <?php endif; ?></div>
-	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-lead mb-0"><?=gettext('Each firewall gets the users of the groups that are for it. Privileges a firewall\'s version does not have are left out there and listed; a name the firewall already uses for its own account is skipped.')?></p></div>
+	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-lead"><?=gettext('Each firewall gets the users of the groups that are for it. Privileges a firewall\'s version does not have are left out there and listed; a name the firewall already uses for its own account is skipped. A firewall that updates is synced again by itself.')?></p>
+<?php if ($manage): ?>
+		<form method="post" class="fs-fleet-lockrow">
+			<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" role="switch" id="ulock" name="lock" value="1"<?=fleet_users_locked() ? ' checked' : ''?> onchange="this.form.requestSubmit()"/>
+				<label class="form-check-label" for="ulock"><i class="fa-solid fa-lock" aria-hidden="true"></i> <strong><?=gettext('Lock Fleet users on the firewalls')?></strong></label></div>
+			<input type="hidden" name="users_lock" value="1"/>
+			<noscript><button class="btn btn-sm btn-outline-secondary"><?=gettext('Save')?></button></noscript>
+			<span class="fs-muted small"><?=gettext('The firewalls refuse local edits to accounts Fleet manages (also while the controller is offline). Local accounts stay free; a console administrator can suspend it with break-glass.')?></span>
+		</form>
+<?php endif; ?>
+	</div>
 	<div class="panel-body table-responsive"><table class="table fs-table">
-		<thead><tr><th><?=gettext('Firewall')?></th><th><?=gettext('Gets')?></th><th><?=$live ? gettext('Would change') : gettext('Last sync')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
+		<thead><tr><th><?=gettext('Firewall')?></th><th><?=gettext('Gets')?></th><th><?=$live ? gettext('Would change') : gettext('Last sync')?></th><th><?=gettext('Drift')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
 		<tbody>
 <?php if (empty($nodes)): ?>
-		<tr><td colspan="4" class="fs-muted"><?=gettext('No user group is for any firewall yet.')?></td></tr>
+		<tr><td colspan="5" class="fs-muted"><?=gettext('No user group is for any firewall yet.')?></td></tr>
 <?php endif; ?>
 <?php foreach ($nodes as $node): $box = fleet_box_get($node); if ($box === null) { continue; } $d = fleet_users_desired_for($node); $st = $states[$node] ?? null; ?>
 		<tr><td><a href="/fleet/fleet_box.php?id=<?=urlencode($node)?>"><?=htmlspecialchars($labels[$node] ?? $node)?></a> <?=($box['state'] !== 'online') ? fs_badge('neutral', ucfirst($box['state'])) : ''?></td>
@@ -327,7 +349,22 @@ elseif ($st !== null): ?>
 				<span class="fs-muted"><?=gettext('Never')?></span>
 <?php endif; ?>
 			</td>
-			<td class="text-end"><?php if ($manage && ($box['state'] === 'online') && fleet_manage_allowed($box)): ?><form method="post" class="d-inline"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><button class="btn btn-sm btn-link" name="sync" value="1"><?=gettext('Sync here')?></button></form><?php endif; ?></td></tr>
+<?php $drift = fleet_users_drift($node); ?>
+			<td class="small">
+<?php if ($drift === null): ?>
+				<span class="fs-muted"><?=gettext('Not known')?></span>
+<?php elseif (empty($drift)): ?>
+				<span class="fs-muted"><?=gettext('None')?></span>
+<?php else: ?>
+				<?=fs_badge('warn', sprintf(ngettext('%d changed on the firewall', '%d changed on the firewall', count($drift['changes'])), count($drift['changes'])))?>
+				<div class="fs-muted"><?=htmlspecialchars(implode(', ', array_keys($drift['changes'])))?></div>
+<?php if ($manage): ?>
+				<form method="post" class="d-inline"><button class="btn btn-sm btn-link p-0 me-2" name="drift_adopt" value="<?=htmlspecialchars($node)?>" title="<?=gettext('Take the firewall\'s changes into Fleet')?>"><?=gettext('Adopt')?></button>
+					<button class="btn btn-sm btn-link p-0" name="drift_ignore" value="<?=htmlspecialchars($node)?>"><?=gettext('Ignore')?></button></form>
+<?php endif; ?>
+<?php endif; ?>
+			</td>
+			<td class="text-end"><?php if ($manage && ($box['state'] === 'online') && fleet_manage_allowed($box)): ?><form method="post" class="d-inline"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><button class="btn btn-sm btn-link" name="sync" value="1"><?=empty($drift) ? gettext('Sync here') : gettext('Revert (sync here)')?></button></form><?php endif; ?></td></tr>
 <?php endforeach; ?>
 		</tbody></table></div>
 <?php if ($manage && !empty($nodes)): ?>

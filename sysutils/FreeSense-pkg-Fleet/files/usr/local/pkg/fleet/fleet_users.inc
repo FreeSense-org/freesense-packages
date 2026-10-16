@@ -356,3 +356,150 @@ function fleet_users_launch(string $who, ?array $only = null): int {
 	mwexec_bg('/usr/local/bin/php /usr/local/sbin/freesense-fleet-run users ' . (int)$op);
 	return $op;
 }
+
+/* ------------------------------------------------------------------ */
+/* Lock, re-sync after updates, drift                                  */
+/* ------------------------------------------------------------------ */
+
+/* Do firewalls refuse local edits to Fleet users? */
+function fleet_users_locked(): bool {
+	return fleet_setting('users_lock', '0') === '1';
+}
+
+function fleet_users_lock_set(bool $on, string $who): void {
+	fleet_setting_set('users_lock', $on ? '1' : '0');
+	fleet_audit($who, 'users', $on ? 'Fleet users locked on the firewalls (local edits are refused)' : 'Fleet users no longer locked on the firewalls');
+	fleet_bundles_push();
+}
+
+/* Firewalls that get (or had) Fleet users. */
+function fleet_users_nodes(): array {
+	return array_values(array_unique(array_merge(array_keys(fleet_users_for_boxes(fleet_ugroups_all())), array_keys(fleet_users_states()))));
+}
+
+/*
+ * After each poll: a firewall that came back on another version is synced
+ * again, so privileges its new version knows arrive (and old ones are
+ * dropped cleanly).
+ */
+function fleet_users_follow(array $box, array $status): void {
+	$old = json_decode((string)($box['status'] ?? ''), true) ?: array();
+	$was = fleet_version_number((string)($old['version'] ?? ''));
+	$now = fleet_version_number((string)($status['version'] ?? ''));
+	if (($was === '') || ($now === '') || ($was === $now) || !in_array($box['node_id'], fleet_users_nodes(), true) || !fleet_manage_allowed($box)) {
+		return;
+	}
+	try {
+		fleet_users_launch('fleet', array($box['node_id']));
+		fleet_audit('fleet', 'users', "{$box['label']}: updated from {$was} to {$now}; users synced again");
+	} catch (RuntimeException $e) {
+	}
+}
+
+/* pure: a Fleet user from the firewall's config entry (for Adopt). */
+function fleet_users_from_entry(array $e): array {
+	$exp = (string)($e['expires'] ?? '');
+	$d = ($exp === '') ? false : DateTimeImmutable::createFromFormat('!m/d/Y', $exp);
+	return array('fullname' => (string)($e['descr'] ?? ''), 'hash' => (string)($e['bcrypt-hash'] ?? ''),
+	    'ssh_keys' => (($e['authorizedkeys'] ?? '') === '') ? '' : trim((string)base64_decode((string)$e['authorizedkeys'])),
+	    'expires' => ($d === false) ? '' : $d->format('Y-m-d'), 'disabled' => isset($e['disabled']) ? 1 : 0);
+}
+
+/* The users and groups in a firewall's newest backup, or null. */
+function fleet_users_backup_accounts(string $node): ?array {
+	$latest = fleet_backup_latest($node);
+	$text = ($latest === null) ? null : fleet_backup_read($latest);
+	if ($text === null) {
+		return null;
+	}
+	require_once('xmlparse.inc');
+	$tmp = tempnam(sys_get_temp_dir(), 'fleetcfg');
+	file_put_contents($tmp, $text);
+	$cfg = parse_xml_config($tmp, array('freesense', 'pfsense'));
+	@unlink($tmp);
+	if (!is_array($cfg)) {
+		return null;
+	}
+	return array((array)($cfg['system']['user'] ?? array()), (array)($cfg['system']['group'] ?? array()));
+}
+
+/*
+ * Drift from a firewall's newest backup: what a sync would change now,
+ * or null when not known. Ignored drift (the same plan as when Ignore was
+ * pressed) comes back as no drift.
+ */
+function fleet_users_drift(string $node): ?array {
+	if (!is_file('/etc/inc/fleet_accounts.inc')) {
+		return null;
+	}
+	require_once('fleet_accounts.inc');
+	$acc = fleet_users_backup_accounts($node);
+	if ($acc === null) {
+		return null;
+	}
+	$box = fleet_box_get($node);
+	$st = json_decode((string)($box['status'] ?? ''), true) ?: array();
+	$known = fleet_users_version_catalogs()[fleet_version_number((string)($st['version'] ?? ''))] ?? array_keys(fleet_users_catalog());
+	try {
+		$plan = fleet_accounts_plan(fleet_accounts_desired(fleet_users_desired_for($node)), $acc[0], $acc[1], $known);
+	} catch (InvalidArgumentException $e) {
+		return null;
+	}
+	$changes = array_filter(array_merge($plan['users'], $plan['groups']), function ($a) { return $a !== 'same'; });
+	$ignored = (json_decode((string)fleet_setting('users_drift_ignored', '{}'), true) ?: array())[$node] ?? null;
+	if (empty($changes) || ($ignored === hash('sha256', json_encode($changes)))) {
+		return array();
+	}
+	return array('changes' => $changes, 'plan' => $plan);
+}
+
+function fleet_users_drift_ignore(string $node, string $who): void {
+	$d = fleet_users_drift($node);
+	if (empty($d)) {
+		return;
+	}
+	$all = json_decode((string)fleet_setting('users_drift_ignored', '{}'), true) ?: array();
+	$all[$node] = hash('sha256', json_encode($d['changes']));
+	fleet_setting_set('users_drift_ignored', json_encode($all));
+	fleet_audit($who, 'users', "{$node}: drift ignored until it changes");
+}
+
+/*
+ * Adopt what a firewall changed locally: users changed there are taken
+ * into Fleet as they are (name, keys, password hash, end date, disabled).
+ * Removed accounts cannot be adopted (sync puts them back). Returns how
+ * many users were adopted.
+ */
+function fleet_users_drift_adopt(string $node, string $who): int {
+	$d = fleet_users_drift($node);
+	$acc = fleet_users_backup_accounts($node);
+	if (empty($d) || ($acc === null)) {
+		return 0;
+	}
+	$byname = array();
+	foreach ($acc[0] as $e) {
+		if (is_array($e) && !empty($e['fleet'])) {
+			$byname[strtolower((string)$e['name'])] = $e;
+		}
+	}
+	$n = 0;
+	foreach ($d['plan']['users'] as $name => $action) {
+		$e = $byname[strtolower($name)] ?? null;
+		if (($action !== 'update') || ($e === null)) {
+			continue;
+		}
+		$u = fleet_users_from_entry($e);
+		if (!preg_match('~^\$2[aby]\$\d\d\$~', $u['hash'])) {
+			continue;
+		}
+		fleet_db()->prepare('UPDATE fusers SET fullname = ?, hash = ?, ssh_keys = ?, expires = ?, disabled = ?, updated = ? WHERE name = ? COLLATE NOCASE')
+		    ->execute(array($u['fullname'], $u['hash'], $u['ssh_keys'], $u['expires'], $u['disabled'], time(), $name));
+		$n++;
+	}
+	if ($n > 0) {
+		$box = fleet_box_get($node);
+		fleet_audit($who, 'users', sprintf('Adopted %d users as changed on %s; sync to give the other firewalls the same', $n, $box['label'] ?? $node));
+	}
+	return $n;
+}
+
