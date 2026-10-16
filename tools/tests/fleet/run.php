@@ -1168,4 +1168,19 @@ check((count(fleet_ts_join_problems(null, null)) === 2) && (fleet_ts_join_proble
     (fleet_ts_join_problems('The token expired.', '100.64.0.1') === array('The token expired.')),
     'joining over Tailscale needs a working API token and a controller in the tailnet');
 
+/* ---- Deployment Factory over Tailscale ---- */
+require_once('fleet_seed.inc');
+list($fshown) = fleet_join_key_generate();
+$flink = 'https://100.64.0.1:8443/fleet/join#abcdef012345.' . str_repeat('A', 43) . '.' . str_repeat('a', 64);
+$ftsk = 'tskey-auth-kTEST123CNTRL-abcdefghijkl';
+$fa = fleet_seed_parse(json_encode(fleet_factory_seed($flink, 'attended', $fshown, null, $ftsk)));
+$fp = fleet_seed_parse(json_encode(fleet_factory_seed($flink, 'pin', $fshown, '482913', $ftsk)));
+$fu = fleet_seed_parse(json_encode(fleet_factory_seed($flink, 'unattended', $fshown, null, $ftsk)));
+check((fleet_seed_tailscale_key($fa, (string)fleet_join_key_normalize($fshown)) === $ftsk) && !isset($fa['tailscale']['key']) &&
+    (fleet_seed_tailscale_key($fp, '482913') === $ftsk) && !isset($fp['tailscale']['key']) && (fleet_seed_tailscale_key($fu, '') === $ftsk) &&
+    !isset(fleet_factory_seed($flink, 'attended', $fshown, null)['tailscale']),
+    'Factory seeds carry the Tailscale key the way System opens it: sealed to the join key or PIN, plain only unattended');
+check(fleet_factory_settings(array('name' => 'B', 'mode' => 'pin', 'via' => 'tailscale'))['via'] === 'tailscale' && fleet_factory_settings(array('name' => 'B', 'via' => 'x'))['via'] === '',
+    'a batch is over the internet or over Tailscale');
+
 echo "Fleet controller tests: OK\n";
