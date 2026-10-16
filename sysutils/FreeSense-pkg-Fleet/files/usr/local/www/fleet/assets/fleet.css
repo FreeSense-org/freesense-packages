@@ -833,3 +833,11 @@ a.fs-fleet-tile-link:hover, a.fs-fleet-tile-link:focus-visible { border-color: v
 .fs-fleet-checkgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .25rem var(--fs-sp-3); }
 .fs-fleet-keyline { display: flex; flex-wrap: wrap; align-items: center; gap: var(--fs-sp-2); }
 .fs-fleet-keyline code { flex: 1 1 24rem; padding: .4rem .6rem; border: 1px solid var(--fs-border); border-radius: var(--fs-r-md); background: var(--bs-tertiary-bg); word-break: break-all; }
+.fs-fleet-tset { display: grid; grid-template-columns: max-content 1fr; gap: .25rem var(--fs-sp-3); margin: var(--fs-sp-2) 0 0; }
+.fs-fleet-tset dt { color: var(--fs-text-muted); font-weight: 500; }
+.fs-fleet-tset dd { margin: 0; overflow-wrap: anywhere; }
+/* A fieldset legend reads like any other field label (Bootstrap makes it a heading). */
+legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; }
+.fs-fleet-inline-form > summary { list-style: none; }
+.fs-fleet-inline-form > summary::-webkit-details-marker { display: none; }
+.fs-fleet-inline-form[open] > form { display: flex; gap: var(--fs-sp-2); margin-top: var(--fs-sp-1); min-width: 18rem; }

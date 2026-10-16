@@ -16,6 +16,7 @@ pkg/fleet/fleet_naming.inc
 pkg/fleet/fleet_factory.inc
 pkg/fleet/fleet_alerts.inc
 pkg/fleet/fleet_kiosk.inc
+pkg/fleet/fleet_template_settings.inc
 pkg/fleet/fleet_replicas.inc
 pkg/fleet/fleet_rollouts.inc
 pkg/fleet/fleet_schedules.inc

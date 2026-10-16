@@ -48,6 +48,26 @@ if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 		} elseif (isset($_POST['template_delete'])) {
 			fleet_template_delete((int)$_POST['template_delete'], $who);
 			$savemsg = gettext('Template deleted. The aliases it pushed stay on the firewalls; Fleet no longer manages them.');
+		} elseif (isset($_POST['template_adopt']) || isset($_POST['template_ignore']) || isset($_POST['template_unignore'])) {
+			$tid = (int)($_POST['template_adopt'] ?? $_POST['template_ignore'] ?? $_POST['template_unignore']);
+			$t = fleet_template_get($tid);
+			$box = fleet_box_get((string)($_POST['node'] ?? ''));
+			if (($t === null) || ($box === null)) {
+				throw new RuntimeException(gettext('That template or firewall no longer exists.'));
+			}
+			$view = 'preview';
+			$_GET['id'] = $tid;
+			if (isset($_POST['template_adopt'])) {
+				$changed = fleet_template_adopt($t, $box, $who);
+				$savemsg = empty($changed) ? sprintf(gettext('%s already matches the template: nothing to adopt.'), $box['label']) :
+				    sprintf(gettext('Adopted %1$s from %2$s into the template. Check the other firewalls below before applying there.'), implode(', ', $changed), $box['label']);
+			} elseif (isset($_POST['template_ignore'])) {
+				fleet_template_ignore($t, $box['node_id'], (string)($_POST['reason'] ?? ''), $who);
+				$savemsg = sprintf(gettext('%s keeps its own values: applying the template to all firewalls leaves it out.'), $box['label']);
+			} else {
+				fleet_template_unignore($t, $box['node_id'], $who);
+				$savemsg = sprintf(gettext('%s follows the template again. Apply to bring it in line.'), $box['label']);
+			}
 		} elseif (isset($_POST['template_apply'])) {
 			$t = fleet_template_get((int)$_POST['template_apply']);
 			if ($t === null) {
@@ -107,20 +127,34 @@ $action_badge = function (string $a, int $n = 0) {
 	    'same' => array('neutral', gettext('Same')), 'conflict' => array('block', gettext('Conflict')))[$a];
 	return fs_badge($t[0], ($n > 0) ? $t[1] . ' ' . $n : $t[1]);
 };
+/* What a template sets, in one line: alias names, or the settings without secrets. */
+$sets_text = function (array $t): string {
+	if ($t['kind'] === 'aliases') {
+		return implode(', ', array_column($t['items'], 'name'));
+	}
+	return fleet_tset_summary($t['kind'], $t['settings'] + array('rocommunity' => ''));
+};
+$kind_label = function (array $t): string {
+	return ($t['kind'] === 'aliases') ? gettext('Aliases') : gettext(FLEET_TSET_KINDS[$t['kind']][0]);
+};
+$kind_icon = function (array $t): string {
+	return ($t['kind'] === 'aliases') ? 'fa-list-ul' : FLEET_TSET_KINDS[$t['kind']][1];
+};
 ?>
 
 <?php if ($view === 'list'):
 	$all = fleet_templates_all();
 	$q = trim((string)($_GET['q'] ?? ''));
 	$shown = array_values(array_filter($all, function ($t) use ($q, $names) {
-		return ($q === '') || (stripos($t['name'] . ' ' . $t['description'] . ' ' . fleet_targets_text($t['targets'], $names) . ' ' . implode(' ', array_column($t['items'], 'name')), $q) !== false);
+		return ($q === '') || (stripos($t['name'] . ' ' . $t['description'] . ' ' . fleet_targets_text($t['targets'], $names) . ' ' . implode(' ', array_column($t['items'], 'name')) . ' ' .
+		    (($t['kind'] === 'aliases') ? 'aliases' : FLEET_TSET_KINDS[$t['kind']][0]), $q) !== false);
 	}));
 ?>
 <div class="panel panel-default">
 	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Templates')?> <span class="fs-count"><?=count($all)?></span></h2></div>
 <?php if (empty($all)): ?>
 	<div class="panel-body fs-fleet-pad">
-		<p class="fs-fleet-lead"><?=gettext('A template pushes the same configuration to many firewalls. Start with aliases: a list of servers, office networks or ports that every firewall in a group should know. Fleet shows what would change on each firewall before anything is applied, and only ever changes aliases it pushed itself.')?></p>
+		<p class="fs-fleet-lead"><?=gettext('A template pushes the same configuration to many firewalls: aliases (lists of servers, networks or ports), or settings such as time and NTP, DNS servers, SNMP and remote logging. Fleet shows what would change on each firewall before anything is applied, and only ever changes aliases it pushed itself.')?></p>
 <?php if ($manage): ?>
 		<a class="btn btn-primary btn-sm" href="?view=edit"><i class="fa-solid fa-plus icon-embed-btn" aria-hidden="true"></i><?=gettext('Add the first template')?></a>
 <?php endif; ?>
@@ -137,7 +171,7 @@ $action_badge = function (string $a, int $n = 0) {
 		</form>
 	</div>
 	<div class="panel-body table-responsive"><table class="table fs-table">
-		<thead><tr><th><?=gettext('Name')?></th><th><?=gettext('For')?></th><th><?=gettext('Aliases')?></th><th><?=gettext('Firewalls')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
+		<thead><tr><th><?=gettext('Name')?></th><th><?=gettext('For')?></th><th><?=gettext('Sets')?></th><th><?=gettext('Firewalls')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
 		<tbody>
 <?php if (empty($shown)): ?>
 		<tr><td colspan="5" class="fs-muted"><?=gettext('No template matches.')?> <a href="?"><?=gettext('Clear the search')?></a></td></tr>
@@ -147,23 +181,32 @@ $action_badge = function (string $a, int $n = 0) {
 	$sync = 0;
 	$pending = 0;
 	$unknown = 0;
+	$ign = fleet_template_ignores((int)$t['id']);
 	foreach ($nodes as $node) {
+		if (isset($ign[$node])) {
+			continue;
+		}
 		$plan = fleet_template_plan_from_backup($t, $node);
 		if ($plan === null) {
 			$unknown++;
 			continue;
 		}
 		$c = fleet_template_plan_counts($plan);
-		($c['create'] + $c['update'] + $c['delete'] === 0) ? $sync++ : $pending++;
+		$st = fleet_template_states((int)$t['id'])[$node] ?? null;
+		/* A changed secret cannot be seen in a backup: a template changed since it was applied counts as "to apply". */
+		$secret_due = ($t['kind'] === 'snmp') && !empty($t['settings']['enable']) && (($st === null) || ($st['hash'] !== fleet_template_hash($t)));
+		(($c['create'] + $c['update'] + $c['delete'] === 0) && !$secret_due) ? $sync++ : $pending++;
 	}
 ?>
 		<tr><td><a href="?view=preview&amp;id=<?=(int)$t['id']?>"><?=htmlspecialchars($t['name'])?></a>
 				<?=($t['description'] !== '') ? '<div class="fs-muted small">' . htmlspecialchars($t['description']) . '</div>' : ''?></td>
 			<td><?=htmlspecialchars(fleet_targets_text($t['targets'], $names))?></td>
-			<td class="small"><?=htmlspecialchars(implode(', ', array_column($t['items'], 'name')))?></td>
+			<td class="small"><i class="fa-solid <?=$kind_icon($t)?> fs-muted" aria-hidden="true"></i> <strong><?=htmlspecialchars($kind_label($t))?></strong>
+				<div class="fs-muted"><?=htmlspecialchars($sets_text($t))?></div></td>
 			<td><?=fs_badge('pass', sprintf(gettext('%1$d of %2$d in sync'), $sync, count($nodes)))?>
 				<?=($pending > 0) ? fs_badge('info', sprintf(ngettext('%d to apply', '%d to apply', $pending), $pending)) : ''?>
-				<?=($unknown > 0) ? fs_badge('neutral', sprintf(gettext('%d not known'), $unknown)) : ''?></td>
+				<?=($unknown > 0) ? fs_badge('neutral', sprintf(gettext('%d not known'), $unknown)) : ''?>
+				<?=!empty($ign) ? fs_badge('neutral', sprintf(ngettext('%d ignored', '%d ignored', count($ign)), count($ign))) : ''?></td>
 			<td class="text-end text-nowrap">
 				<a class="btn btn-sm btn-link" href="?view=preview&amp;id=<?=(int)$t['id']?>"><?=gettext('Preview')?></a>
 <?php if ($manage): ?>
@@ -178,8 +221,27 @@ $action_badge = function (string $a, int $n = 0) {
 </div>
 <?php if ($manage): ?>
 <section class="fs-fleet-area">
+	<header class="fs-fleet-area-head"><span class="fs-fleet-area-icon"><i class="fa-solid fa-sliders" aria-hidden="true"></i></span>
+		<div><h2><?=gettext('Settings for many firewalls')?></h2><p><?=gettext('One set of settings, the same on every firewall it is for. A firewall can have one template of each kind.')?></p></div></header>
+	<div class="fs-fleet-rule-grid">
+<?php foreach (FLEET_TSET_KINDS as $k => $def): ?>
+		<a class="fs-fleet-rcard fs-fleet-starter" href="?view=edit&amp;kind=<?=$k?>">
+			<div class="fs-fleet-rcard-head">
+				<span class="fs-fleet-rcard-icon"><i class="fa-solid <?=$def[1]?>" aria-hidden="true"></i></span>
+				<div class="fs-fleet-rcard-title"><strong><?=htmlspecialchars(gettext($def[0]))?></strong>
+					<span class="fs-muted small"><?=htmlspecialchars(gettext($def[2]))?></span></div>
+				<i class="fa-solid fa-chevron-right fs-muted" aria-hidden="true"></i>
+			</div>
+<?php if ($def[4] > 0): ?>
+			<p class="fs-fleet-rcard-help"><?=htmlspecialchars(sprintf(gettext('Needs FreeSense with API level %d or later on the firewall; older firewalls are skipped with FLEET-E401.'), $def[4]))?></p>
+<?php endif; ?>
+		</a>
+<?php endforeach; ?>
+	</div>
+</section>
+<section class="fs-fleet-area">
 	<header class="fs-fleet-area-head"><span class="fs-fleet-area-icon"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i></span>
-		<div><h2><?=gettext('Start from a ready-made template')?></h2><p><?=gettext('Pick one to open it in the editor. Change what you like, choose the firewalls, then save. Nothing is pushed until you apply it.')?></p></div></header>
+		<div><h2><?=gettext('Start from ready-made aliases')?></h2><p><?=gettext('Pick one to open it in the editor. Change what you like, choose the firewalls, then save. Nothing is pushed until you apply it.')?></p></div></header>
 	<div class="fs-fleet-rule-grid">
 <?php foreach (fleet_template_starters() as $key => $s): $n = array_sum(array_map(function ($a) { return count(array_filter(explode("\n", $a['entries']))); }, $s['aliases'])); ?>
 		<a class="fs-fleet-rcard fs-fleet-starter" href="?view=edit&amp;starter=<?=urlencode($key)?>">
@@ -204,6 +266,7 @@ $action_badge = function (string $a, int $n = 0) {
 <?php else:
 	$nodes = fleet_template_nodes($t['targets']);
 	$states = fleet_template_states((int)$t['id']);
+	$ignored = fleet_template_ignores((int)$t['id']);
 	$live = isset($_GET['live']) && $manage;
 	$rows = array();
 	$tot = array('create' => 0, 'update' => 0, 'delete' => 0, 'same' => 0, 'conflict' => 0);
@@ -214,7 +277,7 @@ $action_badge = function (string $a, int $n = 0) {
 		$err = null;
 		if ($live && ($box !== null) && ($box['state'] === 'online')) {
 			try {
-				$plan = fleet_template_plan((int)$t['id'], $t['items'], fleet_template_remote($box));
+				$plan = fleet_template_live_plan($t, $box);
 			} catch (RuntimeException $e) {
 				$err = $e->getMessage();
 			}
@@ -222,7 +285,7 @@ $action_badge = function (string $a, int $n = 0) {
 			$plan = fleet_template_plan_from_backup($t, $node);
 		}
 		$c = ($plan === null) ? null : fleet_template_plan_counts($plan);
-		if ($c !== null) {
+		if (($c !== null) && !isset($ignored[$node])) {
 			foreach ($c as $k => $v) {
 				$tot[$k] += $v;
 			}
@@ -241,6 +304,13 @@ $action_badge = function (string $a, int $n = 0) {
 	<div class="panel-body fs-fleet-pad">
 		<p class="fs-fleet-lead"><?=htmlspecialchars(sprintf(ngettext('For %1$s: %2$d firewall.', 'For %1$s: %2$d firewalls.', count($nodes)), fleet_targets_text($t['targets'], $names), count($nodes)))?>
 			<?=($t['description'] !== '') ? htmlspecialchars($t['description']) : ''?></p>
+<?php if ($t['kind'] !== 'aliases'): $lab = fleet_tset_labels($t['kind']); ?>
+		<dl class="fs-fleet-tset">
+<?php foreach ($t['settings'] as $k => $v): ?>
+			<dt><?=htmlspecialchars(gettext($lab[$k] ?? $k))?></dt><dd><?=htmlspecialchars(($k === 'rocommunity') ? (($v !== '') ? gettext('set (not shown)') : gettext('(none)')) : fleet_tset_text($v))?></dd>
+<?php endforeach; ?>
+		</dl>
+<?php endif; ?>
 		<div class="fs-fleet-tpl-items">
 <?php foreach ($t['items'] as $item): ?>
 			<div class="fs-fleet-tpl-chip"><i class="fa-solid <?=$type_icons[$item['type']]?>" aria-hidden="true"></i> <strong><?=htmlspecialchars($item['name'])?></strong>
@@ -251,8 +321,13 @@ $action_badge = function (string $a, int $n = 0) {
 </div>
 <div class="fs-tiles fs-fleet-tiles-row">
 	<div class="fs-tile"><span class="fs-tile-label"><?=gettext('Firewalls with changes')?></span><span class="fs-tile-value"><?=$todo_boxes?></span></div>
+<?php if ($t['kind'] === 'aliases'): ?>
 	<div class="fs-tile"><span class="fs-tile-label"><?=gettext('Create / change / remove')?></span><span class="fs-tile-value"><?=$tot['create']?> / <?=$tot['update']?> / <?=$tot['delete']?></span></div>
 	<div class="fs-tile"><span class="fs-tile-label"><?=gettext('Conflicts (skipped)')?></span><span class="fs-tile-value"><?=$tot['conflict']?></span></div>
+<?php else: ?>
+	<div class="fs-tile"><span class="fs-tile-label"><?=gettext('Settings to change')?></span><span class="fs-tile-value"><?=$tot['update']?></span></div>
+	<div class="fs-tile"><span class="fs-tile-label"><?=gettext('Firewalls in sync')?></span><span class="fs-tile-value"><?=count(array_filter($rows, function ($r) use ($ignored) { return ($r[3] !== null) && ($r[3]['update'] === 0) && !isset($ignored[$r[0]]); }))?></span></div>
+<?php endif; ?>
 </div>
 <div class="panel panel-default">
 	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('What applying changes')?></h2>
@@ -270,7 +345,10 @@ $action_badge = function (string $a, int $n = 0) {
 		<tr><td><a href="/fleet/fleet_box.php?id=<?=urlencode($node)?>"><?=htmlspecialchars($labels[$node] ?? $node)?></a>
 				<?=(($box !== null) && ($box['state'] !== 'online')) ? fs_badge('neutral', ucfirst($box['state'])) : ''?></td>
 			<td>
-<?php if ($err !== null): ?>
+<?php if (isset($ignored[$node])): $ig = $ignored[$node]; ?>
+				<?=fs_badge('neutral', gettext('Ignored'))?> <span class="small"><?=htmlspecialchars($ig['reason'])?></span>
+				<div class="fs-muted small"><?=htmlspecialchars(sprintf(gettext('By %1$s on %2$s. It keeps its own values; applying to all leaves it out.'), $ig['who'], date('Y-m-d', (int)$ig['time'])))?></div>
+<?php elseif ($err !== null): ?>
 				<span class="fs-fleet-problem small"><?=htmlspecialchars($err)?></span>
 <?php elseif ($plan === null): ?>
 				<span class="fs-muted small"><?=gettext('Not known: no configuration backup yet')?></span>
@@ -287,14 +365,34 @@ $action_badge = function (string $a, int $n = 0) {
 			</td>
 			<td class="small"><?=($st === null) ? '<span class="fs-muted">' . gettext('Never') . '</span>' :
 			    htmlspecialchars(date('Y-m-d H:i', (int)$st['applied'])) . ' ' . (($st['result'] === 'done') ? '' : fs_badge('block', gettext('Failed'))) . '<div class="fs-muted">' . htmlspecialchars($st['detail']) . '</div>'?></td>
-			<td class="text-end"><?php if ($manage && ($box !== null) && ($box['state'] === 'online') && fleet_manage_allowed($box)): ?>
-				<form method="post" class="d-inline"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><button class="btn btn-sm btn-link" name="template_apply" value="<?=(int)$t['id']?>"><?=gettext('Apply here')?></button></form><?php endif; ?></td></tr>
+			<td class="text-end text-nowrap"><?php
+	$online = ($box !== null) && ($box['state'] === 'online') && fleet_manage_allowed($box);
+	$drift = ($c !== null) && ($c['create'] + $c['update'] + $c['delete'] > 0) && ($st !== null);
+	if ($manage && isset($ignored[$node])): ?>
+				<form method="post" class="d-inline"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><button class="btn btn-sm btn-link" name="template_unignore" value="<?=(int)$t['id']?>"><?=gettext('Stop ignoring')?></button></form>
+<?php elseif ($manage): ?>
+<?php if ($online): ?>
+				<form method="post" class="d-inline"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><button class="btn btn-sm btn-link" name="template_apply" value="<?=(int)$t['id']?>"
+				    title="<?=$drift ? gettext('Put the template\'s values back on this firewall') : ''?>"><?=$drift ? gettext('Revert') : gettext('Apply here')?></button></form>
+<?php if ($drift): ?>
+				<form method="post" class="d-inline"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><button class="btn btn-sm btn-link" name="template_adopt" value="<?=(int)$t['id']?>"
+				    title="<?=gettext('Take this firewall\'s values into the template')?>"><?=gettext('Adopt')?></button></form>
+<?php endif; ?>
+<?php endif; ?>
+				<details class="fs-fleet-inline-form d-inline-block"><summary class="btn btn-sm btn-link"><?=gettext('Ignore')?></summary>
+					<form method="post"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/>
+						<label class="visually-hidden" for="ig-<?=htmlspecialchars($node)?>"><?=gettext('Why it keeps its own values')?></label>
+						<input class="form-control form-control-sm" id="ig-<?=htmlspecialchars($node)?>" name="reason" maxlength="200" required placeholder="<?=gettext('Why it keeps its own values')?>"/>
+						<button class="btn btn-sm btn-outline-secondary" name="template_ignore" value="<?=(int)$t['id']?>"><?=gettext('Ignore')?></button></form></details>
+<?php endif; ?></td></tr>
 <?php endforeach; ?>
 		</tbody></table></div>
 <?php if ($manage && !empty($rows)): ?>
 	<div class="panel-footer fs-fleet-review-actions fs-fleet-policy-actions">
-		<form method="post"><button class="btn btn-primary" name="template_apply" value="<?=(int)$t['id']?>"><i class="fa-solid fa-paper-plane icon-embed-btn" aria-hidden="true"></i><?=sprintf(ngettext('Apply to %d firewall', 'Apply to %d firewalls', count($rows)), count($rows))?></button></form>
-		<p class="fs-fleet-policy-note"><?=gettext('Each firewall gets a safety backup first, then the changes and one filter reload. Conflicts are skipped: Fleet never changes an alias it did not push. The firewalls are read again when the apply starts, so a change made since the backup is not lost.')?></p>
+<?php $n_apply = count($rows) - count(array_intersect_key($ignored, array_flip($nodes))); ?>
+		<form method="post"><button class="btn btn-primary" name="template_apply" value="<?=(int)$t['id']?>"<?=($n_apply === 0) ? ' disabled' : ''?>><i class="fa-solid fa-paper-plane icon-embed-btn" aria-hidden="true"></i><?=sprintf(ngettext('Apply to %d firewall', 'Apply to %d firewalls', $n_apply), $n_apply)?></button></form>
+		<p class="fs-fleet-policy-note"><?=($t['kind'] === 'aliases') ? gettext('Each firewall gets a safety backup first, then the changes and one filter reload. Conflicts are skipped: Fleet never changes an alias it did not push. The firewalls are read again when the apply starts, so a change made since the backup is not lost.') :
+		    gettext('Each firewall gets a safety backup first, then the template\'s settings in one change, applied at once. The firewalls are read again when the apply starts; one that already matches is left alone.')?></p>
 	</div>
 <?php endif; ?>
 </div>
@@ -311,6 +409,31 @@ $action_badge = function (string $a, int $n = 0) {
 		$t = array('id' => 0, 'name' => $starter['name'], 'description' => $starter['description'], 'targets' => array('all'), 'items' => array(), 'raw' => $starter['aliases']);
 	}
 	$t = $t ?? array('id' => 0, 'name' => '', 'description' => '', 'targets' => array('all'), 'items' => array());
+	$edit_kind = (string)($t['kind'] ?? (($typed !== null) ? ($typed['kind'] ?? 'aliases') : ($_GET['kind'] ?? 'aliases')));
+	if (($edit_kind !== 'aliases') && !isset(FLEET_TSET_KINDS[$edit_kind])) {
+		$edit_kind = 'aliases';
+	}
+	/* The settings form's values: what was typed, the template's, or sensible starting values. */
+	$sv = ($typed !== null) ? $typed : array();
+	if (($typed === null) && !empty($t['settings'])) {
+		foreach ($t['settings'] as $k => $v) {
+			$sv['set_' . $k] = is_array($v) ? implode("\n", $v) : $v;
+		}
+		if (isset($t['settings']['contents'])) {
+			$sv['set_contents'] = ($t['settings']['contents'] === 'all') ? 'all' : 'some';
+			$sv['set_contents_list'] = ($t['settings']['contents'] === 'all') ? array() : $t['settings']['contents'];
+		}
+		$sv['set_rocommunity'] = '';
+	}
+	if (($typed === null) && empty($t['settings'])) {
+		$sv += array('set_timezone' => fleet_tz(), 'set_timeservers' => "0.pool.ntp.org\n1.pool.ntp.org\n2.pool.ntp.org", 'set_enable' => true, 'set_contents' => 'all');
+	}
+	$svv = function (string $k) use ($sv) {
+		return htmlspecialchars((string)($sv['set_' . $k] ?? ''));
+	};
+	$svc = function (string $k) use ($sv) {
+		return !empty($sv['set_' . $k]) ? ' checked' : '';
+	};
 	$cards = $t['raw'] ?? array_map(function ($i) {
 		return array('name' => $i['name'], 'type' => $i['type'], 'description' => $i['description'], 'entries' => fleet_template_entries_text($i['entries']));
 	}, $t['items']);
@@ -348,8 +471,10 @@ $action_badge = function (string $a, int $n = 0) {
 <p><a class="fs-fleet-back" href="?"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> <?=gettext('All templates')?></a></p>
 <form method="post" action="?view=edit<?=$t['id'] ? '&amp;id=' . (int)$t['id'] : ''?>">
 	<input type="hidden" name="template_id" value="<?=(int)$t['id']?>"/>
+	<input type="hidden" name="kind" value="<?=htmlspecialchars($edit_kind)?>"/>
 	<div class="panel panel-default">
-		<div class="panel-heading"><h2 class="panel-title"><?=$t['id'] ? sprintf(htmlspecialchars(gettext('Change %s')), htmlspecialchars($t['name'])) : gettext('Add a template')?></h2></div>
+		<div class="panel-heading"><h2 class="panel-title"><?=$t['id'] ? sprintf(htmlspecialchars(gettext('Change %s')), htmlspecialchars($t['name'])) :
+		    htmlspecialchars(sprintf(gettext('Add a template: %s'), ($edit_kind === 'aliases') ? gettext('Aliases') : gettext(FLEET_TSET_KINDS[$edit_kind][0])))?></h2></div>
 		<div class="panel-body fs-fleet-pad">
 			<div class="row g-3">
 				<div class="col-md-4"><label class="form-label" for="tname"><?=gettext('Name')?></label>
@@ -376,6 +501,55 @@ $action_badge = function (string $a, int $n = 0) {
 			</div>
 		</div>
 	</div>
+<?php if ($edit_kind !== 'aliases'): $def = FLEET_TSET_KINDS[$edit_kind]; ?>
+	<section class="fs-fleet-area">
+		<header class="fs-fleet-area-head"><span class="fs-fleet-area-icon"><i class="fa-solid <?=$def[1]?>" aria-hidden="true"></i></span>
+			<div><h2><?=htmlspecialchars(gettext($def[0]))?></h2><p><?=htmlspecialchars(gettext($def[2]))?>. <?=gettext('Every firewall the template is for gets exactly these values.')?></p></div></header>
+		<div class="panel panel-default"><div class="panel-body fs-fleet-pad"><div class="row g-3">
+<?php if ($edit_kind === 'time'): ?>
+			<div class="col-md-5"><label class="form-label" for="s-tz"><?=gettext('Time zone')?></label>
+				<input class="form-control" id="s-tz" name="set_timezone" list="s-tz-list" required value="<?=$svv('timezone')?>" placeholder="Europe/Copenhagen"/>
+				<datalist id="s-tz-list"><?php foreach (timezone_identifiers_list() as $z) { echo '<option value="' . htmlspecialchars($z) . '">'; } ?></datalist></div>
+			<div class="col-md-7"><label class="form-label" for="s-ntp"><?=gettext('NTP servers, one per line')?></label>
+				<textarea class="form-control fs-mono" id="s-ntp" name="set_timeservers" rows="4" required><?=$svv('timeservers')?></textarea>
+				<div class="form-text"><?=gettext('Up to 5. The firewall sets its clock from these and offers time to its networks if its NTP service is on.')?></div></div>
+<?php elseif ($edit_kind === 'dns'): ?>
+			<div class="col-md-7"><label class="form-label" for="s-dns"><?=gettext('DNS servers, one per line')?></label>
+				<textarea class="form-control fs-mono" id="s-dns" name="set_dnsservers" rows="4" required placeholder="9.9.9.9&#10;149.112.112.112"><?=$svv('dnsservers')?></textarea>
+				<div class="form-text"><?=gettext('Up to 8 addresses. These replace the list on each firewall (per-server gateways there are dropped).')?></div></div>
+			<div class="col-md-5"><label class="form-check mt-md-4"><input class="form-check-input" type="checkbox" name="set_dnsallowoverride" value="1"<?=$svc('dnsallowoverride')?>/>
+				<span class="form-check-label"><?=gettext('Let DHCP or PPP on WAN override these')?></span></label></div>
+<?php elseif ($edit_kind === 'snmp'): ?>
+			<div class="col-12"><label class="form-check"><input class="form-check-input" type="checkbox" name="set_enable" value="1"<?=$svc('enable')?>/>
+				<span class="form-check-label"><?=gettext('SNMP on (off turns it off on every firewall the template is for)')?></span></label></div>
+			<div class="col-md-4"><label class="form-label" for="s-loc"><?=gettext('Location')?></label>
+				<input class="form-control" id="s-loc" name="set_syslocation" maxlength="100" value="<?=$svv('syslocation')?>" placeholder="<?=gettext('Copenhagen, rack 4')?>"/></div>
+			<div class="col-md-4"><label class="form-label" for="s-con"><?=gettext('Contact')?></label>
+				<input class="form-control" id="s-con" name="set_syscontact" maxlength="100" value="<?=$svv('syscontact')?>" placeholder="noc@example.com"/></div>
+			<div class="col-md-4"><label class="form-label" for="s-com"><?=gettext('Read community')?></label>
+				<input class="form-control" id="s-com" name="set_rocommunity" type="password" autocomplete="off" maxlength="64"
+				    placeholder="<?=!empty($t['settings']['rocommunity']) ? gettext('Set; leave empty to keep it') : ''?>"/>
+				<div class="form-text"><?=gettext('Stored encrypted. Not "public".')?></div></div>
+<?php else: /* syslog */ ?>
+			<div class="col-12"><label class="form-check"><input class="form-check-input" type="checkbox" name="set_enable" value="1"<?=$svc('enable')?>/>
+				<span class="form-check-label"><?=gettext('Send logs to remote servers')?></span></label></div>
+			<div class="col-md-6"><label class="form-label" for="s-srv"><?=gettext('Servers, one per line')?></label>
+				<textarea class="form-control fs-mono" id="s-srv" name="set_servers" rows="3" placeholder="logs.example.net&#10;10.0.9.5:5514"><?=$svv('servers')?></textarea>
+				<div class="form-text"><?=gettext('Up to 3: a host name or address, optionally :port (UDP 514 by default).')?></div></div>
+			<div class="col-md-6"><label class="form-label" for="s-ipp"><?=gettext('IP version')?></label>
+				<select class="form-select" id="s-ipp" name="set_ipproto"><option value="ipv4">IPv4</option><option value="ipv6"<?=(($sv['set_ipproto'] ?? '') === 'ipv6') ? ' selected' : ''?>>IPv6</option></select></div>
+			<fieldset class="col-12"><legend class="form-label"><?=gettext('Logs sent')?></legend>
+				<label class="form-check"><input class="form-check-input" type="radio" name="set_contents" value="all"<?=(($sv['set_contents'] ?? 'all') === 'all') ? ' checked' : ''?>/> <span class="form-check-label"><?=gettext('All logs')?></span></label>
+				<label class="form-check"><input class="form-check-input" type="radio" name="set_contents" value="some"<?=(($sv['set_contents'] ?? 'all') !== 'all') ? ' checked' : ''?>/> <span class="form-check-label"><?=gettext('Only these:')?></span></label>
+				<div class="fs-fleet-checkgrid mt-1">
+<?php foreach (FLEET_TSET_SYSLOG_CONTENTS as $ck => $cl): ?>
+					<label class="form-check"><input class="form-check-input" type="checkbox" name="set_contents_list[]" value="<?=$ck?>"<?=in_array($ck, (array)($sv['set_contents_list'] ?? array()), true) ? ' checked' : ''?>/> <span class="form-check-label"><?=htmlspecialchars(gettext($cl))?></span></label>
+<?php endforeach; ?>
+				</div></fieldset>
+<?php endif; ?>
+		</div></div></div>
+	</section>
+<?php else: ?>
 	<section class="fs-fleet-area">
 		<header class="fs-fleet-area-head"><span class="fs-fleet-area-icon"><i class="fa-solid fa-list-ul" aria-hidden="true"></i></span>
 			<div><h2><?=gettext('Aliases')?></h2><p><?=gettext('Lists of hosts, networks or ports the firewalls\' rules can use by name. On the firewall each is marked as pushed by this template.')?></p></div></header>
@@ -385,6 +559,7 @@ $action_badge = function (string $a, int $n = 0) {
 		<button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-tpl-add><i class="fa-solid fa-plus icon-embed-btn" aria-hidden="true"></i><?=gettext('Add alias')?></button>
 		<template data-tpl-blank><?=$card(999999, array('name' => '', 'type' => 'host', 'description' => '', 'entries' => ''))?></template>
 	</section>
+<?php endif; ?>
 	<div class="fs-fleet-review-actions fs-fleet-policy-actions">
 		<button class="btn btn-primary" type="submit" name="template_save" value="1"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save and preview')?></button>
 		<a class="btn btn-outline-secondary" href="?"><?=gettext('Cancel')?></a>
