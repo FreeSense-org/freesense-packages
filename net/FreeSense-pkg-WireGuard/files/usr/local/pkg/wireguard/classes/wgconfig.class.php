@@ -111,7 +111,7 @@ class wgconfig {
 
 	function add_peer($key, $leading_comment = null) {
 		// Ensure each peer has a unique public key
-		if (!array_key_exists($key, $this->get_peers())) {
+		if (!array_key_exists((string) $key, $this->get_peers())) {
 			// Seperate each peer with a blank line
 			$this->lines[] 	= null;
 			$this->_add_leading_comment($leading_comment);

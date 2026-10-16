@@ -209,7 +209,7 @@ function tailscale_get_pkg_info($field_map = NULL, $packages = NULL)
 function tailscale_get_config($package, $key, $default = NULL)
 {
 	$path = config_get_path('installedpackages/' . trim($package) . '/config/0');
-	return (is_array($path) && array_key_exists($key, $path)) ? $path[$key] : $default;
+	return (is_array($path) && array_key_exists((string) $key, $path)) ? $path[$key] : $default;
 }
 
 /*
