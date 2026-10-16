@@ -34,7 +34,8 @@ $ready = fleet_ctl_settings()['enable'] && is_file(FLEET_DATA . '/fleet.db');
 $manage = isAllowedPage('fleet/fleet.php');
 $pgtitle = array(gettext('Status'), gettext('FreeSense Fleet'), gettext('Firewalls'), gettext('HA pairs'));
 $input_errors = array();
-$view = ($manage && (($_REQUEST['view'] ?? '') === 'setup')) ? 'setup' : 'pairs';
+$view = ($manage && in_array($_REQUEST['view'] ?? '', array('setup', 'group'), true)) ? $_REQUEST['view'] : 'pairs';
+$group_results = null;
 $in = array('primary' => (string)($_REQUEST['primary'] ?? ''), 'secondary' => (string)($_REQUEST['secondary'] ?? ''));
 $plan = null;
 
@@ -59,6 +60,30 @@ if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POS
 			header('Location: /fleet/fleet_activity.php?op=' . fleet_ha_setup_launch($plan, $who));
 			exit;
 		}
+	}
+}
+
+/* The managed facts of a group's firewalls, node => fleet_ha_setup_facts(). */
+$group_facts = function (int $gid): array {
+	$q = fleet_db()->prepare('SELECT node_id FROM box_groups WHERE group_id = ?');
+	$q->execute(array($gid));
+	$facts = array();
+	foreach ($q->fetchAll(PDO::FETCH_COLUMN) as $n) {
+		$b = fleet_box_get($n);
+		if ($b !== null) {
+			$facts[$n] = fleet_ha_setup_facts($b);
+		}
+	}
+	return $facts;
+};
+
+/* Set up every suggested pair of a group, each with its suggested settings, as one operation per pair. */
+if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST') && isset($_POST['setup_group'])) {
+	$facts = $group_facts((int)($_POST['group'] ?? 0));
+	$group_results = array();
+	foreach (fleet_ha_candidates($facts) as $c) {
+		list($errors, $gplan) = fleet_ha_setup_plan($c, $facts[$c['primary']], $facts[$c['secondary']]);
+		$group_results[] = array($facts[$c['primary']]['label'], $facts[$c['secondary']]['label'], $errors, ($gplan === null) ? null : fleet_ha_setup_launch($gplan, $who));
 	}
 }
 
@@ -94,7 +119,8 @@ list($pairs, $boxes) = fleet_ha_now();
 	<header class="fs-fleet-area-head"><span class="fs-fleet-area-icon"><i class="fa-solid fa-clone" aria-hidden="true"></i></span>
 		<div><h2><?=gettext('HA pairs')?></h2><p><?=gettext('Firewalls that share CARP addresses. Fleet never works on both at once: the BACKUP goes first, the MASTER when its partner is back and the pair is healthy. Set up a new pair from two managed firewalls; Fleet makes the shared addresses, state sync and configuration sync on both.')?></p></div>
 <?php if ($manage): ?>
-		<span class="fs-fleet-area-actions"><a class="btn btn-sm btn-primary" href="?view=setup"><i class="fa-solid fa-plus icon-embed-btn" aria-hidden="true"></i><?=gettext('Set up a pair')?></a></span>
+		<span class="fs-fleet-area-actions"><a class="btn btn-sm btn-primary" href="?view=setup"><i class="fa-solid fa-plus icon-embed-btn" aria-hidden="true"></i><?=gettext('Set up a pair')?></a>
+			<a class="btn btn-sm btn-outline-secondary" href="?view=group"><i class="fa-solid fa-layer-group icon-embed-btn" aria-hidden="true"></i><?=gettext('Pair a group')?></a></span>
 <?php endif; ?>
 	</header>
 </section>
@@ -114,6 +140,58 @@ list($pairs, $boxes) = fleet_ha_now();
 <?php endforeach; ?>
 		</tbody></table></div>
 </div>
+
+<?php elseif ($view === 'group'):
+	$gid = (int)($_REQUEST['group'] ?? 0);
+	$facts = ($gid > 0) ? $group_facts($gid) : array();
+	$cands = fleet_ha_candidates($facts);
+?>
+<section class="fs-fleet-area">
+	<header class="fs-fleet-area-head"><span class="fs-fleet-area-icon"><i class="fa-solid fa-layer-group" aria-hidden="true"></i></span>
+		<div><h2><?=gettext('Pair a group')?></h2><p><?=gettext('Fleet pairs the group\'s managed firewalls that share an internal network (one site), with suggested settings: the sync interface, and the first free address of every other shared network as the shared address. Review a pair in the wizard, or set them all up.')?></p></div></header>
+</section>
+<?php if ($group_results !== null): ?>
+<div class="panel panel-default"><div class="panel-body fs-fleet-pad"><ul class="mb-0">
+<?php foreach ($group_results as list($la, $lb, $errs, $op)): ?>
+	<li><?=htmlspecialchars("{$la} + {$lb}: ")?><?=($op !== null) ? '<a href="/fleet/fleet_activity.php?op=' . (int)$op . '">' . gettext('setting up') . '</a>' : '<span class="fs-fleet-problem">' . htmlspecialchars(implode(' ', $errs)) . '</span>'?></li>
+<?php endforeach; ?>
+<?php if (empty($group_results)): ?><li class="fs-muted"><?=gettext('Nothing to set up.')?></li><?php endif; ?>
+</ul></div></div>
+<?php endif; ?>
+<form method="get" class="panel panel-default">
+	<input type="hidden" name="view" value="group"/>
+	<div class="panel-body fs-fleet-pad d-flex gap-2 align-items-end flex-wrap">
+		<div><label class="form-label" for="ha-group"><?=gettext('Group')?></label>
+			<select class="form-select" id="ha-group" name="group"><option value="0"><?=gettext('Choose...')?></option>
+<?php foreach (fleet_groups_all() as $grp): ?>
+				<option value="<?=(int)$grp['id']?>"<?=((int)$grp['id'] === $gid) ? ' selected' : ''?>><?=htmlspecialchars($grp['name'])?></option>
+<?php endforeach; ?>
+			</select></div>
+		<button class="btn btn-sm btn-outline-secondary" type="submit"><?=gettext('Find pairs')?></button>
+	</div>
+</form>
+<?php if ($gid > 0): ?>
+<form method="post" class="panel panel-default">
+	<input type="hidden" name="view" value="group"/><input type="hidden" name="group" value="<?=$gid?>"/>
+	<div class="panel-body table-responsive"><table class="table fs-table">
+		<thead><tr><th><?=gettext('Primary')?></th><th><?=gettext('Secondary')?></th><th><?=gettext('Shared addresses')?></th><th><?=gettext('Sync interface')?></th><th class="text-end"></th></tr></thead>
+		<tbody>
+<?php foreach ($cands as $c): $cf = $facts[$c['primary']]; ?>
+		<tr><td><?=htmlspecialchars($cf['label'])?></td><td><?=htmlspecialchars($facts[$c['secondary']]['label'])?></td>
+			<td class="small fs-mono"><?=htmlspecialchars(implode(', ', array_map(function ($v) use ($cf) { return $v['address'] . ' (' . ($cf['ifaces'][$v['iface']]['name'] ?? $v['iface']) . ')'; }, $c['vips'])))?></td>
+			<td class="small"><?=htmlspecialchars($cf['ifaces'][$c['sync_iface']]['name'] ?? $c['sync_iface'])?></td>
+			<td class="text-end"><a href="?view=setup&amp;primary=<?=urlencode($c['primary'])?>&amp;secondary=<?=urlencode($c['secondary'])?>"><?=gettext('Review...')?></a></td></tr>
+<?php endforeach; ?>
+<?php if (empty($cands)): ?>
+		<tr><td colspan="5" class="fs-muted"><?=empty($facts) ? gettext('The group has no firewalls.') : gettext('No two managed firewalls of this group share an internal network, or they are already paired.')?></td></tr>
+<?php endif; ?>
+		</tbody></table></div>
+<?php if (!empty($cands)): ?>
+	<div class="panel-footer"><p class="fs-fleet-hint mb-2"><?=gettext('Check first that nothing on those networks already uses the suggested shared addresses.')?></p>
+		<button class="btn btn-primary" name="setup_group" value="1"><i class="fa-solid fa-clone icon-embed-btn" aria-hidden="true"></i><?=htmlspecialchars(sprintf((count($cands) === 1) ? gettext('Set up %d pair') : gettext('Set up %d pairs'), count($cands)))?></button></div>
+<?php endif; ?>
+</form>
+<?php endif; ?>
 
 <?php else:
 	/* Setup: firewalls that can join a pair. */
@@ -135,6 +213,11 @@ list($pairs, $boxes) = fleet_ha_now();
 	$common = $chosen ? array_intersect_key($pf['ifaces'], $sf['ifaces']) : array();
 	$common = array_filter($common, function ($i, $k) use ($sf) { return ($i['ip'] !== '') && ($sf['ifaces'][$k]['ip'] !== ''); }, ARRAY_FILTER_USE_BOTH);
 	$posted = ($_SERVER['REQUEST_METHOD'] === 'POST') ? $form_in() : null;
+	/* First visit: Fleet's suggestion from the two firewalls' interfaces. */
+	$suggested = (($posted === null) && $chosen) ? fleet_ha_suggest($pf['ifaces'], $sf['ifaces']) : null;
+	if ($suggested !== null) {
+		$posted = array('vips' => $suggested['vips'], 'sync_iface' => $suggested['sync_iface'], 'sections' => $suggested['sections']);
+	}
 	$on = ($posted === null) ? array() : array_column($posted['vips'], null, 'iface');
 	$sync_sel = ($posted === null) ? '' : $posted['sync_iface'];
 	$sec_sel = ($posted === null) ? array('rules', 'aliases', 'nat') : $posted['sections'];
@@ -163,6 +246,9 @@ list($pairs, $boxes) = fleet_ha_now();
 <form method="post" class="panel panel-default">
 	<input type="hidden" name="view" value="setup"/><input type="hidden" name="primary" value="<?=htmlspecialchars($in['primary'])?>"/><input type="hidden" name="secondary" value="<?=htmlspecialchars($in['secondary'])?>"/>
 	<div class="panel-heading"><h2 class="panel-title"><?=gettext('2. Shared addresses and sync')?></h2></div>
+<?php if ($suggested !== null): ?>
+	<div class="panel-body fs-fleet-pad pb-0"><p class="fs-fleet-hint mb-0"><?=gettext('Filled in from the two firewalls: the sync interface, and the first free address of each other shared network. Check nothing else on those networks uses the shared addresses.')?></p></div>
+<?php endif; ?>
 <?php if (empty($common)): ?>
 	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-problem mb-0"><?=gettext('The two firewalls have no interface with an IPv4 address in common (or one of them did not answer).')?></p></div>
 <?php else: ?>

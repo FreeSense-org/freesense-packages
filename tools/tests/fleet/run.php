@@ -1348,4 +1348,17 @@ check((count($hrb) === 2) && ($hrb[0]['proto'] === 'pfsync') && ($hrb[0]['src'] 
     ($hrb[1]['dsttype'] === 'opt1ip') && ($hrb[1]['dstbeginport'] === '8443') && (strpos($hrb[1]['descr'], FLEET_HA_MARK) === 0),
     'the sync interface rules are the same on both and right on either (HA sync copies them): pfsync from the sync network, configuration sync from the primary');
 
+$hsg = fleet_ha_suggest($hfa['ifaces'], $hfb['ifaces']);
+check(($hsg['sync_iface'] === 'opt1') && ($hsg['vips'] === array(array('iface' => 'lan', 'address' => '10.1.0.1'))) && empty(fleet_ha_setup_plan(array('primary' => 'a', 'secondary' => 'b') + $hsg, $hfa, $hfb)[0]) &&
+    (fleet_ha_suggest($hfa['ifaces'], fleet_ha_ifaces(array(array('name' => 'lan', 'ipaddr' => '10.7.0.3', 'subnet' => '255.255.255.0')))) === null),
+    'HA setup suggests the sync interface and the first free address of the other shared networks; none when nothing is shared');
+$hdup = fleet_ha_ifaces(array(array('name' => 'lan', 'ipaddr' => '10.9.0.1', 'subnet' => '255.255.255.248'), array('name' => 'opt1', 'description' => 'HASYNC', 'ipaddr' => '10.9.0.1', 'subnet' => '255.255.255.248')));
+$hdup2 = fleet_ha_ifaces(array(array('name' => 'lan', 'ipaddr' => '10.9.0.2', 'subnet' => '255.255.255.248'), array('name' => 'opt1', 'description' => 'HASYNC', 'ipaddr' => '10.9.0.2', 'subnet' => '255.255.255.248')));
+check(fleet_ha_suggest($hdup, $hdup2)['vips'] === array(array('iface' => 'opt1', 'address' => '10.9.0.3')),
+    'two assignments of one port on the sync network count as one network');
+$hfc = array('label' => 'C', 'ifaces' => fleet_ha_ifaces(array(array('name' => 'lan', 'ipaddr' => '10.5.0.2', 'subnet' => '255.255.255.0')))) + $hfa;
+$hcand = fleet_ha_candidates(array('b' => $hfb, 'c' => $hfc, 'a' => $hfa, 'p' => array('in_pair' => true) + $hfa));
+check((count($hcand) === 1) && ($hcand[0]['primary'] === 'a') && ($hcand[0]['secondary'] === 'b'),
+    'pairing a group pairs managed firewalls sharing a network (lower name primary), never one already paired or alone');
+
 echo "Fleet controller tests: OK\n";

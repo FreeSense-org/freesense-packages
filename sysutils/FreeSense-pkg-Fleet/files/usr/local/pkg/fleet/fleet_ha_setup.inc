@@ -191,6 +191,103 @@ function fleet_ha_setup_plan(array $in, array $p, array $s): array {
 	    'sync_net' => long2ip(ip2long($ps['ip']) & ((0xffffffff << (32 - (int)$ps['bits'])) & 0xffffffff)), 'sections' => $sections, 'secondary_cert' => (string)($s['gui_cert'] ?? '')));
 }
 
+/* pure: the network of an address, as "a.b.c.d/bits". */
+function fleet_ha_net(string $ip, int $bits): string {
+	return long2ip(ip2long($ip) & (($bits === 0) ? 0 : ((0xffffffff << (32 - $bits)) & 0xffffffff))) . '/' . $bits;
+}
+
+/*
+ * pure: what two firewalls share: interface key => {name, net, bits, ips}
+ * for interfaces with IPv4 on both in the same network. WAN is left out
+ * (a shared address there is a choice for the admin, not a default).
+ */
+function fleet_ha_shared_nets(array $pi, array $si): array {
+	$out = array();
+	foreach ($pi as $k => $i) {
+		$o = $si[$k] ?? null;
+		if (($k === 'wan') || ($o === null) || ($i['ip'] === '') || ($o['ip'] === '') || ($i['bits'] === null) || ($i['bits'] > 30) ||
+		    !fleet_ha_in_net($o['ip'], $i['ip'], (int)$i['bits'])) {
+			continue;
+		}
+		$out[$k] = array('name' => $i['name'], 'net' => fleet_ha_net($i['ip'], (int)$i['bits']), 'bits' => (int)$i['bits'], 'ips' => array($i['ip'], $o['ip']));
+	}
+	return $out;
+}
+
+/*
+ * pure: a suggested setup for two firewalls ($pi/$si: fleet_ha_ifaces()):
+ * the sync interface (named like sync, HA, CARP or pfsync, else the
+ * smallest shared network), and on every other shared network its first
+ * address neither firewall uses as the shared address. Null when they
+ * share no network.
+ */
+function fleet_ha_suggest(array $pi, array $si): ?array {
+	$shared = fleet_ha_shared_nets($pi, $si);
+	if (empty($shared)) {
+		return null;
+	}
+	$sync = null;
+	foreach ($shared as $k => $n) {
+		if (preg_match('/sync|ha|^ha|carp/i', $n['name'] . ' ' . $k)) {
+			$sync = $k;
+			break;
+		}
+	}
+	if ($sync === null) {
+		uasort($shared, function ($a, $b) { return $b['bits'] <=> $a['bits']; });
+		$sync = (string)array_key_first($shared);
+	}
+	/* Another interface on the sync network (two assignments of one port) is the same network. */
+	$shared = array_filter($shared, function ($n, $k) use ($shared, $sync) {
+		return ($k === $sync) || ($n['net'] !== $shared[$sync]['net']);
+	}, ARRAY_FILTER_USE_BOTH);
+	$vips = array();
+	foreach ($shared as $k => $n) {
+		if (($k === $sync) && (count($shared) > 1)) {
+			continue;
+		}
+		$base = ip2long(explode('/', $n['net'])[0]);
+		$size = 2 ** (32 - $n['bits']);
+		for ($h = 1; $h < $size - 1; $h++) {
+			$ip = long2ip($base + $h);
+			if (!in_array($ip, $n['ips'], true)) {
+				$vips[] = array('iface' => $k, 'address' => $ip);
+				break;
+			}
+		}
+	}
+	return array('vips' => $vips, 'sync_iface' => $sync, 'sections' => array('rules', 'aliases', 'nat'));
+}
+
+/*
+ * pure: pairs to set up among a group's firewalls ($facts: node =>
+ * fleet_ha_setup_facts()): two managed firewalls, not in a pair, that
+ * share an internal network. Each firewall is in at most one suggestion;
+ * the lower name is the primary.
+ */
+function fleet_ha_candidates(array $facts): array {
+	$nodes = array_keys(array_filter($facts, function ($f) {
+		return (($f['role'] ?? '') === 'managed') && empty($f['in_pair']) && (($f['hasync_peer'] ?? '') === '') && !empty($f['ifaces']);
+	}));
+	usort($nodes, function ($a, $b) use ($facts) { return strnatcasecmp($facts[$a]['label'], $facts[$b]['label']); });
+	$used = array();
+	$out = array();
+	foreach ($nodes as $i => $a) {
+		foreach (array_slice($nodes, $i + 1) as $b) {
+			if (isset($used[$a]) || isset($used[$b])) {
+				continue;
+			}
+			$sg = fleet_ha_suggest($facts[$a]['ifaces'], $facts[$b]['ifaces']);
+			if (($sg === null) || empty($sg['vips'])) {
+				continue;
+			}
+			$out[] = array('primary' => $a, 'secondary' => $b) + $sg;
+			$used[$a] = $used[$b] = true;
+		}
+	}
+	return $out;
+}
+
 /* pure: the virtual IP body for one address on one firewall. */
 function fleet_ha_vip_body(array $v, int $skew, string $password): array {
 	return array('mode' => 'carp', 'interface' => $v['iface'], 'vhid' => (string)$v['vhid'], 'advbase' => '1', 'advskew' => (string)$skew,
