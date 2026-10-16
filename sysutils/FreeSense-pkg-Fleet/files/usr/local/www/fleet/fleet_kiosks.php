@@ -60,7 +60,10 @@ if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 }
 if ($ready && $manage) {
 	fs_page_action(gettext('Add screen'), '#', 'fa-plus', 'primary', array('data-fs-modal' => '#kiosk-modal', 'data-fs-modal-title' => gettext('Add a NOC screen'),
-	    'data-fs-fill' => json_encode(array('id' => '', 'name' => '', 'networks' => '', 'hide' => false))));
+	    'data-fs-fill' => json_encode(array('id' => '', 'name' => '', 'networks' => '', 'hide' => false, 'style' => 'freesense', 'theme' => 'auto'))));
+}
+if ($ready) {
+	fs_page_action(gettext('Open live view'), '/fleet/noc.php', 'fa-display', 'secondary', array('target' => '_blank', 'rel' => 'noopener'));
 }
 
 include('head.inc');
@@ -111,17 +114,19 @@ $screens = fleet_kiosks_all();
 	<p class="fs-fleet-hint"><?=gettext('No screens yet. Add one and open its link on the screen.')?></p>
 <?php else: ?>
 	<div class="panel panel-default"><div class="panel-body table-responsive"><table class="table fs-table">
-		<thead><tr><th><?=gettext('Screen')?></th><th><?=gettext('Allowed from')?></th><th><?=gettext('Names')?></th><th><?=gettext('Last seen')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
+		<thead><tr><th><?=gettext('Screen')?></th><th><?=gettext('Allowed from')?></th><th><?=gettext('Names')?></th><th><?=gettext('Style')?></th><th><?=gettext('Last seen')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
 		<tbody>
 <?php foreach ($screens as $k): ?>
 		<tr><td><strong><?=htmlspecialchars($k['name'])?></strong><div class="fs-muted small"><?=htmlspecialchars(sprintf(gettext('Made %1$s by %2$s'), date('Y-m-d', (int)$k['created']), $k['who']))?></div></td>
 			<td class="fs-mono small"><?=htmlspecialchars(implode(', ', $k['networks']))?></td>
 			<td><?=!empty($k['hide']) ? fs_badge('info', gettext('Hidden')) : '<span class="fs-muted small">' . gettext('Shown') . '</span>'?></td>
+			<td class="small"><?=htmlspecialchars(gettext(FLEET_KIOSK_STYLES[$k['style'] ?? 'freesense'][0] ?? 'FreeSense'))?>
+				<span class="fs-muted"><?=htmlspecialchars(gettext(FLEET_KIOSK_THEMES[$k['theme'] ?? 'auto'] ?? ''))?></span></td>
 			<td class="small"><?=($k['last_used'] !== null) ? htmlspecialchars(date('Y-m-d H:i', (int)$k['last_used']) . ' (' . $k['last_ip'] . ')') : '<span class="fs-muted">' . gettext('Not opened yet') . '</span>'?></td>
 			<td class="text-end text-nowrap">
 <?php if ($manage): ?>
 				<button type="button" class="btn btn-sm btn-link" data-fs-modal="#kiosk-modal" data-fs-modal-title="<?=htmlspecialchars(sprintf(gettext('Change %s'), $k['name']))?>"
-				    data-fs-fill="<?=htmlspecialchars(json_encode(array('id' => (string)$k['id'], 'name' => $k['name'], 'networks' => implode("\n", $k['networks']), 'hide' => !empty($k['hide']))))?>"><?=gettext('Change')?></button>
+				    data-fs-fill="<?=htmlspecialchars(json_encode(array('id' => (string)$k['id'], 'name' => $k['name'], 'networks' => implode("\n", $k['networks']), 'hide' => !empty($k['hide']), 'style' => (string)($k['style'] ?? 'freesense'), 'theme' => (string)($k['theme'] ?? 'auto'))))?>"><?=gettext('Change')?></button>
 				<form method="post" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="revoke" value="<?=(int)$k['id']?>"><?=gettext('Revoke')?></button></form>
 <?php endif; ?>
 			</td></tr>
@@ -139,6 +144,21 @@ $screens = fleet_kiosks_all();
 	<div class="mb-3"><label class="form-label" for="knets"><?=gettext('Allowed from')?></label>
 		<textarea class="form-control fs-mono" id="knets" name="networks" rows="3" required placeholder="10.20.0.15&#10;10.20.5.0/24"></textarea>
 		<div class="form-text"><?=gettext('The address or network of the screen, one per line. The link does nothing from anywhere else.')?></div></div>
+	<fieldset class="mb-3"><legend class="form-label"><?=gettext('Style')?></legend>
+		<div class="fs-fleet-styles">
+<?php foreach (FLEET_KIOSK_STYLES as $sk => list($sname, $sdesc)): ?>
+			<label class="fs-fleet-style fs-fleet-style--<?=$sk?>"><input type="radio" name="style" value="<?=$sk?>"/>
+				<span class="fs-fleet-style-swatch" aria-hidden="true"><i></i><i></i><i></i></span>
+				<span><strong><?=htmlspecialchars(gettext($sname))?></strong><small><?=htmlspecialchars(gettext($sdesc))?></small></span></label>
+<?php endforeach; ?>
+		</div>
+		<div class="form-text"><?=gettext('Changes reach the screen within 10 seconds; it keeps its link. Preview each style in the live view.')?></div></fieldset>
+	<div class="mb-3"><label class="form-label" for="ktheme"><?=gettext('Light or dark')?></label>
+		<select class="form-select" id="ktheme" name="theme">
+<?php foreach (FLEET_KIOSK_THEMES as $tk => $tname): ?>
+			<option value="<?=$tk?>"><?=htmlspecialchars(gettext($tname))?></option>
+<?php endforeach; ?>
+		</select></div>
 	<label class="form-check"><input class="form-check-input" type="checkbox" name="hide" value="1"/>
 		<span class="form-check-label"><?=gettext('Hide names and addresses (for a screen people walk past): firewalls are numbered, error texts are left out')?></span></label>
 <?php

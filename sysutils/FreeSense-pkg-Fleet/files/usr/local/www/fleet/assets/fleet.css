@@ -848,3 +848,17 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 .fs-fleet-advisor > summary::-webkit-details-marker { display: none; }
 .fs-fleet-advisor-q { margin-bottom: var(--fs-sp-2); }
 .fs-fleet-tile-text { font-size: 1rem; }
+
+/* NOC screen styles in the screen form: a swatch of each look (fleet-kiosk.css) */
+.fs-fleet-styles { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: var(--fs-sp-2); }
+.fs-fleet-style { display: flex; align-items: center; gap: var(--fs-sp-2); padding: var(--fs-sp-2); border: 1px solid var(--fs-border); border-radius: var(--fs-radius, 6px); cursor: pointer; }
+.fs-fleet-style input { flex: none; }
+.fs-fleet-style:has(input:checked) { border-color: var(--fs-accent, #f05a28); }
+.fs-fleet-style small { display: block; color: var(--fs-text-muted); }
+.fs-fleet-style-swatch { display: grid; grid-template-columns: repeat(3, .7rem); gap: 2px; padding: 4px; border-radius: 4px; flex: none; }
+.fs-fleet-style-swatch i { height: 1.4rem; border-radius: 1px; }
+.fs-fleet-style--freesense .fs-fleet-style-swatch { background: #0e1622; } .fs-fleet-style--freesense i:nth-child(1) { background: #f05a28; } .fs-fleet-style--freesense i:nth-child(2) { background: #46c08a; } .fs-fleet-style--freesense i:nth-child(3) { background: #ff5d5d; }
+.fs-fleet-style--pro .fs-fleet-style-swatch { background: #0b0e12; } .fs-fleet-style--pro i:nth-child(1) { background: #5b8fe0; } .fs-fleet-style--pro i:nth-child(2) { background: #4caf7d; } .fs-fleet-style--pro i:nth-child(3) { background: #ef5b5b; }
+.fs-fleet-style--hacker .fs-fleet-style-swatch { background: #000301; } .fs-fleet-style--hacker i:nth-child(1) { background: #00ff9c; } .fs-fleet-style--hacker i:nth-child(2) { background: #00e5ff; } .fs-fleet-style--hacker i:nth-child(3) { background: #ff2e63; }
+.fs-fleet-style--control .fs-fleet-style-swatch { background: #0d0b08; } .fs-fleet-style--control i:nth-child(1) { background: #ffb000; } .fs-fleet-style--control i:nth-child(2) { background: #ff7a1a; } .fs-fleet-style--control i:nth-child(3) { background: #ff3b30; }
+.fs-fleet-style--blueprint .fs-fleet-style-swatch { background: #0b2a4a; } .fs-fleet-style--blueprint i { border: 1px dashed #a9c4e4; } .fs-fleet-style--blueprint i:nth-child(3) { border-color: #ff8a7a; border-style: solid; }

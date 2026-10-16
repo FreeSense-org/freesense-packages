@@ -1183,4 +1183,16 @@ check((fleet_seed_tailscale_key($fa, (string)fleet_join_key_normalize($fshown)) 
 check(fleet_factory_settings(array('name' => 'B', 'mode' => 'pin', 'via' => 'tailscale'))['via'] === 'tailscale' && fleet_factory_settings(array('name' => 'B', 'via' => 'x'))['via'] === '',
     'a batch is over the internet or over Tailscale');
 
+/* ---- NOC looks and the live view ---- */
+check((fleet_kiosk_look('hacker', 'light') === array('hacker', 'light')) && (fleet_kiosk_look('<x>', 'neon') === array('freesense', 'auto')) && (count(FLEET_KIOSK_STYLES) === 5),
+    'five NOC styles in light, dark or the screen\'s own setting; anything else is the default');
+$nocp = fleet_kiosk_page(true, 'blueprint', 'dark', true, array('css' => 1, 'js' => 2));
+$nock = fleet_kiosk_page(false, 'pro', 'auto', false, array());
+check((strpos($nocp, 'class="k--blueprint" data-theme="dark"') !== false) && (strpos($nocp, 'id="k-style"') !== false) && (strpos($nocp, 'data-mode="live"') !== false) &&
+    (strpos($nock, 'id="k-style"') === false) && (strpos($nock, 'data-theme=') === false || strpos($nock, ' data-theme="') === false) && (stripos($nocp . $nock, '<script>') === false) && (stripos($nocp . $nock, 'style="') === false),
+    'the live view has a style picker, a wall screen does not, and neither page has inline script or style (the CSP)');
+$nocv = fleet_kiosk_view(array('boxes' => array(array('node_id' => 'n1', 'state' => 'online', 'groups' => array(), 'version' => '', 'seen' => 0, 'policy' => 0, 'breakglass' => false,
+    'update' => null, 'op' => null, 'label' => 'A', 'host' => 'a', 'problem' => '')), 'headline' => '', 'total' => 1, 'counts' => array(), 'checked' => 0, 'now' => 0), array(), true, 'T', array('control', 'dark'));
+check(!isset($nocv['boxes'][0]['id']) && ($nocv['style'] === 'control') && ($nocv['theme'] === 'dark'), 'a screen that hides names gets no firewall ids, and every screen gets its saved look');
+
 echo "Fleet controller tests: OK\n";

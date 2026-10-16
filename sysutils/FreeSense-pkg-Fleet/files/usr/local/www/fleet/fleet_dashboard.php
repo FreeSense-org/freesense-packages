@@ -70,6 +70,7 @@ $filters = array(
 	array('unprotected', gettext('No rollback'), $data['counts']['unprotected'], null),
 );
 
+fs_page_action(gettext('Open live view'), '/fleet/noc.php', 'fa-display', 'secondary', array('target' => '_blank', 'rel' => 'noopener'));
 include('head.inc');
 ?>
 <link rel="stylesheet" href="<?=$asset('fleet.css')?>">
