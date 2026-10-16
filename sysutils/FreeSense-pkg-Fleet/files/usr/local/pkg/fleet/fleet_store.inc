@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 14);
+define('FLEET_DB_SCHEMA', 15);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -325,6 +325,19 @@ CREATE TABLE IF NOT EXISTS template_state (
 	template_id INTEGER NOT NULL, node_id TEXT NOT NULL, hash TEXT NOT NULL, applied INTEGER NOT NULL, result TEXT NOT NULL, detail TEXT NOT NULL,
 	PRIMARY KEY (template_id, node_id));
 PRAGMA user_version = 14;
+SQL);
+	}
+	if ($version < 15) {
+		/* Central users and user groups (synced to firewalls). Passwords only as bcrypt hashes. */
+		$db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS fusers (
+	id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE COLLATE NOCASE, fullname TEXT NOT NULL DEFAULT '', hash TEXT NOT NULL,
+	ssh_keys TEXT NOT NULL DEFAULT '', expires TEXT NOT NULL DEFAULT '', disabled INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL, updated INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS ugroups (
+	id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE COLLATE NOCASE, description TEXT NOT NULL DEFAULT '', privs TEXT NOT NULL,
+	targets TEXT NOT NULL, created INTEGER NOT NULL, updated INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS ugroup_members (user_id INTEGER NOT NULL, group_id INTEGER NOT NULL, PRIMARY KEY (user_id, group_id));
+PRAGMA user_version = 15;
 SQL);
 	}
 	$db->exec('COMMIT');

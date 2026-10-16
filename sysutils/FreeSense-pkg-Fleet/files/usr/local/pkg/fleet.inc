@@ -50,6 +50,7 @@ require_once('fleet/fleet_backup_sets.inc');
 require_once('fleet/fleet_replicas.inc');
 require_once('fleet/fleet_policy.inc');
 require_once('fleet/fleet_templates.inc');
+require_once('fleet/fleet_users.inc');
 
 define('FLEET_CTL_IF', 'wgfctl0');
 define('FLEET_ENROLL_CONF', '/var/etc/fleet-enroll.conf');
@@ -474,6 +475,8 @@ function fleet_event_text(string $node_id, string $action, string $detail): arra
 		return array('Policy', $rest);
 	case 'template':
 		return array('Template', $rest);
+	case 'users':
+		return array('Users', $rest);
 	case 'policy_exception':
 		return array('Policy exception', $rest);
 	case 'replicas':

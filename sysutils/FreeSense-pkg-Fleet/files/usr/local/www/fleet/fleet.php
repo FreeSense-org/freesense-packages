@@ -161,6 +161,7 @@ $tab_array = array(
 	array(gettext('Backups'), false, '/fleet/fleet_backups.php'),
 	array(gettext('Policies'), false, '/fleet/fleet_policies.php'),
 	array(gettext('Templates'), false, '/fleet/fleet_templates.php'),
+	array(gettext('Users'), false, '/fleet/fleet_users.php'),
 	array(gettext('Firewalls'), $tab === 'firewalls', '/fleet/fleet.php'),
 	array(gettext('Settings'), $tab === 'settings', '/fleet/fleet.php?tab=settings'),
 );

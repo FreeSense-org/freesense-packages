@@ -61,7 +61,7 @@ $what = function (array $o): string {
 	if ($o['node_id'] === '') {
 		return (string)$o['title'];
 	}
-	$kinds = array('reboot' => gettext('Reboot'), 'backup' => gettext('Back up'), 'restore' => gettext('Restore'), 'update' => gettext('Update'), 'template' => gettext('Apply template to'));
+	$kinds = array('reboot' => gettext('Reboot'), 'backup' => gettext('Back up'), 'restore' => gettext('Restore'), 'update' => gettext('Update'), 'template' => gettext('Apply template to'), 'users' => gettext('Sync users to'));
 	return ($kinds[$o['kind']] ?? $o['kind']) . ' ' . ($o['label'] ?? $o['node_id']);
 };
 $now = time();
@@ -105,6 +105,7 @@ if ($manage) {
 		array(gettext('Backups'), false, '/fleet/fleet_backups.php'),
 		array(gettext('Policies'), false, '/fleet/fleet_policies.php'),
 		array(gettext('Templates'), false, '/fleet/fleet_templates.php'),
+		array(gettext('Users'), false, '/fleet/fleet_users.php'),
 		array(gettext('Firewalls'), false, '/fleet/fleet.php'),
 		array(gettext('Settings'), false, '/fleet/fleet.php?tab=settings'),
 	);

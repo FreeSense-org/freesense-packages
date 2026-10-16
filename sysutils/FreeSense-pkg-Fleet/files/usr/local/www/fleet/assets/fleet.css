@@ -800,3 +800,8 @@ a.fs-fleet-tile-link:hover, a.fs-fleet-tile-link:focus-visible { border-color: v
 .fs-fleet-starter:hover, .fs-fleet-starter:focus-visible { border-color: var(--fs-info); background: var(--bs-tertiary-bg); }
 .fs-fleet-starter .fs-fleet-rcard-icon { color: var(--fs-info); }
 .fs-fleet-starter-names { font-family: var(--bs-font-monospace); font-size: .75rem; color: var(--fs-text-muted); }
+/* ---- users ---- */
+.fs-fleet-person { display: flex; align-items: center; gap: var(--fs-sp-2); }
+.fs-fleet-avatar { display: grid; place-items: center; width: 2rem; height: 2rem; flex: none; border-radius: 50%; background: var(--bs-tertiary-bg); color: var(--fs-info); font-size: .75rem; font-weight: 600; }
+.fs-fleet-priv-list { display: flex; flex-wrap: wrap; gap: .25rem; align-items: center; }
+.fs-fleet-chip { display: inline-flex; align-items: center; padding: .1rem .5rem; border: 1px solid var(--fs-border); border-radius: 999px; font-size: .75rem; background: var(--bs-tertiary-bg); white-space: nowrap; }
