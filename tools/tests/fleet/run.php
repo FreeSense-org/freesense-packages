@@ -1443,4 +1443,26 @@ check((fleet_conn_paths(null) === array()) && (fleet_conn_paths(array('method' =
     fleet_conn_pending(array('want' => array('direct', 'opt1'), 'state' => $cpb)) && (fleet_conn_cfg_from(array('conn_method' => 'both', 'conn_iface' => 'opt1'), true)['method'] === 'both') && !empty(fleet_conn_requirements('both')),
     'a firewall can use Direct and Tailscale together: both paths in order, then the tunnel');
 
+/* Dashboard widget. */
+check((fleet_widget_cfg(array()) === array('parts' => array_keys(FLEET_WIDGET_PARTS), 'group' => 0, 'rows' => 5)) &&
+    (fleet_widget_cfg(array('fleet_parts' => 'problems,bogus,health', 'fleet_group' => '3', 'fleet_rows' => '10')) === array('parts' => array('health', 'problems'), 'group' => 3, 'rows' => 10)) &&
+    (fleet_widget_cfg(array('fleet_parts' => '', 'fleet_rows' => '7'))['parts'] === array()) && (fleet_widget_cfg(array('fleet_rows' => '7'))['rows'] === 5),
+    'widget settings: all parts by default, unknown parts and row counts are ignored, every part can be off');
+$wb = function ($id, $state, $extra = array()) { return $extra + array('id' => $id, 'label' => strtoupper($id), 'state' => $state, 'problem' => '', 'policy' => 0, 'rollback' => true, 'update' => null); };
+$wboxes = array($wb('a', 'online', array('update' => array('info', 'Update: 1.2.1'))), $wb('b', 'online', array('rollback' => false)), $wb('c', 'degraded'),
+    $wb('d', 'offline', array('problem' => 'FLEET-E105: No route (x). Check it.')), $wb('e', 'online', array('policy' => 2)), $wb('f', 'online'));
+$wp = fleet_widget_problems($wboxes, array(array('nodes' => array('a', 'f'), 'problem' => array('split', 'x')), array('nodes' => array('b', 'e'), 'problem' => null)),
+    array('a' => 'A', 'f' => 'F'), 10);
+check((array_column($wp, 'label') === array('D', 'A + F', 'C', 'E', 'B', 'A')) && ($wp[0]['badge'] === array('block', 'Offline')) && ($wp[0]['text'] === 'No route (x)') &&
+    ($wp[1]['badge'][1] === 'Split-brain') && ($wp[3]['text'] === '2 policy rules fail') && ($wp[5]['link'] === '/fleet/fleet_updates.php') &&
+    (count(fleet_widget_problems($wboxes, array(), array(), 3)) === 3) && (fleet_widget_problems(array($wb('f', 'online')), array(), array(), 5) === array()),
+    'widget problem list: offline, HA problems, degraded, policy, no rollback, updates, worst first and cut to the rows; a healthy fleet lists nothing');
+check((strpos(fleet_widget_html(array('ready' => false, 'standby' => null), fleet_widget_cfg(array())), 'not set up') !== false) &&
+    (strpos(fleet_widget_html(array('ready' => false, 'standby' => array('last_ok' => 0)), fleet_widget_cfg(array())), 'standby') !== false) &&
+    (strpos(fleet_widget_html(array('ready' => true, 'counts' => array(), 'total' => 0), fleet_widget_cfg(array('fleet_parts' => ''))), 'Every part is turned off') !== false),
+    'widget on a server that is not a controller, on a standby, and with every part off');
+$wpl = (string)file_get_contents($repo . '/sysutils/FreeSense-pkg-Fleet/pkg-plist') . (string)file_get_contents($repo . '/sysutils/FreeSense-pkg-Fleet/Makefile') .
+    (string)file_get_contents($repo . '/sysutils/FreeSense-pkg-Fleet/files/etc/inc/priv/fleet.priv.inc');
+check((substr_count($wpl, 'widgets/widgets/fleet.widget.php') === 3) && (strpos($wpl, 'www/widgets/include/fleet.inc') !== false), 'the widget is packaged, installed and in the read-only Fleet privilege');
+
 echo "Fleet controller tests: OK\n";

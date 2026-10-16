@@ -921,3 +921,25 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 /* HA pair setup. */
 .fs-fleet-ha-pick { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--fs-sp-3); }
 .fs-fleet-ha-review { border-top: 1px solid var(--fs-border); }
+
+/* Dashboard widget (widgets/widgets/fleet.widget.php): quiet when healthy, a problem stands out. */
+.fs-fleet-widget { display: grid; gap: var(--fs-sp-3); padding: var(--fs-sp-2) 0; }
+.fs-fleet-widget-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); gap: var(--fs-sp-2); }
+.fs-fleet-widget-tile { display: flex; flex-direction: column; padding: var(--fs-sp-2) var(--fs-sp-3); border: 1px solid var(--fs-border); border-radius: var(--fs-r-sm); color: inherit; text-decoration: none; }
+.fs-fleet-widget-tile:hover, .fs-fleet-widget-tile:focus-visible { border-color: var(--fs-info); }
+.fs-fleet-widget-n { font-size: 1.35rem; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.fs-fleet-widget-l { font-size: .78rem; color: var(--fs-text-muted); }
+.fs-fleet-widget-tile.is-block { border-color: var(--fs-block); }
+.fs-fleet-widget-tile.is-block .fs-fleet-widget-n { color: var(--fs-block); }
+.fs-fleet-widget-tile.is-warn .fs-fleet-widget-n { color: var(--fs-warn); }
+.fs-fleet-widget-tile.is-info .fs-fleet-widget-n { color: var(--fs-info); }
+.fs-fleet-widget-part { border-top: 1px solid var(--fs-border); padding-top: var(--fs-sp-2); }
+.fs-fleet-widget-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--fs-sp-1); font-size: .9rem; }
+.fs-fleet-widget-ok, .fs-fleet-widget-note { margin: 0; color: var(--fs-text-muted); }
+.fs-fleet-widget-ok i { color: var(--fs-pass); }
+.fs-fleet-widget-more { font-size: .85rem; }
+.fs-fleet-widget-avail { display: grid; gap: var(--fs-sp-1); color: inherit; text-decoration: none; }
+.fs-fleet-widget-avail svg { width: 100%; height: 44px; }
+.fs-fleet-widget-facts { display: grid; grid-template-columns: max-content 1fr; gap: var(--fs-sp-1) var(--fs-sp-3); margin: 0; font-size: .9rem; }
+.fs-fleet-widget-facts dt { font-weight: 500; color: var(--fs-text-muted); }
+.fs-fleet-widget-facts dd { margin: 0; }
