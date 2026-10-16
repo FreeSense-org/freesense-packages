@@ -49,14 +49,14 @@
 			s = (v / 1e9).toFixed(a >= 1e10 ? 0 : 1) + 'G';
 		} else if (a >= 1e6) {
 			s = (v / 1e6).toFixed(a >= 1e7 ? 0 : 1) + 'M';
-		} else if (a >= 1e4) {
-			s = (v / 1e3).toFixed(0) + 'k';
+		} else if (a >= 1e3) {
+			s = (v / 1e3).toFixed(a >= 1e4 ? 0 : 1) + 'k';
 		} else if (a >= 100 || v === Math.round(v)) {
 			s = String(Math.round(v));
 		} else {
 			s = v.toFixed(1);
 		}
-		return s.replace('.0', '') + (unit || '');
+		return s.replace(/\.0(?=\D|$)/, '') + (unit || '');
 	}
 
 	/* Time labels: hours within two days, dates beyond. */
@@ -169,6 +169,12 @@
 				}
 			}
 			body += '<path class="fs-fleet-chart-line ' + c + (s.dash ? ' fs-fc-dash' : '') + '" d="' + path(s.data) + '"/>';
+			/* A value with no neighbour has no line: show it as a dot. */
+			s.data.forEach(function (v, i) {
+				if (num(v) !== null && num(s.data[i - 1]) === null && num(s.data[i + 1]) === null) {
+					body += '<circle class="fs-fc-dot ' + c + '" cx="' + x(i).toFixed(1) + '" cy="' + y(v).toFixed(1) + '" r="3"/>';
+				}
+			});
 		});
 		body += '<line class="fs-fc-cross" x1="0" x2="0" y1="' + P.t + '" y2="' + (H - P.b) + '" visibility="hidden"/>';
 		var legend = (o.legend !== false && (o.series.length > 1 || o.legend)) ? '<p class="fs-fleet-chart-legend small mb-0">' + o.series.map(function (s, k) {

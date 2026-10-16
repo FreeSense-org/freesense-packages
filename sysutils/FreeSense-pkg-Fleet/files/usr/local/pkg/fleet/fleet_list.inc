@@ -365,8 +365,12 @@ function fleet_firewalls_nav(string $current, int $pending = 0): string {
 }
 
 /* The views of the Dashboard tab. */
-function fleet_dashboard_nav(string $current): string {
-	$views = array('overview' => array(gettext('Overview'), '/fleet/fleet_dashboard.php'), 'kiosks' => array(gettext('NOC screens'), '/fleet/fleet_kiosks.php'));
+function fleet_dashboard_nav(string $current, bool $manage = true): string {
+	$views = array('overview' => array(gettext('Overview'), '/fleet/fleet_dashboard.php'), 'trends' => array(gettext('Trends'), '/fleet/fleet_dashboard.php?view=trends'),
+	    'firewalls' => array(gettext('Firewalls'), '/fleet/fleet_dashboard.php?view=firewalls'));
+	if ($manage) {
+		$views['kiosks'] = array(gettext('NOC screens'), '/fleet/fleet_kiosks.php');
+	}
 	$h = '<nav class="fs-viewswitch" aria-label="' . htmlspecialchars(gettext('Dashboard')) . '">';
 	foreach ($views as $k => list($label, $url)) {
 		$h .= '<a href="' . $url . '"' . (($k === $current) ? ' aria-current="page"' : '') . '>' . htmlspecialchars($label) . '</a>';

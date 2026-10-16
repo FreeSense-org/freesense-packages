@@ -12,6 +12,7 @@ pkg/fleet/fleet_standby.inc
 pkg/fleet/fleet_access.inc
 pkg/fleet/fleet_widget.inc
 pkg/fleet/fleet_samples.inc
+pkg/fleet/fleet_trends.inc
 pkg/fleet/fleet_stats.inc
 pkg/fleet/fleet_list.inc
 pkg/fleet/fleet_manage.inc
@@ -39,6 +40,7 @@ sbin/freesense-fleet-standby
 share/FreeSense-pkg-Fleet/info.xml
 www/fleet/assets/fleet-list.js
 www/fleet/assets/fleet-charts.js
+www/fleet/assets/fleet-dashboard.js
 www/fleet/assets/fleet-metrics.js
 www/fleet/assets/fleet-naming.js
 www/fleet/assets/fleet-policy.js
