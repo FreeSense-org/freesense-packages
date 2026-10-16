@@ -372,10 +372,22 @@ function fleet_conn_apply_box(array $box, array $want, string $who, ?callable $s
 		    (($method === 'tailscale') ? 'Check the tailnet ACL allows the controller to TCP 8444.' : 'Check the route and any firewall between the controller and that address.'));
 	}
 	$now = time();
+	/* With a Tailscale API token: what would make this path drop later (key expiry, FLEET-E136). */
+	$note = '';
+	if (($method === 'tailscale') && function_exists('fleet_ts_devices')) {
+		try {
+			$d = fleet_ts_device_for((array)fleet_ts_devices(true), $address);
+			foreach (($d === null) ? array() : fleet_ts_device_problems($d, $now) as $p) {
+				$note .= ' ' . ltrim($p[0] . ': ' . $p[2], ': ');
+			}
+		} catch (RuntimeException $e) {
+			$note = ' (Tailscale API: ' . $e->getMessage() . ')';
+		}
+	}
 	fleet_conn_state_save($box['node_id'], array('method' => $method, 'iface' => $iface, 'address' => $address, 'source' => $src, 'ok' => true, 'since' => $now,
 	    'checked' => $now, 'error' => ''));
 	fleet_audit($who, 'connections', "{$box['label']}: {$method} path on {$address} (allowed {$src}), the tunnel stays as fallback");
-	return "Uses the {$method} path on {$address}; the Fleet tunnel is the fallback.";
+	return "Uses the {$method} path on {$address}; the Fleet tunnel is the fallback." . $note;
 }
 
 /* Start applying the connection changes of these firewalls in the background. Returns the operation id. */

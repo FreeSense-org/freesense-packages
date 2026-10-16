@@ -56,6 +56,14 @@ if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 			}
 			fleet_conn_set_box($target, $_POST, $who);
 			$savemsg = gettext('Firewall saved. Apply the change below.');
+		} elseif (isset($_POST['save_ts_token'])) {
+			fleet_ts_token_set((string)($_POST['ts_token'] ?? ''), $who);
+			$savemsg = gettext('Tailscale API token saved. Fleet now checks each firewall\'s tailnet device.');
+		} elseif (isset($_POST['remove_ts_token'])) {
+			fleet_ts_token_set('', $who);
+			$savemsg = gettext('Tailscale API token removed. Tailscale paths are only probed now.');
+		} elseif (isset($_POST['ts_expiry_off'])) {
+			$savemsg = fleet_ts_key_expiry_off((string)($_POST['node'] ?? ''), $who);
 		} elseif (isset($_POST['apply'])) {
 			$nodes = array_keys(array_filter(fleet_conn_overview(), 'fleet_conn_pending'));
 			if (isset($_POST['node'])) {
@@ -130,6 +138,7 @@ $rows = array_filter($overview, function ($r) use ($f) {
 });
 $pg = fleet_list_page(count($rows), (int)($_GET['page'] ?? 1));
 $keep = array_intersect_key($_GET, array_flip(array('public', 'private', 'thirdparty', 'udp')));
+$ts = fleet_ts_check($overview);
 $fallbacks = count(array_filter($overview, function ($r) { return ($r['state'] !== null) && empty($r['state']['ok']); }));
 ?>
 
@@ -187,6 +196,29 @@ $fallbacks = count(array_filter($overview, function ($r) { return ($r['state'] !
 </details>
 
 <div class="panel panel-default">
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><i class="fa-solid fa-circle-nodes icon-embed-btn" aria-hidden="true"></i><?=gettext('Tailscale API')?></h2>
+<?php if ($manage): ?>
+		<div>
+			<button type="button" class="btn btn-sm btn-link" data-fs-modal="#ts-modal"><?=($ts === null) ? gettext('Add a token') : gettext('Replace the token')?></button>
+<?php if ($ts !== null): ?>
+			<form method="post" class="d-inline"><button class="btn btn-sm btn-link" name="remove_ts_token" value="1"><?=gettext('Remove')?></button></form>
+<?php endif; ?>
+		</div>
+<?php endif; ?>
+	</div>
+	<div class="panel-body fs-fleet-pad">
+<?php if ($ts === null): ?>
+		<p class="mb-0"><?=gettext('Optional. With an API access token Fleet checks the tailnet device of each firewall on a Tailscale path: whether its key expires (FLEET-E136), waits for approval or is offline. Without one, Fleet only probes the path.')?></p>
+<?php elseif (isset($ts['error'])): ?>
+		<p class="fs-fleet-problem mb-0"><?=htmlspecialchars($ts['error'])?></p>
+<?php else: $ts_bad = count(array_filter($ts, function ($t) { return !empty($t['problems']); })); ?>
+		<p class="mb-0"><?=fs_badge($ts_bad ? 'warn' : 'pass', $ts_bad ? sprintf(gettext('%d need attention'), $ts_bad) : gettext('Checked'))?>
+			<?=htmlspecialchars(sprintf(ngettext('%d firewall on a Tailscale path; the device list is read at most every %d minutes.', '%d firewalls on a Tailscale path; the device list is read at most every %d minutes.', count($ts)), count($ts), FLEET_TS_CACHE / 60))?></p>
+<?php endif; ?>
+	</div>
+</div>
+
+<div class="panel panel-default">
 	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Fleet default and groups')?></h2>
 <?php if ($manage): ?>
 		<button type="button" class="btn btn-sm btn-link" data-fs-modal="#conn-modal" data-fs-modal-title="<?=gettext('Fleet default')?>"
@@ -236,6 +268,12 @@ $fallbacks = count(array_filter($overview, function ($r) { return ($r['state'] !
 <?php else: ?>
 				<?=fs_badge('warn', gettext('Tunnel (fallback)'))?> <span class="small"><?=htmlspecialchars(sprintf(gettext('The %1$s path on %2$s does not answer: %3$s'), $st['method'], $st['address'], $st['error']))?></span>
 <?php endif; ?>
+<?php foreach ((isset($ts[$node]) ? $ts[$node]['problems'] : array()) as list($pcode, $psev, $ptext)): ?>
+				<div class="small <?=($psev === 'error') ? 'fs-fleet-problem' : 'fs-muted'?>"><?=htmlspecialchars(ltrim($pcode . ': ' . $ptext, ': '))?>
+<?php if ($manage && ($pcode === 'FLEET-E136')): ?>
+					<form method="post" class="d-inline"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><button class="btn btn-sm btn-link p-0" name="ts_expiry_off" value="1"><?=gettext('Turn key expiry off')?></button></form>
+<?php endif; ?></div>
+<?php endforeach; ?>
 				<?=$todo ? '<div>' . fs_badge('info', gettext('Change to apply')) . '</div>' : ''?></td>
 			<td class="text-end text-nowrap"><?php if ($manage): ?>
 				<button type="button" class="btn btn-sm btn-link" data-fs-modal="#conn-modal" data-fs-modal-title="<?=htmlspecialchars(sprintf(gettext('Connection for %s'), $r['box']['label']))?>"
@@ -264,6 +302,14 @@ $fallbacks = count(array_filter($overview, function ($r) { return ($r['state'] !
 	<p class="fs-fleet-hint mb-0"><?=gettext('Saving changes nothing on the firewalls. The firewall list then shows the changes; applying sets up each path and keeps it only when the controller reaches the firewall over it.')?></p>
 <?php
 	fs_modal_form_end(gettext('Save'), 'save_conn', '1', 'fa-floppy-disk');
+	fs_modal_form_begin('ts-modal', gettext('Tailscale API token'), '/fleet/fleet_connections.php', array());
+?>
+	<div class="mb-3"><label class="form-label" for="ts-token"><?=gettext('API access token')?></label>
+		<input class="form-control fs-mono" id="ts-token" name="ts_token" type="password" autocomplete="off" maxlength="220" placeholder="tskey-api-…" required/>
+		<div class="form-text"><?=gettext('Create it in the Tailscale admin console under Settings > Keys. Fleet reads the devices and can turn key expiry off; it stores the token encrypted and never shows it again.')?></div></div>
+	<p class="fs-fleet-hint mb-0"><?=gettext('Fleet tests the token before saving it. Tokens expire (90 days at most); add a new one before that.')?></p>
+<?php
+	fs_modal_form_end(gettext('Save'), 'save_ts_token', '1', 'fa-floppy-disk');
 endif; ?>
 <script src="/fleet/assets/fleet-connections.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-connections.js')?>"></script>
 <?php include('foot.inc');
