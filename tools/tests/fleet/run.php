@@ -845,4 +845,9 @@ if (is_file($src . '/src/etc/inc/fleet_accounts.inc')) {
 	check(count(fleet_accounts_desired(fleet_users_desired(array($fu[0]), $ug, array(1, 2)))['users']) === 1, 'the firewall accepts the controller\'s set');
 }
 
+$ue = fleet_users_from_entry(array('descr' => 'Anna B', 'bcrypt-hash' => '$2y$10$x', 'authorizedkeys' => base64_encode("ssh-ed25519 AAAA k\n"), 'expires' => '01/31/2027', 'disabled' => ''));
+check($ue === array('fullname' => 'Anna B', 'hash' => '$2y$10$x', 'ssh_keys' => 'ssh-ed25519 AAAA k', 'expires' => '2027-01-31', 'disabled' => 1), 'adopt reads a firewall user back');
+list($btext) = fleet_bundle_make('n1', array(), 5, true);
+check(json_decode($btext, true)['lock_accounts'] === true && !isset(json_decode(fleet_bundle_make('n1', array(), 5)[0], true)['lock_accounts']), 'the bundle carries the account lock only when it is on');
+
 echo "Fleet controller tests: OK\n";

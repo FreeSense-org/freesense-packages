@@ -603,8 +603,9 @@ function fleet_bundle_state(): array {
 }
 
 /* The signed bundle text for a firewall: array(text, signature base64). Versions only grow (time-based). */
-function fleet_bundle_make(string $node, array $rules, int $version): array {
-	$text = json_encode(array('version' => $version, 'node_id' => $node, 'issued' => time(), 'rules' => $rules), JSON_UNESCAPED_SLASHES);
+function fleet_bundle_make(string $node, array $rules, int $version, bool $lock_accounts = false): array {
+	$text = json_encode(array('version' => $version, 'node_id' => $node, 'issued' => time(), 'rules' => $rules) + ($lock_accounts ? array('lock_accounts' => true) : array()),
+	    JSON_UNESCAPED_SLASHES);
 	$sig = '';
 	if (!openssl_sign($text, $sig, openssl_pkey_get_private(fleet_signing_pem()), OPENSSL_ALGO_SHA256)) {
 		throw new RuntimeException('The bundle could not be signed.');
@@ -620,14 +621,16 @@ function fleet_bundles_push(?array $only = null): void {
 	$state = fleet_bundle_state();
 	$policies = fleet_policies_all();
 	$groups = fleet_box_group_ids();
+	$lock_users = fleet_users_locked() ? array_flip(fleet_users_nodes()) : array();
 	foreach (fleet_db()->query('SELECT * FROM boxes')->fetchAll() as $box) {
 		if ((($only !== null) && !in_array($box['node_id'], $only, true)) || !fleet_manage_allowed($box)) {
 			continue;
 		}
 		$rules = fleet_policy_lock_rules(fleet_box_effective($box['node_id'], $policies, $groups));
-		$hash = hash('sha256', json_encode($rules));
+		$lock_acc = isset($lock_users[$box['node_id']]);
+		$hash = hash('sha256', json_encode($rules) . ($lock_acc ? '+accounts' : ''));
 		$prev = $state[$box['node_id']] ?? null;
-		if ((($prev === null) && empty($rules)) || (($prev !== null) && ($prev['hash'] === $hash) && empty($prev['error']))) {
+		if ((($prev === null) && empty($rules) && !$lock_acc) || (($prev !== null) && ($prev['hash'] === $hash) && empty($prev['error']))) {
 			continue;
 		}
 		if ($box['state'] !== 'online') {
@@ -637,13 +640,13 @@ function fleet_bundles_push(?array $only = null): void {
 		}
 		$version = max(time(), (int)($prev['version'] ?? 0) + 1);
 		try {
-			list($text, $sig) = fleet_bundle_make($box['node_id'], $rules, $version);
+			list($text, $sig) = fleet_bundle_make($box['node_id'], $rules, $version, $lock_acc);
 			list($code, $json) = fleet_box_call($box, 'PUT', '/api/v1/management/policy-bundle', array('bundle' => $text, 'signature' => $sig));
 			if ($code !== 200) {
 				throw new RuntimeException('FLEET-E320: The firewall refused the lock rules: ' . fleet_box_error($code, $json));
 			}
-			$state[$box['node_id']] = array('hash' => $hash, 'version' => $version, 'sent' => time(), 'error' => null, 'rules' => count($rules));
-			fleet_audit('fleet', 'policy', sprintf('%s: %d lock rules sent (bundle %d)', $box['label'], count($rules), $version));
+			$state[$box['node_id']] = array('hash' => $hash, 'version' => $version, 'sent' => time(), 'error' => null, 'rules' => count($rules), 'lock_accounts' => $lock_acc);
+			fleet_audit('fleet', 'policy', sprintf('%s: %d lock and fix rules sent%s (bundle %d)', $box['label'], count($rules), $lock_acc ? ', Fleet users locked' : '', $version));
 		} catch (RuntimeException $e) {
 			$state[$box['node_id']] = array('hash' => $hash, 'version' => $prev['version'] ?? 0, 'sent' => $prev['sent'] ?? null,
 			    'error' => $e->getMessage(), 'rules' => count($rules));
