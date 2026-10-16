@@ -1257,4 +1257,12 @@ check((strpos($fmrec['proxmox-qm.sh'], 'local:iso/cph-fw01-cidata.iso') !== fals
     (json_decode($fmrec['terraform/instances.auto.tfvars.json'], true)['firewalls']['cph-fw01']['instance_id'] === 'fleet-cph-fw01'),
     'the batch recipes make one VM per firewall with its own cidata.iso (qm, virt-install, Terraform)');
 
+/* ---- Fleet is 1.2 only ---- */
+$gpkg = dirname(__DIR__, 3) . '/sysutils/FreeSense-pkg-Fleet/files/pkg-install.in';
+$gmk = (string)@file_get_contents(dirname(__DIR__, 3) . '/Mk/bsd.freesense-package.mk');
+$gsrc = (string)@file_get_contents($gpkg);
+check((strpos($gmk, 'RUN_DEPENDS+=	FreeSense-platform-abi=${FREESENSE_PACKAGE_TRAIN}.0') !== false) &&
+    (strpos($gsrc, '"PRE-INSTALL"') !== false) && (strpos($gsrc, '-lt 11') !== false) && (strpos($gsrc, 'fleet_agent.inc') !== false) && (strpos($gsrc, 'exit 1') !== false),
+    'Fleet installs only on FreeSense 1.2: the package pins its release train, and its install script refuses a System without the agent and API level 11');
+
 echo "Fleet controller tests: OK\n";

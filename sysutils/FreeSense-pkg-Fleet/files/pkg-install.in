@@ -1,3 +1,17 @@
 #!/bin/sh
+# FreeSense Fleet needs the 1.2 System: the Fleet agent and REST API level 11
+# (connection paths, rule and NAT templates). Official builds already pin the
+# release train (FreeSense-platform-abi); this refuses a hand-built or copied
+# package on an older System with a plain reason instead of a broken install.
+if [ "$2" = "PRE-INSTALL" ]; then
+	_inc="${PKG_ROOTDIR}/etc/inc"
+	_level=$(sed -n "s/^define('RESTAPI_LEVEL', \([0-9][0-9]*\));.*/\1/p" "${_inc}/restapi.inc" 2>/dev/null)
+	if [ ! -f "${_inc}/fleet_agent.inc" ] || [ ! -f "${_inc}/fleet_paths.inc" ] || [ "${_level:-0}" -lt 11 ]; then
+		echo "FreeSense Fleet needs FreeSense 1.2 or later (the Fleet agent and REST API level 11)." >&2
+		echo "This firewall has REST API level ${_level:-unknown}. Update it to 1.2 first; nothing was installed." >&2
+		exit 1
+	fi
+	exit 0
+fi
 [ "$2" = "POST-INSTALL" ] || exit 0
 ${PKG_ROOTDIR}/usr/local/bin/php -f ${PKG_ROOTDIR}/etc/rc.packages %%PORTNAME%% "$2"
