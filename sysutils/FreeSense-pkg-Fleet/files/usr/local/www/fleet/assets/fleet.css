@@ -867,3 +867,9 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 .fs-fleet-tlist-edit td { vertical-align: middle; padding: .3rem .35rem; }
 .fs-fleet-tlist-edit td:first-child { min-width: 8rem; }
 .fs-fleet-tlist-edit .form-control, .fs-fleet-tlist-edit .form-select { min-width: 5.5rem; }
+
+/* Connections: requirements folded in the method cards; the waiting-changes callout. */
+.fs-fleet-conn-reqs-wrap { margin-top: var(--fs-sp-2); }
+.fs-fleet-conn-reqs-wrap > summary { cursor: pointer; font-weight: 600; }
+.fs-fleet-conn-reqs-wrap .fs-fleet-conn-reqs { margin: var(--fs-sp-2) 0 0; }
+.fs-fleet-conn-pending { align-items: center; flex-wrap: wrap; }
