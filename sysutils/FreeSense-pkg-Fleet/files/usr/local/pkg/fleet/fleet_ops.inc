@@ -70,6 +70,18 @@ function fleet_op_duration(int $seconds): string {
 	return ($s === 0) ? "{$m} min" : "{$m} min {$s} s";
 }
 
+/* pure: a long time span in words: "3 days 4 h", "5 h 12 min", "8 min". */
+function fleet_uptime_text(int $seconds): string {
+	$seconds = max(0, $seconds);
+	$d = intdiv($seconds, 86400);
+	$h = intdiv($seconds % 86400, 3600);
+	$m = intdiv($seconds % 3600, 60);
+	if ($d > 0) {
+		return (($d === 1) ? '1 day' : "{$d} days") . (($h > 0) ? " {$h} h" : '');
+	}
+	return ($h > 0) ? "{$h} h {$m} min" : "{$m} min";
+}
+
 /* pure: what a tile shows for an operation, or null when there is nothing to show. */
 function fleet_op_view(?array $op, int $now): ?array {
 	if ($op === null) {
