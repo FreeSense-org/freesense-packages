@@ -54,6 +54,8 @@ define('FLEET_ALERT_EVENTS', array(
 	'approval' => array('A firewall waits for approval', 'info'),
 	'path_down' => array('A connection path stopped answering (tunnel used)', 'warning'),
 	'path_up' => array('A connection path answers again', 'info'),
+	'ha_problem' => array('An HA pair has two MASTERs or none', 'critical'),
+	'ha_ok' => array('An HA pair is healthy again', 'info'),
 	'join_refused' => array('A join was refused (wrong firewall or key)', 'warning'),
 	'test' => array('Test', 'info'),
 ));

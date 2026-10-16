@@ -307,7 +307,7 @@ function fleet_rollout_plan(array $ring_groups, string $target): array {
 		$members[(int)$m['group_id']][] = $m['node_id'];
 	}
 	$byid = array_column($boxes, null, 'node_id');
-	$nodes = fleet_rollout_rings($ring_groups, $members, array_column($plan['go'], 'node_id'));
+	$nodes = fleet_ha_rings(fleet_rollout_rings($ring_groups, $members, array_column($plan['go'], 'node_id')), fleet_ha_pairs($boxes));
 	$rings = array();
 	$placed = array();
 	foreach ($ring_groups as $r => $gid) {
@@ -404,7 +404,14 @@ function fleet_rollout_tick(array $ro, int $now): void {
 	$op = (int)$ro['op_id'];
 	switch ($next['do']) {
 	case 'start':
-		$t = $rings[$next['ring']]['tasks'][$next['task']];
+		/* An HA pair: of the ring's firewalls still waiting, a pair's BACKUP before its MASTER (decided now). */
+		$queued = array_filter($rings[$next['ring']]['tasks'], function ($x) { return $x['state'] === 'queued'; });
+		$t = $rings[$next['ring']]['tasks'][array_key_first(fleet_ha_sort(array_combine(array_keys($queued), array_column($queued, 'node_id'))))];
+		$ha = fleet_ha_wait((string)$t['node_id']);
+		if ($ha !== null) {
+			fleet_op_set($op, 'running', $ha);
+			break;
+		}
 		$box = fleet_box_get((string)$t['node_id']);
 		try {
 			if ($box === null) {

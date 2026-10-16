@@ -160,6 +160,7 @@ if ($cmd === 'restore') {
 	exit(0);
 }
 
+$ha_since = array();
 while (true) {
 	$tasks = fleet_op_tasks($op_id);
 	$step = fleet_rolling_next(array_column($tasks, 'state'));
@@ -178,8 +179,23 @@ while (true) {
 	if ($step['do'] === 'done') {
 		break;
 	}
-	$t = $tasks[$step['index']];
+	/* An HA pair: of the firewalls still waiting, a pair's BACKUP before its MASTER (decided now, not at the start). */
+	$queued = array_filter($tasks, function ($x) { return $x['state'] === 'queued'; });
+	$t = $tasks[array_key_first(fleet_ha_sort(array_combine(array_keys($queued), array_column($queued, 'node_id'))))];
 	$box = fleet_box_get((string)$t['node_id']);
+	/* An HA pair: never both at once; wait until the partner is back and the pair is healthy. */
+	$ha = fleet_ha_wait((string)$t['node_id']);
+	if ($ha !== null) {
+		$ha_since[$t['id']] = $ha_since[$t['id']] ?? time();
+		if (time() - $ha_since[$t['id']] < FLEET_HA_WAIT) {
+			fleet_op_set((int)$t['id'], 'queued', $ha);
+			sleep(15);
+			continue;
+		}
+		fleet_op_set((int)$t['id'], 'failed', $ha . ' for ' . (FLEET_HA_WAIT / 60) . ' minutes; not started.');
+		fleet_op_group_update($op_id);
+		continue;
+	}
 	try {
 		if ($box === null) {
 			throw new RuntimeException('Not in the fleet any more.');
