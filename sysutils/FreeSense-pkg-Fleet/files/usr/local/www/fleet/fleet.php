@@ -179,7 +179,6 @@ $tab_array = array(
 	array(gettext('Policies'), false, '/fleet/fleet_policies.php'),
 	array(gettext('Templates'), false, '/fleet/fleet_templates.php'),
 	array(gettext('Users'), false, '/fleet/fleet_users.php'),
-	array(gettext('Factory'), false, '/fleet/fleet_factory.php'),
 	array(gettext('Firewalls'), $tab === 'firewalls', '/fleet/fleet.php'),
 	array(gettext('Settings'), $tab === 'settings', '/fleet/fleet.php?tab=settings'),
 );
@@ -193,10 +192,101 @@ if ($savemsg) {
 ?>
 
 <?php if ($tab === 'firewalls'):
-	$fw_view = fs_view_param(array('invite', 'groups'), (isset($_POST['group_save']) || isset($_POST['group_delete'])) ? 'groups' : 'invite');
-	fs_view_switch(array('invite' => gettext('Add and approve'), 'groups' => gettext('Groups')), $fw_view);
+	$fw_default = (isset($_POST['group_save']) || isset($_POST['group_delete'])) ? 'groups' : (($_SERVER['REQUEST_METHOD'] === 'POST') || ($new_invite !== null) ? 'invite' : 'list');
+	$fw_view = fs_view_param(array('list', 'invite', 'groups'), $fw_default);
+	$fw_ready = $s['enable'] && is_file(FLEET_DATA . '/fleet.db');
+	echo fleet_firewalls_nav($fw_view, $fw_ready ? (int)fleet_db()->query("SELECT COUNT(*) FROM enrollments WHERE state = 'pending'")->fetchColumn() : 0);
 ?>
-<?php if ($fw_view === 'groups'):
+<?php if ($fw_view === 'list'):
+	if (!$fw_ready): ?>
+<div class="fs-fleet-empty"><strong><?=gettext('This firewall is not a fleet controller yet')?></strong> <a href="?tab=settings"><?=gettext('Turn it on in Settings')?></a></div>
+<?php else:
+	$all = fleet_dashboard_data(
+	    fleet_db()->query('SELECT node_id, name, label, overlay, role, state, last_seen, error, status, update_info, (SELECT MAX(time) FROM backups b WHERE b.node_id = boxes.node_id) AS last_backup FROM boxes')->fetchAll(),
+	    0, time(), fleet_groups_by_box())['boxes'];
+	$fgroups = array();
+	foreach (fleet_groups_all() as $fg) {
+		$fgroups[(string)$fg['id']] = $fg['name'];
+	}
+	$fversions = fleet_firewalls_versions($all);
+	$f = fleet_list_filters($_GET, array('q' => null, 'state' => FLEET_FW_STATES, 'group' => $fgroups, 'version' => $fversions,
+	    'problem' => array('attention' => 1, 'unprotected' => 1, 'policy' => 1, 'update' => 1), 'sort' => FLEET_FW_SORTS));
+	$fbase = array();
+	$shown = fleet_firewalls_filter($all, $f);
+	$fpg = fleet_list_page(count($shown), (int)($_GET['page'] ?? 1));
+	$rows = array_slice($shown, $fpg['offset'], $fpg['per']);
+	$quick = array('' => array(gettext('All'), count($all)),
+	    'attention' => array(gettext('Need attention'), count(fleet_firewalls_filter($all, array('problem' => 'attention')))),
+	    'update' => array(gettext('Update available'), count(fleet_firewalls_filter($all, array('problem' => 'update')))),
+	    'policy' => array(gettext('Policy problems'), count(fleet_firewalls_filter($all, array('problem' => 'policy')))),
+	    'unprotected' => array(gettext('No rollback'), count(fleet_firewalls_filter($all, array('problem' => 'unprotected')))));
+	$ago = function ($t) {
+		if ($t === null) {
+			return gettext('never');
+		}
+		$d = max(0, time() - (int)$t);
+		if ($d < 90) {
+			return gettext('just now');
+		}
+		if ($d < 5400) {
+			return sprintf(gettext('%d min ago'), round($d / 60));
+		}
+		return ($d < 129600) ? sprintf(gettext('%d h ago'), round($d / 3600)) : sprintf(gettext('%d days ago'), round($d / 86400));
+	};
+	$sbadge = array('online' => array('pass', gettext('Online')), 'degraded' => array('warn', gettext('Degraded')), 'offline' => array('block', gettext('Offline')),
+	    'new' => array('neutral', gettext('Not seen yet')));
+	$keep = isset($f['problem']) ? array('problem' => $f['problem']) : array();
+?>
+<section class="fs-fleet-area">
+	<header class="fs-fleet-area-head"><span class="fs-fleet-area-icon"><i class="fa-solid fa-server" aria-hidden="true"></i></span>
+		<div><h2><?=gettext('All firewalls')?></h2><p><?=gettext('Every firewall in the fleet. Search by name, address or version, narrow by state or group, and open one to manage it.')?></p></div>
+		<span class="fs-fleet-area-actions"><a class="btn btn-sm btn-primary" href="?view=invite"><i class="fa-solid fa-plus icon-embed-btn" aria-hidden="true"></i><?=gettext('Add firewall')?></a>
+			<a class="btn btn-sm btn-outline-secondary" href="/fleet/fleet_factory.php?view=new"><i class="fa-solid fa-industry icon-embed-btn" aria-hidden="true"></i><?=gettext('Add many')?></a></span></header>
+	<nav class="fs-fleet-quick" aria-label="<?=gettext('Quick filters')?>">
+<?php foreach ($quick as $k => list($label, $n)): ?>
+		<a href="<?=htmlspecialchars(fleet_list_url($fbase, $f, array('problem' => ($k === '') ? null : $k)))?>"<?=(($f['problem'] ?? '') === $k) ? ' aria-current="true"' : ''?>><?=htmlspecialchars($label)?> <span class="fs-fleet-count"><?=$n?></span></a>
+<?php endforeach; ?>
+	</nav>
+</section>
+<div class="panel panel-default">
+	<div class="panel-heading"><?=fleet_list_filterbar($keep, $f, array('state' => array(gettext('Any state'), FLEET_FW_STATES), 'group' => array(gettext('Any group'), $fgroups),
+	    'version' => array(gettext('Any version'), $fversions), 'sort' => array(gettext('Needs attention first'), array_slice(FLEET_FW_SORTS, 1, null, true))),
+	    gettext('Search firewalls'), gettext('Name, address or version'))?></div>
+	<div class="panel-body table-responsive"><table class="table fs-table">
+		<thead><tr><th><?=gettext('Firewall')?></th><th><?=gettext('State')?></th><th><?=gettext('Version')?></th><th><?=gettext('Groups')?></th><th><?=gettext('Last seen')?></th><th><?=gettext('Last backup')?></th><th class="text-end"><?=gettext('Notes')?></th></tr></thead>
+		<tbody>
+<?php if (empty($rows)): ?>
+		<tr><td colspan="7" class="fs-muted"><?=empty($all) ? gettext('No firewalls yet. Add one, or many at once with the Deployment Factory.') : gettext('No firewall matches these filters.')?></td></tr>
+<?php endif; ?>
+<?php foreach ($rows as $b): list($bs, $bl) = $sbadge[$b['state']]; ?>
+		<tr><td><a href="/fleet/fleet_box.php?id=<?=urlencode($b['id'])?>"><strong><?=htmlspecialchars($b['label'])?></strong></a>
+				<div class="fs-muted small fs-mono"><?=htmlspecialchars($b['host'] . ' ' . $b['overlay'])?></div></td>
+			<td><?=fs_badge($bs, $bl)?><?=($b['problem'] !== '') ? '<div class="fs-muted small">' . htmlspecialchars(mb_strimwidth($b['problem'], 0, 60, '...')) . '</div>' : ''?></td>
+			<td class="small"><?=htmlspecialchars(($b['version'] !== '') ? $b['version'] : '-')?><?=($b['update'] !== null) ? '<div>' . fs_badge($b['update'][0], gettext($b['update'][1])) . '</div>' : ''?></td>
+			<td><?php foreach ($b['groups'] as $g1): ?><a class="fs-fleet-chip" href="<?=htmlspecialchars(fleet_list_url($fbase, $f, array('group' => (string)$g1['id'])))?>"><?=htmlspecialchars($g1['name'])?></a> <?php endforeach; ?><?=empty($b['groups']) ? '<span class="fs-muted">-</span>' : ''?></td>
+			<td class="small"><?=htmlspecialchars($ago($b['seen']))?></td>
+			<td class="small"><?=htmlspecialchars($ago($b['backup']))?></td>
+			<td class="text-end small"><?php
+				$notes = array();
+				if ($b['policy'] > 0) {
+					$notes[] = '<span class="fs-fleet-problem">' . htmlspecialchars(sprintf(ngettext('%d policy rule fails', '%d policy rules fail', $b['policy']), $b['policy'])) . '</span>';
+				}
+				if ($b['breakglass']) {
+					$notes[] = '<span class="fs-fleet-problem">' . gettext('Lock suspended') . '</span>';
+				}
+				if ($b['rollback'] === false) {
+					$notes[] = '<span class="fs-muted">' . gettext('No rollback (UFS)') . '</span>';
+				}
+				if (!$b['managed']) {
+					$notes[] = '<span class="fs-muted">' . gettext('Monitor only') . '</span>';
+				}
+				echo implode('<br>', $notes); ?></td></tr>
+<?php endforeach; ?>
+		</tbody></table></div>
+	<div class="panel-footer"><?=fleet_list_pager($fpg, $keep, $f)?></div>
+</div>
+<?php endif; ?>
+<?php elseif ($fw_view === 'groups'):
 	$groups = fleet_groups_all();
 	$all_windows = fleet_windows_all();
 	$win_names = array_column($all_windows, 'name', 'id');
