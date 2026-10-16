@@ -136,8 +136,13 @@ function fleet_factory_plan(array $rows, array $settings, ?array $naming, array 
 	return array($rows, $counters);
 }
 
-/* pure: what a seed file holds for one row (System's fleet_seed.inc reads it). */
-function fleet_factory_seed(string $link, string $mode, string $key, ?string $pin): array {
+/*
+ * pure: what a seed file holds for one row (System's fleet_seed.inc reads
+ * it). $tskey: the row's one-time Tailscale key, plain only when
+ * unattended, else sealed to the PIN or to the join key's data, so it is
+ * opened by what the admin types anyway.
+ */
+function fleet_factory_seed(string $link, string $mode, string $key, ?string $pin, ?string $tskey = null): array {
 	$seed = array('version' => 1, 'link' => $link, 'mode' => $mode);
 	if ($mode === 'unattended') {
 		$seed['key'] = $key;
@@ -147,6 +152,11 @@ function fleet_factory_seed(string $link, string $mode, string $key, ?string $pi
 		$tag = '';
 		$data = openssl_encrypt($key, 'aes-256-gcm', hash_pbkdf2('sha256', (string)$pin, $salt, 200000, 32, true), OPENSSL_RAW_DATA, $nonce, $tag, 'FreeSense-Fleet-Seed-v1');
 		$seed['sealed_key'] = array('salt' => base64_encode($salt), 'nonce' => base64_encode($nonce), 'tag' => base64_encode($tag), 'data' => base64_encode((string)$data));
+	}
+	if ($tskey !== null) {
+		require_once('fleet_seed.inc');
+		$seed['tailscale'] = ($mode === 'unattended') ? array('key' => $tskey) :
+		    array('sealed' => fleet_seed_seal_key($tskey, ($mode === 'pin') ? (string)$pin : (string)fleet_join_key_normalize($key)));
 	}
 	return $seed;
 }
@@ -234,7 +244,8 @@ function fleet_factory_settings(array $in): array {
 	if (($gid > 0) && (fleet_group_get($gid) === null)) {
 		throw new InvalidArgumentException('That group no longer exists.');
 	}
-	return array('name' => $name, 'mode' => $mode, 'role' => $role, 'days' => $days, 'group' => $gid, 'auto_approve' => ($mode === 'unattended') && !empty($in['auto_approve']));
+	return array('name' => $name, 'mode' => $mode, 'role' => $role, 'days' => $days, 'group' => $gid, 'auto_approve' => ($mode === 'unattended') && !empty($in['auto_approve']),
+	    'via' => ((string)($in['via'] ?? '') === 'tailscale') ? 'tailscale' : '');
 }
 
 /* The naming of a group for the planner, or null. */
@@ -269,6 +280,15 @@ function fleet_factory_generate(array $settings, string $csv, string $passphrase
 			throw new InvalidArgumentException('FLEET-E120: line ' . $r['line'] . ': ' . implode('; ', $r['problems']) . '. Nothing was made.');
 		}
 	}
+	$via = (string)($settings['via'] ?? '');
+	if ($via === 'tailscale') {
+		/* Over Tailscale the links use the controller's tailnet address, and every firewall gets its own one-time key. */
+		list($ts_problems, $ts_address) = fleet_ts_join_ready();
+		if (!empty($ts_problems)) {
+			throw new InvalidArgumentException(implode(' ', $ts_problems));
+		}
+		$authority = fleet_hostport($ts_address, fleet_ctl_settings()['enroll_port']);
+	}
 	$now = time();
 	fleet_db()->prepare('INSERT INTO batches (name, settings, created, who) VALUES (?, ?, ?, ?)')->execute(array($settings['name'], json_encode($settings), $now, $who));
 	$bid = (int)fleet_db()->lastInsertId();
@@ -279,7 +299,20 @@ function fleet_factory_generate(array $settings, string $csv, string $passphrase
 	$keys = array();
 	$manifest = array('batch' => $settings['name'], 'created' => gmdate('c', $now), 'mode' => $settings['mode'], 'expires' => gmdate('c', $now + 86400 * $settings['days']), 'firewalls' => array());
 	foreach ($rows as $i => $r) {
-		list($link, $key, $tid, $expires) = fleet_invite_create($settings['role'], $r['label'], 86400 * $settings['days'], $who, $authority, $now);
+		list($link, $key, $tid, $expires) = fleet_invite_create($settings['role'], $r['label'], 86400 * $settings['days'], $who, $authority, $now, $via);
+		$tskey = null;
+		if ($via === 'tailscale') {
+			try {
+				$tskey = fleet_ts_authkey_mint($r['label'], 86400 * $settings['days'], $who, $tid);
+			} catch (RuntimeException $e) {
+				/* Nothing half-made: the batch's invitations and keys so far go again. */
+				fleet_db()->prepare('INSERT INTO batch_rows (batch_id, n, site, label, hostname, domain, serial, instance_id, token_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+				    ->execute(array($bid, $i + 1, $r['site'], $r['label'], $r['hostname'], $r['domain'], $r['serial'], $r['instance_id'], $tid));
+				fleet_batch_revoke($bid, $who);
+				exec('rm -rf ' . escapeshellarg($dir));
+				throw new RuntimeException('Tailscale key for line ' . $r['line'] . ': ' . $e->getMessage() . ' Nothing was made.');
+			}
+		}
 		$host = $r['hostname'];
 		if ($r['scope'] !== null) {
 			fleet_db()->prepare('INSERT OR REPLACE INTO name_counters (scope, next) VALUES (?, ?)')->execute(array($r['scope'], (int)$r['n'] + 1));
@@ -291,7 +324,7 @@ function fleet_factory_generate(array $settings, string $csv, string $passphrase
 		$pin = ($settings['mode'] === 'pin') ? sprintf('%06d', random_int(0, 999999)) : null;
 		$folder = ($host !== '') ? $host : sprintf('firewall-%03d', $i + 1);
 		@mkdir("{$dir}/bundle/{$folder}", 0700);
-		file_put_contents("{$dir}/bundle/{$folder}/fleet-join.conf", json_encode(fleet_factory_seed($link, $settings['mode'], $key, $pin), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+		file_put_contents("{$dir}/bundle/{$folder}/fleet-join.conf", json_encode(fleet_factory_seed($link, $settings['mode'], $key, $pin, $tskey), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
 		file_put_contents("{$dir}/bundle/{$folder}/README.txt", fleet_factory_readme($r, $settings, $host, $expires));
 		$fqdn = $host . (($host !== '' && $r['domain'] !== '') ? '.' . $r['domain'] : '');
 		$cards[] = array('label' => $r['label'], 'site' => $r['site'], 'name' => $fqdn, 'serial' => $r['serial'], 'link' => $link, 'folder' => $folder);
@@ -315,7 +348,7 @@ function fleet_factory_generate(array $settings, string $csv, string $passphrase
 	file_put_contents($out, fleet_factory_encrypt((string)file_get_contents("{$dir}/bundle.tar.gz"), $passphrase));
 	@unlink("{$dir}/bundle.tar.gz");
 	@chmod($out, 0600);
-	fleet_audit($who, 'factory', sprintf('Batch %s: %d firewalls, %s, for %d days', $settings['name'], count($rows), $settings['mode'], $settings['days']));
+	fleet_audit($who, 'factory', sprintf('Batch %s: %d firewalls, %s, for %d days', $settings['name'], count($rows), $settings['mode'], $settings['days']) . (($via === 'tailscale') ? ', over Tailscale' : ''));
 	return array($bid, $out);
 }
 
@@ -356,7 +389,9 @@ function fleet_factory_readme(array $r, array $s, string $host, int $expires): s
 	    (($host !== '') ? "Name when it joins: {$host}" . (($r['domain'] !== '') ? ".{$r['domain']}" : '') . "\n" : '') .
 	    (($r['site'] !== '') ? "Site: {$r['site']}\n" : '') . (($r['serial'] !== '') ? "Serial: {$r['serial']}\n" : '') .
 	    (($r['instance_id'] !== '') ? "Instance id: {$r['instance_id']}\n" : '') .
-	    'Valid until: ' . gmdate('Y-m-d H:i', $expires) . " UTC\n\n" . $how[$s['mode']] . "\n\nThe firewall needs to reach the controller on the enrollment and tunnel ports.\n";
+	    'Valid until: ' . gmdate('Y-m-d H:i', $expires) . " UTC\n\n" . $how[$s['mode']] . "\n\n" . ((($s['via'] ?? '') === 'tailscale') ?
+	    "Over Tailscale: the seed holds a one-time Tailscale key for this firewall. Joining installs Tailscale (the firewall needs internet and the FreeSense package repository), logs it in to the tailnet and joins the controller there; no public port is needed.\n" :
+	    "The firewall needs to reach the controller on the enrollment and tunnel ports.\n");
 }
 
 function fleet_factory_cards_html(array $s, array $cards): string {

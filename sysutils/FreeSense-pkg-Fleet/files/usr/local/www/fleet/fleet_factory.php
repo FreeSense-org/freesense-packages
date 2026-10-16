@@ -52,7 +52,7 @@ $input_errors = array();
 $savemsg = null;
 $view = fs_view_param(array('list', 'new', 'batch'), 'list');
 $plan = null;
-$form = array('name' => '', 'mode' => 'attended', 'role' => 'managed', 'days' => '14', 'group' => '0', 'auto_approve' => '', 'rows' => '');
+$form = array('name' => '', 'mode' => 'attended', 'role' => 'managed', 'days' => '14', 'group' => '0', 'auto_approve' => '', 'rows' => '', 'via' => '');
 
 if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 	$form = array_merge($form, array_intersect_key($_POST, $form));
@@ -185,7 +185,8 @@ $mode_icons = array('attended' => 'fa-keyboard', 'pin' => 'fa-hashtag', 'unatten
 	<div class="panel-body fs-fleet-pad">
 		<p class="fs-fleet-lead mb-2"><i class="fa-solid <?=$mode_icons[$b['settings']['mode']] ?? 'fa-box'?>" aria-hidden="true"></i> <?=htmlspecialchars(gettext(FLEET_FACTORY_MODES[$b['settings']['mode']] ?? ''))?>.
 			<?=htmlspecialchars(sprintf(gettext('Access: %1$s. Invitations last %2$d days.'), ($b['settings']['role'] === 'managed') ? gettext('managed') : gettext('monitor only'), (int)$b['settings']['days']))?>
-			<?=!empty($b['settings']['auto_approve']) ? htmlspecialchars(gettext('Bound firewalls are approved by themselves.')) : ''?></p>
+			<?=!empty($b['settings']['auto_approve']) ? htmlspecialchars(gettext('Bound firewalls are approved by themselves.')) : ''?>
+			<?=(($b['settings']['via'] ?? '') === 'tailscale') ? fs_badge('neutral', gettext('Over Tailscale')) : ''?></p>
 <?php if ($bundle !== null): ?>
 		<details class="small"><summary><?=gettext('How to open the bundle')?></summary>
 			<p class="mb-1"><?=gettext('It is encrypted with the batch passphrase. On any computer with OpenSSL:')?></p>
@@ -247,6 +248,14 @@ $mode_icons = array('attended' => 'fa-keyboard', 'pin' => 'fa-hashtag', 'unatten
 				</div>
 				<label class="form-check mt-2"><input class="form-check-input" type="checkbox" name="auto_approve" value="1"<?=!empty($form['auto_approve']) ? ' checked' : ''?>/>
 					<span class="form-check-label"><?=gettext('Unattended: approve a firewall by itself when its serial or instance id matches (otherwise you approve each one)')?></span></label>
+			</fieldset>
+<?php list($ts_join_problems, $ts_join_address) = fleet_ts_join_ready(); ?>
+			<fieldset class="mt-3"><legend class="form-label"><?=gettext('How the firewalls reach this controller')?></legend>
+				<label class="form-check"><input class="form-check-input" type="radio" name="via" value=""<?=($form['via'] !== 'tailscale') ? ' checked' : ''?>/>
+					<span class="form-check-label"><?=gettext('Over the internet (the Fleet tunnel: needs the public address and ports in Settings)')?></span></label>
+				<label class="form-check"><input class="form-check-input" type="radio" name="via" value="tailscale"<?=($form['via'] === 'tailscale') ? ' checked' : ''?><?=empty($ts_join_problems) ? '' : ' disabled'?>/>
+					<span class="form-check-label"><?=gettext('Over Tailscale (no public port: each seed gets its own one-time Tailscale key, opened by the join key or PIN; first boot installs Tailscale and logs in)')?></span></label>
+				<div class="form-text"><?=htmlspecialchars(empty($ts_join_problems) ? sprintf(gettext('Ready: this controller is %s in the tailnet and the API token works.'), $ts_join_address) : implode(' ', array_map('gettext', $ts_join_problems)))?></div>
 			</fieldset>
 		</div>
 	</div>
