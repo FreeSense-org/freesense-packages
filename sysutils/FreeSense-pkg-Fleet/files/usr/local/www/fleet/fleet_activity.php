@@ -113,6 +113,7 @@ if ($manage) {
 }
 ?>
 <?php if ($ready && $op === null): ?>
+<?=fleet_activity_nav('ops')?>
 <?=fleet_list_filterbar($base, $f, array('state' => array(gettext('Any state'), FLEET_OPS_STATES), 'kind' => array(gettext('Any action'), FLEET_OPS_KINDS),
     'since' => array(gettext('Any time'), FLEET_OPS_SINCE)), gettext('Search activity'), gettext('Search firewall, action or person'))?>
 <?php endif; ?>

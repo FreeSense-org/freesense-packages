@@ -240,8 +240,24 @@ function fleet_op_set(int $id, string $state, string $text, ?int $progress = nul
 	if ($over) {
 		$progress = 100;
 	}
+	$was = fleet_db()->prepare('SELECT state FROM ops WHERE id = ?');
+	$was->execute(array($id));
+	$was = (string)$was->fetchColumn();
 	fleet_db()->prepare('UPDATE ops SET state = ?, text = ?, updated = ?, finished = COALESCE(finished, ?), progress = COALESCE(?, progress) WHERE id = ?')
 	    ->execute(array($state, $text, time(), $finished, ($progress === null) ? null : max(0, min(100, $progress)), $id));
+	/* An operation that just failed raises an alert (a task inside a group operation does not: the group reports once). */
+	if (($state === 'failed') && ($was !== 'failed') && function_exists('fleet_alert')) {
+		$q = fleet_db()->prepare('SELECT o.kind, o.node_id, o.title, o.parent, b.label FROM ops o LEFT JOIN boxes b ON b.node_id = o.node_id WHERE o.id = ?');
+		$q->execute(array($id));
+		$o = $q->fetch();
+		if (is_array($o) && ($o['parent'] === null)) {
+			try {
+				fleet_alert('op_failed', (string)$o['node_id'], trim((string)($o['label'] ?? $o['title'] ?? '') . ' (' . $o['kind'] . '): ' . $text));
+			} catch (Throwable $e) {
+				/* An alert must never break the operation. */
+			}
+		}
+	}
 }
 
 /* The newest operation of each firewall (running, or finished a moment ago), as node_id => view. */

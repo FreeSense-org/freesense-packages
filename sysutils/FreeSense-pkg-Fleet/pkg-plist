@@ -14,6 +14,7 @@ pkg/fleet/fleet_templates.inc
 pkg/fleet/fleet_users.inc
 pkg/fleet/fleet_naming.inc
 pkg/fleet/fleet_factory.inc
+pkg/fleet/fleet_alerts.inc
 pkg/fleet/fleet_replicas.inc
 pkg/fleet/fleet_rollouts.inc
 pkg/fleet/fleet_schedules.inc
@@ -26,6 +27,7 @@ share/FreeSense-pkg-Fleet/info.xml
 www/fleet/assets/fleet-list.js
 www/fleet/assets/fleet-naming.js
 www/fleet/assets/fleet-policy.js
+www/fleet/assets/fleet-alerts.js
 www/fleet/assets/fleet.css
 www/fleet/assets/fleet.js
 www/fleet/fleet.php
@@ -39,6 +41,7 @@ www/fleet/fleet_policies.php
 www/fleet/fleet_templates.php
 www/fleet/fleet_users.php
 www/fleet/fleet_factory.php
+www/fleet/fleet_alerts.php
 www/fleet/assets/fleet-template.js
 www/fleet/fleet_schedules.php
 www/fleet/fleet_updates.php

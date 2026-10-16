@@ -53,6 +53,7 @@ require_once('fleet/fleet_templates.inc');
 require_once('fleet/fleet_users.inc');
 require_once('fleet/fleet_naming.inc');
 require_once('fleet/fleet_factory.inc');
+require_once('fleet/fleet_alerts.inc');
 
 define('FLEET_CTL_IF', 'wgfctl0');
 define('FLEET_ENROLL_CONF', '/var/etc/fleet-enroll.conf');

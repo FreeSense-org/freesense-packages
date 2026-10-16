@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 18);
+define('FLEET_DB_SCHEMA', 19);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -373,6 +373,20 @@ ALTER TABLE invitations ADD COLUMN node_id TEXT;
 PRAGMA user_version = 18;
 SQL);
 	}
+	if ($version < 19) {
+		/* Alerts: channels (secrets sealed) and every alert with where it was sent. */
+		$db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS alert_channels (
+	id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, type TEXT NOT NULL, config TEXT NOT NULL, events TEXT NOT NULL,
+	min_severity TEXT NOT NULL DEFAULT 'info', enabled INTEGER NOT NULL DEFAULT 1, report_hour INTEGER, report_sent INTEGER, created INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS alerts (
+	id INTEGER PRIMARY KEY AUTOINCREMENT, time INTEGER NOT NULL, event TEXT NOT NULL, severity TEXT NOT NULL, node_id TEXT NOT NULL,
+	text TEXT NOT NULL, sent TEXT NOT NULL, tries INTEGER NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0, repeats INTEGER NOT NULL DEFAULT 0, channel INTEGER);
+CREATE INDEX IF NOT EXISTS alerts_open ON alerts (done, tries);
+CREATE INDEX IF NOT EXISTS alerts_merge ON alerts (event, node_id, time);
+PRAGMA user_version = 19;
+SQL);
+	}
 	$db->exec('COMMIT');
 }
 
@@ -390,6 +404,9 @@ function fleet_setting_set(string $name, string $value): void {
 
 function fleet_audit(string $who, string $action, string $detail): void {
 	fleet_db()->prepare('INSERT INTO audit (time, who, action, detail) VALUES (?, ?, ?, ?)')->execute(array(time(), $who, $action, $detail));
+	if (function_exists('fleet_alert_from_audit')) {
+		fleet_alert_from_audit($action, $detail);
+	}
 }
 
 /* First-time setup of the controller's identity: overlay prefix and keys. Idempotent. */
