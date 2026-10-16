@@ -84,6 +84,7 @@ if ($manage) {
 		array(gettext('Policies'), false, '/fleet/fleet_policies.php'),
 		array(gettext('Templates'), false, '/fleet/fleet_templates.php'),
 		array(gettext('Users'), false, '/fleet/fleet_users.php'),
+		array(gettext('Factory'), false, '/fleet/fleet_factory.php'),
 		array(gettext('Firewalls'), false, '/fleet/fleet.php'),
 		array(gettext('Settings'), false, '/fleet/fleet.php?tab=settings'),
 	);

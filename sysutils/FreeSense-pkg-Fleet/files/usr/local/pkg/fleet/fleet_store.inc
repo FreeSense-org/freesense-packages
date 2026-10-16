@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 16);
+define('FLEET_DB_SCHEMA', 18);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -350,6 +350,27 @@ ALTER TABLE invitations ADD COLUMN hostname TEXT NOT NULL DEFAULT '';
 ALTER TABLE invitations ADD COLUMN domain TEXT NOT NULL DEFAULT '';
 CREATE TABLE IF NOT EXISTS name_counters (scope TEXT PRIMARY KEY, next INTEGER NOT NULL);
 PRAGMA user_version = 16;
+SQL);
+	}
+	if ($version < 17) {
+		/* Deployment Factory: batches and their rows; invitations can be bound to a serial or cloud instance id. */
+		$db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS batches (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, settings TEXT NOT NULL, created INTEGER NOT NULL, who TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS batch_rows (
+	batch_id INTEGER NOT NULL, n INTEGER NOT NULL, site TEXT NOT NULL, label TEXT NOT NULL, hostname TEXT NOT NULL, domain TEXT NOT NULL,
+	serial TEXT NOT NULL, instance_id TEXT NOT NULL, token_id TEXT NOT NULL, PRIMARY KEY (batch_id, n));
+ALTER TABLE invitations ADD COLUMN bind_serial TEXT NOT NULL DEFAULT '';
+ALTER TABLE invitations ADD COLUMN bind_instance TEXT NOT NULL DEFAULT '';
+ALTER TABLE invitations ADD COLUMN auto_approve INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE invitations ADD COLUMN batch_id INTEGER;
+PRAGMA user_version = 17;
+SQL);
+	}
+	if ($version < 18) {
+		/* Which firewall used an invitation (Factory rows show it). */
+		$db->exec(<<<'SQL'
+ALTER TABLE invitations ADD COLUMN node_id TEXT;
+PRAGMA user_version = 18;
 SQL);
 	}
 	$db->exec('COMMIT');
