@@ -825,3 +825,9 @@ a.fs-fleet-tile-link:hover, a.fs-fleet-tile-link:focus-visible { border-color: v
 .fs-fleet-quick a[aria-current] { border-color: var(--bs-primary); background: var(--bs-tertiary-bg); }
 .fs-fleet-quick a:focus-visible { outline: 2px solid var(--fs-info); outline-offset: 1px; }
 .fs-fleet-area-actions { margin-left: auto; display: flex; gap: var(--fs-sp-2); flex-wrap: wrap; align-self: center; }
+/* ---- alerts ---- */
+.fs-fleet-callout { display: flex; gap: var(--fs-sp-3); align-items: flex-start; padding: var(--fs-sp-3); margin-bottom: var(--fs-sp-3); border: 1px solid var(--fs-border); border-left: 3px solid var(--fs-info); border-radius: var(--fs-r-md); background: var(--bs-tertiary-bg); }
+.fs-fleet-callout > i { color: var(--fs-info); margin-top: .2rem; }
+.fs-fleet-rcard-actions { display: flex; flex-wrap: wrap; gap: 0; margin: auto -.5rem -.25rem; }
+.fs-fleet-off { opacity: .65; }
+.fs-fleet-checkgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .25rem var(--fs-sp-3); }
