@@ -129,6 +129,27 @@ if ($manage) {
 <?php endif; ?>
 		</div>
 	</div>
+<?php list($ha_pairs, $ha_boxes) = fleet_ha_now(); if (!empty($ha_pairs)): ?>
+	<section class="panel panel-default fs-fleet-ha" aria-labelledby="fs-fleet-ha-title">
+		<div class="panel-heading"><h2 class="panel-title" id="fs-fleet-ha-title"><i class="fa-solid fa-clone icon-embed-btn" aria-hidden="true"></i><?=gettext('HA pairs')?> <span class="fs-count"><?=count($ha_pairs)?></span></h2></div>
+		<div class="panel-body fs-fleet-pad"><p class="fs-fleet-lead small"><?=gettext('Firewalls that share CARP addresses. Fleet never works on both at once: the BACKUP goes first, the MASTER when its partner is back and the pair is healthy.')?></p>
+		<ul class="fs-fleet-ha-list">
+<?php foreach ($ha_pairs as $hp): ?>
+			<li<?=($hp['problem'] !== null) ? ' class="is-problem"' : ''?>>
+				<span class="fs-fleet-ha-state"><?=($hp['problem'] === null) ? fs_badge('pass', gettext('Healthy')) : fs_badge('down', ($hp['problem'][0] === 'split') ? gettext('Split-brain') : gettext('No MASTER'))?></span>
+				<span class="fs-fleet-ha-members">
+<?php $hp_nodes = $hp['nodes']; usort($hp_nodes, function ($x, $y) use ($ha_boxes) { return strnatcasecmp($ha_boxes[$x]['label'], $ha_boxes[$y]['label']); }); foreach ($hp_nodes as $hn): $hb = $ha_boxes[$hn]; ?>
+					<a href="/fleet/fleet_box.php?id=<?=urlencode($hn)?>"><?=htmlspecialchars($hb['label'])?></a>
+					<?=in_array($hn, $hp['masters'], true) ? fs_badge('info', 'MASTER') : fs_badge('neutral', 'BACKUP')?><?=($hb['state'] !== 'online') ? ' ' . fs_badge('warn', ucfirst($hb['state'])) : ''?>
+<?php endforeach; ?>
+				</span>
+				<span class="small fs-muted"><?=($hp['problem'] !== null) ? htmlspecialchars(sprintf(($hp['problem'][0] === 'split') ? gettext('Both are MASTER for %s: check the link between them.') : gettext('Nobody is MASTER for %s.'), fleet_ha_vip_text($hp['problem'][1]))) :
+				    (($hp['primary'] !== null) ? htmlspecialchars(sprintf(gettext('%s pushes its configuration by HA sync.'), $ha_boxes[$hp['primary']]['label'])) : gettext('No HA config sync.'))?></span>
+			</li>
+<?php endforeach; ?>
+		</ul></div>
+	</section>
+<?php endif; ?>
 
 <?php $all_groups = $ready ? fleet_groups_all() : array(); ?>
 	<div class="fs-fleet-groupbar">

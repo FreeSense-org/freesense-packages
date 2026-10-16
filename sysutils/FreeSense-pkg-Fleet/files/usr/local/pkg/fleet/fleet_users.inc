@@ -338,12 +338,15 @@ function fleet_users_launch(string $who, ?array $only = null): int {
 		throw new RuntimeException('No user group is for any firewall yet.');
 	}
 	$op = fleet_op_group_start('users', 'Sync users', $who);
-	foreach ($nodes as $node) {
+	foreach (fleet_ha_sort($nodes) as $node) {
 		$box = fleet_box_get($node);
 		if ($box === null) {
 			continue;
 		}
-		if (!fleet_manage_allowed($box)) {
+		$synced = fleet_ha_sync_source($node, 'users');
+		if ($synced !== null) {
+			fleet_op_set(fleet_op_start($node, 'users', '', $who, $op, 'skipped'), 'skipped', sprintf('Skipped: HA sync brings the users from %s', $synced));
+		} elseif (!fleet_manage_allowed($box)) {
 			fleet_op_set(fleet_op_start($node, 'users', '', $who, $op, 'skipped'), 'skipped', 'Skipped: monitor only');
 		} elseif ($box['state'] !== 'online') {
 			fleet_op_set(fleet_op_start($node, 'users', '', $who, $op, 'skipped'), 'skipped', 'Skipped: the firewall is ' . $box['state'] . '; it is synced with the next sync');

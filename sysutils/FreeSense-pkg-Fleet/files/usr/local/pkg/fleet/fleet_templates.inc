@@ -586,12 +586,15 @@ function fleet_template_launch(array $t, string $who, ?array $only = null): int 
 	}
 	$op = fleet_op_group_start('template', 'Apply template ' . $t['name'], $who);
 	$ignored = fleet_template_ignores((int)$t['id']);
-	foreach ($nodes as $node) {
+	foreach (fleet_ha_sort($nodes) as $node) {
 		$box = fleet_box_get($node);
 		if ($box === null) {
 			continue;
 		}
-		if (isset($ignored[$node]) && ($only === null)) {
+		$synced = fleet_ha_sync_source($node, (string)$t['kind']);
+		if ($synced !== null) {
+			fleet_op_set(fleet_op_start($node, 'template', '', $who, $op, 'skipped'), 'skipped', sprintf('Skipped: HA sync brings it from %s', $synced));
+		} elseif (isset($ignored[$node]) && ($only === null)) {
 			fleet_op_set(fleet_op_start($node, 'template', '', $who, $op, 'skipped'), 'skipped', 'Skipped: ignored (' . $ignored[$node]['reason'] . ')');
 		} elseif (!fleet_manage_allowed($box)) {
 			fleet_op_set(fleet_op_start($node, 'template', '', $who, $op, 'skipped'), 'skipped', 'Skipped: monitor only');

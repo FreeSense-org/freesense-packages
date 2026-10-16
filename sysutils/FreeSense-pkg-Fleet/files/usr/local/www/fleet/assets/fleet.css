@@ -873,3 +873,10 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 .fs-fleet-conn-reqs-wrap > summary { cursor: pointer; font-weight: 600; }
 .fs-fleet-conn-reqs-wrap .fs-fleet-conn-reqs { margin: var(--fs-sp-2) 0 0; }
 .fs-fleet-conn-pending { align-items: center; flex-wrap: wrap; }
+
+/* HA pairs on the dashboard. */
+.fs-fleet-ha { margin-top: var(--fs-sp-3); }
+.fs-fleet-ha-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--fs-sp-2); }
+.fs-fleet-ha-list > li { display: flex; flex-wrap: wrap; gap: var(--fs-sp-2) var(--fs-sp-3); align-items: center; padding: var(--fs-sp-2) var(--fs-sp-3); border: 1px solid var(--fs-border); border-radius: var(--fs-r-md); }
+.fs-fleet-ha-list > li.is-problem { border-left: 3px solid var(--fs-danger, #d9534f); }
+.fs-fleet-ha-members { display: inline-flex; flex-wrap: wrap; gap: var(--fs-sp-1) var(--fs-sp-2); align-items: center; }

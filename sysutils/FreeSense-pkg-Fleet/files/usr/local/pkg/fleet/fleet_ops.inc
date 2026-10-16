@@ -395,8 +395,11 @@ function fleet_boxes_plan(array $boxes, string $action): array {
 		}
 		$infos[$b['node_id']] = fleet_update_info($b);
 	}
-	return ($action === 'update') ? fleet_group_update_plan($boxes, $busy, $infos, fleet_opt('update_ufs_in_groups'), fleet_policy_update_blocks($boxes, $infos)) :
+	$plan = ($action === 'update') ? fleet_group_update_plan($boxes, $busy, $infos, fleet_opt('update_ufs_in_groups'), fleet_policy_update_blocks($boxes, $infos)) :
 	    fleet_group_reboot_plan($boxes, $busy);
+	/* An HA pair: the BACKUP first, the MASTER when its partner is back. */
+	$plan['go'] = array_values(fleet_ha_sort($plan['go']));
+	return $plan;
 }
 
 /* Start a reviewed (or scheduled) group reboot or update in the background. $group: a group, a name, or null (all). Returns the operation id. */

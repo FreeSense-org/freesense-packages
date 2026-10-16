@@ -280,7 +280,13 @@ if ($savemsg) {
 					<dt><?=gettext('Platform')?></dt><dd><?=htmlspecialchars((string)($st['platform'] ?? '-'))?></dd>
 					<dt><?=gettext('Configuration')?></dt><dd><?=$when($rev['time'] ?? 0)?><?php if (($rev['description'] ?? '') !== ''): ?><div class="fs-muted"><?=htmlspecialchars($rev['description'])?></div><?php endif; ?></dd>
 					<dt><?=gettext('Rollback protection')?></dt><dd><?php if (!isset($st['rollback_protection'])): ?>-<?php elseif ($st['rollback_protection']): ?><?=gettext('Yes (ZFS boot environments)')?><?php else: ?><?=fs_badge('warn', gettext('No rollback'))?> <span class="fs-muted"><?=gettext('A failed update cannot roll back by itself.')?></span><?php endif; ?></dd>
-					<dt><?=gettext('CARP')?></dt><dd><?=(($st['carp'] ?? 'none') === 'none') ? gettext('Not used') : ((($st['carp'] ?? '') === 'ok') ? gettext('OK') : fs_badge('degraded', (string)$st['carp']))?></dd>
+					<dt><?=gettext('CARP')?></dt><dd><?php $ha_carp = (string)($st['carp'] ?? 'none'); list($ha_pairs, $ha_boxes) = fleet_ha_now(); $ha_pair = fleet_ha_pair_of($ha_pairs, $box['node_id']); ?>
+						<?=($ha_carp === 'none') ? gettext('Not used') : (in_array($ha_carp, array('master', 'backup'), true) ? htmlspecialchars(strtoupper($ha_carp)) : fs_badge('warn', ucfirst($ha_carp)))?>
+<?php if ($ha_pair !== null): ?>
+						<div class="small"><?=gettext('HA pair with')?> <?php foreach (array_diff($ha_pair['nodes'], array($box['node_id'])) as $hn): ?><a href="/fleet/fleet_box.php?id=<?=urlencode($hn)?>"><?=htmlspecialchars($ha_boxes[$hn]['label'])?></a> <?php endforeach; ?>
+							<?=($ha_pair['problem'] === null) ? '' : fs_badge('down', ($ha_pair['problem'][0] === 'split') ? gettext('Split-brain') : gettext('No MASTER'))?>
+							<?=($ha_pair['primary'] === $box['node_id']) ? '<span class="fs-muted">' . gettext('(pushes HA sync)') . '</span>' : ''?></div>
+<?php endif; ?></dd>
 					<dt><?=gettext('Fleet policy')?></dt><dd><?=isset($st['policy_bundle']['version']) ? sprintf(gettext('Version %d'), (int)$st['policy_bundle']['version']) : gettext('None')?><?php if (!empty($st['breakglass'])): ?> <?=fs_badge('warn', gettext('Lock suspended'))?><?php endif; ?></dd>
 				</dl>
 			</div>
