@@ -60,6 +60,7 @@ require_once('fleet/fleet_template_rules.inc');
 require_once('fleet/fleet_conn.inc');
 require_once('fleet/fleet_tailscale.inc');
 require_once('fleet/fleet_ha.inc');
+require_once('fleet/fleet_ha_setup.inc');
 require_once('fleet/fleet_stats.inc');
 
 define('FLEET_CTL_IF', 'wgfctl0');
