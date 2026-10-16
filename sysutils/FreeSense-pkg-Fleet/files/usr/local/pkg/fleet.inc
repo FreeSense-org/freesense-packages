@@ -56,6 +56,7 @@ require_once('fleet/fleet_factory.inc');
 require_once('fleet/fleet_alerts.inc');
 require_once('fleet/fleet_kiosk.inc');
 require_once('fleet/fleet_template_settings.inc');
+require_once('fleet/fleet_template_rules.inc');
 require_once('fleet/fleet_conn.inc');
 require_once('fleet/fleet_tailscale.inc');
 

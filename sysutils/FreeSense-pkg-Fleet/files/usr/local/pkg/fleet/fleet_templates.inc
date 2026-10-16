@@ -287,7 +287,7 @@ function fleet_template_settings_open(array $t): array {
 
 /* What a template wants, as a hash (the state of each firewall keeps it, so a changed template shows as "to apply"). */
 function fleet_template_hash(array $t): string {
-	return hash('sha256', json_encode(($t['kind'] === 'aliases') ? $t['items'] : fleet_template_settings_open($t)));
+	return hash('sha256', json_encode((($t['kind'] === 'aliases') || isset(FLEET_TLIST_KINDS[$t['kind']])) ? $t['items'] : fleet_template_settings_open($t)));
 }
 
 /* Save a settings template (time, DNS, SNMP, remote logging). */
@@ -356,13 +356,16 @@ function fleet_template_save(?int $id, array $in, string $who): int {
 	/* The kind of a template never changes; a new one says it in the form. */
 	$existing = ($id !== null) ? fleet_template_get($id) : null;
 	$kind = ($existing !== null) ? $existing['kind'] : (string)($in['kind'] ?? 'aliases');
-	if (($kind !== 'aliases') && !isset(FLEET_TSET_KINDS[$kind])) {
+	if (($kind !== 'aliases') && !isset(FLEET_TSET_KINDS[$kind]) && !isset(FLEET_TLIST_KINDS[$kind])) {
 		throw new InvalidArgumentException('Unknown template kind.');
 	}
 	$q = fleet_db()->prepare('SELECT COUNT(*) FROM templates WHERE name = ? COLLATE NOCASE AND id != ?');
 	$q->execute(array($name, $id ?? 0));
 	if ((int)$q->fetchColumn() > 0) {
 		throw new InvalidArgumentException('There is already a template with that name.');
+	}
+	if (isset(FLEET_TLIST_KINDS[$kind])) {
+		return fleet_template_save_list($id, $kind, $name, $desc, $targets, fleet_tlist_items_from($kind, (array)($in['row'] ?? array())), $who);
 	}
 	if ($kind !== 'aliases') {
 		return fleet_template_save_settings($id, $kind, $name, $desc, $targets, $in, $who);
@@ -413,6 +416,22 @@ function fleet_template_save(?int $id, array $in, string $who): int {
 	return $id;
 }
 
+/* Save a rule or port forward template. */
+function fleet_template_save_list(?int $id, string $kind, string $name, string $desc, array $targets, array $items, string $who): int {
+	$args = array($name, $desc, json_encode($targets), json_encode($items), time(), $who);
+	if ($id === null) {
+		fleet_db()->prepare('INSERT INTO templates (name, description, targets, items, updated, who, created, kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+		    ->execute(array_merge($args, array(time(), $kind)));
+		$id = (int)fleet_db()->lastInsertId();
+	} else {
+		fleet_db()->prepare('UPDATE templates SET name = ?, description = ?, targets = ?, items = ?, updated = ?, who = ? WHERE id = ?')
+		    ->execute(array_merge($args, array($id)));
+	}
+	fleet_audit($who, 'template', sprintf('%s: %d %s for %s (not applied yet)', $name, count($items), strtolower(FLEET_TLIST_KINDS[$kind][0]),
+	    fleet_targets_text($targets, fleet_target_names())));
+	return $id;
+}
+
 /* Delete a template. What it pushed stays on the firewalls (Fleet stops managing it). */
 function fleet_template_delete(int $id, string $who): void {
 	$t = fleet_template_get($id);
@@ -440,6 +459,9 @@ function fleet_template_live_plan(array $t, array $box): array {
 	if ($t['kind'] === 'aliases') {
 		return fleet_template_plan((int)$t['id'], $t['items'], fleet_template_remote($box));
 	}
+	if (isset(FLEET_TLIST_KINDS[$t['kind']])) {
+		return fleet_tlist_plan($t['kind'], (int)$t['id'], $t['items'], fleet_tlist_remote($t['kind'], $box));
+	}
 	return fleet_template_settings_plan($t['kind'], fleet_tset_diff($t['kind'], $t['settings'], fleet_template_settings_remote($t['kind'], $box)));
 }
 
@@ -461,6 +483,10 @@ function fleet_template_settings_remote(string $kind, array $box): array {
 function fleet_template_plan_from_backup(array $t, string $node): ?array {
 	$latest = fleet_backup_latest($node);
 	$text = ($latest === null) ? null : fleet_backup_read($latest);
+	if (isset(FLEET_TLIST_KINDS[$t['kind']])) {
+		$list = ($text === null) ? null : fleet_tlist_from_config($t['kind'], $text);
+		return ($list === null) ? null : fleet_tlist_plan($t['kind'], (int)$t['id'], $t['items'], $list);
+	}
 	if ($t['kind'] !== 'aliases') {
 		$cur = ($text === null) ? null : fleet_tset_from_config($t['kind'], $text);
 		return ($cur === null) ? null : fleet_template_settings_plan($t['kind'], fleet_tset_diff($t['kind'], $t['settings'], $cur));
@@ -476,6 +502,9 @@ function fleet_template_plan_from_backup(array $t, string $node): ?array {
  */
 function fleet_template_apply_box(array $t, array $box, string $who, ?callable $progress = null): string {
 	fleet_manage_require($box);
+	if (isset(FLEET_TLIST_KINDS[$t['kind']])) {
+		return fleet_tlist_apply_box($t, $box, $who, $progress);
+	}
 	if ($t['kind'] !== 'aliases') {
 		return fleet_template_apply_settings($t, $box, $who, $progress);
 	}
@@ -656,6 +685,25 @@ function fleet_template_unignore(array $t, string $node, string $who): void {
  */
 function fleet_template_adopted(array $t, array $remote): array {
 	$changed = array();
+	if (isset(FLEET_TLIST_KINDS[$t['kind']])) {
+		$by = array();
+		foreach ($remote as $r) {
+			$o = is_array($r) ? fleet_tlist_owner((string)($r['descr'] ?? '')) : null;
+			if (($o !== null) && ($o[0] === (int)$t['id'])) {
+				$by[$o[1]] = $r;
+			}
+		}
+		$items = $t['items'];
+		foreach ($items as &$item) {
+			$now = isset($by[$item['key']]) ? fleet_tlist_item_from_raw($t['kind'], $item['key'], $by[$item['key']]) : null;
+			if (($now !== null) && ($now !== $item)) {
+				$item = $now;
+				$changed[] = $item['key'];
+			}
+		}
+		unset($item);
+		return array(array('items' => $items), $changed);
+	}
 	if ($t['kind'] === 'aliases') {
 		$by = array();
 		foreach ($remote as $a) {
@@ -696,7 +744,8 @@ function fleet_template_adopted(array $t, array $remote): array {
  * shows before anything is applied there. Returns what changed.
  */
 function fleet_template_adopt(array $t, array $box, string $who): array {
-	$remote = ($t['kind'] === 'aliases') ? fleet_template_remote($box) : fleet_template_settings_remote($t['kind'], $box);
+	$remote = ($t['kind'] === 'aliases') ? fleet_template_remote($box) : (isset(FLEET_TLIST_KINDS[$t['kind']]) ? fleet_tlist_remote($t['kind'], $box) :
+	    fleet_template_settings_remote($t['kind'], $box));
 	list($fields, $changed) = fleet_template_adopted($t, $remote);
 	if (empty($changed)) {
 		return array();

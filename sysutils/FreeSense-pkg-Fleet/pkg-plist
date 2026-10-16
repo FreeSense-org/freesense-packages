@@ -17,6 +17,7 @@ pkg/fleet/fleet_factory.inc
 pkg/fleet/fleet_alerts.inc
 pkg/fleet/fleet_kiosk.inc
 pkg/fleet/fleet_template_settings.inc
+pkg/fleet/fleet_template_rules.inc
 pkg/fleet/fleet_conn.inc
 pkg/fleet/fleet_tailscale.inc
 pkg/fleet/fleet_replicas.inc
@@ -56,6 +57,7 @@ www/fleet/kiosk_data.php
 www/fleet/noc.php
 www/fleet/noc_data.php
 www/fleet/assets/fleet-template.js
+www/fleet/assets/fleet-tlist.js
 www/fleet/fleet_schedules.php
 www/fleet/fleet_updates.php
 www/fleet/fleet_dashboard.php
