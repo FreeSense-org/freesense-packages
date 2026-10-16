@@ -1465,4 +1465,28 @@ $wpl = (string)file_get_contents($repo . '/sysutils/FreeSense-pkg-Fleet/pkg-plis
     (string)file_get_contents($repo . '/sysutils/FreeSense-pkg-Fleet/files/etc/inc/priv/fleet.priv.inc');
 check((substr_count($wpl, 'widgets/widgets/fleet.widget.php') === 3) && (strpos($wpl, 'www/widgets/include/fleet.inc') !== false), 'the widget is packaged, installed and in the read-only Fleet privilege');
 
+/* Load samples. */
+check((fleet_samples_last(array(1, 2.5, null, null)) === 2.5) && (fleet_samples_last(array(null)) === null) && (fleet_samples_last(null) === null), 'the last value of an RRD series skips the unfilled end');
+$smp = fleet_samples_from(array('cpu' => array('usage' => null), 'memory' => array('total_bytes' => 1000, 'used_bytes' => 250), 'states' => array('current' => 120, 'max' => 400000),
+    'temperatures' => array(array('name' => 'CPU 0', 'celsius' => 41.5), array('name' => 'CPU 1', 'celsius' => 44.25))),
+    array('cpu' => array(3.2, 7.04, null), 'mem' => array()), array('in_bps' => array(1000, 2500.6, null), 'out_bps' => array(null)));
+check(($smp === array('cpu' => 7.0, 'mem' => 25.0, 'states' => 120, 'states_max' => 400000, 'temp' => 44.3, 'rx_bps' => 2501.0, 'tx_bps' => null)) &&
+    (fleet_samples_from(array(), null, null) === array_fill_keys(FLEET_SAMPLES_COLS, null)),
+    'a sample: CPU from the RRD, memory from the RRD or the live numbers, the hottest sensor, WAN traffic; missing parts stay empty');
+$shr = fleet_samples_hourly(array(
+    array('node_id' => 'a', 'time' => 7200, 'cpu' => 10, 'mem' => 50, 'states' => 100, 'states_max' => 1000, 'temp' => null, 'rx_bps' => 10, 'tx_bps' => 20),
+    array('node_id' => 'a', 'time' => 7500, 'cpu' => 30, 'mem' => null, 'states' => 300, 'states_max' => 1000, 'temp' => null, 'rx_bps' => 30, 'tx_bps' => 40),
+    array('node_id' => 'b', 'time' => 7300, 'cpu' => 5, 'mem' => 5, 'states' => 1, 'states_max' => 9, 'temp' => 40, 'rx_bps' => 0, 'tx_bps' => 0),
+    array('node_id' => 'a', 'time' => 10800, 'cpu' => 99, 'mem' => 1, 'states' => 1, 'states_max' => 1, 'temp' => 1, 'rx_bps' => 1, 'tx_bps' => 1)));
+check((count($shr) === 3) && ($shr[0]['node_id'] === 'a') && ($shr[0]['time'] === 7200) && ($shr[0]['n'] === 2) && ($shr[0]['cpu'] === 20.0) && ($shr[0]['cpu_max'] === 30.0) &&
+    ($shr[0]['mem'] === 50.0) && ($shr[0]['temp'] === null) && ($shr[2]['time'] === 10800), 'hourly rows: averages per firewall and hour, the CPU peak, empty values stay empty');
+$sdb = fleet_db();
+check(((int)$sdb->query('PRAGMA user_version')->fetchColumn() === 27) && ($sdb->query("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('samples', 'samples_hourly')")->fetchColumn() == 2),
+    'schema 27 has the sample tables');
+$sdb->exec("INSERT INTO samples (node_id, time, cpu) VALUES ('sx', 100, 5), ('sy', 100, 9)");
+$sdb->exec("INSERT INTO samples_hourly (node_id, time, n, cpu, cpu_max) VALUES ('sx', 50, 12, 4, 8)");
+check((count(fleet_samples_rows(null, 0, 200)) === 3) && (count(fleet_samples_rows(array('sx'), 0, 200)) === 2) && (fleet_samples_rows(array(), 0, 200) === array()) &&
+    (fleet_samples_rows(array('sx'), 0, 200)[0]['cpu_max'] == 8), 'sample rows for some or all firewalls, hourly before five-minute');
+$sdb->exec("DELETE FROM samples WHERE node_id IN ('sx', 'sy'); DELETE FROM samples_hourly WHERE node_id = 'sx'");
+
 echo "Fleet controller tests: OK\n";
