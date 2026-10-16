@@ -341,7 +341,7 @@ function fleet_ops_finished_since(int $since, int $now): array {
 	$q = fleet_db()->prepare("SELECT o.id, o.kind, o.state, o.text, o.title, o.node_id, b.label FROM ops o LEFT JOIN boxes b ON b.node_id = o.node_id
 	    WHERE o.parent IS NULL AND o.finished > ? AND o.finished <= ? ORDER BY o.finished, o.id");
 	$q->execute(array($since, $now));
-	$kinds = array('reboot' => 'Reboot', 'backup' => 'Back up', 'restore' => 'Restore', 'update' => 'Update');
+	$kinds = array('reboot' => 'Reboot', 'backup' => 'Back up', 'restore' => 'Restore', 'update' => 'Update', 'template' => 'Apply template to');
 	return array_map(function ($op) use ($kinds) {
 		$op['name'] = ($op['node_id'] === '') ? (string)$op['title'] : (($kinds[$op['kind']] ?? ucfirst((string)$op['kind'])) . ' ' . ($op['label'] ?? $op['node_id']));
 		return $op;

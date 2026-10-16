@@ -97,6 +97,7 @@ if ($manage) {
 		array(gettext('Schedules'), true, '/fleet/fleet_schedules.php'),
 		array(gettext('Backups'), false, '/fleet/fleet_backups.php'),
 		array(gettext('Policies'), false, '/fleet/fleet_policies.php'),
+		array(gettext('Templates'), false, '/fleet/fleet_templates.php'),
 		array(gettext('Firewalls'), false, '/fleet/fleet.php'),
 		array(gettext('Settings'), false, '/fleet/fleet.php?tab=settings'),
 	);
