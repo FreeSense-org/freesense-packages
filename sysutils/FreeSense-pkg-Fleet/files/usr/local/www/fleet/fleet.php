@@ -41,6 +41,7 @@ $who = (string)($_SESSION['Username'] ?? 'admin');
 $input_errors = array();
 $savemsg = null;
 $new_invite = null;
+$new_name = null;
 
 if (isset($_POST['save_section']) && array_key_exists((string)$_POST['save_section'], FLEET_SETTINGS_SECTIONS) && ($_POST['save_section'] !== 'controller')) {
 	/* A settings section other than Controller: only its values change, everything else is kept. */
@@ -97,6 +98,14 @@ if (isset($_POST['save_section']) && array_key_exists((string)$_POST['save_secti
 	try {
 		$new_invite = fleet_invite_create((string)($_POST['role'] ?? 'monitor'), trim((string)($_POST['label'] ?? '')),
 		    3600 * max(1, min(720, (int)($_POST['hours'] ?? fleet_opt('invite_hours')))), $who, fleet_hostport($s['public_host'], $s['enroll_port']), time());
+		try {
+			$new_name = fleet_invite_set_name($new_invite[2], (int)($_POST['naming_group'] ?? 0), (string)($_POST['site'] ?? ''), (string)($_POST['fw_role'] ?? ''),
+			    (string)($_POST['hostname'] ?? ''), $who);
+		} catch (InvalidArgumentException $e) {
+			fleet_invite_revoke($new_invite[2], $who);
+			$new_invite = null;
+			throw $e;
+		}
 	} catch (InvalidArgumentException $e) {
 		$input_errors[] = $e->getMessage();
 	}
@@ -116,8 +125,16 @@ if (isset($_POST['save_section']) && array_key_exists((string)$_POST['save_secti
 } elseif (isset($_POST['group_save']) && $s['enable']) {
 	$edit_id = ((int)($_POST['group_id'] ?? 0) > 0) ? (int)$_POST['group_id'] : null;
 	try {
+		$problem = fleet_naming_pattern_problem(strtolower(trim((string)($_POST['naming_pattern'] ?? ''))));
+		if ($problem !== null) {
+			throw new InvalidArgumentException($problem);
+		}
+		if (!fleet_naming_domain_ok(strtolower(trim((string)($_POST['naming_domain'] ?? ''))))) {
+			throw new InvalidArgumentException(gettext('The domain is a name like shops.example.local.'));
+		}
 		$gid = fleet_group_save($edit_id, (string)($_POST['group_name'] ?? ''), (string)($_POST['group_description'] ?? ''),
 		    (string)($_POST['group_color'] ?? ''), $who);
+		fleet_naming_set($gid, (string)($_POST['naming_pattern'] ?? ''), (string)($_POST['naming_domain'] ?? ''), $who);
 		$win = (int)($_POST['group_window'] ?? 0);
 		fleet_group_set_window($gid, (fleet_window_get($win) !== null) ? $win : null, $who);
 		$savemsg = ($edit_id === null) ? gettext('Group created. Add firewalls to it on each firewall\'s Overview.') : gettext('Group saved.');
@@ -190,7 +207,8 @@ if ($savemsg) {
 	/* After an error the modal opens again with what was typed. */
 	$reopen = (isset($_POST['group_save']) && !empty($input_errors)) ? array('group_id' => (string)($_POST['group_id'] ?? ''),
 	    'group_name' => (string)($_POST['group_name'] ?? ''), 'group_description' => (string)($_POST['group_description'] ?? ''),
-	    'group_window' => (string)($_POST['group_window'] ?? '0'), 'group_color' => (string)($_POST['group_color'] ?? '1')) : null;
+	    'group_window' => (string)($_POST['group_window'] ?? '0'), 'group_color' => (string)($_POST['group_color'] ?? '1'),
+	    'naming_pattern' => (string)($_POST['naming_pattern'] ?? ''), 'naming_domain' => (string)($_POST['naming_domain'] ?? '')) : null;
 	$new_fill = array('group_window' => '0', 'group_color' => fleet_group_color((string)((count($groups) % 8) + 1)));
 ?>
 <div class="panel panel-default">
@@ -211,7 +229,7 @@ if ($savemsg) {
 		</form>
 	</div>
 	<div class="panel-body table-responsive"><table class="table fs-table">
-		<thead><tr><th><?=gettext('Name')?></th><th><?=gettext('Description')?></th><th><?=gettext('Window')?></th><th><?=gettext('Firewalls')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
+		<thead><tr><th><?=gettext('Name')?></th><th><?=gettext('Description')?></th><th><?=gettext('Window')?></th><th><?=gettext('Naming')?></th><th><?=gettext('Firewalls')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
 		<tbody>
 <?php if (empty($shown)): ?>
 		<tr><td colspan="5" class="fs-muted"><?=gettext('No group matches.')?> <a href="?view=groups"><?=gettext('Clear the search')?></a></td></tr>
@@ -220,11 +238,14 @@ if ($savemsg) {
 		<tr><td><span class="fs-fleet-group" style="--fs-fleet-group: var(--fs-series-<?=htmlspecialchars(fleet_group_color((string)$grp['color']))?>)"><?=htmlspecialchars($grp['name'])?></span></td>
 			<td><?=($grp['description'] !== '') ? htmlspecialchars($grp['description']) : '<span class="fs-muted">-</span>'?></td>
 			<td><?=isset($win_names[(int)$grp['window_id']]) ? htmlspecialchars($win_names[(int)$grp['window_id']]) : '<span class="fs-muted">-</span>'?></td>
+			<td class="fs-mono small"><?=((($grp['naming_pattern'] ?? '') . ($grp['naming_domain'] ?? '')) === '') ? '<span class="fs-muted">-</span>' :
+			    htmlspecialchars((($grp['naming_pattern'] !== '') ? $grp['naming_pattern'] : '*') . (($grp['naming_domain'] !== '') ? '.' . $grp['naming_domain'] : ''))?></td>
 			<td><a class="fs-fleet-inline-link" href="/fleet/fleet_dashboard.php?group=<?=(int)$grp['id']?>"><?=(int)$grp['members']?></a></td>
 			<td class="text-end text-nowrap">
 				<button type="button" class="btn btn-sm btn-link" data-fs-modal="#group-modal" data-fs-modal-title="<?=htmlspecialchars(sprintf(gettext('Change %s'), $grp['name']))?>"
 				    data-fs-fill="<?=htmlspecialchars(json_encode(array('group_id' => (string)$grp['id'], 'group_name' => $grp['name'], 'group_description' => $grp['description'],
-				    'group_window' => (string)(int)$grp['window_id'], 'group_color' => fleet_group_color((string)$grp['color']))))?>"><?=gettext('Change')?></button>
+				    'group_window' => (string)(int)$grp['window_id'], 'group_color' => fleet_group_color((string)$grp['color']),
+				    'naming_pattern' => (string)($grp['naming_pattern'] ?? ''), 'naming_domain' => (string)($grp['naming_domain'] ?? ''))))?>"><?=gettext('Change')?></button>
 				<form method="post" action="?view=groups" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="group_delete" value="<?=(int)$grp['id']?>" title="<?=gettext('Its firewalls stay in the fleet')?>"><?=gettext('Delete')?></button></form>
 			</td></tr>
 <?php endforeach; ?>
@@ -247,6 +268,16 @@ if ($savemsg) {
 <?php endforeach; ?>
 		</select>
 		<div class="form-text"><?=gettext('Rollouts update this group only inside its window.')?> <a href="/fleet/fleet_updates.php?view=windows"><?=gettext('Manage windows')?></a></div></div>
+	<fieldset class="mb-3 fs-fleet-naming" data-fleet-naming><legend class="form-label"><i class="fa-solid fa-tag" aria-hidden="true"></i> <?=gettext('Naming')?></legend>
+		<div class="row g-2">
+			<div class="col-sm-6"><label class="form-label small" for="naming_pattern"><?=gettext('Hostname pattern')?></label>
+				<input class="form-control fs-mono" id="naming_pattern" name="naming_pattern" maxlength="63" placeholder="{site}-fw{nn}" data-naming-pattern/></div>
+			<div class="col-sm-6"><label class="form-label small" for="naming_domain"><?=gettext('Domain')?></label>
+				<input class="form-control fs-mono" id="naming_domain" name="naming_domain" maxlength="253" placeholder="shops.example.local" data-naming-domain/></div>
+		</div>
+		<div class="form-text"><?=gettext('New firewalls in this group are named by it when they join. Tokens: {site} {role} {group} {nn} {nnn}; numbers are never used twice.')?>
+			<span class="fs-fleet-naming-preview" aria-live="polite" data-naming-preview></span></div>
+	</fieldset>
 	<fieldset class="mb-1"><legend class="form-label"><?=gettext('Colour')?></legend>
 		<div class="fs-fleet-swatches">
 <?php foreach (FLEET_GROUP_COLORS as $c): ?>
@@ -262,6 +293,9 @@ if ($savemsg) {
 <section class="fs-fleet-block fs-fleet-invite" aria-labelledby="invite-title">
 	<h2 id="invite-title" class="fs-fleet-section-title"><?=sprintf(gettext('Invitation for %s'), htmlspecialchars(trim((string)($_POST['label'] ?? ''))))?></h2>
 	<p class="fs-fleet-lead"><?=sprintf(gettext('Valid until %s. The join key is shown only now: copy it, and send it by a different channel than the link.'), htmlspecialchars(date('Y-m-d H:i', $expires)))?></p>
+<?php if (!empty($new_name[0]) || !empty($new_name[1])): ?>
+	<p><i class="fa-solid fa-tag" aria-hidden="true"></i> <?=gettext('It will be named')?> <strong class="fs-mono"><?=htmlspecialchars(trim(($new_name[0] ?: '*') . (($new_name[1] !== '') ? '.' . $new_name[1] : '')))?></strong> <?=gettext('when it joins.')?></p>
+<?php endif; ?>
 	<div class="fs-fleet-secret">
 		<span class="fs-fleet-secret-label"><?=gettext('Join link')?></span>
 		<code id="fleet-link" class="fs-fleet-secret-value"><?=htmlspecialchars($link)?></code>
@@ -315,6 +349,20 @@ if ($savemsg) {
 				<option value="monitor"><?=gettext('Monitor only')?></option>
 				<option value="managed"><?=gettext('Managed')?></option>
 			</select></div>
+<?php $name_groups = fleet_groups_all(); if (!empty($name_groups)): ?>
+		<div class="fs-fleet-field"><label class="form-label" for="naming_group"><?=gettext('Group')?></label>
+			<select class="form-select" id="naming_group" name="naming_group">
+				<option value="0"><?=gettext('None')?></option>
+<?php foreach ($name_groups as $ng): ?>
+				<option value="<?=(int)$ng['id']?>" data-pattern="<?=htmlspecialchars((string)($ng['naming_pattern'] ?? ''))?>" data-domain="<?=htmlspecialchars((string)($ng['naming_domain'] ?? ''))?>"
+				    data-next="<?=htmlspecialchars((string)fleet_naming_peek((int)$ng['id'], array()))?>"><?=htmlspecialchars($ng['name'] . ((($ng['naming_pattern'] ?? '') !== '') ? ' (' . $ng['naming_pattern'] . ')' : ''))?></option>
+<?php endforeach; ?>
+			</select></div>
+		<div class="fs-fleet-field"><label class="form-label" for="site"><?=gettext('Site')?></label>
+			<input class="form-control" id="site" name="site" maxlength="40" placeholder="cph"/></div>
+		<div class="fs-fleet-field"><label class="form-label" for="hostname"><?=gettext('Hostname')?></label>
+			<input class="form-control fs-mono" id="hostname" name="hostname" maxlength="63" placeholder="<?=gettext('From the group')?>"/></div>
+<?php endif; ?>
 		<div class="fs-fleet-field"><label class="form-label" for="hours"><?=gettext('Valid for')?></label>
 			<select class="form-select" id="hours" name="hours">
 <?php
@@ -444,4 +492,5 @@ if ($savemsg) {
 <?php endif; ?>
 
 <?php endif; ?>
+<script src="/fleet/assets/fleet-naming.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-naming.js')?>"></script>
 <?php include('foot.inc');

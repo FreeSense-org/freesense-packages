@@ -451,7 +451,7 @@ $state_badge = function (string $state) {
 	);
 	$rule_icons = array('VER-001' => 'fa-arrow-up-wide-short', 'VER-002' => 'fa-thumbtack', 'VER-003' => 'fa-list-check', 'VER-004' => 'fa-satellite-dish',
 	    'OPS-010' => 'fa-box-archive', 'OPS-020' => 'fa-clock-rotate-left', 'OPS-001' => 'fa-clock', 'OPS-002' => 'fa-scroll', 'OPS-003' => 'fa-earth-europe',
-	    'SEC-001' => 'fa-key', 'SEC-002' => 'fa-lock', 'SEC-003' => 'fa-user-shield', 'NAME-001' => 'fa-font', 'NAME-002' => 'fa-globe', 'CUSTOM' => 'fa-sliders');
+	    'SEC-001' => 'fa-key', 'SEC-002' => 'fa-lock', 'SEC-003' => 'fa-user-shield', 'NAME-001' => 'fa-font', 'NAME-002' => 'fa-globe', 'NAME-003' => 'fa-sitemap', 'NAME-004' => 'fa-tags', 'CUSTOM' => 'fa-sliders');
 	$n_on = count($pol['rules']);
 	$n_lock = count(array_filter($pol['rules'], function ($r) { return ($r[1] ?? '') === 'lock'; }));
 ?>

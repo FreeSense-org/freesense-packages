@@ -80,6 +80,10 @@ function fleet_policy_catalog(): array {
 		    'path' => 'system/hostname', 'op' => 'regex'),
 		'NAME-002' => array('area' => 'Naming', 'title' => 'Domain', 'kind' => 'config', 'severity' => 'low',
 		    'help' => 'The firewall uses this domain.', 'params' => array('value' => array('text', 'Domain', 'example.net')), 'path' => 'system/domain', 'op' => 'equals'),
+		'NAME-003' => array('area' => 'Naming', 'title' => 'Domain of its group', 'kind' => 'config', 'severity' => 'low', 'group_naming' => 'domain',
+		    'help' => 'The firewall uses the domain its group names (Firewalls > Groups > Naming).', 'params' => array(), 'path' => 'system/domain', 'op' => 'equals'),
+		'NAME-004' => array('area' => 'Naming', 'title' => 'Hostname follows its group', 'kind' => 'config', 'severity' => 'low', 'group_naming' => 'pattern',
+		    'help' => 'The hostname follows the pattern of its group, e.g. cph-fw01 for {site}-fw{nn}.', 'params' => array(), 'path' => 'system/hostname', 'op' => 'regex'),
 		'CUSTOM' => array('area' => 'Custom', 'title' => 'Configuration setting', 'kind' => 'config', 'severity' => 'medium',
 		    'help' => 'A configuration path has a value. Paths are like system/ssh/port.', 'custom' => true,
 		    'params' => array('path' => array('path', 'Path', 'system/ssh/port'), 'op' => array('choice:equals|not_equals|regex|present|absent|nonempty|min|max', 'Test', 'equals'),
@@ -89,7 +93,7 @@ function fleet_policy_catalog(): array {
 
 define('FLEET_POLICY_MODES', array('audit' => 'Audit', 'remediate' => 'Remediate', 'lock' => 'Lock'));
 /* Rules one value can fix; the firewall keeps its own allow-list too (System, fleet_guard.inc). */
-define('FLEET_POLICY_REMEDIABLE', array('OPS-001', 'OPS-003', 'SEC-003', 'NAME-002'));
+define('FLEET_POLICY_REMEDIABLE', array('OPS-001', 'OPS-003', 'SEC-003', 'NAME-002', 'NAME-003'));
 
 /* ------------------------------------------------------------------ */
 /* Pure: rules                                                         */
@@ -182,6 +186,9 @@ function fleet_policy_lock_rules(array $effective): array {
 	$out = array();
 	foreach ($effective as $rid => list($params, $mode)) {
 		$base = preg_replace('/:\d+$/', '', $rid);
+		if (!empty($params['_none'])) {
+			continue;
+		}
 		if ((($mode === 'lock') && fleet_policy_lockable($base)) || (($mode === 'remediate') && in_array($base, FLEET_POLICY_REMEDIABLE, true))) {
 			$out[] = fleet_policy_node_rule($rid, $params, $mode);
 		}
@@ -213,6 +220,9 @@ function fleet_config_values(?SimpleXMLElement $xml, string $path): ?array {
  * |null), now. Returns array(state: pass|fail|unknown, detail).
  */
 function fleet_policy_check(string $id, array $params, array $facts): array {
+	if (!empty($params['_none'])) {
+		return array('unknown', 'Its groups name no ' . (($id === 'NAME-003') ? 'domain' : 'hostname pattern'));
+	}
 	$cat = fleet_policy_catalog();
 	$rule = $cat[preg_replace('/:\d+$/', '', $id)];
 	$v = fleet_version_number((string)($facts['version'] ?? ''));
@@ -517,9 +527,27 @@ function fleet_box_facts(array $box): array {
 	    'last_backup' => ($latest === null) ? null : (int)$latest['time'], 'config' => $xml, 'now' => time());
 }
 
-/* A firewall's effective rules right now. */
+/* A firewall's effective rules right now (rules that take their value from its naming group get it here). */
 function fleet_box_effective(string $node, ?array $policies = null, ?array $groups = null): array {
-	return fleet_policy_effective($policies ?? fleet_policies_all(), $node, ($groups ?? fleet_box_group_ids())[$node] ?? array());
+	$eff = fleet_policy_effective($policies ?? fleet_policies_all(), $node, ($groups ?? fleet_box_group_ids())[$node] ?? array());
+	if (isset($eff['NAME-003']) || isset($eff['NAME-004'])) {
+		list($ng) = fleet_naming_group_of($node);
+		foreach (array('NAME-003' => 'domain', 'NAME-004' => 'pattern') as $rid => $what) {
+			if (isset($eff[$rid])) {
+				$eff[$rid][0] = fleet_policy_group_params($what, $ng);
+			}
+		}
+	}
+	return $eff;
+}
+
+/* pure: the parameters of a "from its group" rule: the group's domain or pattern, or none. */
+function fleet_policy_group_params(string $what, ?array $group): array {
+	$v = (string)($group['naming_' . $what] ?? '');
+	if ($v === '') {
+		return array('_none' => 1);
+	}
+	return ($what === 'domain') ? array('value' => $v, '_group' => $group['name']) : array('regex' => fleet_naming_regex($v), '_group' => $group['name']);
 }
 
 /* Check every firewall (or one) against its effective rules and keep the result. Exceptions turn a failure into "excepted". */
