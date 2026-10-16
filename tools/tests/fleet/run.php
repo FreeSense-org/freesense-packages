@@ -1361,4 +1361,42 @@ $hcand = fleet_ha_candidates(array('b' => $hfb, 'c' => $hfc, 'a' => $hfa, 'p' =>
 check((count($hcand) === 1) && ($hcand[0]['primary'] === 'a') && ($hcand[0]['secondary'] === 'b'),
     'pairing a group pairs managed firewalls sharing a network (lower name primary), never one already paired or alone');
 
+/* Standby controller. */
+$sbtok = random_bytes(32);
+$sbkey = random_bytes(32);
+$sbcode = fleet_standby_code_make('https://ctl.example.net:8443', str_repeat('ab', 32), $sbtok, $sbkey);
+$sbc = fleet_standby_code_read(" {$sbcode}\n");
+check(($sbc !== null) && ($sbc['url'] === 'https://ctl.example.net:8443') && ($sbc['token'] === $sbtok) && ($sbc['key'] === $sbkey) && (strpos($sbcode, 'FSB1-') === 0) &&
+    (fleet_standby_code_read('FSB1-' . fleet_standby_b64u('{"u":"http://x:1","f":"' . str_repeat('ab', 32) . '"}')) === null) && (fleet_standby_code_read('hello') === null),
+    'a standby pairing code carries the URL, certificate fingerprint, token and key, and nothing else reads as one');
+$sbsealed = fleet_standby_seal('copy', $sbkey);
+check((fleet_standby_unseal($sbsealed, $sbkey) === 'copy') && (fleet_standby_unseal($sbsealed, random_bytes(32)) === null) && (fleet_unseal($sbsealed, $sbkey) === null),
+    'a standby copy opens only with the pairing key (and is not a store secret)');
+check((fleet_standby_endpoints_want('a:1', 'b:1') === array('a:1', 'b:1')) && (fleet_standby_endpoints_want('a:1', '') === array('a:1')) && (fleet_standby_endpoints_want('a:1', 'a:1') === array('a:1')),
+    'firewalls know this controller first, then the standby');
+$sbw = array('a:1', 'b:1');
+check((fleet_standby_box_action(array('api_level' => 12), $sbw, 0) === 'skip') &&
+    (fleet_standby_box_action(array('api_level' => 13, 'controller_endpoints' => $sbw, 'controller_epoch' => 2), $sbw, 2) === 'ok') &&
+    (fleet_standby_box_action(array('api_level' => 13, 'controller_endpoints' => array('a:1'), 'controller_epoch' => 2), $sbw, 2) === 'push') &&
+    (fleet_standby_box_action(array('api_level' => 13, 'controller_endpoints' => $sbw, 'controller_epoch' => 1), $sbw, 2) === 'push') &&
+    (fleet_standby_box_action(array('api_level' => 13, 'controller_endpoints' => $sbw, 'controller_epoch' => 3), $sbw, 2) === 'newer'),
+    'each firewall\'s controller endpoints are kept current, and one that saw a newer controller means this one was replaced');
+$sbp = array('role' => 'standby');
+$sbs = array('takeover' => 'auto', 'auto_minutes' => 10, 'snapshot' => array('created' => 1), 'last_ok' => 1000);
+check(!fleet_standby_takeover_due($sbp, $sbs, 1000 + 599) && fleet_standby_takeover_due($sbp, $sbs, 1000 + 600) &&
+    !fleet_standby_takeover_due($sbp, array('takeover' => 'manual') + $sbs, 99999) && !fleet_standby_takeover_due($sbp, array('snapshot' => null) + $sbs, 99999) &&
+    !fleet_standby_takeover_due($sbp, array('last_ok' => 0) + $sbs, 99999) && !fleet_standby_takeover_due(array('role' => 'primary'), $sbs, 99999),
+    'automatic takeover only on a standby with a copy, set to automatic, after the primary answered once and was silent long enough');
+check((fleet_standby_url_host('https://[2001:db8::5]:8443') === '2001:db8::5') && (fleet_standby_url_host('https://ctl.example.net:8443') === 'ctl.example.net'),
+    'the primary\'s host from its URL');
+$sbb = array('format' => 'freesense-fleet-self-v1', 'created' => 5, 'schema' => FLEET_DB_SCHEMA, 'db' => '', 'keys' => array(), 'settings' => array(),
+    'master' => base64_encode(random_bytes(32)), 'epoch' => 4);
+$sbo = fleet_standby_open(fleet_standby_seal(gzencode(json_encode($sbb)), $sbkey), $sbkey);
+check(is_array($sbo) && ($sbo[1]['epoch'] === 4) && ($sbo[1]['created'] === 5) && is_string(fleet_standby_open(fleet_standby_seal(gzencode(json_encode(array('master' => '') + $sbb)), $sbkey), $sbkey)) &&
+    is_string(fleet_standby_open('s1:x:y:z', $sbkey)), 'a standby copy opens to the bundle with the master key and epoch; anything else is refused');
+$sbpoll = (string)file_get_contents($repo . '/sysutils/FreeSense-pkg-Fleet/files/usr/local/sbin/freesense-fleet-poll');
+$sbix = (string)file_get_contents($repo . '/sysutils/FreeSense-pkg-Fleet/files/usr/local/pkg/fleet/enroll/index.php');
+check((strpos($sbpoll, 'fleet_standby_endpoints_tick()') !== false) && (strpos($sbpoll, 'fleet_standby_fence_tick(') !== false) && (strpos($sbix, 'fleet_standby_handle(') !== false) &&
+    (strpos(fleet_enroll_nginx_conf(8443, '/fleet/tls.pem'), 'location ^~ /fleet/standby/') !== false),
+    'the poll keeps the standby copy and the firewalls\' endpoints current, and the enrollment port serves the standby');
 echo "Fleet controller tests: OK\n";

@@ -39,6 +39,19 @@ if (preg_match('/^\s*Bearer\s+(\S+)\s*$/i', (string)($_SERVER['HTTP_AUTHORIZATIO
 	$bearer = $m[1];
 }
 $body = json_decode((string)file_get_contents('php://input'), true);
+$path = (string)parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
+/* A standby controller fetching its copy, or asking for this server's role. */
+if (strpos($path, '/fleet/standby/') === 0) {
+	try {
+		list($status, $reply) = fleet_standby_handle(strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')), $path, $bearer, is_array($body) ? $body : array(), time());
+	} catch (Throwable $e) {
+		error_log('FreeSense Fleet standby: ' . $e->getMessage());
+		list($status, $reply) = array(500, array('error' => array('code' => 'internal_error', 'message' => 'Internal error.')));
+	}
+	http_response_code($status);
+	echo json_encode($reply, JSON_UNESCAPED_SLASHES);
+	exit;
+}
 try {
 	list($status, $reply) = fleet_enroll_handle(strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')),
 	    (string)parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH), $bearer, is_array($body) ? $body : array(),

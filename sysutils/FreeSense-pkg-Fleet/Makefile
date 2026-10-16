@@ -27,6 +27,7 @@ do-install:
 	${INSTALL_SCRIPT} ${FILESDIR}${PREFIX}/sbin/freesense-fleet-backup ${STAGEDIR}${PREFIX}/sbin/
 	${INSTALL_SCRIPT} ${FILESDIR}${PREFIX}/sbin/freesense-fleet-poll ${STAGEDIR}${PREFIX}/sbin/
 	${INSTALL_SCRIPT} ${FILESDIR}${PREFIX}/sbin/freesense-fleet-run ${STAGEDIR}${PREFIX}/sbin/
+	${INSTALL_SCRIPT} ${FILESDIR}${PREFIX}/sbin/freesense-fleet-standby ${STAGEDIR}${PREFIX}/sbin/
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/fleet/*.php ${STAGEDIR}${PREFIX}/www/fleet/
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/fleet/assets/* ${STAGEDIR}${PREFIX}/www/fleet/assets/
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/share/${PORTNAME}/info.xml ${STAGEDIR}${PREFIX}/share/${PORTNAME}/

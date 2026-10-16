@@ -61,6 +61,7 @@ require_once('fleet/fleet_conn.inc');
 require_once('fleet/fleet_tailscale.inc');
 require_once('fleet/fleet_ha.inc');
 require_once('fleet/fleet_ha_setup.inc');
+require_once('fleet/fleet_standby.inc');
 require_once('fleet/fleet_stats.inc');
 
 define('FLEET_CTL_IF', 'wgfctl0');
@@ -80,7 +81,7 @@ define('FLEET_POLL_INTERVALS', array(10, 15, 30, 60));
  * elsewhere. New features add their values here.
  */
 define('FLEET_SETTINGS_SECTIONS', array('controller' => 'Controller', 'monitoring' => 'Monitoring', 'actions' => 'Actions and notices',
-    'backups' => 'Backups', 'updates' => 'Updates', 'schedules' => 'Schedules', 'advanced' => 'Advanced'));
+    'backups' => 'Backups', 'updates' => 'Updates', 'schedules' => 'Schedules', 'standby' => 'Standby server', 'advanced' => 'Advanced'));
 define('FLEET_TUNABLES', array(
 	'poll_interval' => array('monitoring', 'choice', 15, array(10, 15, 30, 60), null, 'Check each firewall every',
 	    'How quickly the dashboard sees a change. Shorter intervals cost a little more traffic over each tunnel.'),
@@ -172,7 +173,7 @@ function fleet_hostport(string $host, int $port): string {
 
 /* pure: the enrollment nginx configuration. */
 function fleet_enroll_nginx_conf(int $port, string $tls, string $socket = '/var/run/php-fpm.socket'): string {
-	return "# FreeSense Fleet enrollment endpoint (fleet.inc); serves only /fleet/join/\n" .
+	return "# FreeSense Fleet enrollment endpoint (fleet.inc); serves only /fleet/join/ and /fleet/standby/\n" .
 	    "pid " . FLEET_ENROLL_PID . ";\nuser root wheel;\nworker_processes 1;\n" .
 	    "error_log syslog:server=unix:/var/run/log,facility=local5;\n\n" .
 	    "events {\n\tworker_connections 256;\n}\n\n" .
@@ -183,6 +184,9 @@ function fleet_enroll_nginx_conf(int $port, string $tls, string $socket = '/var/
 	    "\t\tssl_certificate {$tls};\n\t\tssl_certificate_key {$tls};\n\t\tssl_protocols TLSv1.2 TLSv1.3;\n" .
 	    "\t\tssl_session_tickets off;\n\t\tadd_header X-Content-Type-Options nosniff always;\n" .
 	    "\t\tlocation ^~ /fleet/join/ {\n\t\t\tlimit_req zone=fleetjoin burst=10 nodelay;\n" .
+	    "\t\t\tfastcgi_pass unix:{$socket};\n\t\t\tfastcgi_param SCRIPT_FILENAME " . FLEET_ENROLL_DOCROOT . "/index.php;\n" .
+	    "\t\t\tfastcgi_param HTTP_PROXY \"\";\n\t\t\tinclude /usr/local/etc/nginx/fastcgi_params;\n\t\t}\n" .
+	    "\t\tlocation ^~ /fleet/standby/ {\n\t\t\tlimit_req zone=fleetjoin burst=10 nodelay;\n" .
 	    "\t\t\tfastcgi_pass unix:{$socket};\n\t\t\tfastcgi_param SCRIPT_FILENAME " . FLEET_ENROLL_DOCROOT . "/index.php;\n" .
 	    "\t\t\tfastcgi_param HTTP_PROXY \"\";\n\t\t\tinclude /usr/local/etc/nginx/fastcgi_params;\n\t\t}\n" .
 	    "\t\tlocation / {\n\t\t\treturn 404 '{\"error\":{\"code\":\"not_found\"}}';\n\t\t}\n\t}\n}\n";

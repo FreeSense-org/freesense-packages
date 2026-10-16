@@ -167,12 +167,12 @@ function fleet_recovery_ready(): bool {
 	return is_file(FLEET_RECOVERY_ENVELOPE);
 }
 
-/* The controller's own state as one sealed file: database, keys and settings. Returns array(id, sha256 of the file, created). */
-function fleet_self_backup(): array {
+/* The controller's own state: database (a consistent copy), keys and settings (also what a standby controller receives). */
+function fleet_self_bundle(): array {
 	if (!is_dir(FLEET_SELF_DIR) && !@mkdir(FLEET_SELF_DIR, 0700, true)) {
 		throw new RuntimeException('The self-backup directory could not be created.');
 	}
-	$snap = FLEET_SELF_DIR . '/snapshot.db';
+	$snap = FLEET_SELF_DIR . '/snapshot-' . getmypid() . '.db';
 	@unlink($snap);
 	/* A consistent copy while the poll keeps writing. */
 	fleet_db()->exec('VACUUM INTO ' . fleet_db()->quote($snap));
@@ -182,6 +182,12 @@ function fleet_self_backup(): array {
 	    'tls.pem' => fleet_tls_pem()),
 	    'settings' => function_exists('config_get_path') ? (array)config_get_path('installedpackages/fleet/config/0', array()) : array());
 	@unlink($snap);
+	return $bundle;
+}
+
+/* The controller's own state as one sealed file: database, keys and settings. Returns array(id, sha256 of the file, created). */
+function fleet_self_backup(): array {
+	$bundle = fleet_self_bundle();
 	$sealed = fleet_seal(gzencode(json_encode($bundle), 6), fleet_master_key());
 	$created = (int)$bundle['created'];
 	$file = FLEET_SELF_DIR . "/self-{$created}.enc";

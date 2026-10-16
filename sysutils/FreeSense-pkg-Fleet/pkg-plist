@@ -8,6 +8,7 @@ pkg/fleet/fleet_enroll.inc
 pkg/fleet/fleet_groups.inc
 pkg/fleet/fleet_ha.inc
 pkg/fleet/fleet_ha_setup.inc
+pkg/fleet/fleet_standby.inc
 pkg/fleet/fleet_stats.inc
 pkg/fleet/fleet_list.inc
 pkg/fleet/fleet_manage.inc
@@ -31,6 +32,7 @@ pkg/fleet/fleet_store.inc
 sbin/freesense-fleet-backup
 sbin/freesense-fleet-poll
 sbin/freesense-fleet-run
+sbin/freesense-fleet-standby
 share/FreeSense-pkg-Fleet/info.xml
 www/fleet/assets/fleet-list.js
 www/fleet/assets/fleet-metrics.js

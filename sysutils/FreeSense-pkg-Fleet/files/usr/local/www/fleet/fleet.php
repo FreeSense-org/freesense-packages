@@ -43,6 +43,7 @@ $savemsg = null;
 $new_invite = null;
 $new_ts_key = null;
 $new_name = null;
+$standby_code = null;
 
 if (isset($_POST['save_section']) && array_key_exists((string)$_POST['save_section'], FLEET_SETTINGS_SECTIONS) && ($_POST['save_section'] !== 'controller')) {
 	/* A settings section other than Controller: only its values change, everything else is kept. */
@@ -165,6 +166,61 @@ if (isset($_POST['save_section']) && array_key_exists((string)$_POST['save_secti
 		fleet_group_delete((int)$_POST['group_delete'], $who);
 		$savemsg = gettext('Group deleted. Its firewalls were not changed.');
 	} catch (RuntimeException $e) {
+		$input_errors[] = $e->getMessage();
+	}
+} elseif (isset($_POST['standby_action'])) {
+	/* Standby server: pairing and settings on the primary; joining, fetching, promoting and leaving on the standby. */
+	$tab = 'settings';
+	try {
+		switch ((string)$_POST['standby_action']) {
+		case 'pair':
+			if ($s['enable']) {
+				$standby_code = fleet_standby_pair_new((string)($_POST['takeover'] ?? 'manual'), (int)($_POST['interval'] ?? 5), (int)($_POST['auto_minutes'] ?? 15), $who);
+			}
+			break;
+		case 'save':
+			if ($s['enable']) {
+				fleet_standby_settings_save((string)($_POST['takeover'] ?? 'manual'), (int)($_POST['interval'] ?? 5), (int)($_POST['auto_minutes'] ?? 15));
+				$savemsg = gettext('Saved. The standby picks the settings up on its next fetch.');
+			}
+			break;
+		case 'remove':
+			if ($s['enable']) {
+				fleet_standby_remove($who);
+				$savemsg = gettext('The standby was removed. Firewalls are told to use only this controller within a minute.');
+			}
+			break;
+		case 'join':
+			$problem = fleet_standby_join((string)($_POST['code'] ?? ''), trim((string)($_POST['own_addr'] ?? '')), $who);
+			if ($problem !== null) {
+				$input_errors[] = $problem;
+			} else {
+				$savemsg = gettext('This server is now the standby. It fetches a copy every minute.');
+			}
+			break;
+		case 'pull':
+			$problem = fleet_standby_pull(time());
+			if ($problem !== null) {
+				$input_errors[] = $problem;
+			} else {
+				$savemsg = gettext('The copy is up to date.');
+			}
+			break;
+		case 'promote':
+			if (empty($_POST['confirm_down'])) {
+				$input_errors[] = gettext('Confirm that the primary controller is down or switched off.');
+				break;
+			}
+			fleet_standby_promote($who, 'by hand');
+			$s = fleet_ctl_settings();
+			$savemsg = gettext('This server is now the Fleet controller. Firewalls move here by themselves within a few minutes.');
+			break;
+		case 'leave':
+			fleet_standby_leave($who);
+			$savemsg = gettext('This server is no longer the standby; its copy was deleted.');
+			break;
+		}
+	} catch (Throwable $e) {
 		$input_errors[] = $e->getMessage();
 	}
 } elseif (isset($_POST['revoke']) && $s['enable']) {
@@ -290,6 +346,17 @@ if ($savemsg) {
 			<td><span class="fs-muted">-</span></td>
 			<td class="small"><?=gettext('now')?></td>
 			<td class="small"><a href="/fleet/fleet_backups.php"><?=gettext('Self-backup')?></a></td>
+			<td class="text-end small"><span class="fs-muted"><?=gettext('Read only')?></span></td></tr>
+<?php endif; ?>
+<?php $sbo = ($ctl_row !== null) ? fleet_standby_overview() : null;
+	if (($sbo !== null) && ($sbo['role'] === 'primary') && ($sbo['addr'] !== '')): $sb_late = (time() - $sbo['seen']) > FLEET_STANDBY_LATE; ?>
+		<tr class="fs-fleet-row-controller"><td><a href="?tab=settings&amp;view=standby"><strong><?=htmlspecialchars($sbo['addr'])?></strong></a> <?=fs_badge('neutral', gettext('Standby server'))?>
+				<div class="fs-muted small"><?=gettext('Keeps a copy of this controller and can take over.')?></div></td>
+			<td><?=$sb_late ? fs_badge('warn', gettext('Late')) : fs_badge('pass', gettext('Up to date'))?></td>
+			<td class="small"><?=htmlspecialchars($sbo['version'])?></td>
+			<td><span class="fs-muted">-</span></td>
+			<td class="small"><?=htmlspecialchars($ago($sbo['seen']))?></td>
+			<td class="small"><?=htmlspecialchars(sprintf(gettext('%1$d of %2$d firewalls know it'), $sbo['known'], $sbo['total']))?></td>
 			<td class="text-end small"><span class="fs-muted"><?=gettext('Read only')?></span></td></tr>
 <?php endif; ?>
 <?php if ($plain && (($fpg['page'] ?? 1) == 1)): foreach ($waiting as $w): ?>
@@ -562,7 +629,7 @@ if ($savemsg) {
 
 <?php endif; ?>
 <?php else:
-	$set_view = fs_view_param(array_keys(FLEET_SETTINGS_SECTIONS), (string)($_POST['save_section'] ?? (isset($_POST['save_settings']) ? 'controller' : 'controller')));
+	$set_view = fs_view_param(array_keys(FLEET_SETTINGS_SECTIONS), (string)($_POST['save_section'] ?? ((isset($_POST['standby_action']) || (!$ready && (fleet_standby_role() === 'standby'))) ? 'standby' : 'controller')));
 	$set_labels = array_map('gettext', FLEET_SETTINGS_SECTIONS);
 	fs_view_switch($set_labels, $set_view);
 	$set_leads = array(
@@ -571,9 +638,119 @@ if ($savemsg) {
 		'actions' => gettext('Reboots, backups and restores started from Fleet: how long results stay visible and when you are told.'),
 		'backups' => gettext('Central backups of each firewall\'s configuration, taken every night and when it changes.'),
 		'advanced' => gettext('Values you rarely need to change. The defaults suit most fleets.'),
+		'standby' => gettext('A second FreeSense with the Fleet package keeps a verified, encrypted copy of this controller and can take over. Firewalls learn its address automatically, also ones that join later, and move to it by themselves when it takes over.'),
 	);
 ?>
-<?php if ($set_view !== 'controller'): ?>
+<?php if ($set_view === 'standby'):
+	$sb_role = fleet_standby_role();
+	$sb_ago = function (int $t): string {
+		if ($t <= 0) {
+			return gettext('never');
+		}
+		$d = max(0, time() - $t);
+		return ($d < 90) ? gettext('just now') : (($d < 5400) ? sprintf(gettext('%d min ago'), round($d / 60)) : sprintf(gettext('%d h ago'), round($d / 3600)));
+	};
+	$sb_select = function (string $name, string $label, array $options, $value, string $help) {
+		echo '<div class="fs-fleet-field"><label class="form-label" for="sb-' . $name . '">' . htmlspecialchars($label) . '</label><select class="form-select fs-fleet-narrow" id="sb-' . $name .
+		    '" name="' . $name . '" aria-describedby="sb-' . $name . '-help">';
+		foreach ($options as $k => $l) {
+			echo '<option value="' . htmlspecialchars((string)$k) . '"' . (((string)$k === (string)$value) ? ' selected' : '') . '>' . htmlspecialchars($l) . '</option>';
+		}
+		echo '</select><div id="sb-' . $name . '-help" class="fs-fleet-hint">' . htmlspecialchars($help) . '</div></div>';
+	};
+?>
+<?php if ($ready): $ov = fleet_standby_overview(); $late = ($ov['seen'] > 0) && ((time() - $ov['seen']) > FLEET_STANDBY_LATE); ?>
+<form method="post" action="?tab=settings&amp;view=standby">
+<div class="panel panel-default">
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Standby server')?></h2></div>
+	<div class="panel-body fs-fleet-pad">
+		<p class="fs-fleet-lead"><?=htmlspecialchars($set_leads['standby'])?></p>
+<?php if ($standby_code !== null): ?>
+		<div class="fs-fleet-review mb-3">
+			<h3 class="fs-fleet-subtitle"><?=gettext('Pairing code')?></h3>
+			<p class="fs-fleet-hint"><?=gettext('Shown once. On the standby server, open Fleet > Settings > Standby server and paste it with the standby\'s own address. Anyone with this code can fetch a full copy of this controller: treat it like a password.')?></p>
+			<textarea class="form-control fs-mono" rows="3" readonly onclick="this.select()"><?=htmlspecialchars($standby_code)?></textarea>
+		</div>
+<?php endif; ?>
+<?php if ($ov['role'] === 'primary'): ?>
+		<dl class="fs-fleet-facts mb-3">
+			<dt><?=gettext('Standby')?></dt><dd><?=($ov['addr'] !== '') ? htmlspecialchars($ov['addr']) . ($ov['version'] !== '' ? ' <span class="fs-muted small">' . htmlspecialchars($ov['version']) . '</span>' : '') : '<span class="fs-muted">' . gettext('Waiting for the standby to connect with the pairing code') . '</span>'?></dd>
+			<dt><?=gettext('Last copy fetched')?></dt><dd><?=($ov['seen'] > 0) ? fs_badge($late ? 'warn' : 'pass', $late ? gettext('Late') : gettext('Up to date')) . ' ' . htmlspecialchars($sb_ago($ov['seen'])) : '<span class="fs-muted">' . gettext('never') . '</span>'?></dd>
+			<dt><?=gettext('Firewalls that know it')?></dt><dd><?=($ov['addr'] !== '') ? htmlspecialchars(sprintf(gettext('%1$d of %2$d'), $ov['known'], $ov['total'])) . ' <span class="fs-muted small">' . gettext('(firewalls on System API level 13 learn it within a minute, also ones that join later)') . '</span>' : '<span class="fs-muted">-</span>'?></dd>
+		</dl>
+<?php endif; ?>
+		<div class="fs-fleet-settings">
+<?php
+	$sb_select('takeover', gettext('Take over'), array_map('gettext', FLEET_STANDBY_TAKEOVER), $ov['takeover'],
+	    gettext('By hand: you promote the standby when this controller is gone. Automatically: the standby promotes itself when this controller has not answered for the time below. Automatic is faster, but if only the link between the two servers breaks, both run for a while until one sees the other; the firewalls then follow the newer one.'));
+	$sb_select('auto_minutes', gettext('Automatic takeover after'), array_combine(FLEET_STANDBY_AUTO_MINUTES, array_map(function ($m) { return sprintf(gettext('%d minutes'), $m); }, FLEET_STANDBY_AUTO_MINUTES)), $ov['auto_minutes'],
+	    gettext('How long this controller must be silent before the standby takes over (only with automatic takeover).'));
+	$sb_select('interval', gettext('New copy every'), array_combine(FLEET_STANDBY_INTERVALS, array_map(function ($m) { return sprintf(gettext('%d minutes'), $m); }, FLEET_STANDBY_INTERVALS)), $ov['interval'],
+	    gettext('At most this much recent history (activity, status) is missing after a takeover. Firewalls, groups and settings are in every copy.'));
+?>
+		</div>
+	</div>
+	<div class="panel-footer d-flex gap-2 flex-wrap">
+<?php if ($ov['role'] === 'primary'): ?>
+		<button class="btn btn-primary" type="submit" name="standby_action" value="save"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save')?></button>
+		<button class="btn btn-outline-secondary" type="submit" name="standby_action" value="pair"><i class="fa-solid fa-key icon-embed-btn" aria-hidden="true"></i><?=gettext('New pairing code')?></button>
+		<button class="btn btn-outline-danger ms-auto" type="submit" name="standby_action" value="remove"><i class="fa-solid fa-link-slash icon-embed-btn" aria-hidden="true"></i><?=gettext('Remove the standby')?></button>
+<?php else: ?>
+		<button class="btn btn-primary" type="submit" name="standby_action" value="pair"><i class="fa-solid fa-key icon-embed-btn" aria-hidden="true"></i><?=gettext('Turn on and make a pairing code')?></button>
+<?php endif; ?>
+	</div>
+</div>
+</form>
+<?php elseif ($sb_role === 'standby'): $sp = fleet_standby_pairing(); $ss = fleet_standby_state(); $snap = (array)($ss['snapshot'] ?? array()); ?>
+<div class="panel panel-default">
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('This server is the standby')?></h2></div>
+	<div class="panel-body fs-fleet-pad">
+		<p class="fs-fleet-lead"><?=gettext('It keeps a verified, encrypted copy of the Fleet controller and can take over. It does not manage firewalls while it is the standby.')?></p>
+		<dl class="fs-fleet-facts mb-3">
+			<dt><?=gettext('Primary controller')?></dt><dd><?=htmlspecialchars(fleet_standby_url_host($sp['url']))?></dd>
+			<dt><?=gettext('Last fetch')?></dt><dd><?=empty($ss['last_error']) ? fs_badge('pass', gettext('Up to date')) . ' ' . htmlspecialchars($sb_ago((int)($ss['last_ok'] ?? 0))) :
+			    fs_badge('warn', gettext('Failing')) . ' <span class="fs-fleet-problem">' . htmlspecialchars($ss['last_error']) . '</span> <span class="fs-muted small">' . htmlspecialchars(sprintf(gettext('last good %s'), $sb_ago((int)($ss['last_ok'] ?? 0)))) . '</span>'?></dd>
+			<dt><?=gettext('Copy')?></dt><dd><?=!empty($snap) ? htmlspecialchars(sprintf(gettext('Controller as of %1$s: %2$d firewalls, %3$d groups'), date('Y-m-d H:i', (int)$snap['created']), (int)($snap['boxes'] ?? 0), (int)($snap['groups'] ?? 0))) : '<span class="fs-muted">' . gettext('none yet') . '</span>'?></dd>
+			<dt><?=gettext('Take over')?></dt><dd><?=(($ss['takeover'] ?? 'manual') === 'auto') ? htmlspecialchars(sprintf(gettext('Automatically, after %d minutes without the primary'), (int)($ss['auto_minutes'] ?? 15))) : gettext('By hand (below)')?> <span class="fs-muted small"><?=gettext('(set on the primary)')?></span></dd>
+			<dt><?=gettext('This server\'s address')?></dt><dd><?=htmlspecialchars((string)$sp['own_addr'])?></dd>
+		</dl>
+		<form method="post" action="?tab=settings&amp;view=standby" class="d-flex gap-2 flex-wrap">
+			<button class="btn btn-outline-secondary" type="submit" name="standby_action" value="pull"><i class="fa-solid fa-rotate icon-embed-btn" aria-hidden="true"></i><?=gettext('Fetch now')?></button>
+			<button class="btn btn-outline-secondary" type="submit" name="standby_action" value="leave"><i class="fa-solid fa-link-slash icon-embed-btn" aria-hidden="true"></i><?=gettext('Stop being the standby')?></button>
+		</form>
+	</div>
+</div>
+<?php if (!empty($snap)): ?>
+<form method="post" action="?tab=settings&amp;view=standby">
+<div class="panel panel-default">
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Promote to controller')?></h2></div>
+	<div class="panel-body fs-fleet-pad">
+		<p class="fs-fleet-lead"><?=gettext('This server becomes the Fleet controller from the copy: same keys and tunnel, its own address. Firewalls move here by themselves within a few minutes. If the old primary comes back, it sees it was replaced and becomes the standby.')?></p>
+		<label class="form-check"><input class="form-check-input" type="checkbox" name="confirm_down" value="1" required/> <span class="form-check-label"><?=gettext('The primary controller is down or switched off.')?></span></label>
+	</div>
+	<div class="panel-footer"><button class="btn btn-danger" type="submit" name="standby_action" value="promote"><i class="fa-solid fa-crown icon-embed-btn" aria-hidden="true"></i><?=gettext('Promote to controller')?></button></div>
+</div>
+</form>
+<?php endif; ?>
+<?php else: ?>
+<form method="post" action="?tab=settings&amp;view=standby">
+<div class="panel panel-default">
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Make this server the standby')?></h2></div>
+	<div class="panel-body fs-fleet-pad">
+		<p class="fs-fleet-lead"><?=gettext('A standby keeps a copy of an existing Fleet controller and can take over. Make a pairing code on the controller (Fleet > Settings > Standby server) and paste it here. To run this server as a controller of its own instead, use the Controller section.')?></p>
+		<div class="fs-fleet-settings">
+			<div class="fs-fleet-field"><label class="form-label" for="sb-code"><?=gettext('Pairing code')?></label>
+				<textarea class="form-control fs-mono" id="sb-code" name="code" rows="3" required placeholder="FSB1-..."><?=htmlspecialchars((string)($_POST['code'] ?? ''))?></textarea></div>
+			<div class="fs-fleet-field"><label class="form-label" for="sb-addr"><?=gettext('Address firewalls use to reach this server')?></label>
+				<input class="form-control" id="sb-addr" name="own_addr" required value="<?=htmlspecialchars((string)($_POST['own_addr'] ?? ''))?>" placeholder="fleet2.example.net" aria-describedby="sb-addr-help"/>
+				<div id="sb-addr-help" class="fs-fleet-hint"><?=gettext('A public IP address or DNS name. Firewalls are told about it now and use it if this server takes over; it needs the same tunnel and enrollment ports open as the controller.')?></div></div>
+		</div>
+	</div>
+	<div class="panel-footer"><button class="btn btn-primary" type="submit" name="standby_action" value="join"><i class="fa-solid fa-clone icon-embed-btn" aria-hidden="true"></i><?=gettext('Become the standby')?></button></div>
+</div>
+</form>
+<?php endif; ?>
+<?php elseif ($set_view !== 'controller'): ?>
 <form method="post" action="?tab=settings&amp;view=<?=htmlspecialchars($set_view)?>">
 <div class="panel panel-default">
 	<div class="panel-heading"><h2 class="panel-title"><?=htmlspecialchars($set_labels[$set_view])?></h2></div>

@@ -57,6 +57,9 @@ define('FLEET_ALERT_EVENTS', array(
 	'ha_problem' => array('An HA pair has two MASTERs or none', 'critical'),
 	'ha_ok' => array('An HA pair is healthy again', 'info'),
 	'join_refused' => array('A join was refused (wrong firewall or key)', 'warning'),
+	'controller_takeover' => array('The standby controller took over, or this controller stepped down', 'critical'),
+	'standby_problem' => array('The standby controller stopped fetching copies', 'warning'),
+	'standby_ok' => array('The standby controller fetches copies again', 'info'),
 	'test' => array('Test', 'info'),
 ));
 define('FLEET_ALERT_SEVERITIES', array('info' => 1, 'warning' => 2, 'critical' => 3));
