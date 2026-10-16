@@ -390,6 +390,22 @@ function fleet_conn_apply_box(array $box, array $want, string $who, ?callable $s
 	return "Uses the {$method} path on {$address}; the Fleet tunnel is the fallback." . $note;
 }
 
+/* Firewalls that joined over Tailscale get their path by themselves once they answer with a System that has paths. */
+function fleet_conn_auto_tick(): void {
+	$nodes = array();
+	foreach (fleet_db()->query("SELECT node_id, status FROM boxes WHERE conn_auto = 1 AND state = 'online'")->fetchAll() as $b) {
+		if ((int)((json_decode((string)$b['status'], true) ?: array())['api_level'] ?? 0) >= 10) {
+			$nodes[] = $b['node_id'];
+		}
+	}
+	if (empty($nodes)) {
+		return;
+	}
+	$in = implode(',', array_fill(0, count($nodes), '?'));
+	fleet_db()->prepare("UPDATE boxes SET conn_auto = 0 WHERE node_id IN ({$in})")->execute($nodes);
+	fleet_conn_launch($nodes, 'system');
+}
+
 /* Start applying the connection changes of these firewalls in the background. Returns the operation id. */
 function fleet_conn_launch(array $nodes, string $who): int {
 	if (empty($nodes)) {

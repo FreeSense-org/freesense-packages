@@ -69,6 +69,7 @@ do {
 	if ($first) {
 		/* Rollouts move on once a minute: the next firewall when its ring's window is open. */
 		fleet_rollouts_tick(time());
+		fleet_conn_auto_tick();
 		fleet_schedules_tick(time());
 		fleet_alerts_deliver();
 		fleet_alerts_reports(time());

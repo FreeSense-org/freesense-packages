@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 23);
+define('FLEET_DB_SCHEMA', 24);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -421,6 +421,15 @@ ALTER TABLE boxes ADD COLUMN conn_method TEXT NOT NULL DEFAULT '';
 ALTER TABLE boxes ADD COLUMN conn_iface TEXT NOT NULL DEFAULT '';
 ALTER TABLE boxes ADD COLUMN conn_state TEXT;
 PRAGMA user_version = 23;
+SQL);
+	}
+	if ($version < 24) {
+		/* Joining over Tailscale: how an invitation reaches the controller; firewalls that switch their path by themselves once online. */
+		$db->exec(<<<'SQL'
+ALTER TABLE invitations ADD COLUMN via TEXT NOT NULL DEFAULT '';
+ALTER TABLE invitations ADD COLUMN ts_key_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE boxes ADD COLUMN conn_auto INTEGER NOT NULL DEFAULT 0;
+PRAGMA user_version = 24;
 SQL);
 	}
 	$db->exec('COMMIT');
