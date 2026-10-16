@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 26);
+define('FLEET_DB_SCHEMA', 27);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -449,6 +449,18 @@ SQL);
 		require_once('fleet/fleet_stats.inc');
 		fleet_stats_backfill($db);
 		$db->exec('PRAGMA user_version = 26');
+	}
+	if ($version < 27) {
+		/* Load samples for the fleet charts (fleet_samples.inc): five-minute rows for 48 hours, hourly for 30 days. */
+		$db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS samples (node_id TEXT NOT NULL, time INTEGER NOT NULL, cpu REAL, mem REAL, states INTEGER, states_max INTEGER, temp REAL,
+	rx_bps REAL, tx_bps REAL);
+CREATE INDEX IF NOT EXISTS samples_time ON samples (time, node_id);
+CREATE TABLE IF NOT EXISTS samples_hourly (node_id TEXT NOT NULL, time INTEGER NOT NULL, n INTEGER NOT NULL, cpu REAL, cpu_max REAL, mem REAL, states INTEGER,
+	states_max INTEGER, temp REAL, rx_bps REAL, tx_bps REAL);
+CREATE INDEX IF NOT EXISTS samples_hourly_time ON samples_hourly (time, node_id);
+PRAGMA user_version = 27;
+SQL);
 	}
 	$db->exec('COMMIT');
 }

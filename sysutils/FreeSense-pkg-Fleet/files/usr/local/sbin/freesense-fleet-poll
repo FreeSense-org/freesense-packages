@@ -74,6 +74,9 @@ do {
 		/* A standby controller: its copy, the firewalls' endpoints, and whether this controller was replaced. */
 		fleet_standby_fence_tick(time());
 		fleet_access_tick(time());
+		/* Load samples for the fleet charts, every 5 minutes per firewall. */
+		fleet_samples_tick(time());
+		fleet_samples_rollup(time());
 		if (fleet_ctl_settings()['enable']) {
 			fleet_standby_endpoints_tick();
 			fleet_standby_outbox_tick(time());

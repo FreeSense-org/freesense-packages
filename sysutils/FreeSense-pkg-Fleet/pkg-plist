@@ -11,6 +11,7 @@ pkg/fleet/fleet_ha_setup.inc
 pkg/fleet/fleet_standby.inc
 pkg/fleet/fleet_access.inc
 pkg/fleet/fleet_widget.inc
+pkg/fleet/fleet_samples.inc
 pkg/fleet/fleet_stats.inc
 pkg/fleet/fleet_list.inc
 pkg/fleet/fleet_manage.inc
