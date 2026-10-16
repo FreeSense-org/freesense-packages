@@ -120,6 +120,8 @@
 			});
 			max = nice(max * 1.1);
 		}
+		/* Room at the left for the widest axis label. */
+		P.l = Math.max(P.l, 12 + 7 * Math.max.apply(null, [0, .25, .5, .75, 1].map(function (g) { return short(max * g, o.unit).length; })));
 		var x = function (i) { return P.l + (W - P.l - P.r) * i / (n - 1); };
 		var y = function (v) { return P.t + (H - P.t - P.b) * (1 - Math.max(0, Math.min(max, v)) / max); };
 		var body = '';
@@ -230,8 +232,8 @@
 				base += v;
 			});
 			body += '<rect class="fs-fc-hit" data-i="' + i + '" x="' + (P.l + i * bw).toFixed(1) + '" width="' + bw.toFixed(1) + '" y="' + P.t + '" height="' + (H - P.t - P.b) + '"/>';
-			if (n <= 8 || i % Math.ceil(n / 8) === 0 || i === n - 1) {
-				body += '<text class="fs-fleet-chart-axis" x="' + (x0 + (bw - gap) / 2).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle">' + esc(lab) + '</text>';
+			if (n <= 8 || (n - 1 - i) % Math.ceil(n / 8) === 0) {
+				body += '<text class="fs-fleet-chart-axis" x="' + ((i === n - 1 && n > 8) ? x0 + bw - gap : x0 + (bw - gap) / 2).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="' + ((i === n - 1 && n > 8) ? 'end' : 'middle') + '">' + esc(lab) + '</text>';
 			}
 		});
 		el._hover = function (ev) {
@@ -334,7 +336,7 @@
 		if (!rows.length || n < 2) {
 			return '<p class="fs-muted mb-0">' + esc(o.empty || '-') + '</p>';
 		}
-		var L = Math.min(170, Math.round(W * .26)), rh = 12, gap = 3, H = rows.length * (rh + gap) + 24;
+		var L = rows.some(function (r) { return r.label; }) ? Math.min(170, Math.round(W * .26)) : 4, rh = 12, gap = 3, H = rows.length * (rh + gap) + 24;
 		var cw = (W - L - 4) / n, body = '';
 		rows.forEach(function (r, j) {
 			var y0 = j * (rh + gap);

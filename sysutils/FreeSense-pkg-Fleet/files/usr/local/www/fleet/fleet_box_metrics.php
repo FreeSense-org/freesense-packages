@@ -23,7 +23,9 @@
  * One firewall's system metrics as JSON, read from the firewall through
  * Fleet (polled by assets/fleet-metrics.js on the firewall's System view):
  * what=live (CPU, memory, disks, states, uptime, interfaces) or
- * what=history&range=1h|24h|7d|30d (CPU and memory from its RRD history).
+ * what=history&range=1h|24h|7d|30d (CPU and memory from its RRD history),
+ * what=ifs (its interfaces), what=traffic&if=wan&range= (traffic history)
+ * or what=gateways&range= (latency, jitter and loss of every gateway).
  */
 
 require_once('guiconfig.inc');
@@ -45,16 +47,23 @@ if ($box['state'] === 'offline') {
 }
 $what = (string)($_GET['what'] ?? 'live');
 try {
-	if ($what === 'history') {
-		$range = (string)($_GET['range'] ?? '24h');
-		if (!in_array($range, array('1h', '24h', '7d', '30d'), true)) {
-			$range = '24h';
-		}
-		list($code, $json) = fleet_box_call($box, 'GET', '/api/v1/status/system/history?range=' . $range);
+	$range = (string)($_GET['range'] ?? '24h');
+	if (!in_array($range, array('1h', '24h', '7d', '30d'), true)) {
+		$range = '24h';
+	}
+	$paths = array('history' => '/api/v1/status/system/history?range=' . $range, 'gateways' => '/api/v1/status/gateways/history?range=' . $range,
+	    'ifs' => '/api/v1/status/interfaces',
+	    'traffic' => '/api/v1/status/traffic/history?range=' . $range . '&if=' . urlencode(preg_replace('/[^a-z0-9_]/', '', (string)($_GET['if'] ?? 'wan'))));
+	if (isset($paths[$what])) {
+		list($code, $json) = fleet_box_call($box, 'GET', $paths[$what]);
 		if ($code !== 200) {
 			throw new RuntimeException(($code === 404) ? gettext('The firewall has no history yet.') : sprintf(gettext('The firewall answered HTTP %d.'), $code));
 		}
-		echo json_encode(array('history' => $json['data'] ?? null), JSON_UNESCAPED_SLASHES);
+		$data = $json['data'] ?? null;
+		if ($what === 'ifs') {
+			$data = array_map(function ($i) { return array('name' => (string)($i['name'] ?? ''), 'label' => (string)($i['description'] ?? $i['name'] ?? '')); }, (array)$data);
+		}
+		echo json_encode(array('history' => $data), JSON_UNESCAPED_SLASHES);
 		exit;
 	}
 	list($code, $json) = fleet_box_call($box, 'GET', '/api/v1/status/system');
