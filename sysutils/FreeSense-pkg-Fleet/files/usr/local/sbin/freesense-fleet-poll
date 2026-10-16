@@ -71,6 +71,7 @@ do {
 		fleet_rollouts_tick(time());
 		fleet_conn_auto_tick();
 		fleet_ha_tick();
+		fleet_stats_prune(time());
 		fleet_schedules_tick(time());
 		fleet_alerts_deliver();
 		fleet_alerts_reports(time());

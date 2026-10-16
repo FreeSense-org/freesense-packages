@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 25);
+define('FLEET_DB_SCHEMA', 26);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -439,6 +439,16 @@ ALTER TABLE kiosk_keys ADD COLUMN style TEXT NOT NULL DEFAULT 'freesense';
 ALTER TABLE kiosk_keys ADD COLUMN theme TEXT NOT NULL DEFAULT 'auto';
 PRAGMA user_version = 25;
 SQL);
+	}
+	if ($version < 26) {
+		/* Availability: every state change of a firewall, filled from the audit log once. */
+		$db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS state_log (id INTEGER PRIMARY KEY AUTOINCREMENT, node_id TEXT NOT NULL, time INTEGER NOT NULL, state TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS state_log_node_time ON state_log (node_id, time);
+SQL);
+		require_once('fleet/fleet_stats.inc');
+		fleet_stats_backfill($db);
+		$db->exec('PRAGMA user_version = 26');
 	}
 	$db->exec('COMMIT');
 }

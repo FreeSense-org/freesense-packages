@@ -129,6 +129,92 @@ if ($manage) {
 <?php endif; ?>
 		</div>
 	</div>
+<?php
+	/* Availability: range, group and sort kept in the URL (s_ prefixed, apart from the live view's filters). */
+	$s_range = in_array($_GET['s_range'] ?? '', array_keys(FLEET_STATS_RANGES), true) ? $_GET['s_range'] : '7d';
+	$s_groups = array_column(fleet_groups_all(), 'name', 'id');
+	$s_group = isset($s_groups[(int)($_GET['s_group'] ?? 0)]) ? (int)$_GET['s_group'] : 0;
+	$s_sort = in_array($_GET['s_sort'] ?? '', array('avail', 'outages', 'name'), true) ? $_GET['s_sort'] : 'avail';
+	$s_nodes = null;
+	if ($s_group > 0) {
+		$q = fleet_db()->prepare('SELECT node_id FROM box_groups WHERE group_id = ?');
+		$q->execute(array($s_group));
+		$s_nodes = $q->fetchAll(PDO::FETCH_COLUMN);
+	}
+	$stats = fleet_stats($s_range, $s_nodes);
+	$s_rows = $stats['boxes'];
+	usort($s_rows, function ($a, $b) use ($s_sort) {
+		if ($s_sort === 'name') {
+			return strnatcasecmp($a['label'], $b['label']);
+		}
+		if ($s_sort === 'outages') {
+			return array($b['outages'], $b['longest']) <=> array($a['outages'], $a['longest']);
+		}
+		return array($a['percent'] ?? 101, -$a['outages']) <=> array($b['percent'] ?? 101, -$b['outages']);
+	});
+	$s_all = !empty($_GET['s_all']);
+	$s_url = function (array $change) use ($s_range, $s_group, $s_sort, $s_all) {
+		return '?' . htmlspecialchars(http_build_query(array_filter(array_merge(array('s_range' => $s_range, 's_group' => $s_group ?: null, 's_sort' => $s_sort,
+		    's_all' => $s_all ? 1 : null), $change), function ($v) { return $v !== null; }))) . '#fs-fleet-stats';
+	};
+	$s_down = count(array_filter($stats['boxes'], function ($r) { return $r['down_now']; }));
+	$s_dur = function (int $s) {
+		return ($s <= 0) ? '-' : (($s < 3600) ? sprintf(gettext('%d min'), max(1, round($s / 60))) : fleet_uptime_text($s));
+	};
+	$s_labels = array('24h' => gettext('24 hours'), '7d' => gettext('7 days'), '30d' => gettext('30 days'));
+?>
+	<section class="panel panel-default fs-fleet-stats" id="fs-fleet-stats" aria-labelledby="fs-fleet-stats-title">
+		<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title" id="fs-fleet-stats-title"><i class="fa-solid fa-chart-line icon-embed-btn" aria-hidden="true"></i><?=gettext('Availability')?></h2>
+			<div class="fs-fleet-stats-controls">
+				<form method="get" class="d-inline"><input type="hidden" name="s_range" value="<?=htmlspecialchars($s_range)?>"/><input type="hidden" name="s_sort" value="<?=htmlspecialchars($s_sort)?>"/>
+					<label class="visually-hidden" for="s-group"><?=gettext('Group')?></label>
+					<select class="form-select form-select-sm" id="s-group" name="s_group" onchange="this.form.submit()">
+						<option value="0"><?=gettext('All firewalls')?></option>
+<?php foreach ($s_groups as $gid => $gname): ?>
+						<option value="<?=(int)$gid?>"<?=($gid === $s_group) ? ' selected' : ''?>><?=htmlspecialchars($gname)?></option>
+<?php endforeach; ?>
+					</select><noscript><button class="btn btn-sm btn-link"><?=gettext('Show')?></button></noscript></form>
+				<nav class="btn-group btn-group-sm" aria-label="<?=gettext('Range')?>">
+<?php foreach ($s_labels as $rk => $rl): ?>
+					<a class="btn btn-outline-secondary" href="<?=$s_url(array('s_range' => $rk))?>"<?=($rk === $s_range) ? ' aria-current="true" data-range aria-pressed="true"' : ''?>><?=$rl?></a>
+<?php endforeach; ?>
+				</nav>
+			</div></div>
+		<div class="panel-body fs-fleet-pad">
+			<div class="fs-tiles fs-fleet-tiles-row">
+				<div class="fs-tile"><span class="fs-tile-label"><?=gettext('Availability')?></span><span class="fs-tile-value"><?=($stats['percent'] === null) ? '-' : $stats['percent'] . '%'?></span></div>
+				<div class="fs-tile"><span class="fs-tile-label"><?=gettext('Outages')?></span><span class="fs-tile-value"><?=(int)$stats['outages']?></span></div>
+				<div class="fs-tile"><span class="fs-tile-label"><?=gettext('Longest outage')?></span><span class="fs-tile-value fs-fleet-tile-text"><?=htmlspecialchars($s_dur($stats['longest']))?></span></div>
+				<div class="fs-tile"><span class="fs-tile-label"><?=gettext('Down now')?></span><span class="fs-tile-value<?=$s_down ? ' fs-fleet-problem' : ''?>"><?=$s_down?> / <?=(int)$stats['total']?></span></div>
+			</div>
+			<h3 class="fs-fleet-subhead"><?=gettext('Firewalls up over time')?></h3>
+			<div class="fs-fleet-stats-chart"><?=fleet_stats_svg($stats['timeline'], (int)$stats['total'], (int)$stats['from'], 1100, 170, function ($t) use ($s_range) {
+				return ($s_range === '24h') ? date('H:i', $t) : date('M j', $t);
+			}, gettext('Firewalls up over time'))?>
+				<p class="fs-fleet-chart-legend small mb-0"><span class="fs-fleet-chart-key fs-fleet-chart-s1"></span><?=gettext('Up')?> <span class="fs-fleet-chart-key fs-fleet-chart-in-key"></span><?=gettext('In the fleet')?></p></div>
+			<div class="table-responsive"><table class="table fs-table mb-0">
+				<thead><tr>
+					<th><a href="<?=$s_url(array('s_sort' => 'name'))?>"<?=($s_sort === 'name') ? ' aria-current="true"' : ''?>><?=gettext('Firewall')?></a></th>
+					<th><a href="<?=$s_url(array('s_sort' => 'avail'))?>"<?=($s_sort === 'avail') ? ' aria-current="true"' : ''?>><?=gettext('Availability')?></a></th>
+					<th><a href="<?=$s_url(array('s_sort' => 'outages'))?>"<?=($s_sort === 'outages') ? ' aria-current="true"' : ''?>><?=gettext('Outages')?></a></th>
+					<th><?=gettext('Longest')?></th><th><?=gettext('Last outage')?></th></tr></thead>
+				<tbody>
+<?php foreach ($s_all ? $s_rows : array_slice($s_rows, 0, 8) as $sr): $sp = $sr['percent']; ?>
+				<tr><td><a href="/fleet/fleet_box.php?id=<?=urlencode($sr['node'])?>"><?=htmlspecialchars($sr['label'])?></a><?=$sr['down_now'] ? ' ' . fs_badge('down', gettext('Down now')) : ''?></td>
+					<td><?php if ($sp === null): ?><span class="fs-muted">-</span><?php else: ?><span class="fs-fleet-meter<?=($sp < 95) ? ' is-bad' : (($sp < 99.5) ? ' is-warn' : '')?>"><span style="width:<?=max(0, min(100, $sp))?>%"></span></span> <?=$sp?>%<?php endif; ?></td>
+					<td><?=(int)$sr['outages']?></td>
+					<td class="small"><?=htmlspecialchars($s_dur($sr['longest']))?></td>
+					<td class="small"><?=($sr['last'] === null) ? '<span class="fs-muted">' . gettext('none') . '</span>' : htmlspecialchars(date('Y-m-d H:i', $sr['last']))?></td></tr>
+<?php endforeach; ?>
+<?php if (empty($s_rows)): ?>
+				<tr><td colspan="5" class="fs-muted"><?=gettext('No firewalls in this group.')?></td></tr>
+<?php endif; ?>
+				</tbody></table></div>
+<?php if (!$s_all && (count($s_rows) > 8)): ?>
+			<p class="mb-0 mt-2 small"><a href="<?=$s_url(array('s_all' => 1))?>"><?=sprintf(gettext('Show all %d firewalls'), count($s_rows))?></a></p>
+<?php endif; ?>
+		</div>
+	</section>
 <?php list($ha_pairs, $ha_boxes) = fleet_ha_now(); if (!empty($ha_pairs)): ?>
 	<section class="panel panel-default fs-fleet-ha" aria-labelledby="fs-fleet-ha-title">
 		<div class="panel-heading"><h2 class="panel-title" id="fs-fleet-ha-title"><i class="fa-solid fa-clone icon-embed-btn" aria-hidden="true"></i><?=gettext('HA pairs')?> <span class="fs-count"><?=count($ha_pairs)?></span></h2></div>
