@@ -46,6 +46,7 @@ try {
 		'controller_wg_pub' => (string)base64_decode((string)fleet_setting('wg_public', '')),
 		'endpoint' => (string)fleet_setting('wg_endpoint', ''),
 		'on_joined' => 'fleet_ctl_peer_add',
+		'ts_address' => function_exists('fleet_ts_controller_address') ? fleet_ts_controller_address() : null,
 	));
 } catch (Throwable $e) {
 	error_log('FreeSense Fleet enrollment: ' . $e->getMessage());

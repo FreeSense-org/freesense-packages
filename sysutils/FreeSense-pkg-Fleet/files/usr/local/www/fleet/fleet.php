@@ -41,6 +41,7 @@ $who = (string)($_SESSION['Username'] ?? 'admin');
 $input_errors = array();
 $savemsg = null;
 $new_invite = null;
+$new_ts_key = null;
 $new_name = null;
 
 if (isset($_POST['save_section']) && array_key_exists((string)$_POST['save_section'], FLEET_SETTINGS_SECTIONS) && ($_POST['save_section'] !== 'controller')) {
@@ -96,8 +97,26 @@ if (isset($_POST['save_section']) && array_key_exists((string)$_POST['save_secti
 	}
 } elseif (($_POST['invite'] ?? false) && $s['enable']) {
 	try {
-		$new_invite = fleet_invite_create((string)($_POST['role'] ?? 'monitor'), trim((string)($_POST['label'] ?? '')),
-		    3600 * max(1, min(720, (int)($_POST['hours'] ?? fleet_opt('invite_hours')))), $who, fleet_hostport($s['public_host'], $s['enroll_port']), time());
+		$via = ((string)($_POST['via'] ?? '') === 'tailscale') ? 'tailscale' : '';
+		$ttl = 3600 * max(1, min(720, (int)($_POST['hours'] ?? fleet_opt('invite_hours'))));
+		$authority = fleet_hostport($s['public_host'], $s['enroll_port']);
+		if ($via === 'tailscale') {
+			list($ts_problems, $ts_address) = fleet_ts_join_ready();
+			if (!empty($ts_problems)) {
+				throw new InvalidArgumentException(implode(' ', $ts_problems));
+			}
+			$authority = fleet_hostport($ts_address, $s['enroll_port']);
+		}
+		$new_invite = fleet_invite_create((string)($_POST['role'] ?? 'monitor'), trim((string)($_POST['label'] ?? '')), $ttl, $who, $authority, time(), $via);
+		if ($via === 'tailscale') {
+			try {
+				$new_ts_key = fleet_ts_authkey_mint(trim((string)($_POST['label'] ?? '')), $ttl, $who, $new_invite[2]);
+			} catch (RuntimeException $e) {
+				fleet_invite_revoke($new_invite[2], $who);
+				$new_invite = null;
+				throw new InvalidArgumentException($e->getMessage());
+			}
+		}
 		try {
 			$new_name = fleet_invite_set_name($new_invite[2], (int)($_POST['naming_group'] ?? 0), (string)($_POST['site'] ?? ''), (string)($_POST['fw_role'] ?? ''),
 			    (string)($_POST['hostname'] ?? ''), $who);
@@ -397,11 +416,28 @@ if ($savemsg) {
 		<code id="fleet-key" class="fs-fleet-secret-value fs-fleet-key"><?=htmlspecialchars($key)?></code>
 		<button type="button" class="btn btn-sm btn-outline-secondary" data-fs-copy="#fleet-key"><i class="fa-regular fa-clone icon-embed-btn" aria-hidden="true"></i><?=gettext('Copy key')?></button>
 	</div>
+<?php if ($new_ts_key !== null): ?>
+	<div class="fs-fleet-secret">
+		<span class="fs-fleet-secret-label"><?=gettext('Tailscale key')?></span>
+		<code id="fleet-tskey" class="fs-fleet-secret-value fs-fleet-key"><?=htmlspecialchars($new_ts_key)?></code>
+		<button type="button" class="btn btn-sm btn-outline-secondary" data-fs-copy="#fleet-tskey"><i class="fa-regular fa-clone icon-embed-btn" aria-hidden="true"></i><?=gettext('Copy key')?></button>
+	</div>
+	<p class="fs-fleet-hint"><?=gettext('A one-time, pre-approved Tailscale key for this firewall only. It is shown only now; it expires with the invitation.')?></p>
+	<h3 class="h6 mt-3"><?=gettext('On the new firewall')?></h3>
+	<ol class="fs-fleet-steps">
+		<li><?=gettext('Install Tailscale: System > Package Manager > Available Packages > Tailscale.')?></li>
+		<li><?=gettext('VPN > Tailscale > Authentication: paste the Tailscale key, save; then enable Tailscale on its Settings tab. Or at the console:')?>
+			<code class="d-block mt-1">tailscale up --auth-key='&lt;Tailscale key&gt;'</code></li>
+		<li><?=sprintf(gettext('Join the fleet: console option 17, or %s, and type the join key when asked. The link uses this controller\'s tailnet address, so no public port is needed.'), '<code>freesense-join join \'&lt;link&gt;\'</code>')?></li>
+		<li><?=gettext('Approve it below when the codes match. Fleet then moves its management onto the Tailscale path by itself; the Fleet tunnel (also over the tailnet) stays as the fallback.')?></li>
+	</ol>
+<?php else: ?>
 	<ol class="fs-fleet-steps">
 		<li><?=sprintf(gettext('On the new firewall, open the console and choose option 17, or run %s.'), '<code>freesense-join join \'&lt;link&gt;\'</code>')?></li>
 		<li><?=gettext('Paste the link, then type the join key when asked.')?></li>
 		<li><?=gettext('The firewall shows a 6-digit code. Approve it below when the same code appears here.')?></li>
 	</ol>
+<?php endif; ?>
 </section>
 <?php endif; ?>
 
@@ -433,6 +469,16 @@ if ($savemsg) {
 	<h2 id="add-title" class="fs-fleet-section-title"><?=gettext('Add a firewall')?></h2>
 	<p class="fs-fleet-lead"><?=gettext('Creates a join link and key for one firewall. It must be able to reach this controller on the enrollment and tunnel ports.')?></p>
 	<form method="post" class="fs-fleet-form">
+<?php list($ts_join_problems, $ts_join_address) = fleet_ts_join_ready(); ?>
+		<fieldset class="fs-fleet-field fs-fleet-field--full"><legend class="form-label"><?=gettext('The new firewall reaches this controller')?></legend>
+			<label class="form-check"><input class="form-check-input" type="radio" name="via" value="" checked/> <span class="form-check-label"><?=gettext('Over the internet (the Fleet tunnel: needs the public address and ports in Settings)')?></span></label>
+			<label class="form-check"><input class="form-check-input" type="radio" name="via" value="tailscale"<?=empty($ts_join_problems) ? '' : ' disabled'?>/> <span class="form-check-label"><?=gettext('Over Tailscale (no public port: Fleet creates a one-time Tailscale key)')?></span></label>
+<?php if (!empty($ts_join_problems)): ?>
+			<div class="form-text"><?=htmlspecialchars(implode(' ', array_map('gettext', $ts_join_problems)))?></div>
+<?php else: ?>
+			<div class="form-text"><?=htmlspecialchars(sprintf(gettext('Ready: this controller is %s in the tailnet and the API token works.'), $ts_join_address))?></div>
+<?php endif; ?>
+		</fieldset>
 		<div class="fs-fleet-field fs-fleet-field--wide"><label class="form-label" for="label"><?=gettext('Name')?></label>
 			<input class="form-control" id="label" name="label" placeholder="<?=gettext('Copenhagen office')?>" required maxlength="80"/></div>
 		<div class="fs-fleet-field"><label class="form-label" for="role"><?=gettext('Access')?></label>
@@ -482,7 +528,7 @@ if ($savemsg) {
 		<thead><tr><th><?=gettext('Name')?></th><th><?=gettext('Access')?></th><th><?=gettext('Valid until')?></th><th><?=gettext('Wrong keys')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
 		<tbody>
 <?php foreach ($invites as $i): ?>
-		<tr><td><?=htmlspecialchars($i['label'])?></td><td><?=htmlspecialchars($role_name($i['role']))?></td>
+		<tr><td><?=htmlspecialchars($i['label'])?><?=(($i['via'] ?? '') === 'tailscale') ? ' ' . fs_badge('neutral', gettext('Over Tailscale')) : ''?></td><td><?=htmlspecialchars($role_name($i['role']))?></td>
 			<td><?=htmlspecialchars(date('Y-m-d H:i', (int)$i['expires']))?></td>
 			<td><?=((int)$i['failures'] > 0) ? fs_badge('warn', (int)$i['failures'] . ' / ' . fleet_opt('invite_failures')) : '<span class="fs-muted">0</span>'?></td>
 			<td class="text-end"><form method="post"><button class="btn btn-sm btn-outline-secondary" name="revoke" value="<?=htmlspecialchars($i['token_id'])?>"><?=gettext('Revoke')?></button></form></td></tr>

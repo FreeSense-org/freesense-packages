@@ -47,7 +47,7 @@ function fleet_valid_label(string $label): bool {
  * Create an invitation. Returns array(link, key as shown, token_id, expires).
  * The key is shown once and never stored.
  */
-function fleet_invite_create(string $role, string $label, int $ttl, string $who, string $authority, int $now): array {
+function fleet_invite_create(string $role, string $label, int $ttl, string $who, string $authority, int $now, string $via = ''): array {
 	if (!in_array($role, array('monitor', 'managed'), true)) {
 		throw new InvalidArgumentException('Choose monitor or managed.');
 	}
@@ -64,10 +64,10 @@ function fleet_invite_create(string $role, string $label, int $ttl, string $who,
 	$token_id = bin2hex(random_bytes(6));
 	$secret = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
 	list($shown, $key_data) = fleet_join_key_generate();
-	fleet_db()->prepare('INSERT INTO invitations (token_id, secret_hash, okm, role, label, created, expires, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+	fleet_db()->prepare('INSERT INTO invitations (token_id, secret_hash, okm, role, label, created, expires, created_by, via) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
 	    ->execute(array($token_id, hash('sha256', $secret), fleet_seal(fleet_join_okm($key_data, $cert), fleet_master_key()), $role, $label,
-	    $now, $now + $ttl, $who));
-	fleet_audit($who, 'invite', "{$token_id} {$role} \"{$label}\"");
+	    $now, $now + $ttl, $who, ($via === 'tailscale') ? 'tailscale' : ''));
+	fleet_audit($who, 'invite', "{$token_id} {$role} \"{$label}\"" . (($via === 'tailscale') ? ' over Tailscale' : ''));
 	return array(fleet_join_link_build($authority, $token_id, $secret, $cert), $shown, $token_id, $now + $ttl);
 }
 
@@ -76,6 +76,13 @@ function fleet_invite_revoke(string $token_id, string $who): bool {
 	$st->execute(array($token_id));
 	if ($st->rowCount() > 0) {
 		fleet_audit($who, 'revoke', $token_id);
+		/* Its one-time Tailscale key goes too, so it cannot be used later. */
+		$ts = fleet_db()->prepare('SELECT ts_key_id FROM invitations WHERE token_id = ?');
+		$ts->execute(array($token_id));
+		$kid = (string)$ts->fetchColumn();
+		if (($kid !== '') && function_exists('fleet_ts_authkey_delete')) {
+			fleet_ts_authkey_delete($kid, $who);
+		}
 		return true;
 	}
 	return false;
@@ -252,6 +259,10 @@ function fleet_enroll_complete(array $body, string $bearer, int $now, array $ctx
 		if ((string)($inv['hostname'] ?? '') !== '') {
 			$db->prepare('UPDATE boxes SET name = ? WHERE node_id = ?')->execute(array($inv['hostname'] . ((($inv['domain'] ?? '') !== '') ? '.' . $inv['domain'] : ''), $node_id));
 		}
+		/* Joined over Tailscale: the API goes over the tailnet too, set up by itself once the firewall answers. */
+		if (($inv['via'] ?? '') === 'tailscale') {
+			$db->prepare("UPDATE boxes SET conn_method = 'tailscale', conn_iface = 'tailscale', conn_auto = 1 WHERE node_id = ?")->execute(array($node_id));
+		}
 		$db->prepare("UPDATE enrollments SET state = 'joined' WHERE id = ?")->execute(array($e['id']));
 		$db->exec('COMMIT');
 	} catch (Throwable $t) {
@@ -260,8 +271,13 @@ function fleet_enroll_complete(array $body, string $bearer, int $now, array $ctx
 	}
 	fleet_audit('enrollment', 'joined', "{$node_id} ({$box['label']}) at {$box['overlay']}");
 	$ctx['on_joined']($box);
+	/* Over Tailscale the tunnel's endpoint is the controller's tailnet address: no public port at all. */
+	$endpoint = $ctx['endpoint'];
+	if ((($inv['via'] ?? '') === 'tailscale') && isset($ctx['ts_address']) && ($ctx['ts_address'] !== null)) {
+		$endpoint = $ctx['ts_address'] . substr($endpoint, (int)strrpos($endpoint, ':'));
+	}
 	return array(200, array('node_id' => $node_id, 'signing_key' => fleet_signing_public(), 'method' => 'wireguard',
 	    'overlay_address' => $box['overlay'], 'role' => $box['role'], 'hostname' => (string)($inv['hostname'] ?? ''), 'domain' => (string)($inv['domain'] ?? ''),
-	    'peers' => array(array('public_key' => base64_encode($ctx['controller_wg_pub']), 'endpoint' => $ctx['endpoint'],
+	    'peers' => array(array('public_key' => base64_encode($ctx['controller_wg_pub']), 'endpoint' => $endpoint,
 	    'allowed_ips' => array(fleet_overlay_host($prefix, 1) . '/128')))));
 }

@@ -77,6 +77,31 @@ function fleet_ts_device_problems(array $d, int $now): array {
 	return $out;
 }
 
+/*
+ * pure: the API body for a one-time auth key: single use, approved in
+ * advance, not ephemeral (the firewall stays in the tailnet). Tailscale
+ * allows letters, digits, spaces and dashes in a description of 50.
+ */
+function fleet_ts_authkey_body(string $label, int $ttl): array {
+	$desc = trim(substr(preg_replace('/[^A-Za-z0-9 -]+/', '', 'FreeSense Fleet ' . $label), 0, 50));
+	return array('capabilities' => array('devices' => array('create' => array('reusable' => false, 'ephemeral' => false, 'preauthorized' => true))),
+	    'expirySeconds' => max(3600, min(90 * 86400, $ttl)), 'description' => $desc);
+}
+
+/* pure: why joining over Tailscale cannot be offered now (a list of sentences; empty = ready). */
+function fleet_ts_join_problems(?string $token_state, ?string $address): array {
+	$out = array();
+	if ($token_state === null) {
+		$out[] = 'Add a Tailscale API token (Firewalls > Connections) so Fleet can create a one-time Tailscale key for each new firewall.';
+	} elseif ($token_state !== '') {
+		$out[] = $token_state;
+	}
+	if ($address === null) {
+		$out[] = 'This controller is not in a tailnet: install Tailscale here and log it in first.';
+	}
+	return $out;
+}
+
 /* ------------------------------------------------------------------ */
 /* The API                                                             */
 /* ------------------------------------------------------------------ */
@@ -181,6 +206,56 @@ function fleet_ts_check(array $overview): ?array {
 		    fleet_ts_device_problems($d, time()));
 	}
 	return $out;
+}
+
+/* This controller's IPv4 tailnet address, or null when it is not in a tailnet. */
+function fleet_ts_controller_address(): ?string {
+	if (!is_executable('/usr/local/bin/tailscale')) {
+		return null;
+	}
+	$out = array();
+	exec('/usr/local/bin/tailscale ip -4 2>/dev/null', $out, $rc);
+	$ip = trim((string)($out[0] ?? ''));
+	return (($rc === 0) && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) ? $ip : null;
+}
+
+/* Whether a firewall can join over Tailscale now: array(problems, controller tailnet address). */
+function fleet_ts_join_ready(): array {
+	$state = null;
+	if (fleet_ts_token() !== null) {
+		try {
+			fleet_ts_devices();
+			$state = '';
+		} catch (RuntimeException $e) {
+			$state = $e->getMessage();
+		}
+	}
+	$address = fleet_ts_controller_address();
+	return array(fleet_ts_join_problems($state, $address), $address);
+}
+
+/* A one-time, pre-approved auth key for one new firewall, kept with its invitation by id. Throws RuntimeException. */
+function fleet_ts_authkey_mint(string $label, int $ttl, string $who, string $token_id = ''): string {
+	list($code, $json) = fleet_ts_api('POST', '/tailnet/-/keys', fleet_ts_authkey_body($label, $ttl));
+	$key = (string)($json['key'] ?? '');
+	if (($code !== 200) || (strncmp($key, 'tskey-auth-', 11) !== 0)) {
+		throw new RuntimeException("Tailscale did not create an auth key (HTTP {$code}): the API token may need the auth keys permission.");
+	}
+	fleet_audit($who, 'connections', "One-time Tailscale key created for \"{$label}\" (id " . (string)($json['id'] ?? '?') . ')');
+	if ($token_id !== '') {
+		fleet_db()->prepare('UPDATE invitations SET ts_key_id = ? WHERE token_id = ?')->execute(array((string)($json['id'] ?? ''), $token_id));
+	}
+	return $key;
+}
+
+/* Delete an unused one-time key (a revoked invitation). Never throws: the key expires anyway. */
+function fleet_ts_authkey_delete(string $id, string $who): void {
+	try {
+		list($code) = fleet_ts_api('DELETE', '/tailnet/-/keys/' . rawurlencode($id));
+		fleet_audit($who, 'connections', ($code < 300) ? "One-time Tailscale key {$id} deleted" : "One-time Tailscale key {$id} not deleted (HTTP {$code}); it expires by itself");
+	} catch (RuntimeException $e) {
+		fleet_audit($who, 'connections', "One-time Tailscale key {$id} not deleted ({$e->getMessage()}); it expires by itself");
+	}
 }
 
 /* Turn key expiry off for a firewall's tailnet device (fixes FLEET-E136). */
