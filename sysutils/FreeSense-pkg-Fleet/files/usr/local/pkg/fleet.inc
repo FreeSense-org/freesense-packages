@@ -60,6 +60,7 @@ require_once('fleet/fleet_template_rules.inc');
 require_once('fleet/fleet_conn.inc');
 require_once('fleet/fleet_tailscale.inc');
 require_once('fleet/fleet_ha.inc');
+require_once('fleet/fleet_stats.inc');
 
 define('FLEET_CTL_IF', 'wgfctl0');
 define('FLEET_ENROLL_CONF', '/var/etc/fleet-enroll.conf');
@@ -603,6 +604,7 @@ function fleet_poll_box(array $box, int $now, int $interval = 60): string {
 		fleet_users_follow($box, $status);
 	}
 	if ($state !== $box['state']) {
+		fleet_stats_record($box['node_id'], $state, $now);
 		fleet_audit('poll', 'state', "{$box['node_id']} ({$box['label']}): {$box['state']} -> {$state}" . (($error !== '') ? " ({$error})" : ''));
 	}
 	return $state;
