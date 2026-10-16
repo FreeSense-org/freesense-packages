@@ -28,10 +28,18 @@
  *
  *   <hostname>/fleet-join.conf   the seed System reads from a USB stick,
  *                                CD or second disk (fleet_seed.inc)
+ *   <hostname>/seed.img          the same on a small FAT disk (a VM's
+ *                                second disk, or dd to a USB stick)
+ *   <hostname>/cloud/            NoCloud user-data and meta-data with the
+ *                                seed as freesense.fleet, and cidata.iso
  *   <hostname>/README.txt
+ *   recipes/                     Proxmox qm, virt-install and Terraform
  *   join-cards.html              one printable card per firewall (no key)
  *   key-sheet.html               the join keys or PINs (attended, PIN)
  *   manifest.json
+ *
+ * The disk images need makefs (FreeBSD); without it the bundle has the
+ * files and the recipes say how to make the images.
  *
  * The bundle is a .tar.gz encrypted with the batch passphrase in the
  * format of "openssl enc -aes-256-cbc -pbkdf2 -iter 200000", so it opens
@@ -297,6 +305,7 @@ function fleet_factory_generate(array $settings, string $csv, string $passphrase
 	@mkdir($dir . '/bundle', 0700, true);
 	$cards = array();
 	$keys = array();
+	$vms = array();
 	$manifest = array('batch' => $settings['name'], 'created' => gmdate('c', $now), 'mode' => $settings['mode'], 'expires' => gmdate('c', $now + 86400 * $settings['days']), 'firewalls' => array());
 	foreach ($rows as $i => $r) {
 		list($link, $key, $tid, $expires) = fleet_invite_create($settings['role'], $r['label'], 86400 * $settings['days'], $who, $authority, $now, $via);
@@ -324,7 +333,18 @@ function fleet_factory_generate(array $settings, string $csv, string $passphrase
 		$pin = ($settings['mode'] === 'pin') ? sprintf('%06d', random_int(0, 999999)) : null;
 		$folder = ($host !== '') ? $host : sprintf('firewall-%03d', $i + 1);
 		@mkdir("{$dir}/bundle/{$folder}", 0700);
-		file_put_contents("{$dir}/bundle/{$folder}/fleet-join.conf", json_encode(fleet_factory_seed($link, $settings['mode'], $key, $pin, $tskey), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+		$seed = fleet_factory_seed($link, $settings['mode'], $key, $pin, $tskey);
+		file_put_contents("{$dir}/bundle/{$folder}/fleet-join.conf", json_encode($seed, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+		/* The same seed on a small FAT disk, and as cloud-init for a cloud image. */
+		@mkdir("{$dir}/work/{$folder}/seed", 0700, true);
+		copy("{$dir}/bundle/{$folder}/fleet-join.conf", "{$dir}/work/{$folder}/seed/fleet-join.conf");
+		fleet_factory_fat_image("{$dir}/work/{$folder}/seed", "{$dir}/bundle/{$folder}/seed.img");
+		@mkdir("{$dir}/bundle/{$folder}/cloud", 0700);
+		foreach (fleet_factory_cloud_files($r, $folder, $host, $seed) as $fname => $text) {
+			file_put_contents("{$dir}/bundle/{$folder}/cloud/{$fname}", $text);
+		}
+		fleet_factory_cidata_iso("{$dir}/bundle/{$folder}/cloud", "{$dir}/bundle/{$folder}/cidata.iso");
+		$vms[$folder] = array('name' => ($host !== '') ? $host : $folder, 'instance_id' => fleet_factory_instance_id($r, $folder));
 		file_put_contents("{$dir}/bundle/{$folder}/README.txt", fleet_factory_readme($r, $settings, $host, $expires));
 		$fqdn = $host . (($host !== '' && $r['domain'] !== '') ? '.' . $r['domain'] : '');
 		$cards[] = array('label' => $r['label'], 'site' => $r['site'], 'name' => $fqdn, 'serial' => $r['serial'], 'link' => $link, 'folder' => $folder);
@@ -333,6 +353,11 @@ function fleet_factory_generate(array $settings, string $csv, string $passphrase
 		}
 		$manifest['firewalls'][] = array('folder' => $folder, 'label' => $r['label'], 'site' => $r['site'], 'hostname' => $host, 'domain' => $r['domain'],
 		    'serial' => $r['serial'], 'instance_id' => $r['instance_id'], 'invitation' => $tid);
+	}
+	exec('rm -rf ' . escapeshellarg("{$dir}/work"));
+	@mkdir("{$dir}/bundle/recipes/terraform", 0700, true);
+	foreach (fleet_factory_recipes($settings, $vms) as $fname => $text) {
+		file_put_contents("{$dir}/bundle/recipes/{$fname}", $text);
 	}
 	file_put_contents("{$dir}/bundle/join-cards.html", fleet_factory_cards_html($settings, $cards));
 	if (!empty($keys)) {
@@ -379,19 +404,93 @@ function fleet_batch_revoke(int $bid, string $who, ?string $token = null): int {
 /* Bundle documents                                                    */
 /* ------------------------------------------------------------------ */
 
+/* pure: the instance id a cloud firewall boots with: its row's, or one made from its folder. */
+function fleet_factory_instance_id(array $r, string $folder): string {
+	return ($r['instance_id'] !== '') ? $r['instance_id'] : 'fleet-' . $folder;
+}
+
+/*
+ * pure: the NoCloud files of one firewall: meta-data, and user-data as
+ * #cloud-config (JSON is YAML) with the hostname and the seed under
+ * freesense.fleet, which FreeSense-cloud-init hands to first boot.
+ */
+function fleet_factory_cloud_files(array $r, string $folder, string $host, array $seed): array {
+	$name = ($host !== '') ? $host : $folder;
+	$cfg = array('hostname' => $name, 'freesense' => array('fleet' => $seed));
+	if (($host !== '') && ($r['domain'] !== '')) {
+		$cfg['fqdn'] = "{$host}.{$r['domain']}";
+	}
+	return array(
+		'meta-data' => 'instance-id: ' . fleet_factory_instance_id($r, $folder) . "\nlocal-hostname: {$name}\n",
+		'user-data' => "#cloud-config\n" . json_encode($cfg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n",
+	);
+}
+
+/*
+ * pure: the batch's recipes: Proxmox qm, virt-install and Terraform
+ * (bpg/proxmox), one VM per firewall from the FreeSense cloud image with
+ * its cidata.iso. $boxes: folder => {name, instance_id}.
+ */
+function fleet_factory_recipes(array $s, array $boxes): array {
+	$qm = "#!/bin/sh\n# Proxmox VE: one VM per firewall of batch \"{$s['name']}\" from the FreeSense cloud image.\n" .
+	    "# Set IMAGE, STORAGE, BRIDGE and FIRST_ID; copy each <name>/cloud/cidata.iso to local:iso first.\n" .
+	    "set -eu\nIMAGE=\${IMAGE:-/var/tmp/freesense-cloud.qcow2}\nSTORAGE=\${STORAGE:-local-lvm}\nBRIDGE=\${BRIDGE:-vmbr0}\nID=\${FIRST_ID:-900}\n";
+	$vi = "#!/bin/sh\n# libvirt / QEMU: one VM per firewall of batch \"{$s['name']}\" from the FreeSense cloud image.\nset -eu\nIMAGE=\${IMAGE:-freesense-cloud.qcow2}\n";
+	$tf = array();
+	foreach ($boxes as $folder => $b) {
+		$n = escapeshellarg($b['name']);
+		$iso = escapeshellarg("{$folder}-cidata.iso");
+		$qm .= "\n# {$b['name']}\nqm create \"\$ID\" --name {$n} --memory 2048 --cores 2 --net0 virtio,bridge=\"\$BRIDGE\" --scsihw virtio-scsi-pci --ostype other --serial0 socket --agent 1\n" .
+		    "qm importdisk \"\$ID\" \"\$IMAGE\" \"\$STORAGE\"\nqm set \"\$ID\" --scsi0 \"\$STORAGE:vm-\$ID-disk-0\" --boot order=scsi0 --ide2 local:iso/{$folder}-cidata.iso,media=cdrom\n" .
+		    "qm start \"\$ID\"\nID=\$((ID + 1))\n";
+		$vi .= "\n# {$b['name']}\ncp \"\$IMAGE\" " . escapeshellarg("{$folder}.qcow2") . "\nvirt-install --name {$n} --memory 2048 --vcpus 2 --import --disk " .
+		    escapeshellarg("{$folder}.qcow2") . " --disk {$iso},device=cdrom --network bridge=br0,model=virtio --osinfo freebsd14.0 --graphics none --noautoconsole\n";
+		$tf[$folder] = array('name' => $b['name'], 'instance_id' => $b['instance_id'], 'cidata_iso' => "{$folder}-cidata.iso");
+	}
+	$main = "# Terraform (bpg/proxmox): one VM per firewall in instances.auto.tfvars.json, each booting its own cidata.iso.\n" .
+	    "variable \"firewalls\" { type = map(object({ name = string, instance_id = string, cidata_iso = string })) }\n" .
+	    "variable \"node\" { type = string }\nvariable \"template_vm_id\" { type = number }\n\n" .
+	    "resource \"proxmox_virtual_environment_vm\" \"firewall\" {\n  for_each  = var.firewalls\n  name      = each.value.name\n  node_name = var.node\n" .
+	    "  clone { vm_id = var.template_vm_id }\n  cdrom { file_id = \"local:iso/\${each.value.cidata_iso}\" }\n  agent { enabled = true }\n}\n";
+	return array('proxmox-qm.sh' => $qm, 'virt-install.sh' => $vi, 'terraform/main.tf' => $main,
+	    'terraform/instances.auto.tfvars.json' => json_encode(array('firewalls' => $tf), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+}
+
+/* A FAT disk image with these files (makefs), or false when makefs is missing or fails. */
+function fleet_factory_fat_image(string $dir, string $out): bool {
+	if (!is_executable('/usr/sbin/makefs')) {
+		return false;
+	}
+	list($rc) = fleet_ctl_exec(array('/usr/sbin/makefs', '-t', 'msdos', '-s', '2m', '-o', 'fat_type=12,volume_label=FLEETSEED', $out, $dir));
+	return $rc === 0;
+}
+
+/* A NoCloud ISO (volume label cidata) of a folder, or false. */
+function fleet_factory_cidata_iso(string $dir, string $out): bool {
+	if (!is_executable('/usr/sbin/makefs')) {
+		return false;
+	}
+	list($rc) = fleet_ctl_exec(array('/usr/sbin/makefs', '-t', 'cd9660', '-o', 'rockridge,label=cidata', $out, $dir));
+	return $rc === 0;
+}
+
 function fleet_factory_readme(array $r, array $s, string $host, int $expires): string {
 	$how = array(
 		'attended' => "Copy fleet-join.conf to a USB stick (FAT) and plug it in before the first boot.\nAt the console choose option 17 and type the join key from the key sheet.",
 		'pin' => "Copy fleet-join.conf to a USB stick (FAT) and plug it in before the first boot.\nAt the console choose option 17 and type the PIN from the key sheet.",
 		'unattended' => "Copy fleet-join.conf to a USB stick (FAT) and plug it in before the first boot.\nThe firewall joins by itself once it is online. It only works on the firewall with this serial or instance id.",
 	);
+	$media = "\n\nOther ways to deliver the same seed:\n" .
+	    "- seed.img: a small FAT disk with fleet-join.conf. Attach it to a VM as a second disk, or write it to a USB stick (dd if=seed.img of=/dev/<stick>).\n" .
+	    "- cidata.iso (cloud/ for the files): boot the FreeSense cloud image with it as a CD; FreeSense-cloud-init hands the seed to first boot. The recipes folder has qm, virt-install and Terraform for the whole batch.\n" .
+	    "  Without seed.img or cidata.iso (made only on FreeBSD), make them with: makefs -t msdos -s 2m seed.img <folder with fleet-join.conf>; makefs -t cd9660 -o rockridge,label=cidata cidata.iso cloud/";
 	return "FreeSense Fleet: {$r['label']}\n" . str_repeat('=', 24 + mb_strlen($r['label'])) . "\n\n" .
 	    (($host !== '') ? "Name when it joins: {$host}" . (($r['domain'] !== '') ? ".{$r['domain']}" : '') . "\n" : '') .
 	    (($r['site'] !== '') ? "Site: {$r['site']}\n" : '') . (($r['serial'] !== '') ? "Serial: {$r['serial']}\n" : '') .
 	    (($r['instance_id'] !== '') ? "Instance id: {$r['instance_id']}\n" : '') .
 	    'Valid until: ' . gmdate('Y-m-d H:i', $expires) . " UTC\n\n" . $how[$s['mode']] . "\n\n" . ((($s['via'] ?? '') === 'tailscale') ?
 	    "Over Tailscale: the seed holds a one-time Tailscale key for this firewall. Joining installs Tailscale (the firewall needs internet and the FreeSense package repository), logs it in to the tailnet and joins the controller there; no public port is needed.\n" :
-	    "The firewall needs to reach the controller on the enrollment and tunnel ports.\n");
+	    "The firewall needs to reach the controller on the enrollment and tunnel ports.\n") . $media . "\n";
 }
 
 function fleet_factory_cards_html(array $s, array $cards): string {
