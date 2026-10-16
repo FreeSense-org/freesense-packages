@@ -841,3 +841,9 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 .fs-fleet-inline-form > summary { list-style: none; }
 .fs-fleet-inline-form > summary::-webkit-details-marker { display: none; }
 .fs-fleet-inline-form[open] > form { display: flex; gap: var(--fs-sp-2); margin-top: var(--fs-sp-1); min-width: 18rem; }
+.fs-fleet-recommended { border-color: var(--fs-pass, #3fb27f); }
+.fs-fleet-conn-reqs { margin: 0; padding-left: 1.1rem; color: var(--fs-text-muted); }
+.fs-fleet-advisor > summary { list-style: none; cursor: pointer; }
+.fs-fleet-advisor > summary::-webkit-details-marker { display: none; }
+.fs-fleet-advisor-q { margin-bottom: var(--fs-sp-2); }
+.fs-fleet-tile-text { font-size: 1rem; }

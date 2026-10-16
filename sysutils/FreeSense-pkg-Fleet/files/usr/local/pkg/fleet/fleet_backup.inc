@@ -175,7 +175,7 @@ function fleet_backup_store(array $box, string $xml, string $reason, string $who
 function fleet_box_call(array $box, string $method, string $path, ?array $body = null): array {
 	$key = (string)fleet_unseal((string)$box['api_key'], fleet_master_key());
 	try {
-		return fleet_http_pinned(fleet_box_target($box), $method, $path, $body, $key);
+		return fleet_conn_call($box, $method, $path, $body, $key);
 	} catch (FleetJoinError $e) {
 		throw new RuntimeException(fleet_poll_problem($e->fleet_code, $e->getMessage()));
 	}

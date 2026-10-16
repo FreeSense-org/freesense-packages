@@ -52,6 +52,8 @@ define('FLEET_ALERT_EVENTS', array(
 	'policy' => array('A policy fix failed', 'warning'),
 	'copies' => array('Backup copies or off-site storage failed', 'warning'),
 	'approval' => array('A firewall waits for approval', 'info'),
+	'path_down' => array('A connection path stopped answering (tunnel used)', 'warning'),
+	'path_up' => array('A connection path answers again', 'info'),
 	'join_refused' => array('A join was refused (wrong firewall or key)', 'warning'),
 	'test' => array('Test', 'info'),
 ));

@@ -29,6 +29,8 @@
  *   freesense-fleet-run update-group <op id>
  *     The same one at a time for system updates: the next starts when the
  *     one before is updated and has stayed healthy; a rollback stops it.
+ *   freesense-fleet-run connections <op id>
+ *     Sets each firewall's connection to what it should use (path or tunnel)
  *   freesense-fleet-run template <op id> <template id>
  *     Applies a template to the operation's firewalls one after another
  *     (each takes seconds). A failure on one firewall does not stop the
@@ -48,7 +50,7 @@ require_once('fleet.inc');
 
 $cmd = $argv[1] ?? '';
 $op_id = (int)($argv[2] ?? 0);
-if (!in_array($cmd, array('reboot-group', 'update-group', 'restore', 'template', 'users'), true) || ($op_id <= 0)) {
+if (!in_array($cmd, array('reboot-group', 'update-group', 'restore', 'template', 'users', 'connections'), true) || ($op_id <= 0)) {
 	echo "usage: freesense-fleet-run reboot-group|update-group <op id> | restore <op id> <backup id> | template <op id> <template id>\n";
 	exit(64);
 }
@@ -72,6 +74,33 @@ if ($cmd === 'users') {
 		fleet_op_group_update($op_id);
 		try {
 			$text = fleet_users_sync_box($box, (string)$task['who'], function (string $text, int $percent) use ($task): void {
+				fleet_op_set((int)$task['id'], 'running', $text, $percent);
+			});
+			fleet_op_set((int)$task['id'], 'done', $text);
+		} catch (RuntimeException $e) {
+			fleet_op_set((int)$task['id'], 'failed', $e->getMessage());
+		}
+		fleet_op_group_update($op_id);
+	}
+	exit(0);
+}
+
+if ($cmd === 'connections') {
+	$overview = fleet_conn_overview();
+	foreach (fleet_op_tasks($op_id) as $task) {
+		if ($task['state'] !== 'queued') {
+			continue;
+		}
+		$box = fleet_box_get((string)$task['node_id']);
+		if (($box === null) || !isset($overview[$box['node_id']])) {
+			fleet_op_set((int)$task['id'], 'failed', 'The firewall is gone.');
+			fleet_op_group_update($op_id);
+			continue;
+		}
+		fleet_op_set((int)$task['id'], 'running', 'Starting', 0);
+		fleet_op_group_update($op_id);
+		try {
+			$text = fleet_conn_apply_box($box, $overview[$box['node_id']]['want'], (string)$task['who'], function (string $text, int $percent) use ($task): void {
 				fleet_op_set((int)$task['id'], 'running', $text, $percent);
 			});
 			fleet_op_set((int)$task['id'], 'done', $text);

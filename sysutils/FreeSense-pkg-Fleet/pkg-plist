@@ -17,6 +17,7 @@ pkg/fleet/fleet_factory.inc
 pkg/fleet/fleet_alerts.inc
 pkg/fleet/fleet_kiosk.inc
 pkg/fleet/fleet_template_settings.inc
+pkg/fleet/fleet_conn.inc
 pkg/fleet/fleet_replicas.inc
 pkg/fleet/fleet_rollouts.inc
 pkg/fleet/fleet_schedules.inc
@@ -30,6 +31,7 @@ www/fleet/assets/fleet-list.js
 www/fleet/assets/fleet-naming.js
 www/fleet/assets/fleet-policy.js
 www/fleet/assets/fleet-alerts.js
+www/fleet/assets/fleet-connections.js
 www/fleet/assets/fleet-kiosk.css
 www/fleet/assets/fleet-kiosk.js
 www/fleet/assets/fleet.css
@@ -47,6 +49,7 @@ www/fleet/fleet_users.php
 www/fleet/fleet_factory.php
 www/fleet/fleet_alerts.php
 www/fleet/fleet_kiosks.php
+www/fleet/fleet_connections.php
 www/fleet/kiosk.php
 www/fleet/kiosk_data.php
 www/fleet/assets/fleet-template.js

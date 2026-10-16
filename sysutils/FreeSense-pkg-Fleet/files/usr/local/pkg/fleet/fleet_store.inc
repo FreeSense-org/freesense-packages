@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 22);
+define('FLEET_DB_SCHEMA', 23);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -410,6 +410,17 @@ SQL);
 CREATE TABLE IF NOT EXISTS template_ignores (
 	template_id INTEGER NOT NULL, node_id TEXT NOT NULL, reason TEXT NOT NULL, who TEXT NOT NULL, time INTEGER NOT NULL, PRIMARY KEY (template_id, node_id));
 PRAGMA user_version = 22;
+SQL);
+	}
+	if ($version < 23) {
+		/* Connection manager: the method per group and per firewall ('' = as above), and each firewall's path. */
+		$db->exec(<<<'SQL'
+ALTER TABLE fleet_groups ADD COLUMN conn_method TEXT NOT NULL DEFAULT '';
+ALTER TABLE fleet_groups ADD COLUMN conn_iface TEXT NOT NULL DEFAULT '';
+ALTER TABLE boxes ADD COLUMN conn_method TEXT NOT NULL DEFAULT '';
+ALTER TABLE boxes ADD COLUMN conn_iface TEXT NOT NULL DEFAULT '';
+ALTER TABLE boxes ADD COLUMN conn_state TEXT;
+PRAGMA user_version = 23;
 SQL);
 	}
 	$db->exec('COMMIT');
