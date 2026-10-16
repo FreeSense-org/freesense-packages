@@ -16,13 +16,20 @@ jobs:
       - name: Resolve matching source branch
         id: source
         env:
+          # A same-named branch first, then the branch a pull request targets
+          # (RELENG_1_1 for Stable fixes, so they are checked against the
+          # Stable line), then main.
           CANDIDATE_REF: ${{ github.head_ref || github.ref_name }}
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          if git ls-remote --exit-code --heads https://github.com/FreeSense-org/freesense.git "${CANDIDATE_REF}" >/dev/null; then
-            echo "ref=${CANDIDATE_REF}" >> "${GITHUB_OUTPUT}"
-          else
-            echo "ref=main" >> "${GITHUB_OUTPUT}"
-          fi
+          ref=main
+          for candidate in "${CANDIDATE_REF}" "${BASE_REF}"; do
+            if [ -n "${candidate}" ] && git ls-remote --exit-code --heads https://github.com/FreeSense-org/freesense.git "${candidate}" >/dev/null; then
+              ref=${candidate}
+              break
+            fi
+          done
+          echo "ref=${ref}" >> "${GITHUB_OUTPUT}"
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: FreeSense-org/freesense
