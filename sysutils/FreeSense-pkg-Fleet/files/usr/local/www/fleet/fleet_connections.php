@@ -43,13 +43,13 @@ if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 		$target = (string)($_POST['target'] ?? '');
 		if (isset($_POST['save_conn']) && ($kind === 'fleet')) {
 			fleet_conn_set_fleet($_POST, $who);
-			$savemsg = gettext('Fleet default saved. Firewalls that follow it show as changes to apply below.');
+			$savemsg = gettext('Fleet default saved. Firewalls that follow it show as changes to apply under Firewalls.');
 		} elseif (isset($_POST['save_conn']) && ($kind === 'group')) {
 			if (fleet_group_get((int)$target) === null) {
 				throw new InvalidArgumentException(gettext('That group no longer exists.'));
 			}
 			fleet_conn_set_group((int)$target, $_POST, $who);
-			$savemsg = gettext('Group saved. Its firewalls show as changes to apply below.');
+			$savemsg = gettext('Group saved. Its firewalls show as changes to apply under Firewalls.');
 		} elseif (isset($_POST['save_conn']) && ($kind === 'box')) {
 			if (fleet_box_get($target) === null) {
 				throw new InvalidArgumentException(gettext('That firewall no longer exists.'));
@@ -139,6 +139,9 @@ $rows = array_filter($overview, function ($r) use ($f) {
 $pg = fleet_list_page(count($rows), (int)($_GET['page'] ?? 1));
 $keep = array_intersect_key($_GET, array_flip(array('public', 'private', 'thirdparty', 'udp')));
 $ts = fleet_ts_check($overview);
+$views = array('firewalls' => gettext('Firewalls'), 'groups' => gettext('Default and groups'), 'methods' => gettext('Methods and Tailscale'));
+$view = fs_view_param(array_keys($views), 'firewalls');
+$keep['view'] = $view;
 $fallbacks = count(array_filter($overview, function ($r) { return ($r['state'] !== null) && empty($r['state']['ok']); }));
 ?>
 
@@ -148,10 +151,97 @@ $fallbacks = count(array_filter($overview, function ($r) { return ($r['state'] !
 	<div class="fs-tiles fs-fleet-tiles-row">
 		<div class="fs-tile"><span class="fs-tile-label"><?=gettext('Fleet default')?></span><span class="fs-tile-value fs-fleet-tile-text"><?=htmlspecialchars($method_text($fleet_cfg['method'], $fleet_cfg['iface']))?></span></div>
 		<div class="fs-tile"><span class="fs-tile-label"><?=gettext('Firewalls on a path')?></span><span class="fs-tile-value"><?=count(array_filter($overview, function ($r) { return $r['state'] !== null; }))?> / <?=count($overview)?></span></div>
-		<div class="fs-tile"><span class="fs-tile-label"><?=gettext('Using the tunnel as fallback')?></span><span class="fs-tile-value<?=$fallbacks ? ' fs-fleet-problem' : ''?>"><?=$fallbacks?></span></div>
-		<div class="fs-tile"><span class="fs-tile-label"><?=gettext('Changes to apply')?></span><span class="fs-tile-value"><?=count($pending)?></span></div>
+		<a class="fs-tile" href="?view=firewalls&amp;show=fallback"><span class="fs-tile-label"><?=gettext('Using the tunnel as fallback')?></span><span class="fs-tile-value<?=$fallbacks ? ' fs-fleet-problem' : ''?>"><?=$fallbacks?></span></a>
 	</div>
-	<div class="fs-fleet-rule-grid fs-fleet-conn-methods">
+</section>
+
+<?php fs_view_switch($views, $view); ?>
+
+<?php if ($view === 'firewalls'): ?>
+<?php if (!empty($pending)): ?>
+<div class="fs-fleet-callout fs-fleet-conn-pending"><i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
+	<div class="flex-grow-1"><strong><?=htmlspecialchars(sprintf(ngettext('%d connection change is waiting', '%d connection changes are waiting', count($pending)), count($pending)))?></strong>
+		<div class="small fs-muted"><?=gettext('Applying sets up each path and keeps it only when the controller reaches the firewall over it; otherwise the firewall stays on the tunnel.')?></div></div>
+<?php if ($manage): ?>
+	<form method="post"><button class="btn btn-sm btn-primary text-nowrap" name="apply" value="1"><i class="fa-solid fa-paper-plane icon-embed-btn" aria-hidden="true"></i><?=sprintf(ngettext('Apply %d change', 'Apply %d changes', count($pending)), count($pending))?></button></form>
+<?php endif; ?>
+</div>
+<?php endif; ?>
+<?php if ($fallbacks && (($f['show'] ?? '') !== 'fallback')): ?>
+<p class="fs-fleet-problem small"><i class="fa-solid fa-triangle-exclamation icon-embed-btn" aria-hidden="true"></i><?=htmlspecialchars(sprintf(ngettext('%d firewall is on the tunnel because its path stopped answering.', '%d firewalls are on the tunnel because their path stopped answering.', $fallbacks), $fallbacks))?>
+	<a href="?view=firewalls&amp;show=fallback"><?=gettext('Show them')?></a></p>
+<?php endif; ?>
+<div class="panel panel-default">
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Firewalls')?> <span class="fs-count"><?=count($overview)?></span></h2>
+	</div>
+	<div class="panel-body"><?=fleet_list_filterbar($keep, $f, array('show' => array(gettext('All firewalls'), array('pending' => 'Changes to apply', 'fallback' => 'Using the tunnel as fallback', 'paths' => 'On a direct or Tailscale path'))),
+	    gettext('Search firewalls'), gettext('Firewall name'))?></div>
+	<div class="panel-body table-responsive"><table class="table fs-table">
+		<thead><tr><th><?=gettext('Firewall')?></th><th><?=gettext('Should use')?></th><th><?=gettext('Uses now')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
+		<tbody>
+<?php if (empty($rows)): ?>
+		<tr><td colspan="4" class="fs-muted"><?=empty($overview) ? gettext('No firewalls yet.') : gettext('No firewall matches these filters.')?></td></tr>
+<?php endif; ?>
+<?php foreach (array_slice($rows, $pg['offset'], $pg['per'], true) as $node => $r): list($wm, $wi, $wfrom, $conflict) = $r['want']; $st = $r['state']; $todo = fleet_conn_pending($r); ?>
+		<tr><td><a href="/fleet/fleet_box.php?id=<?=urlencode($node)?>"><strong><?=htmlspecialchars($r['box']['label'])?></strong></a>
+				<?=($r['box']['state'] !== 'online') ? fs_badge('neutral', ucfirst($r['box']['state'])) : ''?></td>
+			<td><?=htmlspecialchars($method_text($wm, $wi))?><div class="fs-muted small"><?=htmlspecialchars($from_text($wfrom))?></div>
+				<?=($conflict !== null) ? '<div class="fs-fleet-problem small">' . htmlspecialchars(sprintf(gettext('Groups disagree (%s): set it on the firewall.'), implode(', ', $conflict))) . '</div>' : ''?></td>
+			<td><?php if ($st === null): ?>
+				<?=fs_badge('neutral', gettext('Fleet tunnel'))?>
+<?php elseif (!empty($st['ok'])): ?>
+				<?=fs_badge('pass', ucfirst($st['method']))?> <span class="fs-mono small"><?=htmlspecialchars($st['address'])?></span>
+				<div class="fs-muted small"><?=htmlspecialchars(sprintf(gettext('Answers; checked %s. Tunnel is the fallback.'), date('H:i', (int)$st['checked'])))?></div>
+<?php else: ?>
+				<?=fs_badge('warn', gettext('Tunnel (fallback)'))?> <span class="small"><?=htmlspecialchars(sprintf(gettext('The %1$s path on %2$s does not answer: %3$s'), $st['method'], $st['address'], $st['error']))?></span>
+<?php endif; ?>
+<?php foreach ((isset($ts[$node]) ? $ts[$node]['problems'] : array()) as list($pcode, $psev, $ptext)): ?>
+				<div class="small <?=($psev === 'error') ? 'fs-fleet-problem' : 'fs-muted'?>"><?=htmlspecialchars(ltrim($pcode . ': ' . $ptext, ': '))?>
+<?php if ($manage && ($pcode === 'FLEET-E136')): ?>
+					<form method="post" class="d-inline"><input type="hidden" name="view" value="firewalls"/><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><button class="btn btn-sm btn-link p-0" name="ts_expiry_off" value="1"><?=gettext('Turn key expiry off')?></button></form>
+<?php endif; ?></div>
+<?php endforeach; ?>
+				<?=$todo ? '<div>' . fs_badge('info', gettext('Change to apply')) . '</div>' : ''?></td>
+			<td class="text-end text-nowrap"><?php if ($manage): ?>
+				<button type="button" class="btn btn-sm btn-link" data-fs-modal="#conn-modal" data-fs-modal-title="<?=htmlspecialchars(sprintf(gettext('Connection for %s'), $r['box']['label']))?>"
+				    data-fs-fill="<?=htmlspecialchars(json_encode(array('kind' => 'box', 'target' => $node, 'conn_method' => (string)$r['box']['conn_method'], 'conn_iface' => (string)$r['box']['conn_iface'])))?>"><?=gettext('Change')?></button>
+<?php if ($todo && ($r['box']['state'] === 'online')): ?>
+				<form method="post" class="d-inline"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><button class="btn btn-sm btn-link" name="apply" value="1"><?=gettext('Apply')?></button></form>
+<?php endif; ?>
+<?php endif; ?></td></tr>
+<?php endforeach; ?>
+		</tbody></table></div>
+	<div class="panel-footer"><?=fleet_list_pager($pg, $keep, $f)?></div>
+</div>
+
+<?php elseif ($view === 'groups'): ?>
+<div class="panel panel-default">
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Fleet default and groups')?></h2>
+<?php if ($manage): ?>
+		<button type="button" class="btn btn-sm btn-link" data-fs-modal="#conn-modal" data-fs-modal-title="<?=gettext('Fleet default')?>"
+		    data-fs-fill="<?=htmlspecialchars(json_encode(array('kind' => 'fleet', 'target' => '', 'conn_method' => $fleet_cfg['method'], 'conn_iface' => $fleet_cfg['iface'])))?>"><?=gettext('Change the fleet default')?></button>
+<?php endif; ?>
+	</div>
+	<div class="panel-body fs-fleet-pad"><p class="mb-0"><?=gettext('Fleet default:')?> <strong><?=htmlspecialchars($method_text($fleet_cfg['method'], $fleet_cfg['iface']))?></strong>.
+		<span class="fs-muted"><?=gettext('A group can choose its own; a firewall in several groups that disagree needs its own choice.')?></span></p></div>
+	<div class="panel-body table-responsive"><table class="table fs-table">
+		<thead><tr><th><?=gettext('Group')?></th><th><?=gettext('Firewalls')?></th><th><?=gettext('Connection')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
+		<tbody>
+<?php if (empty($groups)): ?>
+		<tr><td colspan="4" class="fs-muted"><?=gettext('No groups yet. Every firewall follows the fleet default unless it has its own choice.')?></td></tr>
+<?php endif; ?>
+<?php foreach ($groups as $grp): $gm = (string)($grp['conn_method'] ?? ''); ?>
+		<tr><td><strong><?=htmlspecialchars($grp['name'])?></strong></td>
+			<td><?=(int)fleet_db()->query('SELECT COUNT(*) FROM box_groups WHERE group_id = ' . (int)$grp['id'])->fetchColumn()?></td>
+			<td><?=($gm === '') ? '<span class="fs-muted">' . gettext('As the fleet') . '</span>' : htmlspecialchars($method_text($gm, (string)$grp['conn_iface']))?></td>
+			<td class="text-end"><?php if ($manage): ?><button type="button" class="btn btn-sm btn-link" data-fs-modal="#conn-modal" data-fs-modal-title="<?=htmlspecialchars(sprintf(gettext('Connection for group %s'), $grp['name']))?>"
+			    data-fs-fill="<?=htmlspecialchars(json_encode(array('kind' => 'group', 'target' => (string)$grp['id'], 'conn_method' => $gm, 'conn_iface' => (string)$grp['conn_iface'])))?>"><?=gettext('Change')?></button><?php endif; ?></td></tr>
+<?php endforeach; ?>
+		</tbody></table></div>
+</div>
+
+<?php else: ?>
+<div class="fs-fleet-rule-grid fs-fleet-conn-methods mb-3">
 <?php foreach (FLEET_CONN_METHODS as $m => list($label, $icon)): $rec = ($advice !== null) && ($advice[0] === $m); ?>
 		<article class="fs-fleet-rcard<?=$rec ? ' fs-fleet-recommended' : ''?><?=($fleet_cfg['method'] === $m) ? ' is-on' : ''?>">
 			<div class="fs-fleet-rcard-head">
@@ -159,21 +249,19 @@ $fallbacks = count(array_filter($overview, function ($r) { return ($r['state'] !
 				<div class="fs-fleet-rcard-title"><strong><?=htmlspecialchars(gettext($label))?></strong>
 					<span class="small"><?=$rec ? fs_badge('pass', gettext('Recommended for you')) : ''?><?=($fleet_cfg['method'] === $m) ? ' ' . fs_badge('info', gettext('Fleet default')) : ''?></span></div>
 			</div>
-			<p class="small mb-1"><strong><?=gettext('Works only if')?></strong></p>
-			<ul class="small fs-fleet-conn-reqs">
+			<details class="small fs-fleet-conn-reqs-wrap"><summary><?=gettext('Works only if')?></summary>
+			<ul class="fs-fleet-conn-reqs">
 <?php foreach (fleet_conn_requirements($m) as $req): ?>
 				<li><?=htmlspecialchars(gettext($req))?></li>
 <?php endforeach; ?>
-			</ul>
+			</ul></details>
 		</article>
 <?php endforeach; ?>
 	</div>
-</section>
-
-<details class="panel panel-default fs-fleet-advisor"<?=($advice !== null) ? ' open' : ''?>>
+<details class="panel panel-default fs-fleet-advisor" open>
 	<summary class="panel-heading"><h2 class="panel-title d-inline"><i class="fa-solid fa-compass icon-embed-btn" aria-hidden="true"></i><?=gettext('Not sure? Answer four questions')?></h2></summary>
 	<div class="panel-body fs-fleet-pad">
-		<form method="get" class="fs-fleet-advisor-form">
+		<form method="get" class="fs-fleet-advisor-form"><input type="hidden" name="view" value="methods"/>
 <?php foreach (array('public' => gettext('Can the controller be reached from the internet (a public address or a port forward)?'),
     'private' => gettext('Do the firewalls and the controller share a private network, MPLS or a site-to-site VPN?'),
     'thirdparty' => gettext('May a third-party coordination service (Tailscale) be used?'),
@@ -201,7 +289,7 @@ $fallbacks = count(array_filter($overview, function ($r) { return ($r['state'] !
 		<div>
 			<button type="button" class="btn btn-sm btn-link" data-fs-modal="#ts-modal"><?=($ts === null) ? gettext('Add a token') : gettext('Replace the token')?></button>
 <?php if ($ts !== null): ?>
-			<form method="post" class="d-inline"><button class="btn btn-sm btn-link" name="remove_ts_token" value="1"><?=gettext('Remove')?></button></form>
+			<form method="post" class="d-inline"><input type="hidden" name="view" value="methods"/><button class="btn btn-sm btn-link" name="remove_ts_token" value="1"><?=gettext('Remove')?></button></form>
 <?php endif; ?>
 		</div>
 <?php endif; ?>
@@ -217,78 +305,10 @@ $fallbacks = count(array_filter($overview, function ($r) { return ($r['state'] !
 <?php endif; ?>
 	</div>
 </div>
-
-<div class="panel panel-default">
-	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Fleet default and groups')?></h2>
-<?php if ($manage): ?>
-		<button type="button" class="btn btn-sm btn-link" data-fs-modal="#conn-modal" data-fs-modal-title="<?=gettext('Fleet default')?>"
-		    data-fs-fill="<?=htmlspecialchars(json_encode(array('kind' => 'fleet', 'target' => '', 'conn_method' => $fleet_cfg['method'], 'conn_iface' => $fleet_cfg['iface'])))?>"><?=gettext('Change the fleet default')?></button>
 <?php endif; ?>
-	</div>
-	<div class="panel-body table-responsive"><table class="table fs-table">
-		<thead><tr><th><?=gettext('Group')?></th><th><?=gettext('Firewalls')?></th><th><?=gettext('Connection')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
-		<tbody>
-<?php if (empty($groups)): ?>
-		<tr><td colspan="4" class="fs-muted"><?=gettext('No groups yet. Every firewall follows the fleet default unless it has its own choice.')?></td></tr>
-<?php endif; ?>
-<?php foreach ($groups as $grp): $gm = (string)($grp['conn_method'] ?? ''); ?>
-		<tr><td><strong><?=htmlspecialchars($grp['name'])?></strong></td>
-			<td><?=(int)fleet_db()->query('SELECT COUNT(*) FROM box_groups WHERE group_id = ' . (int)$grp['id'])->fetchColumn()?></td>
-			<td><?=($gm === '') ? '<span class="fs-muted">' . gettext('As the fleet') . '</span>' : htmlspecialchars($method_text($gm, (string)$grp['conn_iface']))?></td>
-			<td class="text-end"><?php if ($manage): ?><button type="button" class="btn btn-sm btn-link" data-fs-modal="#conn-modal" data-fs-modal-title="<?=htmlspecialchars(sprintf(gettext('Connection for group %s'), $grp['name']))?>"
-			    data-fs-fill="<?=htmlspecialchars(json_encode(array('kind' => 'group', 'target' => (string)$grp['id'], 'conn_method' => $gm, 'conn_iface' => (string)$grp['conn_iface'])))?>"><?=gettext('Change')?></button><?php endif; ?></td></tr>
-<?php endforeach; ?>
-		</tbody></table></div>
-</div>
-
-<div class="panel panel-default">
-	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Firewalls')?> <span class="fs-count"><?=count($overview)?></span></h2>
-<?php if ($manage && !empty($pending)): ?>
-		<form method="post"><button class="btn btn-sm btn-primary" name="apply" value="1"><i class="fa-solid fa-paper-plane icon-embed-btn" aria-hidden="true"></i><?=sprintf(ngettext('Apply %d connection change', 'Apply %d connection changes', count($pending)), count($pending))?></button></form>
-<?php endif; ?>
-	</div>
-	<div class="panel-body"><?=fleet_list_filterbar($keep, $f, array('show' => array(gettext('All firewalls'), array('pending' => 'Changes to apply', 'fallback' => 'Using the tunnel as fallback', 'paths' => 'On a direct or Tailscale path'))),
-	    gettext('Search firewalls'), gettext('Firewall name'))?></div>
-	<div class="panel-body table-responsive"><table class="table fs-table">
-		<thead><tr><th><?=gettext('Firewall')?></th><th><?=gettext('Should use')?></th><th><?=gettext('Uses now')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
-		<tbody>
-<?php if (empty($rows)): ?>
-		<tr><td colspan="4" class="fs-muted"><?=empty($overview) ? gettext('No firewalls yet.') : gettext('No firewall matches these filters.')?></td></tr>
-<?php endif; ?>
-<?php foreach (array_slice($rows, $pg['offset'], $pg['per'], true) as $node => $r): list($wm, $wi, $wfrom, $conflict) = $r['want']; $st = $r['state']; $todo = fleet_conn_pending($r); ?>
-		<tr><td><a href="/fleet/fleet_box.php?id=<?=urlencode($node)?>"><strong><?=htmlspecialchars($r['box']['label'])?></strong></a>
-				<?=($r['box']['state'] !== 'online') ? fs_badge('neutral', ucfirst($r['box']['state'])) : ''?></td>
-			<td><?=htmlspecialchars($method_text($wm, $wi))?><div class="fs-muted small"><?=htmlspecialchars($from_text($wfrom))?></div>
-				<?=($conflict !== null) ? '<div class="fs-fleet-problem small">' . htmlspecialchars(sprintf(gettext('Groups disagree (%s): set it on the firewall.'), implode(', ', $conflict))) . '</div>' : ''?></td>
-			<td><?php if ($st === null): ?>
-				<?=fs_badge('neutral', gettext('Fleet tunnel'))?>
-<?php elseif (!empty($st['ok'])): ?>
-				<?=fs_badge('pass', ucfirst($st['method']))?> <span class="fs-mono small"><?=htmlspecialchars($st['address'])?></span>
-				<div class="fs-muted small"><?=htmlspecialchars(sprintf(gettext('Answers; checked %s. Tunnel is the fallback.'), date('H:i', (int)$st['checked'])))?></div>
-<?php else: ?>
-				<?=fs_badge('warn', gettext('Tunnel (fallback)'))?> <span class="small"><?=htmlspecialchars(sprintf(gettext('The %1$s path on %2$s does not answer: %3$s'), $st['method'], $st['address'], $st['error']))?></span>
-<?php endif; ?>
-<?php foreach ((isset($ts[$node]) ? $ts[$node]['problems'] : array()) as list($pcode, $psev, $ptext)): ?>
-				<div class="small <?=($psev === 'error') ? 'fs-fleet-problem' : 'fs-muted'?>"><?=htmlspecialchars(ltrim($pcode . ': ' . $ptext, ': '))?>
-<?php if ($manage && ($pcode === 'FLEET-E136')): ?>
-					<form method="post" class="d-inline"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><button class="btn btn-sm btn-link p-0" name="ts_expiry_off" value="1"><?=gettext('Turn key expiry off')?></button></form>
-<?php endif; ?></div>
-<?php endforeach; ?>
-				<?=$todo ? '<div>' . fs_badge('info', gettext('Change to apply')) . '</div>' : ''?></td>
-			<td class="text-end text-nowrap"><?php if ($manage): ?>
-				<button type="button" class="btn btn-sm btn-link" data-fs-modal="#conn-modal" data-fs-modal-title="<?=htmlspecialchars(sprintf(gettext('Connection for %s'), $r['box']['label']))?>"
-				    data-fs-fill="<?=htmlspecialchars(json_encode(array('kind' => 'box', 'target' => $node, 'conn_method' => (string)$r['box']['conn_method'], 'conn_iface' => (string)$r['box']['conn_iface'])))?>"><?=gettext('Change')?></button>
-<?php if ($todo && ($r['box']['state'] === 'online')): ?>
-				<form method="post" class="d-inline"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><button class="btn btn-sm btn-link" name="apply" value="1"><?=gettext('Apply')?></button></form>
-<?php endif; ?>
-<?php endif; ?></td></tr>
-<?php endforeach; ?>
-		</tbody></table></div>
-	<div class="panel-footer"><?=fleet_list_pager($pg, $keep, $f)?></div>
-</div>
 
 <?php if ($manage):
-	fs_modal_form_begin('conn-modal', gettext('Connection'), '/fleet/fleet_connections.php', array('kind' => '', 'target' => ''));
+	fs_modal_form_begin('conn-modal', gettext('Connection'), '/fleet/fleet_connections.php', array('kind' => '', 'target' => '', 'view' => $view));
 ?>
 	<fieldset class="mb-3"><legend class="form-label"><?=gettext('Fleet reaches these firewalls over')?></legend>
 		<label class="form-check" data-conn-inherit><input class="form-check-input" type="radio" name="conn_method" value=""/> <span class="form-check-label"><?=gettext('As above (the group, or the fleet default)')?></span></label>
@@ -302,7 +322,7 @@ $fallbacks = count(array_filter($overview, function ($r) { return ($r['state'] !
 	<p class="fs-fleet-hint mb-0"><?=gettext('Saving changes nothing on the firewalls. The firewall list then shows the changes; applying sets up each path and keeps it only when the controller reaches the firewall over it.')?></p>
 <?php
 	fs_modal_form_end(gettext('Save'), 'save_conn', '1', 'fa-floppy-disk');
-	fs_modal_form_begin('ts-modal', gettext('Tailscale API token'), '/fleet/fleet_connections.php', array());
+	fs_modal_form_begin('ts-modal', gettext('Tailscale API token'), '/fleet/fleet_connections.php', array('view' => 'methods'));
 ?>
 	<div class="mb-3"><label class="form-label" for="ts-token"><?=gettext('API access token')?></label>
 		<input class="form-control fs-mono" id="ts-token" name="ts_token" type="password" autocomplete="off" maxlength="220" placeholder="tskey-api-…" required/>
