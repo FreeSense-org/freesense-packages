@@ -1489,4 +1489,30 @@ check((count(fleet_samples_rows(null, 0, 200)) === 3) && (count(fleet_samples_ro
     (fleet_samples_rows(array('sx'), 0, 200)[0]['cpu_max'] == 8), 'sample rows for some or all firewalls, hourly before five-minute');
 $sdb->exec("DELETE FROM samples WHERE node_id IN ('sx', 'sy'); DELETE FROM samples_hourly WHERE node_id = 'sx'");
 
+/* Dashboard trends. */
+check((fleet_trends_cells('online', array(array(150, 'offline'), array(170, 'online'), array(350, 'degraded')), 100, 100, 4) === array('offline', 'online', 'degraded', 'degraded')) &&
+    (fleet_trends_cells(null, array(array(250, 'new'), array(260, 'online')), 100, 100, 3) === array(null, 'new', 'online')),
+    'pulse cells: the worst state in each half hour, empty before the firewall joined');
+check((fleet_trends_badness(array('online', 'offline', 'degraded', null)) === 110) && (fleet_trends_badness(array('online', 'new')) === 0), 'pulse rows sort by how bad they were');
+check((fleet_trends_quantile(array(1, 2, 3, 4, null), .5) === 2.5) && (fleet_trends_quantile(array(10, 20, 30, 40, 50), .9) === 46.0) && (fleet_trends_quantile(array(null), .5) === null),
+    'median and 90th percentile skip empty values');
+$tdays = fleet_trends_days(mktime(12, 0, 0, 3, 10, 2026), 3);
+check(($tdays === array('2026-03-08', '2026-03-09', '2026-03-10')) &&
+    (fleet_trends_per_day(array(array(mktime(1, 0, 0, 3, 9, 2026), 'warning'), array(mktime(2, 0, 0, 3, 9, 2026), 'warning'), array(mktime(3, 0, 0, 3, 10, 2026), 'critical'),
+    array(mktime(3, 0, 0, 3, 1, 2026), 'critical'), array(mktime(3, 0, 0, 3, 10, 2026), 'bogus')), $tdays, array('critical', 'warning')) ===
+    array('critical' => array(0, 0, 1), 'warning' => array(0, 2, 0))), 'counts per day and kind; other days and kinds are left out');
+$tb = fleet_trends_buckets(array(
+    array('node_id' => 'a', 'time' => 0, 'cpu' => 10, 'cpu_max' => 10, 'mem' => 40, 'states' => 50, 'states_max' => 100, 'temp' => null, 'rx_bps' => 100, 'tx_bps' => 10),
+    array('node_id' => 'a', 'time' => 50, 'cpu' => 30, 'cpu_max' => 60, 'mem' => 60, 'states' => 70, 'states_max' => 100, 'temp' => null, 'rx_bps' => 300, 'tx_bps' => 30),
+    array('node_id' => 'b', 'time' => 120, 'cpu' => 90, 'cpu_max' => 90, 'mem' => 10, 'states' => 1, 'states_max' => 10, 'temp' => 70, 'rx_bps' => 1000, 'tx_bps' => null),
+    array('node_id' => 'b', 'time' => 999, 'cpu' => 1, 'cpu_max' => 1, 'mem' => 1, 'states' => 1, 'states_max' => 1, 'temp' => 1, 'rx_bps' => 1, 'tx_bps' => 1)), 0, 100, 2);
+check(($tb['a']['cpu'] === array(20.0, null)) && ($tb['a']['cpu_max'] === array(60.0, null)) && ($tb['b']['temp'] === array(null, 70.0)) && !isset($tb['a']['temp']),
+    'sample buckets: the average per firewall and bucket, the CPU peak, samples outside the range left out');
+$tl = fleet_trends_load($tb, 2);
+check(($tl['cpu_med'] === array(20.0, 90.0)) && ($tl['rx'] === array(200.0, 1000.0)) && ($tl['tx'] === array(20.0, null)), 'fleet load: median CPU across firewalls, WAN traffic summed');
+$tt = fleet_trends_top($tb, array('a' => 'Alpha', 'b' => 'Beta'), function ($x) { return $x['cpu']; }, 1);
+check((count($tt) === 1) && ($tt[0]['label'] === 'Beta') && ($tt[0]['peak'] === 90.0) && ($tt[0]['data'] === array(null, 90.0)), 'top firewalls by their peak');
+check(fleet_trends_versions(array(array('version' => '1.2.0'), array('version' => '1.1.5'), array('version' => '1.2.0'), array())) ===
+    array(array('label' => '1.2.0', 'value' => 2), array('label' => '1.1.5', 'value' => 1), array('label' => 'Unknown', 'value' => 1)), 'firewalls per version, most first');
+
 echo "Fleet controller tests: OK\n";

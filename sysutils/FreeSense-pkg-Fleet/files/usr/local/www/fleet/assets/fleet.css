@@ -992,3 +992,75 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 .fs-fc-hbar-v { font-variant-numeric: tabular-nums; color: var(--fs-text-muted); min-width: 3.5rem; text-align: right; }
 .fs-fc-spark { display: inline-block; vertical-align: middle; }
 .fs-fc-spark .fs-fleet-chart-line { stroke-width: 1.5; }
+
+/*
+ * Dashboard v2: Overview, Trends. Panels are plain surfaces with a tinted
+ * icon square in the head (the tone says what the panel is about); the
+ * fleet pulse is the one large, emphasised element.
+ */
+.fs-fleet-dash-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--fs-sp-2); margin: 0 0 var(--fs-sp-3); }
+.fs-fleet-dash-controls .form-select { width: auto; min-width: 11rem; }
+.fs-fleet-dash-controls a[aria-current="true"] { background: var(--bs-secondary-bg); color: var(--bs-emphasis-color); border-color: var(--bs-emphasis-color); }
+.fs-fleet-ov-head { display: flex; align-items: center; gap: var(--fs-sp-3); margin-bottom: var(--fs-sp-3); }
+.fs-fleet-ov-state { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; flex: none; border-radius: 50%; font-size: 1.35rem;
+	color: var(--fc); background: color-mix(in srgb, var(--fc) 15%, transparent); }
+.fs-fleet-ov-group { font-weight: 400; color: var(--fs-text-muted); }
+.fs-fleet-strip { list-style: none; margin: 0 0 var(--fs-sp-4); padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+	border: 1px solid var(--fs-border); border-radius: var(--fs-r-md); background: var(--fs-surface); overflow: hidden; }
+.fs-fleet-strip li + li { border-left: 1px solid var(--fs-border); }
+.fs-fleet-strip a, .fs-fleet-strip-item { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: var(--fs-sp-2); align-items: center;
+	padding: var(--fs-sp-3); color: inherit; text-decoration: none; height: 100%; }
+.fs-fleet-strip a:hover { background: color-mix(in srgb, var(--fs-text) 4%, transparent); }
+.fs-fleet-strip a:focus-visible { outline: 2px solid var(--fs-info); outline-offset: -2px; }
+.fs-fleet-strip .fs-fleet-cp-icon { grid-row: 1 / span 2; }
+.fs-fleet-strip-v { font-size: var(--fs-fs-xl); font-weight: 600; line-height: 1.1; color: var(--fs-text-strong); font-variant-numeric: tabular-nums; }
+.fs-fleet-strip-l { font-size: var(--fs-fs-sm); color: var(--fs-text-muted); line-height: 1.3; }
+.fs-fleet-strip--quiet { margin-bottom: var(--fs-sp-3); }
+
+.fs-fleet-cp { background: var(--fs-surface); border: 1px solid var(--fs-border); border-radius: var(--fs-r-md); padding: var(--fs-sp-3); min-width: 0; }
+.fs-fleet-cp-head { display: flex; align-items: center; gap: var(--fs-sp-2); margin-bottom: var(--fs-sp-3); }
+.fs-fleet-cp-head h3 { margin: 0; font-size: var(--fs-fs-md); font-weight: 600; color: var(--fs-text-strong); }
+.fs-fleet-cp-sum { margin-left: auto; font-size: var(--fs-fs-sm); color: var(--fs-text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fs-fleet-cp-icon { display: grid; place-items: center; width: 2rem; height: 2rem; flex: none; border-radius: var(--fs-r-sm);
+	color: var(--fc, var(--fs-info)); background: color-mix(in srgb, var(--fc, var(--fs-info)) 14%, transparent); }
+.fs-fleet-cp-body { min-height: 2rem; }
+.fs-fleet-cp .fs-fleet-lead { margin-top: calc(-1 * var(--fs-sp-2)); }
+
+/* The fleet pulse: more room than the rest, nothing else competes with it. */
+.fs-fleet-pulse { padding: var(--fs-sp-4); margin-bottom: var(--fs-sp-4); }
+.fs-fleet-pulse .fs-fleet-cp-head h3 { font-size: var(--fs-fs-lg); }
+.fs-fleet-pulse-key { display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: -1px; margin: 0 .35rem 0 .9rem; }
+.fs-fleet-pulse-key:first-child { margin-left: 0; }
+.fs-fleet-pulse-key.s-online { background: color-mix(in srgb, var(--fs-pass) 55%, var(--fs-surface)); }
+.fs-fleet-pulse-key.s-degraded { background: var(--fs-warn); }
+.fs-fleet-pulse-key.s-offline { background: var(--fs-block); }
+.fs-fleet-pulse-key.s-new { background: color-mix(in srgb, var(--fs-neutral) 45%, var(--fs-surface)); }
+.fs-fleet-pulse-key.s-none { border: 1px solid var(--fs-border); }
+
+.fs-fleet-ov-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: var(--fs-sp-3); align-items: start; }
+.fs-fleet-attention { grid-column: span 2; }
+@media (max-width: 760px) { .fs-fleet-attention { grid-column: auto; } }
+.fs-fleet-attn-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--fs-sp-2); }
+.fs-fleet-attn-list li { display: grid; grid-template-columns: auto 1fr; column-gap: var(--fs-sp-2); align-items: baseline; }
+.fs-fleet-attn-list li > .fs-muted { grid-column: 2; }
+.fs-fleet-quiet { color: var(--fs-text-muted); }
+.fs-fleet-quiet i { color: var(--fs-pass); margin-right: var(--fs-sp-2); }
+.fs-fleet-facts { display: grid; grid-template-columns: auto 1fr; gap: var(--fs-sp-2) var(--fs-sp-3); margin: 0; font-size: var(--fs-fs-base); }
+.fs-fleet-facts dt { font-weight: 400; color: var(--fs-text-muted); }
+.fs-fleet-facts dt i { width: 1.1rem; margin-right: var(--fs-sp-1); text-align: center; }
+.fs-fleet-facts dd { margin: 0; }
+
+.fs-fleet-section { display: flex; align-items: center; gap: var(--fs-sp-2); margin: var(--fs-sp-5) 0 var(--fs-sp-3); font-size: var(--fs-fs-lg); font-weight: 600; color: var(--fs-text-strong); }
+.fs-fleet-section:first-child { margin-top: 0; }
+.fs-fleet-section i { color: var(--fs-text-muted); font-size: var(--fs-fs-md); }
+.fs-fleet-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: var(--fs-sp-3); margin-bottom: var(--fs-sp-3); }
+.fs-fleet-charts--three { grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+.fs-fleet-charts .is-wide { grid-column: 1 / -1; }
+.fs-fleet-busy td, .fs-fleet-busy th { vertical-align: middle; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fs-fleet-busy-spark { width: 96px; }
+@media (max-width: 560px) { .fs-fleet-busy-spark { display: none; } }
+.fs-fleet-tile-icon { margin-right: var(--fs-sp-1); color: var(--fs-text-muted); }
+.fs-fleet-filter[data-filter="offline"] .fs-fleet-tile-icon { color: var(--fs-block); }
+.fs-fleet-filter[data-filter="degraded"] .fs-fleet-tile-icon { color: var(--fs-warn); }
+.fs-fleet-filter[data-filter="online"] .fs-fleet-tile-icon { color: var(--fs-pass); }
+.fs-fc-dot { fill: var(--fc); }
