@@ -261,8 +261,11 @@ function fleet_ts_authkey_delete(string $id, string $who): void {
 /* Turn key expiry off for a firewall's tailnet device (fixes FLEET-E136). */
 function fleet_ts_key_expiry_off(string $node, string $who): string {
 	$box = fleet_box_get($node);
-	$st = json_decode((string)($box['conn_state'] ?? ''), true);
-	if (($box === null) || (($st['method'] ?? '') !== 'tailscale')) {
+	$st = null;
+	foreach (($box === null) ? array() : fleet_conn_paths(json_decode((string)($box['conn_state'] ?? ''), true) ?: null) as $p) {
+		$st = ($p['method'] === 'tailscale') ? $p : $st;
+	}
+	if ($st === null) {
 		throw new InvalidArgumentException('That firewall has no Tailscale path.');
 	}
 	$d = fleet_ts_device_for((array)fleet_ts_devices(true), (string)$st['address']);

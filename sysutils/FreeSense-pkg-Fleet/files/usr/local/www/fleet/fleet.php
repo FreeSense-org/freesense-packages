@@ -108,7 +108,14 @@ if (isset($_POST['save_section']) && array_key_exists((string)$_POST['save_secti
 			}
 			$authority = fleet_hostport($ts_address, $s['enroll_port']);
 		}
+		$invite_ip = trim((string)($_POST['public_ip'] ?? ''));
+		if (($invite_ip !== '') && (fleet_access_cidr($invite_ip) === null)) {
+			throw new InvalidArgumentException(gettext('The firewall\'s public address must be an IP address or network.'));
+		}
 		$new_invite = fleet_invite_create((string)($_POST['role'] ?? 'monitor'), trim((string)($_POST['label'] ?? '')), $ttl, $who, $authority, time(), $via);
+		if ($invite_ip !== '') {
+			fleet_access_invite_ip($new_invite[2], $invite_ip, trim((string)($_POST['label'] ?? '')), $new_invite[3]);
+		}
 		if ($via === 'tailscale') {
 			try {
 				$new_ts_key = fleet_ts_authkey_mint(trim((string)($_POST['label'] ?? '')), $ttl, $who, $new_invite[2]);
@@ -167,6 +174,52 @@ if (isset($_POST['save_section']) && array_key_exists((string)$_POST['save_secti
 		$savemsg = gettext('Group deleted. Its firewalls were not changed.');
 	} catch (RuntimeException $e) {
 		$input_errors[] = $e->getMessage();
+	}
+} elseif (isset($_POST['access_action']) && $s['enable']) {
+	/* Settings > Access: who may reach the public ports, the allowed list, blocks and the reachability check. */
+	$tab = 'settings';
+	$acc = fleet_access();
+	switch ((string)$_POST['access_action']) {
+	case 'save':
+		$acc = array('enroll' => (string)($_POST['enroll'] ?? 'any'), 'tunnel' => (string)($_POST['tunnel'] ?? 'any'), 'firewalls' => !empty($_POST['firewalls']),
+		    'block' => !empty($_POST['block']), 'block_after' => (int)($_POST['block_after'] ?? 5), 'block_minutes' => (int)($_POST['block_minutes'] ?? 60)) + $acc;
+		fleet_access_save($acc, $who, sprintf('Access: enrollment %s, tunnel %s', $acc['enroll'] === 'list' ? 'allowed list' : 'anyone', $acc['tunnel'] === 'list' ? 'allowed list' : 'anyone'));
+		$savemsg = gettext('Saved. The rules are in place within a few seconds.');
+		break;
+	case 'add':
+		$c = fleet_access_cidr((string)($_POST['cidr'] ?? ''));
+		if ($c === null) {
+			$input_errors[] = gettext('Enter an IP address or a network (like 203.0.113.0/24).');
+			break;
+		}
+		$acc['entries'][] = array('cidr' => $c, 'note' => trim((string)($_POST['note'] ?? '')), 'added' => time());
+		fleet_access_save($acc, $who, "Access: {$c} allowed");
+		$savemsg = sprintf(gettext('%s is allowed.'), $c);
+		break;
+	case 'remove':
+		$c = (string)($_POST['cidr'] ?? '');
+		$acc['entries'] = array_values(array_filter($acc['entries'], function ($e) use ($c) { return $e['cidr'] !== $c; }));
+		fleet_access_save($acc, $who, "Access: {$c} removed from the allowed list");
+		$savemsg = sprintf(gettext('%s was removed from the allowed list.'), $c);
+		break;
+	case 'open':
+		$m = in_array((int)($_POST['open_minutes'] ?? 60), FLEET_ACCESS_OPEN_MINUTES, true) ? (int)$_POST['open_minutes'] : 60;
+		$acc['open_until'] = time() + 60 * $m;
+		fleet_access_save($acc, $who, "Access: the enrollment port is open to anyone for {$m} minutes");
+		$savemsg = sprintf(gettext('The enrollment port is open to anyone for %d minutes; it closes by itself.'), $m);
+		break;
+	case 'close':
+		$acc['open_until'] = 0;
+		fleet_access_save($acc, $who, 'Access: open for joining was closed');
+		$savemsg = gettext('Closed: only the allowed list reaches the enrollment port.');
+		break;
+	case 'unblock':
+		fleet_access_unblock((string)($_POST['ip'] ?? ''), $who);
+		$savemsg = sprintf(gettext('%s is unblocked.'), (string)($_POST['ip'] ?? ''));
+		break;
+	case 'check':
+		fleet_access_check(time());
+		break;
 	}
 } elseif (isset($_POST['standby_action'])) {
 	/* Standby server: pairing and settings on the primary; joining, fetching, promoting and leaving on the standby. */
@@ -590,6 +643,11 @@ if ($savemsg) {
 		<div class="fs-fleet-field"><label class="form-label" for="hostname"><?=gettext('Hostname')?></label>
 			<input class="form-control fs-mono" id="hostname" name="hostname" maxlength="63" placeholder="<?=gettext('From the group')?>"/></div>
 <?php endif; ?>
+<?php $inv_acc = fleet_access(); ?>
+		<div class="fs-fleet-field"><label class="form-label" for="public_ip"><?=gettext('Its public address')?> <span class="fs-muted small"><?=gettext('(optional)')?></span></label>
+			<input class="form-control fs-mono" id="public_ip" name="public_ip" maxlength="45" placeholder="203.0.113.10" aria-describedby="public_ip-help"/>
+			<div id="public_ip-help" class="fs-fleet-hint"><?=($inv_acc['enroll'] === 'list') ? gettext('The enrollment port takes only the allowed list: this address is allowed until the invitation expires. Without it, open for joining in Settings > Access.') :
+			    gettext('Allowed until the invitation expires, when the enrollment port takes only the allowed list (Settings > Access).')?></div></div>
 		<div class="fs-fleet-field"><label class="form-label" for="hours"><?=gettext('Valid for')?></label>
 			<select class="form-select" id="hours" name="hours">
 <?php
@@ -629,7 +687,7 @@ if ($savemsg) {
 
 <?php endif; ?>
 <?php else:
-	$set_view = fs_view_param(array_keys(FLEET_SETTINGS_SECTIONS), (string)($_POST['save_section'] ?? ((isset($_POST['standby_action']) || (!$ready && (fleet_standby_role() === 'standby'))) ? 'standby' : 'controller')));
+	$set_view = fs_view_param(array_keys(FLEET_SETTINGS_SECTIONS), (string)($_POST['save_section'] ?? ((isset($_POST['access_action']) ? 'access' : ((isset($_POST['standby_action']) || (!$ready && (fleet_standby_role() === 'standby'))) ? 'standby' : 'controller')))));
 	$set_labels = array_map('gettext', FLEET_SETTINGS_SECTIONS);
 	fs_view_switch($set_labels, $set_view);
 	$set_leads = array(
@@ -638,10 +696,138 @@ if ($savemsg) {
 		'actions' => gettext('Reboots, backups and restores started from Fleet: how long results stay visible and when you are told.'),
 		'backups' => gettext('Central backups of each firewall\'s configuration, taken every night and when it changes.'),
 		'advanced' => gettext('Values you rarely need to change. The defaults suit most fleets.'),
+		'access' => gettext('Firewalls reach this controller on two public ports. Fleet checks they answer from outside, and lets in anyone or only the allowed list.'),
 		'standby' => gettext('A second FreeSense with the Fleet package keeps a verified, encrypted copy of this controller and can take over. Firewalls learn its address automatically, also ones that join later, and move to it by themselves when it takes over.'),
 	);
 ?>
-<?php if ($set_view === 'standby'):
+<?php if (($set_view === 'access') && $ready):
+	$acc = fleet_access();
+	$chk = json_decode((string)fleet_setting('access_check', '{}'), true) ?: array();
+	$allowed = fleet_access_allowed_now(time());
+	$blocked = array_filter(fleet_access_json('access_blocked'), function ($u) { return (int)$u > time(); });
+	$manual = array_column($acc['entries'], 'cidr');
+	$aq = trim((string)($_GET['aq'] ?? ''));
+	$shown_allowed = array_filter($allowed, function ($why, $c) use ($aq) { return ($aq === '') || (stripos($c . ' ' . $why, $aq) !== false); }, ARRAY_FILTER_USE_BOTH);
+	$open_left = $acc['open_until'] - time();
+?>
+<div class="panel panel-default">
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Can firewalls reach this controller?')?></h2>
+		<form method="post" action="?tab=settings&amp;view=access" class="ms-auto"><button class="btn btn-sm btn-outline-secondary" type="submit" name="access_action" value="check"><i class="fa-solid fa-satellite-dish icon-embed-btn" aria-hidden="true"></i><?=gettext('Check now')?></button></form></div>
+	<div class="panel-body fs-fleet-pad">
+		<p class="fs-fleet-lead"><?=htmlspecialchars($set_leads['access'])?></p>
+<?php if (empty($chk)): ?>
+		<p class="fs-muted"><?=gettext('Not checked yet. Check now: a firewall in the fleet tries the enrollment port from outside.')?></p>
+<?php else:
+	$probe = $chk['probe'] ?? null; ?>
+		<dl class="fs-fleet-facts mb-3">
+			<dt><?=gettext('Firewalls connect to')?></dt><dd class="fs-mono"><?=htmlspecialchars(fleet_hostport($chk['host'], (int)$chk['enroll_port']))?> <span class="fs-muted"><?=gettext('(enrollment, TCP)')?></span>, <?=htmlspecialchars(fleet_hostport($chk['host'], (int)$chk['wg_port']))?> <span class="fs-muted"><?=gettext('(tunnel, UDP)')?></span></dd>
+			<dt><?=gettext('Public address')?></dt><dd><?php if ($chk['kind'] === 'local'): ?><?=fs_badge('pass', gettext('On this controller'))?> <?=gettext('Fleet opens the ports itself (the rules below).')?>
+<?php elseif ($chk['kind'] === 'forward'): ?><?=fs_badge('info', gettext('Port forward'))?> <?=htmlspecialchars(sprintf(gettext('%1$s points to %2$s, which is not on this controller: a router in front forwards to it.'), $chk['host'], implode(', ', $chk['resolved'])))?>
+<?php else: ?><?=fs_badge('warn', gettext('Does not resolve'))?> <?=htmlspecialchars(sprintf(gettext('%s has no address. Check the name in the Controller section.'), $chk['host']))?><?php endif; ?></dd>
+			<dt><?=gettext('Enrollment port from outside')?></dt><dd><?php if ($probe === null): ?><span class="fs-muted"><?=gettext('No firewall could check it (it needs one online with System API level 14).')?></span>
+<?php elseif (!empty($probe['open'])): ?><?=fs_badge('pass', gettext('Open'))?> <?=htmlspecialchars(sprintf(gettext('checked from %1$s%2$s, %3$d ms'), $probe['from'], ($probe['from_addr'] ?? '') !== '' ? ' (' . $probe['from_addr'] . ')' : '', (int)$probe['ms']))?>
+<?php else: ?><?=fs_badge('block', gettext('Closed'))?> <?=htmlspecialchars(sprintf(gettext('from %1$s: %2$s'), $probe['from'], $probe['error']))?><?php endif; ?></dd>
+			<dt><?=gettext('Tunnel port')?></dt><dd><?=($chk['tunnel_recent'] > 0) ? fs_badge('pass', gettext('In use')) . ' ' . htmlspecialchars(sprintf(gettext('%d firewalls connected in the last 5 minutes'), $chk['tunnel_recent'])) : '<span class="fs-muted">' . gettext('No firewall connected in the last 5 minutes (UDP cannot be probed; a joined firewall proves it).') . '</span>'?></dd>
+			<dt><?=gettext('Checked')?></dt><dd class="small"><?=htmlspecialchars(date('Y-m-d H:i', (int)$chk['checked']))?></dd>
+		</dl>
+<?php if (($chk['kind'] === 'forward') || (($probe !== null) && empty($probe['open']))): ?>
+		<div class="fs-fleet-review">
+			<h3 class="fs-fleet-subtitle"><?=gettext('Open the ports on the router in front')?></h3>
+			<ol class="mb-0">
+				<li><?=htmlspecialchars(sprintf(gettext('On the router that owns %s, add two port forwards to this controller (%s):'), implode(', ', $chk['resolved'] ?: array($chk['host'])), implode(', ', array_slice($chk['local'], 0, 2))))?>
+					<span class="fs-mono">TCP <?=(int)$chk['enroll_port']?></span> <?=gettext('and')?> <span class="fs-mono">UDP <?=(int)$chk['wg_port']?></span>.</li>
+				<li><?=gettext('Keep the source as narrow as you can: the same allowed list as below, or the networks your firewalls are in.')?></li>
+				<li><?=gettext('If that router is a FreeSense in this fleet, a NAT template does it: Templates > Port forwards.')?></li>
+				<li><?=gettext('Check now again. The tunnel port is proven when a firewall joins.')?></li>
+			</ol>
+		</div>
+<?php endif; ?>
+<?php endif; ?>
+	</div>
+</div>
+
+<form method="post" action="?tab=settings&amp;view=access">
+<div class="panel panel-default">
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Who may connect')?></h2></div>
+	<div class="panel-body fs-fleet-pad">
+		<div class="fs-fleet-settings">
+<?php foreach (array('enroll' => array(gettext('Enrollment port'), sprintf('TCP %d', $s['enroll_port']), gettext('New firewalls join here, and the standby controller fetches its copies.')),
+	    'tunnel' => array(gettext('Tunnel port'), sprintf('UDP %d', $s['wg_port']), gettext('Joined firewalls keep their management tunnel here. WireGuard does not answer anyone without a firewall\'s key, so this port is invisible to scans; limit it only when every firewall has a fixed address (a firewall whose address changes is cut off until you allow the new one).'))) as $k => list($label, $port, $help)): ?>
+			<fieldset class="fs-fleet-field"><legend class="form-label"><?=htmlspecialchars($label)?> <span class="fs-muted fs-mono small"><?=htmlspecialchars($port)?></span></legend>
+				<label class="form-check"><input class="form-check-input" type="radio" name="<?=$k?>" value="list"<?=($acc[$k] === 'list') ? ' checked' : ''?>/> <span class="form-check-label"><?=gettext('Only the allowed list')?></span></label>
+				<label class="form-check"><input class="form-check-input" type="radio" name="<?=$k?>" value="any"<?=($acc[$k] === 'any') ? ' checked' : ''?>/> <span class="form-check-label"><?=gettext('Anyone')?></span></label>
+<?php if ($k === 'enroll'): ?>
+				<div class="fs-fleet-note mt-1"><?=fs_badge('warn', gettext('Not recommended'))?> <?=gettext('"Anyone" leaves the enrollment port open to the whole internet. Wrong keys are blocked, but the allowed list is safer: open for joining only while a firewall joins.')?></div>
+<?php endif; ?>
+				<div class="fs-fleet-hint"><?=htmlspecialchars($help)?></div></fieldset>
+<?php endforeach; ?>
+			<div class="form-check form-switch">
+				<input class="form-check-input" type="checkbox" role="switch" id="acc-fw" name="firewalls"<?=$acc['firewalls'] ? ' checked' : ''?>/>
+				<label class="form-check-label" for="acc-fw"><?=gettext('Allow the addresses firewalls connect from')?></label>
+				<div class="fs-fleet-hint"><?=gettext('Fleet adds each joined firewall\'s public address to the list by itself, also the standby controller and the address given with an invitation.')?></div>
+			</div>
+			<div class="form-check form-switch">
+				<input class="form-check-input" type="checkbox" role="switch" id="acc-block" name="block"<?=$acc['block'] ? ' checked' : ''?>/>
+				<label class="form-check-label" for="acc-block"><?=gettext('Block addresses that try wrong keys')?></label>
+			</div>
+			<div class="d-flex gap-3 flex-wrap">
+				<div class="fs-fleet-field"><label class="form-label" for="acc-after"><?=gettext('Block after')?></label>
+					<select class="form-select fs-fleet-narrow" id="acc-after" name="block_after"><?php foreach (FLEET_ACCESS_BLOCK_AFTER as $n): ?><option value="<?=$n?>"<?=($n === $acc['block_after']) ? ' selected' : ''?>><?=htmlspecialchars(sprintf(gettext('%d wrong keys in 10 minutes'), $n))?></option><?php endforeach; ?></select></div>
+				<div class="fs-fleet-field"><label class="form-label" for="acc-for"><?=gettext('Block for')?></label>
+					<select class="form-select fs-fleet-narrow" id="acc-for" name="block_minutes"><?php foreach (FLEET_ACCESS_BLOCK_MINUTES as $m): ?><option value="<?=$m?>"<?=($m === $acc['block_minutes']) ? ' selected' : ''?>><?=htmlspecialchars(($m < 60) ? sprintf(gettext('%d minutes'), $m) : sprintf(gettext('%d hours'), $m / 60))?></option><?php endforeach; ?></select></div>
+			</div>
+		</div>
+	</div>
+	<div class="panel-footer d-flex gap-2 flex-wrap align-items-center">
+		<button class="btn btn-primary" type="submit" name="access_action" value="save"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save')?></button>
+<?php if ($open_left > 0): ?>
+		<span class="ms-auto"><?=fs_badge('warn', sprintf(gettext('Open for joining: %d min left'), ceil($open_left / 60)))?></span>
+		<button class="btn btn-outline-secondary" type="submit" name="access_action" value="close"><?=gettext('Close now')?></button>
+<?php elseif ($acc['enroll'] === 'list'): ?>
+		<span class="ms-auto fs-muted small"><?=gettext('A firewall whose address you do not know:')?></span>
+		<select class="form-select form-select-sm w-auto" name="open_minutes" aria-label="<?=gettext('How long')?>"><?php foreach (FLEET_ACCESS_OPEN_MINUTES as $m): ?><option value="<?=$m?>"<?=($m === 60) ? ' selected' : ''?>><?=htmlspecialchars(($m < 60) ? sprintf(gettext('%d minutes'), $m) : sprintf(gettext('%d hours'), $m / 60))?></option><?php endforeach; ?></select>
+		<button class="btn btn-outline-secondary" type="submit" name="access_action" value="open"><i class="fa-solid fa-door-open icon-embed-btn" aria-hidden="true"></i><?=gettext('Open for joining')?></button>
+<?php endif; ?>
+	</div>
+</div>
+</form>
+
+<div class="panel panel-default">
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Allowed list')?> <span class="fs-count"><?=count($allowed)?></span></h2>
+		<form method="get" class="ms-auto d-flex gap-2"><input type="hidden" name="tab" value="settings"/><input type="hidden" name="view" value="access"/>
+			<input class="form-control form-control-sm" type="search" name="aq" value="<?=htmlspecialchars($aq)?>" placeholder="<?=gettext('Search address or reason')?>" aria-label="<?=gettext('Search the allowed list')?>"/></form></div>
+	<div class="panel-body table-responsive"><table class="table fs-table">
+		<thead><tr><th><?=gettext('Address or network')?></th><th><?=gettext('Why')?></th><th class="text-end"></th></tr></thead>
+		<tbody>
+<?php foreach (array_slice($shown_allowed, 0, 200, true) as $c => $why): ?>
+		<tr><td class="fs-mono"><?=htmlspecialchars((string)$c)?></td><td class="small"><?=htmlspecialchars($why)?></td>
+			<td class="text-end"><?php if (in_array((string)$c, $manual, true)): ?><form method="post" action="?tab=settings&amp;view=access"><input type="hidden" name="cidr" value="<?=htmlspecialchars((string)$c)?>"/><button class="btn btn-sm btn-link text-danger" type="submit" name="access_action" value="remove"><?=gettext('Remove')?></button></form><?php else: ?><span class="fs-muted small"><?=gettext('automatic')?></span><?php endif; ?></td></tr>
+<?php endforeach; ?>
+<?php if (empty($shown_allowed)): ?>
+		<tr><td colspan="3" class="fs-muted"><?=($aq !== '') ? gettext('Nothing matches.') : gettext('Nothing is allowed yet. With "Only the allowed list", nobody can reach that port.')?></td></tr>
+<?php endif; ?>
+		</tbody></table></div>
+	<form method="post" action="?tab=settings&amp;view=access" class="panel-footer d-flex gap-2 flex-wrap align-items-end">
+		<div class="fs-fleet-field mb-0"><label class="form-label" for="acc-cidr"><?=gettext('Address or network')?></label><input class="form-control fs-mono" id="acc-cidr" name="cidr" required placeholder="203.0.113.0/24"/></div>
+		<div class="fs-fleet-field mb-0"><label class="form-label" for="acc-note"><?=gettext('Why')?></label><input class="form-control" id="acc-note" name="note" maxlength="80" placeholder="<?=gettext('Office internet')?>"/></div>
+		<button class="btn btn-outline-secondary" type="submit" name="access_action" value="add"><i class="fa-solid fa-plus icon-embed-btn" aria-hidden="true"></i><?=gettext('Allow')?></button>
+	</form>
+</div>
+
+<?php if (!empty($blocked)): ?>
+<div class="panel panel-default">
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Blocked after wrong keys')?> <span class="fs-count"><?=count($blocked)?></span></h2></div>
+	<div class="panel-body table-responsive"><table class="table fs-table">
+		<thead><tr><th><?=gettext('Address')?></th><th><?=gettext('Until')?></th><th class="text-end"></th></tr></thead>
+		<tbody>
+<?php foreach ($blocked as $ip => $until): ?>
+		<tr><td class="fs-mono"><?=htmlspecialchars((string)$ip)?></td><td class="small"><?=htmlspecialchars(date('Y-m-d H:i', (int)$until))?></td>
+			<td class="text-end"><form method="post" action="?tab=settings&amp;view=access"><input type="hidden" name="ip" value="<?=htmlspecialchars((string)$ip)?>"/><button class="btn btn-sm btn-outline-secondary" type="submit" name="access_action" value="unblock"><?=gettext('Unblock')?></button></form></td></tr>
+<?php endforeach; ?>
+		</tbody></table></div>
+</div>
+<?php endif; ?>
+<?php elseif ($set_view === 'standby'):
 	$sb_role = fleet_standby_role();
 	$sb_ago = function (int $t): string {
 		if ($t <= 0) {

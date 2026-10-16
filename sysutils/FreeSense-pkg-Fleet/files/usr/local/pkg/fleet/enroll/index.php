@@ -48,6 +48,10 @@ if (strpos($path, '/fleet/standby/') === 0) {
 		error_log('FreeSense Fleet standby: ' . $e->getMessage());
 		list($status, $reply) = array(500, array('error' => array('code' => 'internal_error', 'message' => 'Internal error.')));
 	}
+	/* A wrong token counts towards blocking the address. */
+	if (($status === 404) && ($bearer !== '')) {
+		fleet_access_failed((string)($_SERVER['REMOTE_ADDR'] ?? ''), time());
+	}
 	http_response_code($status);
 	echo json_encode($reply, JSON_UNESCAPED_SLASHES);
 	exit;
@@ -64,6 +68,14 @@ try {
 } catch (Throwable $e) {
 	error_log('FreeSense Fleet enrollment: ' . $e->getMessage());
 	list($status, $reply) = array(500, array('error' => array('code' => 'internal_error', 'message' => 'Internal error.')));
+}
+/* A wrong key or an unknown invitation counts towards blocking the address. */
+if (in_array($status, array(401, 403), true)) {
+	try {
+		fleet_access_failed((string)($_SERVER['REMOTE_ADDR'] ?? ''), time());
+	} catch (Throwable $e) {
+		error_log('FreeSense Fleet access: ' . $e->getMessage());
+	}
 }
 http_response_code($status);
 echo json_encode($reply, JSON_UNESCAPED_SLASHES);

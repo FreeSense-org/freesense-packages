@@ -112,7 +112,7 @@ $pending = array_filter($overview, 'fleet_conn_pending');
 $answers = array_intersect_key($_GET, array_flip(array('public', 'private', 'thirdparty', 'udp')));
 $advice = (count($answers) === 4) ? fleet_conn_advise($answers) : null;
 $method_text = function (string $m, string $iface = '') {
-	return gettext(FLEET_CONN_METHODS[$m][0] ?? $m) . ((($m === 'direct') && ($iface !== '')) ? ' ' . sprintf(gettext('on %s'), $iface) : '');
+	return gettext(FLEET_CONN_METHODS[$m][0] ?? $m) . (((($m === 'direct') || ($m === 'both')) && ($iface !== '')) ? ' ' . sprintf(gettext('(direct on %s)'), $iface) : '');
 };
 $from_text = function (string $from) {
 	if ($from === 'firewall') {
@@ -189,11 +189,14 @@ $fallbacks = count(array_filter($overview, function ($r) { return ($r['state'] !
 				<?=($conflict !== null) ? '<div class="fs-fleet-problem small">' . htmlspecialchars(sprintf(gettext('Groups disagree (%s): set it on the firewall.'), implode(', ', $conflict))) . '</div>' : ''?></td>
 			<td><?php if ($st === null): ?>
 				<?=fs_badge('neutral', gettext('Fleet tunnel'))?>
-<?php elseif (!empty($st['ok'])): ?>
-				<?=fs_badge('pass', ucfirst($st['method']))?> <span class="fs-mono small"><?=htmlspecialchars($st['address'])?></span>
-				<div class="fs-muted small"><?=htmlspecialchars(sprintf(gettext('Answers; checked %s. Tunnel is the fallback.'), date('H:i', (int)$st['checked'])))?></div>
+<?php else: $sp_any = false; foreach (fleet_conn_paths($st) as $sp): $sp_any = $sp_any || !empty($sp['ok']); ?>
+<?php if (!empty($sp['ok'])): ?>
+				<div><?=fs_badge('pass', ucfirst($sp['method']))?> <span class="fs-mono small"><?=htmlspecialchars($sp['address'])?></span> <span class="fs-muted small"><?=htmlspecialchars(sprintf(gettext('answers, checked %s'), date('H:i', (int)$sp['checked'])))?></span></div>
 <?php else: ?>
-				<?=fs_badge('warn', gettext('Tunnel (fallback)'))?> <span class="small"><?=htmlspecialchars(sprintf(gettext('The %1$s path on %2$s does not answer: %3$s'), $st['method'], $st['address'], $st['error']))?></span>
+				<div><?=fs_badge('warn', ucfirst($sp['method']))?> <span class="small"><?=htmlspecialchars(sprintf(gettext('%1$s does not answer: %2$s'), $sp['address'], $sp['error']))?></span></div>
+<?php endif; ?>
+<?php endforeach; ?>
+				<div class="fs-muted small"><?=$sp_any ? gettext('In this order; the Fleet tunnel is the fallback.') : gettext('Uses the Fleet tunnel until a path answers again.')?></div>
 <?php endif; ?>
 <?php foreach ((isset($ts[$node]) ? $ts[$node]['problems'] : array()) as list($pcode, $psev, $ptext)): ?>
 				<div class="small <?=($psev === 'error') ? 'fs-fleet-problem' : 'fs-muted'?>"><?=htmlspecialchars(ltrim($pcode . ': ' . $ptext, ': '))?>
