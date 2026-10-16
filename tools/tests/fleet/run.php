@@ -1301,4 +1301,6 @@ check((fleet_ha_synced_from($hp[0], 'b', 'rules', $hst) === 'a') && (fleet_ha_sy
     (fleet_ha_synced_from($hp[0], 'a', 'rules', $hst) === null) && (fleet_ha_synced_from($hp[0], 'b', 'dns', $hst) === null),
     'HA config sync: the secondary gets synced kinds from its primary, not from Fleet');
 
+check((fleet_uptime_text(34369) === '9 h 32 min') && (fleet_uptime_text(3 * 86400 + 7200) === '3 days 2 h') && (fleet_uptime_text(86400) === '1 day') && (fleet_uptime_text(59) === '0 min'),
+    'uptime in days, hours and minutes');
 echo "Fleet controller tests: OK\n";

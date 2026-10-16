@@ -277,6 +277,8 @@ function fleet_firewalls_filter(array $boxes, array $f): array {
 			return $b['policy'] > 0;
 		case 'update':
 			return ($b['update'][0] ?? '') === 'info';
+		case 'waiting':
+			return false;
 		}
 		return true;
 	}));
@@ -296,6 +298,52 @@ function fleet_firewalls_versions(array $boxes): array {
 	$v = array_values(array_unique(array_filter(array_column($boxes, 'version'))));
 	usort($v, function ($a, $b) { return version_compare($b, $a); });
 	return array_combine($v, $v) ?: array();
+}
+
+/*
+ * Firewalls that are on their way in: joined and waiting for approval,
+ * open invitations, and Deployment Factory rows not joined yet. Newest
+ * first; $q narrows by label.
+ */
+function fleet_waiting_list(?string $q = null): array {
+	$out = array();
+	$now = time();
+	foreach (fleet_db()->query("SELECT e.id, e.code, e.created, e.source_ip, i.label FROM enrollments e JOIN invitations i ON i.token_id = e.token_id
+	    WHERE e.state = 'pending' ORDER BY e.created DESC")->fetchAll() as $e) {
+		$out[] = array('kind' => 'approval', 'label' => (string)$e['label'], 'time' => (int)$e['created'],
+		    'detail' => sprintf(gettext('Joined from %1$s; code %2$s'), $e['source_ip'] ?: '-', $e['code']), 'url' => '/fleet/fleet.php?view=invite');
+	}
+	$q1 = fleet_db()->prepare("SELECT i.token_id, i.label, i.created, i.expires, i.via, i.batch_id, b.name AS batch FROM invitations i LEFT JOIN batches b ON b.id = i.batch_id
+	    WHERE i.state = 'open' AND i.expires > ? AND NOT EXISTS (SELECT 1 FROM enrollments e WHERE e.token_id = i.token_id AND e.state = 'pending')
+	    ORDER BY i.created DESC");
+	$q1->execute(array($now));
+	foreach ($q1->fetchAll() as $i) {
+		$factory = ($i['batch_id'] !== null);
+		$out[] = array('kind' => $factory ? 'factory' : 'invite', 'label' => (string)$i['label'], 'time' => (int)$i['created'],
+		    'detail' => trim(($factory ? sprintf(gettext('Deployment Factory: %s.'), $i['batch']) : gettext('Invitation not used yet.')) . ' ' .
+		    sprintf(gettext('Valid until %s'), date('Y-m-d H:i', (int)$i['expires'])) . (($i['via'] === 'tailscale') ? ', ' . gettext('over Tailscale') : '')),
+		    'url' => $factory ? '/fleet/fleet_factory.php?view=batch&id=' . (int)$i['batch_id'] : '/fleet/fleet.php?view=invite');
+	}
+	if (($q !== null) && ($q !== '')) {
+		$out = array_values(array_filter($out, function ($w) use ($q) { return stripos($w['label'], $q) !== false; }));
+	}
+	return $out;
+}
+
+/* The controller itself, for the firewall list (read-only there). */
+function fleet_controller_row(): array {
+	$boot = fleet_boottime_seconds();
+	return array(
+		'label' => (string)config_get_path('system/hostname') . '.' . (string)config_get_path('system/domain'),
+		'version' => trim((string)@file_get_contents('/etc/version')),
+		'uptime' => ($boot > 0) ? time() - $boot : null,
+		'addresses' => fleet_ctl_settings()['public_host'] ?? '',
+	);
+}
+
+/* Seconds since the epoch this system booted, or 0. */
+function fleet_boottime_seconds(): int {
+	return preg_match('/sec = (\d+)/', (string)@shell_exec('/sbin/sysctl -n kern.boottime'), $m) ? (int)$m[1] : 0;
 }
 
 /* The views of the Firewalls tab, as the WebUI's segmented control. */

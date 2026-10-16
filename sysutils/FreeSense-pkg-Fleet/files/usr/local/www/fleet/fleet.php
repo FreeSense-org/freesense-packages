@@ -229,12 +229,17 @@ if ($savemsg) {
 	}
 	$fversions = fleet_firewalls_versions($all);
 	$f = fleet_list_filters($_GET, array('q' => null, 'state' => FLEET_FW_STATES, 'group' => $fgroups, 'version' => $fversions,
-	    'problem' => array('attention' => 1, 'unprotected' => 1, 'policy' => 1, 'update' => 1), 'sort' => FLEET_FW_SORTS));
+	    'problem' => array('attention' => 1, 'unprotected' => 1, 'policy' => 1, 'update' => 1, 'waiting' => 1), 'sort' => FLEET_FW_SORTS));
 	$fbase = array();
 	$shown = fleet_firewalls_filter($all, $f);
 	$fpg = fleet_list_page(count($shown), (int)($_GET['page'] ?? 1));
 	$rows = array_slice($shown, $fpg['offset'], $fpg['per']);
+	/* On their way in, and the controller itself: shown above the firewalls when no other filter narrows the list. */
+	$plain = !isset($f['state']) && !isset($f['group']) && !isset($f['version']) && in_array($f['problem'] ?? '', array('', 'waiting'), true);
+	$waiting = fleet_waiting_list($f['q'] ?? null);
+	$ctl_row = ($plain && !isset($f['problem']) && ($fpg['page'] ?? 1) == 1 && (!isset($f['q']) || (stripos(fleet_controller_row()['label'], $f['q']) !== false))) ? fleet_controller_row() : null;
 	$quick = array('' => array(gettext('All'), count($all)),
+	    'waiting' => array(gettext('Waiting to join'), count(fleet_waiting_list())),
 	    'attention' => array(gettext('Need attention'), count(fleet_firewalls_filter($all, array('problem' => 'attention')))),
 	    'update' => array(gettext('Update available'), count(fleet_firewalls_filter($all, array('problem' => 'update')))),
 	    'policy' => array(gettext('Policy problems'), count(fleet_firewalls_filter($all, array('problem' => 'policy')))),
@@ -274,9 +279,27 @@ if ($savemsg) {
 	<div class="panel-body table-responsive"><table class="table fs-table">
 		<thead><tr><th><?=gettext('Firewall')?></th><th><?=gettext('State')?></th><th><?=gettext('Version')?></th><th><?=gettext('Groups')?></th><th><?=gettext('Last seen')?></th><th><?=gettext('Last backup')?></th><th class="text-end"><?=gettext('Notes')?></th></tr></thead>
 		<tbody>
-<?php if (empty($rows)): ?>
-		<tr><td colspan="7" class="fs-muted"><?=empty($all) ? gettext('No firewalls yet. Add one, or many at once with the Deployment Factory.') : gettext('No firewall matches these filters.')?></td></tr>
+<?php if (empty($rows) && ((($f['problem'] ?? '') !== 'waiting') || empty($waiting)) && ($ctl_row === null || !empty($f['q']))): ?>
+		<tr><td colspan="7" class="fs-muted"><?=(($f['problem'] ?? '') === 'waiting') ? gettext('Nothing is waiting to join.') : (empty($all) ? gettext('No firewalls yet. Add one, or many at once with the Deployment Factory.') : gettext('No firewall matches these filters.'))?></td></tr>
 <?php endif; ?>
+<?php if ($ctl_row !== null): $up = $ctl_row['uptime']; ?>
+		<tr class="fs-fleet-row-controller"><td><a href="?tab=settings"><strong><?=htmlspecialchars($ctl_row['label'])?></strong></a> <?=fs_badge('info', gettext('Fleet server'))?>
+				<div class="fs-muted small"><?=gettext('This controller. It runs Fleet and is not managed by it.')?></div></td>
+			<td><?=fs_badge('pass', gettext('Online'))?><?=($up !== null) ? '<div class="fs-muted small">' . htmlspecialchars(sprintf(gettext('Up %s'), fleet_uptime_text($up))) . '</div>' : ''?></td>
+			<td class="small"><?=htmlspecialchars($ctl_row['version'])?></td>
+			<td><span class="fs-muted">-</span></td>
+			<td class="small"><?=gettext('now')?></td>
+			<td class="small"><a href="/fleet/fleet_backups.php"><?=gettext('Self-backup')?></a></td>
+			<td class="text-end small"><span class="fs-muted"><?=gettext('Read only')?></span></td></tr>
+<?php endif; ?>
+<?php if ($plain && (($fpg['page'] ?? 1) == 1)): foreach ($waiting as $w): ?>
+		<tr class="fs-fleet-row-waiting"><td><a href="<?=htmlspecialchars($w['url'])?>"><strong><?=htmlspecialchars($w['label'])?></strong></a>
+				<div class="fs-muted small"><?=htmlspecialchars($w['detail'])?></div></td>
+			<td><?=($w['kind'] === 'approval') ? fs_badge('warn', gettext('Waiting for approval')) : fs_badge('neutral', ($w['kind'] === 'factory') ? gettext('Waiting to be deployed') : gettext('Invited'))?></td>
+			<td class="small fs-muted">-</td><td><span class="fs-muted">-</span></td>
+			<td class="small"><?=htmlspecialchars(sprintf(($w['kind'] === 'approval') ? gettext('joined %s') : gettext('invited %s'), $ago($w['time'])))?></td><td class="small fs-muted">-</td>
+			<td class="text-end small"><a href="<?=htmlspecialchars($w['url'])?>"><?=($w['kind'] === 'approval') ? gettext('Approve...') : gettext('Open')?></a></td></tr>
+<?php endforeach; endif; ?>
 <?php foreach ($rows as $b): list($bs, $bl) = $sbadge[$b['state']]; ?>
 		<tr><td><a href="/fleet/fleet_box.php?id=<?=urlencode($b['id'])?>"><strong><?=htmlspecialchars($b['label'])?></strong></a>
 				<div class="fs-muted small fs-mono"><?=htmlspecialchars($b['host'] . ' ' . $b['overlay'])?></div></td>

@@ -880,3 +880,8 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 .fs-fleet-ha-list > li { display: flex; flex-wrap: wrap; gap: var(--fs-sp-2) var(--fs-sp-3); align-items: center; padding: var(--fs-sp-2) var(--fs-sp-3); border: 1px solid var(--fs-border); border-radius: var(--fs-r-md); }
 .fs-fleet-ha-list > li.is-problem { border-left: 3px solid var(--fs-danger, #d9534f); }
 .fs-fleet-ha-members { display: inline-flex; flex-wrap: wrap; gap: var(--fs-sp-1) var(--fs-sp-2); align-items: center; }
+
+/* The firewall list: the controller itself and firewalls on their way in. */
+.fs-table tr.fs-fleet-row-controller > td { background: color-mix(in srgb, var(--fs-info) 7%, transparent); }
+.fs-table tr.fs-fleet-row-controller > td:first-child { box-shadow: inset 3px 0 0 var(--fs-info); }
+.fs-table tr.fs-fleet-row-waiting > td:first-child { box-shadow: inset 3px 0 0 var(--fs-border); }
