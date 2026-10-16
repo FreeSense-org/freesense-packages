@@ -63,6 +63,7 @@ require_once('fleet/fleet_ha.inc');
 require_once('fleet/fleet_ha_setup.inc');
 require_once('fleet/fleet_standby.inc');
 require_once('fleet/fleet_access.inc');
+require_once('fleet/fleet_widget.inc');
 require_once('fleet/fleet_stats.inc');
 
 define('FLEET_CTL_IF', 'wgfctl0');

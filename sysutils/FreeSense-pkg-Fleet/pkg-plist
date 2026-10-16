@@ -10,6 +10,7 @@ pkg/fleet/fleet_ha.inc
 pkg/fleet/fleet_ha_setup.inc
 pkg/fleet/fleet_standby.inc
 pkg/fleet/fleet_access.inc
+pkg/fleet/fleet_widget.inc
 pkg/fleet/fleet_stats.inc
 pkg/fleet/fleet_list.inc
 pkg/fleet/fleet_manage.inc
@@ -71,3 +72,5 @@ www/fleet/fleet_schedules.php
 www/fleet/fleet_updates.php
 www/fleet/fleet_dashboard.php
 www/fleet/fleet_data.php
+www/widgets/include/fleet.inc
+www/widgets/widgets/fleet.widget.php
