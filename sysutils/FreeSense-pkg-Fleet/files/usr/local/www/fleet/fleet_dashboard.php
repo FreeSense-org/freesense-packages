@@ -88,6 +88,7 @@ if ($manage) {
 		array(gettext('Settings'), false, '/fleet/fleet.php?tab=settings'),
 	);
 	display_top_tabs($tab_array);
+	echo fleet_dashboard_nav('overview');
 }
 ?>
 <?php if (!$ready): ?>

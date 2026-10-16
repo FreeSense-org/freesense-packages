@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 19);
+define('FLEET_DB_SCHEMA', 20);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -385,6 +385,15 @@ CREATE TABLE IF NOT EXISTS alerts (
 CREATE INDEX IF NOT EXISTS alerts_open ON alerts (done, tries);
 CREATE INDEX IF NOT EXISTS alerts_merge ON alerts (event, node_id, time);
 PRAGMA user_version = 19;
+SQL);
+	}
+	if ($version < 20) {
+		/* NOC screens: kiosk keys (hash only), their networks, hiding names. */
+		$db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS kiosk_keys (
+	id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, hash TEXT NOT NULL UNIQUE, networks TEXT NOT NULL, hide INTEGER NOT NULL DEFAULT 0,
+	created INTEGER NOT NULL, who TEXT NOT NULL, last_used INTEGER, last_ip TEXT, revoked INTEGER);
+PRAGMA user_version = 20;
 SQL);
 	}
 	$db->exec('COMMIT');
