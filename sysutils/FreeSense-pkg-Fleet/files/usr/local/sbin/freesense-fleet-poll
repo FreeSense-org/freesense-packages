@@ -71,6 +71,16 @@ do {
 		fleet_rollouts_tick(time());
 		fleet_conn_auto_tick();
 		fleet_ha_tick();
+		/* A standby controller: its copy, the firewalls' endpoints, and whether this controller was replaced. */
+		fleet_standby_fence_tick(time());
+		if (fleet_ctl_settings()['enable']) {
+			fleet_standby_endpoints_tick();
+			fleet_standby_outbox_tick(time());
+			fleet_standby_watch_tick(time());
+		}
+		if (!fleet_ctl_settings()['enable']) {
+			break;
+		}
 		fleet_stats_prune(time());
 		fleet_schedules_tick(time());
 		fleet_alerts_deliver();
