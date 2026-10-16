@@ -46,8 +46,10 @@ if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 			header('Location: /fleet/fleet_templates.php?view=preview&saved=1&id=' . (int)$id);
 			exit;
 		} elseif (isset($_POST['template_delete'])) {
+			$gone = fleet_template_get((int)$_POST['template_delete']);
 			fleet_template_delete((int)$_POST['template_delete'], $who);
-			$savemsg = gettext('Template deleted. The aliases it pushed stay on the firewalls; Fleet no longer manages them.');
+			$savemsg = ((($gone['kind'] ?? 'aliases') === 'aliases')) ? gettext('Template deleted. The aliases it pushed stay on the firewalls; Fleet no longer manages them.') :
+			    gettext('Template deleted. The firewalls keep their settings; Fleet no longer manages them.');
 		} elseif (isset($_POST['template_adopt']) || isset($_POST['template_ignore']) || isset($_POST['template_unignore'])) {
 			$tid = (int)($_POST['template_adopt'] ?? $_POST['template_ignore'] ?? $_POST['template_unignore']);
 			$t = fleet_template_get($tid);
