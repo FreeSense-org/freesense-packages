@@ -1,0 +1,111 @@
+/*
+ * fleet-kiosk.css: the NOC screen. Dark, high contrast, readable from
+ * across a room. Healthy firewalls stay quiet; a problem is the one
+ * thing that stands out. State is never shown by colour alone.
+ */
+:root {
+	--k-bg: #0e1622;
+	--k-panel: #16202e;
+	--k-line: #263347;
+	--k-text: #eef3f9;
+	--k-muted: #93a3b8;
+	--k-ok: #46c08a;
+	--k-warn: #f2b33d;
+	--k-bad: #ff5d5d;
+	--k-info: #6aa8ff;
+	--k-brand: #f05a28;
+	--k-tile-h: 7.2rem;
+	color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+	margin: 0; display: flex; flex-direction: column; background: var(--k-bg); color: var(--k-text);
+	font: 16px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-variant-numeric: tabular-nums; overflow: hidden;
+}
+button { font: inherit; color: var(--k-muted); background: none; border: 1px solid var(--k-line); border-radius: 6px; padding: .3rem .7rem; cursor: pointer; }
+button:hover { color: var(--k-text); }
+button:focus-visible { outline: 2px solid var(--k-info); outline-offset: 2px; }
+button[aria-pressed="true"] { color: var(--k-text); border-color: var(--k-info); }
+
+.k-top {
+	display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 2rem;
+	padding: 1rem 1.75rem; border-bottom: 1px solid var(--k-line);
+}
+.k-brand { display: flex; align-items: center; gap: .6rem; color: var(--k-muted); font-weight: 600; }
+.k-mark { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 6px; background: var(--k-brand); color: #fff; font-weight: 800; font-size: .85rem; }
+.k-headline { margin: 0; font-size: clamp(1.4rem, 2.4vw, 2.4rem); font-weight: 700; letter-spacing: -.01em; }
+.k-headline.k-bad { color: var(--k-bad); }
+.k-headline.k-warn { color: var(--k-warn); }
+.k-counts { display: flex; gap: 1.5rem; margin: 0; padding: 0; list-style: none; }
+.k-counts li { display: flex; flex-direction: column; align-items: flex-end; }
+.k-counts b { font-size: 2rem; line-height: 1; }
+.k-counts span { color: var(--k-muted); font-size: .85rem; }
+.k-counts .k-zero b { color: var(--k-muted); }
+.k-counts .k-c-offline:not(.k-zero) b { color: var(--k-bad); }
+.k-counts .k-c-degraded:not(.k-zero) b { color: var(--k-warn); }
+.k-side { display: flex; flex-direction: column; align-items: flex-end; gap: .25rem; }
+.k-clock { font-size: 1.6rem; font-weight: 600; }
+.k-fresh { color: var(--k-muted); font-size: .85rem; }
+.k-fresh.k-stale { color: var(--k-bad); font-weight: 600; }
+.k-tools { display: flex; gap: .5rem; margin-top: .25rem; }
+:fullscreen .k-tools { opacity: 0; transition: opacity .3s; }
+:fullscreen .k-tools:hover, :fullscreen .k-tools:focus-within { opacity: 1; }
+
+.k-ops[hidden] { display: none; }
+.k-ops { display: flex; flex-wrap: wrap; gap: .5rem 2rem; padding: .6rem 1.75rem; background: var(--k-panel); border-bottom: 1px solid var(--k-line); }
+.k-op { display: flex; align-items: center; gap: .75rem; min-width: 18rem; }
+.k-op-bar { flex: 0 0 9rem; height: .45rem; border-radius: 4px; background: var(--k-line); overflow: hidden; }
+.k-op-bar span { display: block; height: 100%; background: var(--k-info); }
+
+.k-grid {
+	flex: 1; display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); grid-auto-rows: var(--k-tile-h);
+	align-content: start; gap: .75rem; padding: 1.25rem 1.75rem; overflow: hidden;
+}
+.k-tile {
+	position: relative; display: flex; flex-direction: column; gap: .15rem; padding: .7rem .9rem .7rem 1.1rem; overflow: hidden;
+	background: var(--k-panel); border: 1px solid var(--k-line); border-radius: 8px;
+}
+.k-tile::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--k-ok); opacity: .55; }
+.k-name { font-weight: 650; font-size: 1.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.k-host, .k-meta { color: var(--k-muted); font-size: .85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.k-state { display: inline-flex; align-items: center; gap: .4rem; font-weight: 600; font-size: .9rem; }
+.k-state svg { width: 1em; height: 1em; flex: none; }
+.k-tile.k-online .k-state { color: var(--k-ok); }
+.k-tile.k-online { opacity: .78; }
+.k-tile.k-new .k-state { color: var(--k-muted); }
+.k-tile.k-degraded { border-color: var(--k-warn); }
+.k-tile.k-degraded::before { background: var(--k-warn); opacity: 1; }
+.k-tile.k-degraded .k-state { color: var(--k-warn); }
+.k-tile.k-offline { border-color: var(--k-bad); background: #2a1519; }
+.k-tile.k-offline::before { background: var(--k-bad); opacity: 1; width: 6px; }
+.k-tile.k-offline .k-state { color: var(--k-bad); }
+.k-tile.k-offline .k-name { font-size: 1.25rem; }
+.k-problem { color: var(--k-text); font-size: .85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.k-row { display: flex; align-items: center; gap: .5rem; }
+.k-flags { display: flex; gap: .35rem; margin-left: auto; }
+.k-flag { font-size: .72rem; padding: .05rem .4rem; border-radius: 4px; border: 1px solid var(--k-line); color: var(--k-muted); }
+.k-flag.k-f-bad { border-color: var(--k-bad); color: var(--k-bad); }
+.k-tile .k-op-bar { margin-top: auto; flex: none; width: 100%; }
+
+@media (prefers-reduced-motion: no-preference) {
+	.k-tile.k-offline { animation: k-pulse 2s ease-in-out infinite; }
+	@keyframes k-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 93, 93, 0); } 50% { box-shadow: 0 0 0 4px rgba(255, 93, 93, .35); } }
+	.k-grid.k-turn { animation: k-in .4s ease-out; }
+	@keyframes k-in { from { opacity: .3; } to { opacity: 1; } }
+}
+
+.k-foot { display: flex; justify-content: flex-end; padding: 0 1.75rem .7rem; color: var(--k-muted); font-size: .85rem; min-height: 1.6rem; }
+.k-empty { grid-column: 1 / -1; color: var(--k-muted); font-size: 1.2rem; padding: 2rem 0; }
+
+.k-blocked { position: fixed; inset: 0; display: grid; place-content: center; gap: .5rem; padding: 2rem; text-align: center; background: var(--k-bg); }
+.k-blocked[hidden] { display: none; }
+.k-blocked h1 { margin: 0 0 .5rem; font-size: 2rem; }
+.k-blocked p { margin: 0 auto; max-width: 38rem; color: var(--k-muted); }
+
+@media (max-width: 900px) {
+	body { overflow: auto; }
+	.k-top { grid-template-columns: 1fr; gap: .75rem; padding: 1rem; }
+	.k-side { align-items: flex-start; }
+	.k-grid { padding: 1rem; overflow: visible; }
+}
