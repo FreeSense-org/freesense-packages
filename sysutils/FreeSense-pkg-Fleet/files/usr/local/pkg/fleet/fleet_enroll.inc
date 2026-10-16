@@ -227,6 +227,13 @@ function fleet_enroll_complete(array $body, string $bearer, int $now, array $ctx
 		    ->execute(array($node_id, $box['name'], $box['label'], $host, $box['overlay'], $box['wg_pub'], fleet_seal($api_key, fleet_master_key()),
 		    $cert, $box['role'], $now));
 		$db->prepare("UPDATE invitations SET state = 'used', okm = '' WHERE token_id = ?")->execute(array($inv['token_id']));
+		/* The invitation's naming group: the firewall joins it and takes its name. */
+		if ((int)($inv['group_id'] ?? 0) > 0) {
+			$db->prepare('INSERT OR IGNORE INTO box_groups (node_id, group_id) VALUES (?, ?)')->execute(array($node_id, (int)$inv['group_id']));
+		}
+		if ((string)($inv['hostname'] ?? '') !== '') {
+			$db->prepare('UPDATE boxes SET name = ? WHERE node_id = ?')->execute(array($inv['hostname'] . ((($inv['domain'] ?? '') !== '') ? '.' . $inv['domain'] : ''), $node_id));
+		}
 		$db->prepare("UPDATE enrollments SET state = 'joined' WHERE id = ?")->execute(array($e['id']));
 		$db->exec('COMMIT');
 	} catch (Throwable $t) {
@@ -236,7 +243,7 @@ function fleet_enroll_complete(array $body, string $bearer, int $now, array $ctx
 	fleet_audit('enrollment', 'joined', "{$node_id} ({$box['label']}) at {$box['overlay']}");
 	$ctx['on_joined']($box);
 	return array(200, array('node_id' => $node_id, 'signing_key' => fleet_signing_public(), 'method' => 'wireguard',
-	    'overlay_address' => $box['overlay'], 'role' => $box['role'], 'hostname' => '',
+	    'overlay_address' => $box['overlay'], 'role' => $box['role'], 'hostname' => (string)($inv['hostname'] ?? ''), 'domain' => (string)($inv['domain'] ?? ''),
 	    'peers' => array(array('public_key' => base64_encode($ctx['controller_wg_pub']), 'endpoint' => $ctx['endpoint'],
 	    'allowed_ips' => array(fleet_overlay_host($prefix, 1) . '/128')))));
 }

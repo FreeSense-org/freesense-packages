@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 15);
+define('FLEET_DB_SCHEMA', 16);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -338,6 +338,18 @@ CREATE TABLE IF NOT EXISTS ugroups (
 	targets TEXT NOT NULL, created INTEGER NOT NULL, updated INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS ugroup_members (user_id INTEGER NOT NULL, group_id INTEGER NOT NULL, PRIMARY KEY (user_id, group_id));
 PRAGMA user_version = 15;
+SQL);
+	}
+	if ($version < 16) {
+		/* Naming per group: pattern and domain on the group, never-reused counters, the name an invitation holds. */
+		$db->exec(<<<'SQL'
+ALTER TABLE fleet_groups ADD COLUMN naming_pattern TEXT NOT NULL DEFAULT '';
+ALTER TABLE fleet_groups ADD COLUMN naming_domain TEXT NOT NULL DEFAULT '';
+ALTER TABLE invitations ADD COLUMN group_id INTEGER;
+ALTER TABLE invitations ADD COLUMN hostname TEXT NOT NULL DEFAULT '';
+ALTER TABLE invitations ADD COLUMN domain TEXT NOT NULL DEFAULT '';
+CREATE TABLE IF NOT EXISTS name_counters (scope TEXT PRIMARY KEY, next INTEGER NOT NULL);
+PRAGMA user_version = 16;
 SQL);
 	}
 	$db->exec('COMMIT');
