@@ -348,3 +348,40 @@ function fleet_trends(string $range, int $group, int $now): array {
 	$out['compliance'] = $cc;
 	return $out;
 }
+
+/*
+ * One firewall's stats kept on the controller, for its Stats view over a
+ * range (1h, 24h, 7d, 30d): availability for 24 hours, 7 and 30 days, its
+ * last 30 days by day, outages, load samples (states, temperature),
+ * alerts and backups.
+ */
+function fleet_trends_box(string $node, string $range, int $now): array {
+	$span = array('1h' => 3600, '24h' => 86400, '7d' => 604800, '30d' => 2592000)[$range] ?? 86400;
+	$out = array('range' => $range);
+	foreach (FLEET_STATS_RANGES as $rk => $sec) {
+		$out['avail'][$rk] = fleet_stats($rk, array($node), 2)['percent'];
+	}
+	$dto = strtotime(date('Y-m-d', $now) . ' 00:00:00') + 86400;
+	list($before, $log) = fleet_trends_logs(array(array('node_id' => $node)), $dto - 30 * 86400, $dto)[$node];
+	$out['days'] = fleet_trends_days($now, 30);
+	$out['day_cells'] = fleet_trends_cells($before, $log, $dto - 30 * 86400, 86400, 30);
+	$out['outages'] = array_reverse(array_map(function ($o) { return array('from' => $o[0], 'to' => $o[1]); },
+	    fleet_stats_box($before, $log, $dto - 30 * 86400, min($dto, $now))['outages']));
+	$n = ($range === '1h') ? 12 : 96;
+	$size = max(300, intdiv($span, $n));
+	$from = $now - $n * $size;
+	$b = fleet_trends_buckets(fleet_samples_rows(array($node), $from, $now), $from, $size, $n)[$node] ?? array();
+	$out['t'] = array_map(function ($i) use ($from, $size) { return $from + $i * $size; }, range(0, $n - 1));
+	$out['states'] = $b['states'] ?? array_fill(0, $n, null);
+	$out['states_max'] = max(array_merge(array(0), array_filter($b['states_max'] ?? array())));
+	$out['temp'] = $b['temp'] ?? array_fill(0, $n, null);
+	$q = fleet_db()->prepare('SELECT time, event, severity, repeats FROM alerts WHERE node_id = ? AND time >= ? ORDER BY time DESC');
+	$q->execute(array($node, $now - 30 * 86400));
+	$alerts = $q->fetchAll(PDO::FETCH_ASSOC);
+	$out['alerts_day'] = fleet_trends_per_day(array_map(function ($r) { return array($r['time'], $r['severity']); }, $alerts), $out['days'], array('critical', 'warning', 'info'));
+	$out['alerts'] = array_slice($alerts, 0, 8);
+	$q = fleet_db()->prepare('SELECT time FROM backups WHERE node_id = ? AND time >= ?');
+	$q->execute(array($node, $now - 30 * 86400));
+	$out['backups_day'] = fleet_trends_per_day(array_map(function ($r) { return array($r['time'], 'ok'); }, $q->fetchAll()), $out['days'], array('ok'))['ok'];
+	return $out;
+}
