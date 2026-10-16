@@ -28,6 +28,13 @@
 require_once('guiconfig.inc');
 require_once('fleet.inc');
 
+/* ?panel=1: the summary under the item, as HTML. */
+if (!empty($_GET['panel'])) {
+	header('Content-Type: text/html; charset=utf-8');
+	header('Cache-Control: no-store');
+	echo (fleet_ctl_settings()['enable'] && is_file(FLEET_DATA . '/fleet.db')) ? fleet_nav_panel_html(time()) : '';
+	exit;
+}
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 $item = fleet_plugin_navbar(array());
