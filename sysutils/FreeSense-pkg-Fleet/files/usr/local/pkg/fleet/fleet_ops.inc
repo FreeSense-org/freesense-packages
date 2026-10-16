@@ -319,30 +319,88 @@ function fleet_ops_follow(array $box, ?array $status, int $now): void {
 
 
 /*
- * pure: the top-bar item from what runs and what failed lately. Out of
- * sight when the fleet is quiet; a spinner and a count while actions run;
- * a red count for a while after one failed.
+ * pure: the top-bar item: always there while Fleet runs, its icon showing
+ * the state at a glance. Worst first: actions that failed lately (red
+ * count), firewalls offline (red), degraded (yellow), actions running
+ * (spinner and count), else a green icon. Opens a short summary panel.
  */
-function fleet_nav_item(int $running, int $failed): array {
-	$item = array('id' => 'activity', 'icon' => 'fa-server', 'href' => '/fleet/fleet_activity.php', 'poll' => '/fleet/fleet_nav.php',
-	    'busy' => $running > 0, 'hidden' => ($running === 0) && ($failed === 0));
-	if ($running > 0) {
-		return $item + array('badge' => $running, 'kind' => 'info',
-		    'label' => ($running === 1) ? 'FreeSense Fleet: 1 action running' : "FreeSense Fleet: {$running} actions running");
-	}
+function fleet_nav_item(int $running, int $failed, int $offline = 0, int $degraded = 0): array {
+	$item = array('id' => 'activity', 'icon' => 'fa-tower-broadcast', 'href' => '/fleet/fleet_dashboard.php', 'poll' => '/fleet/fleet_nav.php',
+	    'panel' => '/fleet/fleet_nav.php?panel=1', 'busy' => $running > 0, 'hidden' => false);
+	$n = function (int $c, string $one, string $many) { return ($c === 1) ? $one : sprintf($many, $c); };
 	if ($failed > 0) {
-		return $item + array('badge' => $failed, 'kind' => 'block',
-		    'label' => ($failed === 1) ? 'FreeSense Fleet: 1 action failed' : "FreeSense Fleet: {$failed} actions failed");
+		return $item + array('badge' => $failed, 'kind' => 'block', 'label' => 'FreeSense Fleet: ' . $n($failed, '1 action failed', '%d actions failed'));
 	}
-	return $item + array('badge' => 0, 'kind' => 'info', 'label' => 'FreeSense Fleet activity');
+	if ($offline > 0) {
+		return $item + array('badge' => $offline, 'kind' => 'block', 'label' => 'FreeSense Fleet: ' . $n($offline, '1 firewall offline', '%d firewalls offline'));
+	}
+	if ($degraded > 0) {
+		return $item + array('badge' => $degraded, 'kind' => 'warn', 'label' => 'FreeSense Fleet: ' . $n($degraded, '1 firewall degraded', '%d firewalls degraded'));
+	}
+	if ($running > 0) {
+		return $item + array('badge' => $running, 'kind' => 'info', 'label' => 'FreeSense Fleet: ' . $n($running, '1 action running', '%d actions running'));
+	}
+	return $item + array('badge' => 0, 'kind' => 'pass', 'label' => 'FreeSense Fleet: all fine');
 }
 
-/* The item now: running operations (a group counts once) and recent failures. */
+/* The item now: running operations (a group counts once), recent failures and firewalls in trouble. */
 function fleet_nav_now(int $now): array {
 	$running = (int)fleet_db()->query("SELECT COUNT(*) FROM ops WHERE parent IS NULL AND state IN ('running', 'queued')")->fetchColumn();
 	$q = fleet_db()->prepare("SELECT COUNT(*) FROM ops WHERE parent IS NULL AND state = 'failed' AND finished >= ?");
 	$q->execute(array($now - 60 * fleet_opt('nav_failed')));
-	return fleet_nav_item($running, (int)$q->fetchColumn());
+	$st = array_column(fleet_db()->query('SELECT state, COUNT(*) AS n FROM boxes GROUP BY state')->fetchAll(), 'n', 'state');
+	return fleet_nav_item($running, (int)$q->fetchColumn(), (int)($st['offline'] ?? 0), (int)($st['degraded'] ?? 0));
+}
+
+/*
+ * The summary panel under the item: the state of the fleet, what runs,
+ * what failed in the last 24 hours, with links into Fleet. HTML.
+ */
+function fleet_nav_panel_html(int $now): string {
+	$h = function ($s) { return htmlspecialchars((string)$s); };
+	$st = array_column(fleet_db()->query('SELECT state, COUNT(*) AS n FROM boxes GROUP BY state')->fetchAll(), 'n', 'state');
+	$total = array_sum($st);
+	$bad = (int)($st['offline'] ?? 0) + (int)($st['degraded'] ?? 0);
+	$kinds = array('reboot' => 'Reboot', 'backup' => 'Back up', 'restore' => 'Restore', 'update' => 'Update', 'template' => 'Apply template to', 'users' => 'Sync users to');
+	$name = function ($op) use ($kinds) {
+		return ($op['node_id'] === '') ? (string)$op['title'] : (($kinds[$op['kind']] ?? ucfirst((string)$op['kind'])) . ' ' . ($op['label'] ?? $op['node_id']));
+	};
+	$ago = function (int $t) use ($now) {
+		$d = max(0, $now - $t);
+		return ($d < 60) ? gettext('just now') : (($d < 3600) ? sprintf(gettext('%d min ago'), intdiv($d, 60)) : sprintf(gettext('%d h ago'), intdiv($d, 3600)));
+	};
+	$running = fleet_db()->query("SELECT o.*, b.label FROM ops o LEFT JOIN boxes b ON b.node_id = o.node_id WHERE o.parent IS NULL AND o.state IN ('running', 'queued')
+	    ORDER BY o.started DESC LIMIT 5")->fetchAll();
+	$q = fleet_db()->prepare("SELECT o.*, b.label FROM ops o LEFT JOIN boxes b ON b.node_id = o.node_id WHERE o.parent IS NULL AND o.state = 'failed' AND o.finished >= ?
+	    ORDER BY o.finished DESC LIMIT 5");
+	$q->execute(array($now - 86400));
+	$failed = $q->fetchAll();
+
+	$out = '<div class="fs-navpanel-head"><span class="fs-navpanel-state fs-tone-' . (($st['offline'] ?? 0) ? 'block' : ($bad ? 'warn' : 'pass')) . '"><i class="fa-solid ' .
+	    ($bad ? 'fa-triangle-exclamation' : 'fa-circle-check') . '" aria-hidden="true"></i></span><div><strong>' . $h(gettext('FreeSense Fleet')) . '</strong><span>' .
+	    $h($bad ? sprintf(gettext('%1$d of %2$d need attention'), $bad, $total) : sprintf(gettext('All %d firewalls are fine'), $total)) . '</span></div></div>';
+	$out .= '<div class="fs-navpanel-counts">';
+	foreach (array('online' => array(gettext('Online'), 'pass'), 'degraded' => array(gettext('Degraded'), 'warn'), 'offline' => array(gettext('Offline'), 'block')) as $k => list($l, $tone)) {
+		$c = (int)($st[$k] ?? 0);
+		$out .= '<a href="/fleet/fleet_dashboard.php?view=firewalls" class="fs-tone-' . (($c > 0) ? $tone : 'neutral') . '"><strong>' . $c . '</strong><span>' . $h($l) . '</span></a>';
+	}
+	$out .= '</div>';
+	$section = function (string $icon, string $title, array $rows, string $empty, callable $line) use ($h) {
+		$s = '<div class="fs-navpanel-sec"><div class="fs-navpanel-sec-title"><i class="fa-solid ' . $icon . '" aria-hidden="true"></i>' . $h($title) . '</div>';
+		if (empty($rows)) {
+			return $s . '<p class="fs-navpanel-none">' . $h($empty) . '</p></div>';
+		}
+		return $s . '<ul>' . implode('', array_map($line, $rows)) . '</ul></div>';
+	};
+	$out .= $section('fa-spinner', gettext('Running'), $running, gettext('Nothing running.'), function ($op) use ($h, $name, $ago) {
+		return '<li><a href="/fleet/fleet_activity.php?op=' . (int)$op['id'] . '"><span>' . $h($name($op)) . '</span><time>' . $h($ago((int)$op['started'])) . '</time></a></li>';
+	});
+	$out .= $section('fa-circle-xmark', gettext('Failed, last 24 hours'), $failed, gettext('No failures.'), function ($op) use ($h, $name, $ago) {
+		return '<li class="is-failed"><a href="/fleet/fleet_activity.php?op=' . (int)$op['id'] . '"><span>' . $h($name($op)) . '<small>' . $h((string)$op['text']) . '</small></span><time>' .
+		    $h($ago((int)$op['finished'])) . '</time></a></li>';
+	});
+	return $out . '<div class="fs-navpanel-foot"><a href="/fleet/fleet_dashboard.php"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i>' . $h(gettext('Dashboard')) .
+	    '</a><a href="/fleet/fleet_activity.php"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>' . $h(gettext('Activity')) . '</a></div>';
 }
 
 /*

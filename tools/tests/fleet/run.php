@@ -463,8 +463,13 @@ fleet_op_set($pop, 'done', 'Back');
 check(fleet_ops_for_tiles(time())['node-pg']['progress'] === 100, 'a finished operation is at 100');
 
 /* ---- top-bar item ---- */
-check(fleet_nav_item(0, 0)['hidden'] === true && fleet_nav_item(2, 0)['busy'] === true && fleet_nav_item(2, 0)['badge'] === 2 && fleet_nav_item(2, 1)['kind'] === 'info' &&
-    fleet_nav_item(0, 1)['kind'] === 'block' && fleet_nav_item(0, 1)['label'] === 'FreeSense Fleet: 1 action failed' && !fleet_nav_item(0, 1)['hidden'], 'quiet: hidden; running: spinner and count; failed lately: red count');
+check((fleet_nav_item(0, 0)['hidden'] === false) && (fleet_nav_item(0, 0)['kind'] === 'pass') && (fleet_nav_item(0, 0)['badge'] === 0) &&
+    (fleet_nav_item(2, 0)['busy'] === true) && (fleet_nav_item(2, 0)['badge'] === 2) && (fleet_nav_item(2, 0)['kind'] === 'info') &&
+    (fleet_nav_item(2, 1)['kind'] === 'block') && (fleet_nav_item(0, 1)['label'] === 'FreeSense Fleet: 1 action failed') &&
+    (fleet_nav_item(0, 0, 3, 1)['kind'] === 'block') && (fleet_nav_item(0, 0, 3, 1)['badge'] === 3) && (fleet_nav_item(1, 0, 0, 2)['kind'] === 'warn') &&
+    (fleet_nav_item(0, 0)['panel'] === '/fleet/fleet_nav.php?panel=1'),
+    'top bar: always there, green when fine; failures, then offline, then degraded, then running decide the count; it opens a panel');
+check(strpos(fleet_nav_panel_html(time()), 'fs-navpanel-counts') !== false, 'the top-bar panel from the store');
 check(is_array(fleet_nav_now(time())), 'the top-bar item from the store');
 $nav = fleet_nav_item(3, 0);
 require_once($argv[1] . '/src/usr/local/www/includes/fs_menu.inc');
