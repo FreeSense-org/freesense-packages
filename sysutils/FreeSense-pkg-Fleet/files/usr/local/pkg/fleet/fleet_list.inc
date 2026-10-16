@@ -32,7 +32,7 @@ require_once('fleet/fleet_store.inc');
 
 /* What the Activity filters offer: value => label. */
 define('FLEET_OPS_STATES', array('running' => 'Running', 'done' => 'Done', 'failed' => 'Failed'));
-define('FLEET_OPS_KINDS', array('backup_all' => 'Group backups', 'reboot_group' => 'Group reboots', 'update_group' => 'Group updates', 'rollout' => 'Rollouts', 'update' => 'Updates', 'backup' => 'Backups', 'reboot' => 'Reboots', 'restore' => 'Restores'));
+define('FLEET_OPS_KINDS', array('backup_all' => 'Group backups', 'reboot_group' => 'Group reboots', 'update_group' => 'Group updates', 'rollout' => 'Rollouts', 'update' => 'Updates', 'backup' => 'Backups', 'reboot' => 'Reboots', 'restore' => 'Restores', 'template' => 'Templates'));
 define('FLEET_OPS_SINCE', array('1' => 'Last 24 hours', '7' => 'Last 7 days', '30' => 'Last 30 days'));
 
 /* A firewall's events by type: value => array(label, audit actions). */

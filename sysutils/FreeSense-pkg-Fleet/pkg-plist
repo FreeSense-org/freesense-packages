@@ -10,6 +10,7 @@ pkg/fleet/fleet_list.inc
 pkg/fleet/fleet_manage.inc
 pkg/fleet/fleet_ops.inc
 pkg/fleet/fleet_policy.inc
+pkg/fleet/fleet_templates.inc
 pkg/fleet/fleet_replicas.inc
 pkg/fleet/fleet_rollouts.inc
 pkg/fleet/fleet_schedules.inc
@@ -31,6 +32,8 @@ www/fleet/fleet_box.php
 www/fleet/fleet_group_action.php
 www/fleet/fleet_nav.php
 www/fleet/fleet_policies.php
+www/fleet/fleet_templates.php
+www/fleet/assets/fleet-template.js
 www/fleet/fleet_schedules.php
 www/fleet/fleet_updates.php
 www/fleet/fleet_dashboard.php

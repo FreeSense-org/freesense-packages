@@ -12,5 +12,5 @@ $priv_list['page-system-fleet-controller'] = [
 $priv_list['page-status-fleet-dashboard'] = [
 	'name' => 'WebCfg - Status: FreeSense Fleet',
 	'descr' => 'View the state of every firewall in the fleet (read only)',
-	'match' => ['fleet/fleet_dashboard.php*', 'fleet/fleet_activity.php*', 'fleet/fleet_updates.php*', 'fleet/fleet_schedules.php*', 'fleet/fleet_backups.php*', 'fleet/fleet_policies.php*', 'fleet/fleet_nav.php*', 'fleet/fleet_data.php*', 'fleet/fleet_box.php*', 'fleet/assets/*'],
+	'match' => ['fleet/fleet_dashboard.php*', 'fleet/fleet_activity.php*', 'fleet/fleet_updates.php*', 'fleet/fleet_schedules.php*', 'fleet/fleet_backups.php*', 'fleet/fleet_policies.php*', 'fleet/fleet_templates.php*', 'fleet/fleet_nav.php*', 'fleet/fleet_data.php*', 'fleet/fleet_box.php*', 'fleet/assets/*'],
 ];

@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 13);
+define('FLEET_DB_SCHEMA', 14);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -313,6 +313,18 @@ CREATE TABLE IF NOT EXISTS compliance (
 	node_id TEXT NOT NULL, rule_id TEXT NOT NULL, state TEXT NOT NULL, detail TEXT NOT NULL, policy_id INTEGER, conflict TEXT,
 	checked INTEGER NOT NULL, PRIMARY KEY (node_id, rule_id));
 PRAGMA user_version = 13;
+SQL);
+	}
+	if ($version < 14) {
+		/* Templates (configuration pushed to firewalls) and what each firewall last got. */
+		$db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS templates (
+	id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE COLLATE NOCASE, description TEXT NOT NULL DEFAULT '', targets TEXT NOT NULL,
+	items TEXT NOT NULL, created INTEGER NOT NULL, updated INTEGER NOT NULL, who TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS template_state (
+	template_id INTEGER NOT NULL, node_id TEXT NOT NULL, hash TEXT NOT NULL, applied INTEGER NOT NULL, result TEXT NOT NULL, detail TEXT NOT NULL,
+	PRIMARY KEY (template_id, node_id));
+PRAGMA user_version = 14;
 SQL);
 	}
 	$db->exec('COMMIT');
