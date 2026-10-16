@@ -1,5 +1,5 @@
 PORTNAME=	FreeSense-pkg-udpbroadcastrelay
-PORTREVISION=	3
+PORTREVISION=	4
 PORTVERSION=	1.2.8
 CATEGORIES=	net
 MASTER_SITES=	# empty
