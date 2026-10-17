@@ -94,7 +94,7 @@ fs_step_begin('tailscale', gettext('Optional. Firewalls in your tailnet can join
 <?php if (empty($setup_ts_problems)): ?>
 	<p><?=fs_badge('pass', gettext('Ready'))?> <?=sprintf(gettext('This firewall is in a tailnet at %s.'), '<span class="fs-mono">' . htmlspecialchars($setup_ts_addr) . '</span>')?></p>
 	<div class="form-check">
-		<input class="form-check-input" type="checkbox" id="ts_point" name="ts_point" value="1"/>
+		<input class="form-check-input" type="checkbox" id="ts_point" name="ts_point" value="1"<?=in_array('tailscale', array_column($rows, 'iface'), true) ? ' checked' : ''?>/>
 		<label class="form-check-label" for="ts_point"><?=gettext('Firewalls may also connect over Tailscale')?></label>
 	</div>
 <?php else: ?>
