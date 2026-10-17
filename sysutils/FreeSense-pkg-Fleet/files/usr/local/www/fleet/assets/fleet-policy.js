@@ -15,6 +15,9 @@
 	var segs = Array.prototype.slice.call(root.querySelectorAll('[data-show]'));
 	var empty = root.querySelector('[data-picker="empty"]');
 	var show = 'all';
+	/* The area shown; a search or filter looks through every area instead. */
+	var current = root.getAttribute('data-area-now');
+	var links = Array.prototype.slice.call(root.querySelectorAll('[data-area-link]'));
 
 	function counts() {
 		var on = 0;
@@ -49,11 +52,19 @@
 			c.hidden = !ok;
 			any = any || ok;
 		});
+		var searching = (q !== '') || (show !== 'all');
 		Array.prototype.forEach.call(root.querySelectorAll('[data-area]'), function (sec) {
 			var visible = sec.querySelectorAll('[data-rule]:not([hidden])').length > 0;
-			sec.hidden = !visible;
+			sec.hidden = searching ? !visible : (sec.getAttribute('data-area') !== current);
 			var link = root.querySelector('[data-area-link="' + sec.getAttribute('data-area') + '"]');
-			link.classList.toggle('is-empty', !visible);
+			link.classList.toggle('is-empty', searching && !visible);
+		});
+		links.forEach(function (l) {
+			if (!searching && l.getAttribute('data-area-link') === current) {
+				l.setAttribute('aria-current', 'page');
+			} else {
+				l.removeAttribute('aria-current');
+			}
 		});
 		empty.hidden = any;
 	}
@@ -72,6 +83,32 @@
 			r.addEventListener('change', counts);
 		});
 	});
+	function showArea(area) {
+		current = area;
+		search.value = '';
+		show = 'all';
+		segs.forEach(function (o, i) {
+			o.classList.toggle('is-active', i === 0);
+			o.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
+		});
+		apply();
+		var url = new URL(window.location.href);
+		url.searchParams.set('area', area);
+		window.history.replaceState(null, '', url);
+	}
+	links.forEach(function (l) {
+		l.addEventListener('click', function (e) {
+			e.preventDefault();
+			showArea(l.getAttribute('data-area-link'));
+		});
+	});
+	/* A field the browser refuses in a hidden area: open that area so the message shows. */
+	root.closest('form').addEventListener('invalid', function (e) {
+		var sec = e.target.closest('[data-area]');
+		if (sec && sec.hidden) {
+			showArea(sec.getAttribute('data-area'));
+		}
+	}, true);
 	search.addEventListener('input', apply);
 	segs.forEach(function (b) {
 		b.addEventListener('click', function () {
