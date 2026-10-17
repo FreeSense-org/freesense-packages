@@ -257,11 +257,11 @@ list($pairs, $boxes) = fleet_ha_now();
 	};
 ?>
 <?php if (!$chosen): ?>
-<?php fs_stepper($ha_steps, 'pick', array(), gettext('Set up an HA pair')); ?>
 <form method="get" class="panel panel-default">
 	<input type="hidden" name="view" value="setup"/>
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('1. The two firewalls')?></h2></div>
 	<div class="panel-body fs-fleet-pad">
+<?php fs_stepper($ha_steps, 'pick', array(), gettext('Set up an HA pair')); ?>
+		<h3 class="fs-step-title"><?=gettext('1. The two firewalls')?></h3>
 		<p class="fs-step-lead"><?=gettext('Choose which firewall is the primary (it carries the shared addresses) and which is the secondary. Fleet then reads their interfaces; nothing changes yet.')?></p>
 		<div class="fs-fleet-ha-pick">
 <?php foreach (array('primary' => gettext('Primary (MASTER)'), 'secondary' => gettext('Secondary (BACKUP)')) as $k => $l): ?>
@@ -324,19 +324,17 @@ list($pairs, $boxes) = fleet_ha_now();
 <?php endforeach; ?>
 			<div class="form-text"><?=gettext('Users and certificates are not offered: syncing them would replace the secondary\'s Fleet access. Fleet sets the shared addresses on both itself.')?></div></fieldset>
 <?php endif; ?>
+		<p class="mt-3 mb-0"><button class="btn btn-primary" name="review" value="1" data-fs-step-submit<?=empty($common) ? ' disabled' : ''?>><i class="fa-solid fa-magnifying-glass icon-embed-btn" aria-hidden="true"></i><?=gettext('Next: review')?></button></p>
 <?php fs_step_end(); ?>
 <?php fs_steps_end(); ?>
 	</div>
-	<div class="panel-footer fs-step-nav">
-		<button class="btn btn-primary" name="review" value="1" data-fs-step-submit<?=empty($common) ? ' disabled' : ''?>><i class="fa-solid fa-magnifying-glass icon-embed-btn" aria-hidden="true"></i><?=gettext('Next: review')?></button>
-	</div>
 </form>
 <?php else: $posted_now = $form_in(); ?>
-<?php fs_stepper($ha_steps, 'review', array(), gettext('Set up an HA pair')); ?>
 <form method="post" class="panel panel-default" action="?view=setup&amp;primary=<?=urlencode($in['primary'])?>&amp;secondary=<?=urlencode($in['secondary'])?>">
 	<?=$ha_hidden($posted_now)?>
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('4. Review')?></h2></div>
 	<div class="panel-body fs-fleet-pad fs-fleet-ha-review" id="ha-review">
+<?php fs_stepper($ha_steps, 'review', array(), gettext('Set up an HA pair')); ?>
+		<h3 class="fs-step-title"><?=gettext('4. Review')?></h3>
 		<p class="fs-step-lead"><?=gettext('This is what happens on the two firewalls when you select Set up. Nothing has changed yet.')?></p>
 		<ol>
 <?php foreach ($plan['vips'] as $v): ?>

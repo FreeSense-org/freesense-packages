@@ -9,6 +9,7 @@ pkg/fleet/fleet_groups.inc
 pkg/fleet/fleet_ha.inc
 pkg/fleet/fleet_ha_setup.inc
 pkg/fleet/fleet_standby.inc
+pkg/fleet/fleet_setup_view.inc
 pkg/fleet/fleet_access.inc
 pkg/fleet/fleet_widget.inc
 pkg/fleet/fleet_samples.inc
@@ -46,6 +47,8 @@ www/fleet/assets/fleet-dashboard.js
 www/fleet/assets/fleet-box-stats.js
 www/fleet/assets/fleet-metrics.js
 www/fleet/assets/fleet-naming.js
+www/fleet/assets/fleet-invite.js
+www/fleet/assets/fleet-setup.js
 www/fleet/assets/fleet-policy.js
 www/fleet/assets/fleet-alerts.js
 www/fleet/assets/fleet-connections.js

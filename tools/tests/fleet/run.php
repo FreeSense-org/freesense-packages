@@ -1740,4 +1740,8 @@ check(fleet_kiosk_config_parse(array('group_rows' => '1'))['group_rows'] && !fle
 check(fleet_ts_expiry_should_disable(array('id' => 'd1', 'keyExpiryDisabled' => false), true) && !fleet_ts_expiry_should_disable(array('id' => 'd1', 'keyExpiryDisabled' => true), true) &&
     !fleet_ts_expiry_should_disable(array('id' => 'd1'), false) && !fleet_ts_expiry_should_disable(array(), true), 'Tailscale key expiry is turned off by itself only when the setting is on and it is on');
 
+check((fleet_invite_recommend(true, true, true) === 'tailscale') && (fleet_invite_recommend(false, true, true) === 'tunnel') &&
+    (fleet_invite_recommend(false, false, true) === 'direct') && (fleet_invite_recommend(false, false, false) === 'tunnel'),
+    'an invitation recommends Tailscale when the controller is ready in a tailnet, else the tunnel, Direct only with just an internal point');
+
 echo "Fleet controller tests: OK\n";

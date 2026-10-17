@@ -280,6 +280,10 @@ fieldset.fs-fleet-field legend { float: none; width: auto; font-size: inherit; }
 	padding-top: var(--fs-sp-3);
 }
 .fs-fleet-steps li + li { margin-top: var(--fs-sp-1); }
+/* Inside a dialog or a guide step the list follows its heading: no rule above it. */
+.modal .fs-fleet-steps, .fs-step-panel .fs-fleet-steps { margin-top: var(--fs-sp-2); padding-top: 0; border-top: 0; }
+/* The invitation's result: the done steps keep only their ticks, so the steps stay on one line. */
+#invite-done .fs-step.is-done .fs-step-label { display: none; }
 
 /* Waiting for approval: the code is what the admin compares. */
 .fs-fleet-approvals { margin: 0; padding: 0; list-style: none; }
@@ -844,7 +848,7 @@ a.fs-fleet-tile-link:hover, a.fs-fleet-tile-link:focus-visible { border-color: v
 .fs-fleet-rcard-actions { display: flex; flex-wrap: wrap; gap: 0; margin: auto -.5rem -.25rem; }
 .fs-fleet-off { opacity: .65; }
 /* The alert channel dialog lists every kind of alert: two columns keep it on one screen. */
-#chan-modal .modal-dialog { max-width: min(46rem, calc(100vw - 2rem)); }
+#chan-modal .modal-dialog, #invite-modal .modal-dialog, #invite-done .modal-dialog { max-width: min(46rem, calc(100vw - 2rem)); }
 .fs-fleet-checkgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .25rem var(--fs-sp-3); }
 .fs-fleet-keyline { display: flex; flex-wrap: wrap; align-items: center; gap: var(--fs-sp-2); }
 .fs-fleet-keyline code { flex: 1 1 24rem; padding: .4rem .6rem; border: 1px solid var(--fs-border); border-radius: var(--fs-r-md); background: var(--bs-tertiary-bg); word-break: break-all; }
