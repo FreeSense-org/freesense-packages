@@ -797,6 +797,12 @@ endif;
 <?php else:
 	$set_view = fs_view_param(array_keys(FLEET_SETTINGS_SECTIONS), (string)($_POST['save_section'] ?? ((isset($_POST['access_action']) ? 'access' : ((isset($_POST['standby_action']) || (!$ready && (fleet_standby_role() === 'standby'))) ? 'standby' : 'controller')))));
 	$set_labels = array_map('gettext', FLEET_SETTINGS_SECTIONS);
+	/* Each section's heading carries its icon, like the other Fleet areas. */
+	$set_icons = array('controller' => 'fa-server', 'monitoring' => 'fa-heart-pulse', 'actions' => 'fa-bell', 'backups' => 'fa-box-archive', 'updates' => 'fa-download',
+	    'schedules' => 'fa-calendar-days', 'access' => 'fa-shield-halved', 'standby' => 'fa-clone', 'selfcheck' => 'fa-stethoscope', 'advanced' => 'fa-sliders');
+	$stitle = function (string $text, string $view) use ($set_icons) {
+		return '<i class="fa-solid ' . $set_icons[$view] . ' fs-fleet-title-icon" aria-hidden="true"></i>' . htmlspecialchars($text);
+	};
 	fs_view_switch($set_labels, $set_view);
 	$set_leads = array(
 		'controller' => gettext('Firewalls connect to this controller. They may be behind NAT: they start the connection, so only this controller needs to be reachable.'),
@@ -863,7 +869,7 @@ endif;
 
 <form method="post" action="?tab=settings&amp;view=access&amp;section=exposure">
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Who may connect')?></h2></div>
+	<div class="panel-heading"><h2 class="panel-title"><?=$stitle(gettext('Who may connect'), 'access')?></h2></div>
 	<div class="panel-body fs-fleet-pad">
 		<div class="fs-fleet-settings fs-fleet-settings--wide">
 			<div class="fs-fleet-ports">
@@ -967,7 +973,7 @@ endif;
 <?php if ($ready): $ov = fleet_standby_overview(); $late = ($ov['seen'] > 0) && ((time() - $ov['seen']) > FLEET_STANDBY_LATE); ?>
 <form method="post" action="?tab=settings&amp;view=standby">
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Standby server')?></h2></div>
+	<div class="panel-heading"><h2 class="panel-title"><?=$stitle(gettext('Standby server'), 'standby')?></h2></div>
 	<div class="panel-body fs-fleet-pad">
 		<p class="fs-fleet-lead"><?=htmlspecialchars($set_leads['standby'])?></p>
 <?php if ($standby_code !== null): ?>
@@ -1008,7 +1014,7 @@ endif;
 </form>
 <?php elseif ($sb_role === 'standby'): $sp = fleet_standby_pairing(); $ss = fleet_standby_state(); $snap = (array)($ss['snapshot'] ?? array()); ?>
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('This server is the standby')?></h2></div>
+	<div class="panel-heading"><h2 class="panel-title"><?=$stitle(gettext('This server is the standby'), 'standby')?></h2></div>
 	<div class="panel-body fs-fleet-pad">
 		<p class="fs-fleet-lead"><?=gettext('It keeps a verified, encrypted copy of the Fleet controller and can take over. It does not manage firewalls while it is the standby.')?></p>
 		<dl class="fs-fleet-facts mb-3">
@@ -1040,7 +1046,7 @@ endif;
 <?php else: ?>
 <form method="post" action="?tab=settings&amp;view=standby">
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Make this server the standby')?></h2></div>
+	<div class="panel-heading"><h2 class="panel-title"><?=$stitle(gettext('Make this server the standby'), 'standby')?></h2></div>
 	<div class="panel-body fs-fleet-pad">
 		<p class="fs-fleet-lead"><?=gettext('A standby keeps a copy of an existing Fleet controller and can take over. Make a pairing code on the controller (Fleet > Settings > Standby server) and paste it here. To run this server as a controller of its own instead, use the Controller section.')?></p>
 		<div class="fs-fleet-settings">
@@ -1060,7 +1066,7 @@ endif;
 	$sc_badge = array('pass' => array('pass', gettext('OK')), 'warn' => array('warn', gettext('Check')), 'block' => array('block', gettext('Problem')), 'info' => array('neutral', gettext('Not checked')));
 ?>
 <div class="panel panel-default">
-	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Self-check')?></h2>
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=$stitle(gettext('Self-check'), 'selfcheck')?></h2>
 		<form method="post" action="?tab=settings&amp;view=access&amp;section=exposure" class="ms-auto"><button class="btn btn-sm btn-outline-secondary" type="submit" name="access_action" value="check"><i class="fa-solid fa-satellite-dish icon-embed-btn" aria-hidden="true"></i><?=gettext('Test the ports from outside')?></button></form></div>
 	<div class="panel-body fs-fleet-pad">
 		<p class="fs-fleet-lead"><?=htmlspecialchars($set_leads['selfcheck'])?></p>
@@ -1079,44 +1085,70 @@ endif;
 <?php elseif ($set_view !== 'controller'): ?>
 <form method="post" action="?tab=settings&amp;view=<?=htmlspecialchars($set_view)?>">
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=htmlspecialchars($set_labels[$set_view])?></h2></div>
+	<div class="panel-heading"><h2 class="panel-title"><?=$stitle($set_labels[$set_view], $set_view)?></h2></div>
 	<div class="panel-body fs-fleet-pad">
 		<p class="fs-fleet-lead"><?=htmlspecialchars($set_leads[$set_view])?></p>
 <?php
-	$units = array('min' => gettext('minutes'), 's' => gettext('seconds'), 'h' => gettext('hours'), 'count' => '', 'ms' => gettext('ms'), 'pct' => '%', 'd' => gettext('days'));
-	/* One setting as a form field; switches span the whole grid row. */
-	$tunable = function ($key) use ($s, $units) {
-		list(, $unit, $default, $min, $max, $label, $help) = FLEET_TUNABLES[$key];
+	$units = array('min' => gettext('minutes'), 's' => gettext('seconds'), 'h' => gettext('hours'), 'count' => '', 'ms' => gettext('ms'), 'pct' => '%',
+	    'd' => gettext('days'), 'weeks' => gettext('weeks'), 'months' => gettext('months'), 'checks' => gettext('checks'), 'perhour' => gettext('an hour'),
+	    'backups' => gettext('backups'), 'firewalls' => gettext('firewalls'), 'tries' => gettext('tries'));
+	/* The number field of a setting (with its unit inside the field group), or its select. */
+	$control = function ($key, bool $inline = false) use ($s, $units) {
+		list(, $unit, $default, $min, $max, $label) = FLEET_TUNABLES[$key];
 		$value = $s[$key];
 		$h = 'htmlspecialchars';
-		$hint = '<div id="' . $key . '-help" class="fs-fleet-hint">';
-		if ($unit === 'bool') {
-			return '<div class="form-check form-switch fs-fleet-settings-full"><input class="form-check-input" type="checkbox" role="switch" id="' . $key . '" name="' . $key . '" aria-describedby="' . $key . '-help"' . ($value ? ' checked' : '') . '/>' .
-			    '<label class="form-check-label" for="' . $key . '">' . $h(gettext($label)) . '</label>' . $hint . $h(gettext($help)) . '</div></div>';
-		}
-		$out = '<div class="fs-fleet-field"><label class="form-label" for="' . $key . '">' . $h(gettext($label)) . '</label>';
+		$aria = $inline ? ' aria-label="' . $h(gettext($label)) . '"' : ' aria-describedby="' . $key . '-help"';
 		if ($unit === 'choice') {
-			$out .= '<select class="form-select fs-fleet-narrow" id="' . $key . '" name="' . $key . '" aria-describedby="' . $key . '-help">';
+			$out = '<select class="form-select fs-fleet-ctl" id="' . $key . '" name="' . $key . '"' . $aria . '>';
 			foreach ($min as $opt) {
 				$out .= '<option value="' . (int)$opt . '"' . (($value === $opt) ? ' selected' : '') . '>' . (($key === 'poll_interval') ? sprintf(gettext('%d seconds'), $opt) : (int)$opt) .
 				    (($opt === $default) ? ' ' . gettext('(default)') : '') . '</option>';
 			}
-			return $out . '</select>' . $hint . $h(gettext($help)) . '</div></div>';
+			return $out . '</select>';
 		}
-		$out .= '<div class="input-group fs-fleet-narrow"><input class="form-control" type="number" id="' . $key . '" name="' . $key . '" min="' . (int)$min . '" max="' . (int)$max . '" step="1" value="' . (int)$value . '" aria-describedby="' . $key . '-help" required/>';
+		$out = '<div class="input-group fs-fleet-ctl' . ($inline ? ' fs-fleet-ctl--inline' : '') . '"><input class="form-control fs-fleet-num" type="text" inputmode="numeric" pattern="[0-9]*" id="' . $key . '" name="' . $key .
+		    '" value="' . (int)$value . '"' . $aria . ' required/>';
 		if ($units[$unit] !== '') {
 			$out .= '<span class="input-group-text">' . $h($units[$unit]) . '</span>';
 		}
-		return $out . '</div>' . $hint . (($help !== '') ? $h(gettext($help)) : '') . ' ' . sprintf(gettext('%1$d to %2$d, default %3$d.'), $min, $max, $default) . '</div></div>';
+		return $out . '</div>';
+	};
+	/* One setting as a row: label and help on the left, the control on the right. */
+	$tunable = function ($key) use ($s, $control) {
+		list(, $unit, $default, $min, $max, $label, $help) = FLEET_TUNABLES[$key];
+		$h = 'htmlspecialchars';
+		$range = in_array($unit, array('bool', 'choice'), true) ? '' : ' ' . sprintf(gettext('%1$d to %2$d, default %3$d.'), $min, $max, $default);
+		$text = '<div class="fs-fleet-srow-text"><label class="fs-fleet-srow-label" for="' . $key . '">' . $h(gettext($label)) . '</label>' .
+		    '<div id="' . $key . '-help" class="fs-fleet-hint">' . (($help !== '') ? $h(gettext($help)) : '') . $range . '</div></div>';
+		if ($unit === 'bool') {
+			return '<div class="fs-fleet-srow">' . $text . '<div class="fs-fleet-srow-ctl"><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" role="switch" id="' . $key .
+			    '" name="' . $key . '" aria-describedby="' . $key . '-help"' . ($s[$key] ? ' checked' : '') . '/></div></div></div>';
+		}
+		return '<div class="fs-fleet-srow">' . $text . '<div class="fs-fleet-srow-ctl">' . $control($key) . '</div></div>';
+	};
+	/* Backup retention reads as one sentence; its four values are one setting to people. */
+	$retention = array('backup_keep_last', 'backup_keep_daily', 'backup_keep_weekly', 'backup_keep_monthly');
+	$retention_html = function () use ($control) {
+		$c = function ($k) use ($control) { return $control($k, true); };
+		return '<fieldset class="fs-fleet-srow fs-fleet-srow--wide"><legend class="fs-fleet-srow-label">' . gettext('How long backups are kept') . '</legend>' .
+		    '<div class="fs-fleet-sentence">' . sprintf(gettext('Keep the newest %1$s plus one a day for %2$s, one a week for %3$s and one a month for %4$s.'),
+		    $c('backup_keep_last'), $c('backup_keep_daily'), $c('backup_keep_weekly'), $c('backup_keep_monthly')) . '</div>' .
+		    '<div class="fs-fleet-hint">' . gettext('For firewalls in no backup set; backup sets (Backups > Sets) keep their own. 0 keeps none by the day, week or month. Pinned backups and each firewall\'s newest backup are never removed.') . '</div></fieldset>';
 	};
 	$grouped = array();
 	foreach (FLEET_TUNABLE_GROUPS as $tg) {
 		$grouped = array_merge($grouped, $tg['keys']);
 	}
 ?>
-		<div class="fs-fleet-settings fs-fleet-settings--grid">
+		<div class="fs-fleet-srows">
 <?php foreach (FLEET_TUNABLES as $key => $t):
 	if (($t[0] !== $set_view) || in_array($key, $grouped, true)) {
+		continue;
+	}
+	if (in_array($key, $retention, true)) {
+		if ($key === $retention[0]) {
+			echo "\t\t\t" . $retention_html() . "\n";
+		}
 		continue;
 	}
 	echo "\t\t\t" . $tunable($key) . "\n";
@@ -1125,9 +1157,9 @@ endif;
 			continue;
 		}
 ?>
-			<fieldset class="fs-fleet-subsection fs-fleet-settings-full" data-fleet-requires="<?=$key?>"<?=$s[$key] ? '' : ' hidden'?>>
+			<fieldset class="fs-fleet-subsection" data-fleet-requires="<?=$key?>"<?=$s[$key] ? '' : ' hidden'?>>
 				<legend><?=htmlspecialchars(gettext($tg['label']))?></legend>
-				<div class="fs-fleet-settings fs-fleet-settings--grid">
+				<div class="fs-fleet-srows">
 <?php foreach ($tg['keys'] as $gk): ?>
 					<?=$tunable($gk)?>
 
@@ -1146,7 +1178,7 @@ endif;
 <form method="post" action="?tab=settings&amp;view=controller">
 <input type="hidden" name="save_settings" value="1"/>
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Controller')?></h2></div>
+	<div class="panel-heading"><h2 class="panel-title"><?=$stitle(gettext('Controller'), 'controller')?></h2></div>
 	<div class="panel-body fs-fleet-pad">
 	<p class="fs-fleet-lead"><?=htmlspecialchars($set_leads['controller'])?></p>
 <?php

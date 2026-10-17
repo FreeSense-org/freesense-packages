@@ -1175,3 +1175,46 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 .fs-fleet-subswitch { display: block; margin: calc(-1 * var(--fs-sp-2)) 0 var(--fs-sp-4); }
 .fs-fleet-picker-nav a[aria-current="page"] { background: var(--bs-tertiary-bg); color: var(--fs-text, var(--bs-body-color)); font-weight: 600; box-shadow: inset 2px 0 0 var(--fs-accent, var(--bs-primary)); }
 .fs-fleet-picker-help { white-space: nowrap; padding-inline: 0; }
+
+/*
+ * Settings: one row per setting. Label and help on the left, the control on
+ * the right in a fixed width per kind (a number with its unit, a select, a
+ * switch), so every row lines up. Narrow screens stack.
+ */
+.fs-fleet-srows { display: flex; flex-direction: column; max-width: 58rem; }
+.fs-fleet-srow { display: grid; grid-template-columns: minmax(0, 1fr) 15rem; gap: var(--fs-sp-2) var(--fs-sp-5); align-items: start; padding: var(--fs-sp-3) 0; border-top: 1px solid var(--fs-border); margin: 0; min-width: 0; }
+.fs-fleet-srows > .fs-fleet-srow:first-child { border-top: 0; padding-top: 0; }
+.fs-fleet-srow-label { display: block; margin: 0; padding: 0; font-size: 1rem; font-weight: 600; color: var(--fs-text); float: none; width: auto; }
+.fs-fleet-srow .fs-fleet-hint { margin-top: var(--fs-sp-1); max-width: 44rem; }
+.fs-fleet-srow-ctl { display: flex; justify-content: flex-start; padding-top: .1rem; }
+.fs-fleet-srow-ctl .form-switch { padding-top: .2rem; }
+.fs-fleet-ctl { width: 15rem; max-width: 100%; }
+.fs-fleet-ctl.input-group { flex-wrap: nowrap; }
+.fs-fleet-ctl .input-group-text { min-width: 5.5rem; justify-content: center; }
+.fs-fleet-num { text-align: right; font-variant-numeric: tabular-nums; }
+.fs-fleet-srow--wide { grid-template-columns: 1fr; border-top: 1px solid var(--fs-border); }
+.fs-fleet-sentence { margin: var(--fs-sp-2) 0 0; line-height: 2.6; }
+.fs-fleet-ctl--inline { display: inline-flex; width: auto; vertical-align: middle; margin: 0 0 0 .3rem; }
+.fs-fleet-ctl--inline .fs-fleet-num { width: 4.5rem; flex: none; }
+.fs-fleet-ctl--inline .input-group-text { min-width: 0; }
+.fs-fleet-subsection { margin: var(--fs-sp-2) 0 var(--fs-sp-3); }
+.fs-fleet-subsection .fs-fleet-srows { max-width: none; }
+.fs-fleet-pad > .fs-fleet-lead { padding: 0; }
+.fs-fleet-srows + .fs-fleet-srows, .fs-fleet-lead + .fs-fleet-srows { margin-top: 0; }
+.fs-fleet-title-icon { margin-right: .5rem; color: var(--fs-info); }
+@media (max-width: 720px) {
+	.fs-fleet-srow { grid-template-columns: 1fr; }
+	.fs-fleet-ctl { width: 100%; }
+	.fs-fleet-ctl--inline { width: auto; }
+}
+
+/* Ordered list of panels (NOC screen layout): drag a row or use the arrows. */
+.fs-fleet-order-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--fs-border); border-radius: var(--fs-r-md); max-width: 40rem; }
+.fs-fleet-order-list li { display: flex; align-items: center; gap: var(--fs-sp-2); padding: .3rem .6rem; border-top: 1px solid var(--fs-border); }
+.fs-fleet-order-list li:first-child { border-top: 0; }
+.fs-fleet-order-list li.is-dragging { opacity: .5; }
+.fs-fleet-order-grip { color: var(--fs-text-muted); cursor: grab; }
+.fs-fleet-order-move { margin-left: auto; display: flex; }
+.fs-fleet-order-move .btn { padding: .1rem .4rem; color: var(--fs-text-muted); }
+.fs-fleet-order-move .btn:disabled { visibility: hidden; }
+[data-fleet-tabs-switch] { margin-bottom: var(--fs-sp-3); }
