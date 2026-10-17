@@ -162,7 +162,7 @@ $fleet_avail = empty($avail) ? null : round(array_sum($avail) / count($avail), 1
 		<tr><td colspan="12" class="fs-muted"><?=!empty($f) ? gettext('No gateway matches these filters.') : gettext('No checks yet: the first ones come within a few minutes of turning the option on.')?></td></tr>
 <?php endif; ?>
 <?php foreach ($shown as $r): ?>
-		<tr><td><a href="/fleet/fleet_box.php?id=<?=urlencode($r['node'])?>&amp;view=stats#internet"><?=$h($r['label'])?></a></td>
+		<tr><td><a href="/fleet/fleet_box.php?id=<?=urlencode($r['node'])?>&amp;view=stats&amp;section=internet"><?=$h($r['label'])?></a></td>
 			<td><span class="fs-mono"><?=$h($r['name'])?></span><?=!empty($r['default']) ? ' ' . fs_badge('neutral', gettext('default')) : ''?>
 				<?php if ($r['iface'] !== '' || $r['descr'] !== ''): ?><div class="small fs-muted"><?=$h(trim($r['iface'] . ' ' . (($r['descr'] !== '') ? '· ' . $r['descr'] : '')))?></div><?php endif; ?></td>
 			<td><?=fs_badge($badge[$r['state']] ?? 'neutral', gettext(FLEET_INET_STATES[$r['state']] ?? $r['state']))?><?php if ($r['reason'] !== ''): ?><div class="small fs-muted"><?=$h($r['reason'])?></div><?php endif; ?></td>

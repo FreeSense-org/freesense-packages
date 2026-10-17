@@ -469,7 +469,7 @@ if ($savemsg) {
 				<div class="fs-muted small fs-mono"><?=htmlspecialchars($b['host'] . ' ' . $b['overlay'])?></div></td>
 			<td><?=fs_badge($bs, $bl)?><?=($b['problem'] !== '') ? '<div class="fs-muted small">' . htmlspecialchars(mb_strimwidth($b['problem'], 0, 60, '...')) . '</div>' : ''?>
 <?php if (isset($inet_rows[$b['id']])): $ir = $inet_rows[$b['id']]; $iq = $inet_q[$b['id']]['score'] ?? null; ?>
-				<div class="small fs-fleet-inet-cell"><a href="/fleet/fleet_box.php?id=<?=urlencode($b['id'])?>&amp;view=stats#internet" title="<?=gettext('Internet: quality over 24 hours, then loss and latency now')?>"><i class="fa-solid fa-globe" aria-hidden="true"></i></a>
+				<div class="small fs-fleet-inet-cell"><a href="/fleet/fleet_box.php?id=<?=urlencode($b['id'])?>&amp;view=stats&amp;section=internet" title="<?=gettext('Internet: quality over 24 hours, then loss and latency now')?>"><i class="fa-solid fa-globe" aria-hidden="true"></i></a>
 					<?=isset($inet_badge[$ir['state']]) ? fs_badge($inet_badge[$ir['state']], gettext(FLEET_INET_STATES[$ir['state']])) : ''?> <?=fleet_inet_score_badge($iq)?>
 					<span class="fs-muted"><?=htmlspecialchars(fleet_inet_text($ir))?></span></div>
 <?php endif; ?></td>
