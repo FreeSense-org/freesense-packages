@@ -166,7 +166,7 @@ function fleet_kiosk_view(array $data, array $running, bool $hide, string $title
 	foreach ($data['boxes'] as $i => $b) {
 		$box = array('state' => $b['state'], 'groups' => array_column($b['groups'], 'name'), 'version' => $b['version'], 'seen' => $b['seen'],
 		    'policy' => $b['policy'], 'breakglass' => $b['breakglass'], 'update' => ($b['update'] !== null),
-		    'op' => ($b['op'] !== null) ? array('text' => (string)($b['op']['text'] ?? ''), 'progress' => $b['op']['progress'] ?? null) : null);
+		    'op' => (($b['op'] !== null) && in_array($b['op']['state'] ?? '', array('running', 'queued'), true)) ? array('text' => (string)($b['op']['text'] ?? ''), 'progress' => $b['op']['progress'] ?? null) : null);
 		if ($hide) {
 			$box['name'] = sprintf('Firewall %d', $i + 1);
 			$box['host'] = '';

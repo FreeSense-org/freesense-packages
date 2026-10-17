@@ -35,6 +35,8 @@ $manage = isAllowedPage('fleet/fleet.php');
 $input_errors = array();
 $savemsg = null;
 $reopen = null;
+/* A reboot or update started by hand asks first: array(schedule, number of firewalls). */
+$ask_run = null;
 
 if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 	try {
@@ -53,7 +55,11 @@ if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 			if ($s === null) {
 				throw new RuntimeException(gettext('That schedule does not exist any more.'));
 			}
-			$savemsg = fleet_schedule_run($s, $who);
+			if (($s['kind'] !== 'backup') && empty($_POST['confirm'])) {
+				$ask_run = array($s, count(fleet_targets_now($s['targets'])[0]));
+			} else {
+				$savemsg = fleet_schedule_run($s, $who);
+			}
 		}
 	} catch (InvalidArgumentException | RuntimeException $e) {
 		$input_errors[] = $e->getMessage();
@@ -144,6 +150,18 @@ $target_options = function (string $selected = '') use ($groups, $boxes) {
 <?php return ob_get_clean();
 };
 ?>
+<?php if ($ask_run !== null): list($rs, $rn) = $ask_run; ?>
+<div class="fs-fleet-confirm" role="alertdialog" aria-labelledby="run-q">
+	<p class="fs-fleet-confirm-q" id="run-q"><?=htmlspecialchars(sprintf(($rs['kind'] === 'reboot') ?
+	    ngettext('Reboot %d firewall now?', 'Reboot %d firewalls now, one at a time?', $rn) : ngettext('Update %d firewall now?', 'Update %d firewalls now, one at a time?', $rn), $rn))?></p>
+	<p class="fs-fleet-confirm-hint"><?=htmlspecialchars(sprintf(gettext('"%s" runs now instead of at its time. Each firewall is offline while it restarts; the next one starts when it is back.'), $rs['name']))?></p>
+	<form method="post" class="fs-fleet-confirm-actions">
+		<input type="hidden" name="confirm" value="1"/>
+		<button class="btn btn-sm btn-danger" name="run" value="<?=(int)$rs['id']?>"><?=($rs['kind'] === 'reboot') ? gettext('Reboot now') : gettext('Update now')?></button>
+		<a class="btn btn-sm btn-outline-secondary" href="?"><?=gettext('Cancel')?></a>
+	</form>
+</div>
+<?php endif; ?>
 <div class="panel panel-default">
 	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Schedules')?></h2></div>
 <?php if (empty($all)): ?>

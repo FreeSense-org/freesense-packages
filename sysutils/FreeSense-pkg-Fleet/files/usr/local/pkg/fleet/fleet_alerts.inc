@@ -35,12 +35,15 @@ require_once('fleet/fleet_store.inc');
 
 define('FLEET_ALERT_TYPES', array(
 	'email' => array('E-mail', 'fa-envelope', array()),
-	'webhook' => array('Webhook', 'fa-code', array('url' => 'Address (https://...)')),
+	'webhook' => array('Webhook', 'fa-code', array('url' => 'Address (https://...)', 'pin' => 'Trust this certificate (SHA-256, optional)')),
 	'slack' => array('Slack or Teams', 'fa-comments', array('url' => 'Incoming webhook address')),
 	'telegram' => array('Telegram', 'fa-paper-plane', array('token' => 'Bot token', 'chat' => 'Chat id')),
-	'ntfy' => array('ntfy', 'fa-bell', array('url' => 'Topic address (https://ntfy.sh/your-topic)', 'token' => 'Access token (optional)')),
-	'gotify' => array('Gotify', 'fa-tower-broadcast', array('url' => 'Server address', 'token' => 'Application token')),
+	'ntfy' => array('ntfy', 'fa-bell', array('url' => 'Topic address (https://ntfy.sh/your-topic)', 'token' => 'Access token (optional)',
+	    'pin' => 'Trust this certificate (SHA-256, optional)')),
+	'gotify' => array('Gotify', 'fa-tower-broadcast', array('url' => 'Server address', 'token' => 'Application token', 'pin' => 'Trust this certificate (SHA-256, optional)')),
 ));
+/* Fields a channel may leave empty. */
+define('FLEET_ALERT_OPTIONAL', array('pin'));
 /* Fields that are secret (sealed, never shown again). */
 define('FLEET_ALERT_SECRETS', array('url', 'token'));
 define('FLEET_ALERT_EVENTS', array(
@@ -143,6 +146,18 @@ function fleet_alert_url_ok(string $url): bool {
 }
 
 /*
+ * pure: a certificate's SHA-256 fingerprint as 64 lower-case hex digits
+ * (colons and spaces dropped), '' when empty, or null when it is not one.
+ */
+function fleet_alert_pin_normalize(string $pin): ?string {
+	$pin = strtolower(preg_replace('/[\s:]+/', '', preg_replace('/^sha256\s*fingerprint\s*=\s*/i', '', trim($pin))));
+	if ($pin === '') {
+		return '';
+	}
+	return preg_match('/^[0-9a-f]{64}$/D', $pin) ? $pin : null;
+}
+
+/*
  * pure: the HTTP request one alert makes for a channel: array(url,
  * headers, body) or null for e-mail. $a: {title, text, severity, node,
  * time, link}.
@@ -221,13 +236,22 @@ function fleet_alert_channel_save(?int $id, array $in, string $who): int {
 	}
 	$cfg = array();
 	foreach (FLEET_ALERT_TYPES[$type][2] as $field => $label) {
-		$v = trim((string)($in['cfg_' . $field] ?? ''));
+		/* The form names each field per type (cfg_<type>_<field>); cfg_<field> still works for other callers. */
+		$v = trim((string)($in['cfg_' . $type . '_' . $field] ?? ($in['cfg_' . $field] ?? '')));
 		$secret = in_array($field, FLEET_ALERT_SECRETS, true);
+		if ($field === 'pin') {
+			$pin = fleet_alert_pin_normalize($v);
+			if ($pin === null) {
+				throw new InvalidArgumentException('A certificate fingerprint is 64 hexadecimal digits (SHA-256); colons are allowed.');
+			}
+			$cfg[$field] = $pin;
+			continue;
+		}
 		if (($v === '') && $secret && isset($old['config'][$field])) {
 			$cfg[$field] = $old['config'][$field];
 			continue;
 		}
-		$optional = ($type === 'ntfy') && ($field === 'token');
+		$optional = (($type === 'ntfy') && ($field === 'token')) || in_array($field, FLEET_ALERT_OPTIONAL, true);
 		if (($v === '') && !$optional) {
 			throw new InvalidArgumentException(sprintf('Fill in "%s".', $label));
 		}
@@ -306,6 +330,9 @@ function fleet_alert_send(array $ch, array $a): ?string {
 		return 'Unknown channel type.';
 	}
 	list($url, $headers, $body) = $req;
+	if ((($cfg['pin'] ?? '') !== '') && (strncasecmp($url, 'https://', 8) === 0)) {
+		return fleet_alert_send_pinned($url, $headers, $body, $cfg['pin']);
+	}
 	$c = curl_init($url);
 	curl_setopt_array($c, array(CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body, CURLOPT_HTTPHEADER => $headers, CURLOPT_RETURNTRANSFER => true,
 	    CURLOPT_CONNECTTIMEOUT => 5, CURLOPT_TIMEOUT => 15, CURLOPT_FOLLOWLOCATION => false, CURLOPT_PROTOCOLS => CURLPROTO_HTTPS | CURLPROTO_HTTP));
@@ -317,6 +344,37 @@ function fleet_alert_send(array $ch, array $a): ?string {
 	}
 	/* Never echo the address: it may hold a token. */
 	return ($code === 0) ? 'Could not connect (' . $err . ')' : "The service answered HTTP {$code}";
+}
+
+/*
+ * Send to a receiver whose certificate is not publicly trusted: the TLS
+ * handshake succeeds only when the receiver's certificate has this SHA-256
+ * fingerprint (PHP checks it before anything is sent). Returns null or the
+ * problem.
+ */
+function fleet_alert_send_pinned(string $url, array $headers, string $body, string $pin): ?string {
+	$ctx = stream_context_create(array(
+	    'http' => array('method' => 'POST', 'header' => implode("\r\n", $headers), 'content' => $body, 'timeout' => 15, 'ignore_errors' => true, 'follow_location' => 0),
+	    'ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true, 'peer_fingerprint' => array('sha256' => $pin))));
+	$err = '';
+	set_error_handler(function ($no, $msg) use (&$err) {
+		$err = (string)$msg;
+		return true;
+	});
+	try {
+		$r = file_get_contents($url, false, $ctx);
+	} finally {
+		restore_error_handler();
+	}
+	$code = (isset($http_response_header[0]) && preg_match('~^HTTP/\S+\s+(\d{3})~', $http_response_header[0], $m)) ? (int)$m[1] : 0;
+	if (($r !== false) && ($code >= 200) && ($code < 300)) {
+		return null;
+	}
+	if ($code !== 0) {
+		return "The service answered HTTP {$code}";
+	}
+	/* Never echo the address: it may hold a token. */
+	return (stripos($err, 'fingerprint') !== false) ? 'The receiver\'s certificate does not match the trusted fingerprint' : 'Could not connect';
 }
 
 /* What an alert looks like when it is sent. */

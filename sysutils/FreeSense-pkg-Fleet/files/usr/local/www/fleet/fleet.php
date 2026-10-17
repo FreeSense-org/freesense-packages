@@ -45,6 +45,19 @@ $new_ts_key = null;
 $new_name = null;
 $standby_code = null;
 
+/* New key: revoke an open invitation and make it again with the same settings (the key is shown only once). */
+if (isset($_POST['reissue']) && $s['enable']) {
+	$old = fleet_db()->prepare("SELECT * FROM invitations WHERE token_id = ? AND state = 'open'");
+	$old->execute(array((string)$_POST['reissue']));
+	$old = $old->fetch();
+	if ($old) {
+		fleet_invite_revoke((string)$old['token_id'], $who);
+		$_POST = array('invite' => '1', 'role' => (string)$old['role'], 'label' => (string)$old['label'], 'via' => (string)($old['via'] ?? ''),
+		    'naming_group' => (string)(int)($old['group_id'] ?? 0), 'hostname' => (string)($old['hostname'] ?? ''),
+		    'hours' => (string)max(1, (int)round(((int)$old['expires'] - (int)$old['created']) / 3600)));
+	}
+}
+
 if (isset($_POST['save_section']) && array_key_exists((string)$_POST['save_section'], FLEET_SETTINGS_SECTIONS) && ($_POST['save_section'] !== 'controller')) {
 	/* A settings section other than Controller: only its values change, everything else is kept. */
 	$tab = 'settings';
@@ -488,12 +501,12 @@ if ($savemsg) {
 		<tr><td colspan="5" class="fs-muted"><?=gettext('No group matches.')?> <a href="?view=groups"><?=gettext('Clear the search')?></a></td></tr>
 <?php endif; ?>
 <?php foreach ($shown as $grp): ?>
-		<tr><td><span class="fs-fleet-group" style="--fs-fleet-group: var(--fs-series-<?=htmlspecialchars(fleet_group_color((string)$grp['color']))?>)"><?=htmlspecialchars($grp['name'])?></span></td>
+		<tr><td><span class="fs-fleet-group fs-fleet-group-name" style="--fs-fleet-group: var(--fs-series-<?=htmlspecialchars(fleet_group_color((string)$grp['color']))?>)"><?=htmlspecialchars($grp['name'])?></span></td>
 			<td><?=($grp['description'] !== '') ? htmlspecialchars($grp['description']) : '<span class="fs-muted">-</span>'?></td>
 			<td><?=isset($win_names[(int)$grp['window_id']]) ? htmlspecialchars($win_names[(int)$grp['window_id']]) : '<span class="fs-muted">-</span>'?></td>
 			<td class="fs-mono small"><?=((($grp['naming_pattern'] ?? '') . ($grp['naming_domain'] ?? '')) === '') ? '<span class="fs-muted">-</span>' :
 			    htmlspecialchars((($grp['naming_pattern'] !== '') ? $grp['naming_pattern'] : '*') . (($grp['naming_domain'] !== '') ? '.' . $grp['naming_domain'] : ''))?></td>
-			<td><a class="fs-fleet-inline-link" href="/fleet/fleet_dashboard.php?group=<?=(int)$grp['id']?>"><?=(int)$grp['members']?></a></td>
+			<td><?=((int)$grp['members'] === 0) ? '<span class="fs-muted">0</span>' : '<a class="fs-fleet-inline-link" href="/fleet/fleet_dashboard.php?group=' . (int)$grp['id'] . '">' . (int)$grp['members'] . '</a>'?></td>
 			<td class="text-end text-nowrap">
 				<button type="button" class="btn btn-sm btn-link" data-fs-modal="#group-modal" data-fs-modal-title="<?=htmlspecialchars(sprintf(gettext('Change %s'), $grp['name']))?>"
 				    data-fs-fill="<?=htmlspecialchars(json_encode(array('group_id' => (string)$grp['id'], 'group_name' => $grp['name'], 'group_description' => $grp['description'],
@@ -504,7 +517,7 @@ if ($savemsg) {
 <?php endforeach; ?>
 		</tbody></table></div>
 <?php endif; ?>
-	<div class="panel-footer small fs-muted"><?=gettext('A firewall can be in several groups. Deleting a group never changes its firewalls; a group that a policy, backup set or update ring uses cannot be deleted.')?></div>
+	<div class="panel-footer small fs-muted"><?=gettext('A firewall can be in several groups. Deleting a group never changes its firewalls; a group that a policy, backup set or update ring uses cannot be deleted. The controller itself is not managed by Fleet and is in no group.')?></div>
 </div>
 <?php
 	fs_modal_form_begin('group-modal', gettext('Add a group'), '?view=groups', array('group_id' => ''), $reopen);
@@ -679,7 +692,9 @@ if ($savemsg) {
 		<tr><td><?=htmlspecialchars($i['label'])?><?=(($i['via'] ?? '') === 'tailscale') ? ' ' . fs_badge('neutral', gettext('Over Tailscale')) : ''?></td><td><?=htmlspecialchars($role_name($i['role']))?></td>
 			<td><?=htmlspecialchars(date('Y-m-d H:i', (int)$i['expires']))?></td>
 			<td><?=((int)$i['failures'] > 0) ? fs_badge('warn', (int)$i['failures'] . ' / ' . fleet_opt('invite_failures')) : '<span class="fs-muted">0</span>'?></td>
-			<td class="text-end"><form method="post"><button class="btn btn-sm btn-outline-secondary" name="revoke" value="<?=htmlspecialchars($i['token_id'])?>"><?=gettext('Revoke')?></button></form></td></tr>
+			<td class="text-end text-nowrap"><form method="post" class="d-inline"><button class="btn btn-sm btn-link" name="reissue" value="<?=htmlspecialchars($i['token_id'])?>"
+			    title="<?=gettext('Revoke this invitation and make a new link and key with the same settings')?>"><?=gettext('New key')?></button>
+			    <button class="btn btn-sm btn-outline-secondary" name="revoke" value="<?=htmlspecialchars($i['token_id'])?>"><?=gettext('Revoke')?></button></form></td></tr>
 <?php endforeach; ?>
 		</tbody></table></div>
 </section>

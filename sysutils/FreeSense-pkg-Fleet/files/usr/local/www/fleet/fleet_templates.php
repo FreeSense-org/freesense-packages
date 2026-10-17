@@ -461,8 +461,8 @@ $is_list = function (array $t): bool {
 	/* The rows of a rule or port forward template: what was typed, the template's, or one to start from. */
 	$trows = ($typed !== null) ? array_values((array)($typed['row'] ?? array())) : $t['items'];
 	if (empty($trows)) {
-		$trows[] = ($edit_kind === 'nat') ? array('key' => 'web', 'iface' => 'wan', 'proto' => 'tcp', 'port' => '443', 'target' => '', 'local' => '443', 'descr' => '') :
-		    array('key' => 'allow-dns', 'action' => 'pass', 'iface' => 'lan', 'proto' => 'tcp/udp', 'src' => 'lan', 'dst' => 'lanip', 'port' => '53', 'log' => false, 'descr' => 'DNS to the firewall');
+		/* Empty fields with hints only: values typed into a filled example would be appended to it. */
+		$trows[] = ($edit_kind === 'nat') ? array('proto' => 'tcp') : array('action' => 'pass', 'proto' => 'tcp/udp');
 	}
 	$trow = function (int $n, array $r) use ($edit_kind) {
 		$v = function ($k) use ($r) {
@@ -555,7 +555,8 @@ $is_list = function (array $t): bool {
 		<div class="panel-body fs-fleet-pad">
 			<div class="row g-3">
 				<div class="col-md-4"><label class="form-label" for="tname"><?=gettext('Name')?></label>
-					<input class="form-control" id="tname" name="name" maxlength="60" required value="<?=htmlspecialchars($t['name'])?>" placeholder="<?=gettext('Company networks')?>"/></div>
+					<input class="form-control" id="tname" name="name" maxlength="60" required value="<?=htmlspecialchars($t['name'])?>" placeholder="<?=htmlspecialchars(gettext(array('aliases' => 'Company networks', 'rules' => 'Branch baseline rules', 'nat' => 'Web server forwards', 'time' => 'Company time',
+					    'dns' => 'Company DNS', 'snmp' => 'Monitoring', 'syslog' => 'Central logging')[$edit_kind] ?? 'Company networks'))?>"/></div>
 				<div class="col-md-8"><label class="form-label" for="tdesc"><?=gettext('Description')?></label>
 					<input class="form-control" id="tdesc" name="description" maxlength="300" value="<?=htmlspecialchars($t['description'])?>"/></div>
 				<div class="col-12"><label class="form-label" for="ttargets"><?=gettext('For')?></label>

@@ -11,7 +11,8 @@
 			box.hidden = !on;
 			box.querySelectorAll('input').forEach(function (i) {
 				i.disabled = !on;
-				var optional = (sel.value === 'ntfy' && i.name === 'cfg_token') || (editing && i.getAttribute('data-fleet-secret-hint') === '1');
+				var optional = (sel.value === 'ntfy' && i.name === 'cfg_ntfy_token') || i.getAttribute('data-fleet-optional') === '1' ||
+				    (editing && i.getAttribute('data-fleet-secret-hint') === '1');
 				i.required = on && !optional;
 			});
 		});

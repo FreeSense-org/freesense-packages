@@ -84,6 +84,23 @@ function fleet_users_plan_counts(array $plan): array {
 /* Storage                                                             */
 /* ------------------------------------------------------------------ */
 
+/*
+ * pure: do SSH keys go unused? True when keys are given but none of the
+ * user's groups grants a shell (System: user-shell-access or page-all).
+ * $group_privs: the privilege lists of the user's groups.
+ */
+function fleet_users_keys_without_shell(string $keys, array $group_privs): bool {
+	if (trim($keys) === '') {
+		return false;
+	}
+	foreach ($group_privs as $privs) {
+		if (array_intersect((array)$privs, array('user-shell-access', 'page-all'))) {
+			return false;
+		}
+	}
+	return true;
+}
+
 function fleet_ugroups_all(): array {
 	$out = array();
 	foreach (fleet_db()->query('SELECT * FROM ugroups ORDER BY name COLLATE NOCASE')->fetchAll() as $r) {
@@ -318,8 +335,25 @@ function fleet_users_sync_box(array $box, string $who, ?callable $progress = nul
 
 function fleet_users_state_set(string $node, string $result, string $detail): void {
 	$all = json_decode((string)fleet_setting('users_sync', '{}'), true) ?: array();
-	$all[$node] = array('time' => time(), 'result' => $result, 'detail' => $detail);
+	$prev = $all[$node]['synced'] ?? null;
+	/* What Fleet last put on the firewall: only differences from that are drift. */
+	$all[$node] = array('time' => time(), 'result' => $result, 'detail' => $detail,
+	    'synced' => ($result === 'done') ? fleet_users_desired_hash(fleet_users_desired_for($node)) : $prev);
 	fleet_setting_set('users_sync', json_encode($all));
+}
+
+/* pure: a fingerprint of what Fleet wants on a firewall. */
+function fleet_users_desired_hash(array $desired): string {
+	return hash('sha256', json_encode($desired));
+}
+
+/*
+ * pure: is a difference between Fleet and a firewall drift (changed on the
+ * firewall) or pending (Fleet changed, not synced yet)? $synced: the
+ * fingerprint of the last successful sync or null; $desired: now.
+ */
+function fleet_users_difference_kind(?string $synced, string $desired): string {
+	return (($synced !== null) && hash_equals($synced, $desired)) ? 'drift' : 'pending';
 }
 
 function fleet_users_states(): array {
@@ -429,7 +463,9 @@ function fleet_users_backup_accounts(string $node): ?array {
 /*
  * Drift from a firewall's newest backup: what a sync would change now,
  * or null when not known. Ignored drift (the same plan as when Ignore was
- * pressed) comes back as no drift.
+ * pressed) comes back as no drift. Differences Fleet itself made since the
+ * last sync (or before the first one) come back with 'pending' => true:
+ * they wait for a sync, nothing changed on the firewall.
  */
 function fleet_users_drift(string $node): ?array {
 	if (!is_file('/etc/inc/fleet_accounts.inc')) {
@@ -449,6 +485,10 @@ function fleet_users_drift(string $node): ?array {
 		return null;
 	}
 	$changes = array_filter(array_merge($plan['users'], $plan['groups']), function ($a) { return $a !== 'same'; });
+	if (!empty($changes) && (fleet_users_difference_kind(fleet_users_states()[$node]['synced'] ?? null,
+	    fleet_users_desired_hash(fleet_users_desired_for($node))) === 'pending')) {
+		return array('pending' => true, 'changes' => $changes, 'plan' => $plan);
+	}
 	$ignored = (json_decode((string)fleet_setting('users_drift_ignored', '{}'), true) ?: array())[$node] ?? null;
 	if (empty($changes) || ($ignored === hash('sha256', json_encode($changes)))) {
 		return array();
@@ -458,7 +498,7 @@ function fleet_users_drift(string $node): ?array {
 
 function fleet_users_drift_ignore(string $node, string $who): void {
 	$d = fleet_users_drift($node);
-	if (empty($d)) {
+	if (empty($d) || !empty($d['pending'])) {
 		return;
 	}
 	$all = json_decode((string)fleet_setting('users_drift_ignored', '{}'), true) ?: array();
@@ -476,7 +516,7 @@ function fleet_users_drift_ignore(string $node, string $who): void {
 function fleet_users_drift_adopt(string $node, string $who): int {
 	$d = fleet_users_drift($node);
 	$acc = fleet_users_backup_accounts($node);
-	if (empty($d) || ($acc === null)) {
+	if (empty($d) || !empty($d['pending']) || ($acc === null)) {
 		return 0;
 	}
 	$byname = array();

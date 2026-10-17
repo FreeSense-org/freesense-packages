@@ -44,6 +44,11 @@ if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 			$view = 'users';
 			fleet_fuser_save(((int)($_POST['id'] ?? 0) > 0) ? (int)$_POST['id'] : null, $_POST, $who);
 			$savemsg = gettext('User saved. Sync to put the change on the firewalls.');
+			$ug = fleet_ugroups_all();
+			$gp = array_map(function ($gid) use ($ug) { return (array)($ug[$gid]['privs'] ?? array()); }, array_map('intval', (array)($_POST['groups'] ?? array())));
+			if (fleet_users_keys_without_shell((string)($_POST['ssh_keys'] ?? ''), $gp)) {
+				$savemsg .= ' ' . gettext('Note: none of the user\'s groups has the privilege "User - System: Shell account access", so SSH with these keys is refused.');
+			}
 		} elseif (isset($_POST['user_delete'])) {
 			$view = 'users';
 			fleet_fuser_delete((int)$_POST['user_delete'], $who);
@@ -355,6 +360,9 @@ elseif ($st !== null): ?>
 				<span class="fs-muted"><?=gettext('Not known')?></span>
 <?php elseif (empty($drift)): ?>
 				<span class="fs-muted"><?=gettext('None')?></span>
+<?php elseif (!empty($drift['pending'])): ?>
+				<?=fs_badge('info', ($st === null) ? gettext('Waiting for the first sync') : gettext('Waiting for sync'))?>
+				<div class="fs-muted"><?=htmlspecialchars(implode(', ', array_keys($drift['changes'])))?></div>
 <?php else: ?>
 				<?=fs_badge('warn', sprintf(ngettext('%d changed on the firewall', '%d changed on the firewall', count($drift['changes'])), count($drift['changes'])))?>
 				<div class="fs-muted"><?=htmlspecialchars(implode(', ', array_keys($drift['changes'])))?></div>
@@ -364,7 +372,7 @@ elseif ($st !== null): ?>
 <?php endif; ?>
 <?php endif; ?>
 			</td>
-			<td class="text-end"><?php if ($manage && ($box['state'] === 'online') && fleet_manage_allowed($box)): ?><form method="post" class="d-inline"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><button class="btn btn-sm btn-link" name="sync" value="1"><?=empty($drift) ? gettext('Sync here') : gettext('Revert (sync here)')?></button></form><?php endif; ?></td></tr>
+			<td class="text-end"><?php if ($manage && ($box['state'] === 'online') && fleet_manage_allowed($box)): ?><form method="post" class="d-inline"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><button class="btn btn-sm btn-link" name="sync" value="1"><?=(empty($drift) || !empty($drift['pending'])) ? gettext('Sync here') : gettext('Revert (sync here)')?></button></form><?php endif; ?></td></tr>
 <?php endforeach; ?>
 		</tbody></table></div>
 <?php if ($manage && !empty($nodes)): ?>
@@ -397,7 +405,8 @@ elseif ($st !== null): ?>
 		<div class="col-sm-6"><label class="form-label" for="upw2"><?=gettext('Password again')?></label>
 			<input class="form-control" type="password" id="upw2" name="password_again" autocomplete="new-password"/></div>
 		<div class="col-12"><label class="form-label" for="ukeys"><?=gettext('SSH public keys')?></label>
-			<textarea class="form-control fs-mono" id="ukeys" name="ssh_keys" rows="3" placeholder="ssh-ed25519 AAAA... name@laptop"></textarea></div>
+			<textarea class="form-control fs-mono" id="ukeys" name="ssh_keys" rows="3" placeholder="ssh-ed25519 AAAA... name@laptop" aria-describedby="ukeys-help"></textarea>
+			<div class="form-text" id="ukeys-help"><?=gettext('SSH needs a group with the privilege "User - System: Shell account access".')?></div></div>
 		<div class="col-sm-6"><label class="form-label" for="uexp"><?=gettext('Account ends')?></label>
 			<input class="form-control" type="date" id="uexp" name="expires"/></div>
 		<div class="col-sm-6 d-flex align-items-end"><label class="form-check"><input class="form-check-input" type="checkbox" name="disabled" value="1"/> <span class="form-check-label"><?=gettext('Disabled everywhere')?></span></label></div>

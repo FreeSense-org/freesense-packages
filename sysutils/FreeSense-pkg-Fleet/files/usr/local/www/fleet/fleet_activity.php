@@ -140,10 +140,19 @@ if ($manage) {
 	<div class="panel panel-default">
 		<div class="panel-heading"><h2 class="panel-title"><?=htmlspecialchars($what($op))?> <?=$state_badge((string)$op['state'])?></h2></div>
 		<div class="panel-body fs-fleet-pad">
-			<p class="fs-fleet-lead" aria-live="polite"><?=htmlspecialchars((string)$op['text'])?></p>
+<?php
+	/* A group operation's own text is written when a task finishes; until then show the tasks' progress, not "Starting". */
+	$lead = (string)$op['text'];
+	$pct = !empty($tasks) ? $p['percent'] : (isset($op['progress']) ? (int)$op['progress'] : null);
+	if (!empty($tasks) && in_array($op['state'], array('running', 'queued'), true)) {
+		$lead = fleet_op_summary($p, false);
+		$pct = ($pct === 0) && in_array('running', array_column($tasks, 'state'), true) ? null : $pct;
+	}
+?>
+			<p class="fs-fleet-lead" aria-live="polite"><?=htmlspecialchars($lead)?></p>
 <?php if (!empty($tasks)): ?>
 <?php endif; ?>
-			<?=fleet_progress_bar((string)$op['state'], !empty($tasks) ? $p['percent'] : (isset($op['progress']) ? (int)$op['progress'] : null), gettext('Progress'), 'wide')?>
+			<?=fleet_progress_bar((string)$op['state'], $pct, gettext('Progress'), 'wide')?>
 			<dl class="fs-fleet-facts fs-fleet-facts--inline">
 				<dt><?=gettext('Started')?></dt><dd><?=$when((int)$op['started'])?></dd>
 				<dt><?=gettext('By')?></dt><dd><?=htmlspecialchars((string)$op['who'])?></dd>

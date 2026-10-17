@@ -68,6 +68,10 @@
 	line-height: 1.6;
 	white-space: nowrap;
 }
+.fs-fleet-group-name {
+	font-size: var(--fs-fs-sm);
+	font-weight: 600;
+}
 .fs-fleet-group::before {
 	content: "";
 	width: 8px;

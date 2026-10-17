@@ -149,7 +149,7 @@
 		}
 		var flags = el('div', 'k-flags');
 		if (b.breakglass) { flags.appendChild(el('span', 'k-flag k-f-bad', 'Lock off')); }
-		if (b.policy) { flags.appendChild(el('span', 'k-flag', b.policy + ' policy')); }
+		if (b.policy) { flags.appendChild(el('span', 'k-flag', b.policy === 1 ? '1 policy fail' : b.policy + ' policy fails')); }
 		if (b.update) { flags.appendChild(el('span', 'k-flag', 'Update')); }
 		if (flags.childNodes.length) { row.appendChild(flags); }
 		if (b.op) {
