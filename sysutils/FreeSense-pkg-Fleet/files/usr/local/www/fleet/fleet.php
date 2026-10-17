@@ -1077,7 +1077,7 @@ endif;
 	if ($sec !== $set_view) {
 		continue;
 	}
-	$units = array('min' => gettext('minutes'), 's' => gettext('seconds'), 'h' => gettext('hours'), 'count' => '', 'ms' => gettext('ms'), 'pct' => '%');
+	$units = array('min' => gettext('minutes'), 's' => gettext('seconds'), 'h' => gettext('hours'), 'count' => '', 'ms' => gettext('ms'), 'pct' => '%', 'd' => gettext('days'));
 	$value = $s[$key];
 ?>
 <?php if ($unit === 'bool'): ?>
