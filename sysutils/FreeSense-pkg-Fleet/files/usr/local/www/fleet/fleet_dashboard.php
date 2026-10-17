@@ -166,7 +166,7 @@ $overview = function () use ($h, $head, $url, $group, $group_names, $manage, $sh
 <?php endif; ?>
 				<dt><i class="fa-solid fa-bell" aria-hidden="true"></i><?=gettext('Alerts')?></dt><dd><a href="/fleet/fleet_alerts.php"><?=$h(sprintf(gettext('%d in 24 hours'), (int)$wd['alerts']))?></a></dd>
 <?php if ($wd['blocked'] > 0): ?>
-				<dt><i class="fa-solid fa-ban" aria-hidden="true"></i><?=gettext('Blocked')?></dt><dd><a href="/fleet/fleet.php?tab=settings&amp;view=access"><?=$h(sprintf(gettext('%d addresses'), $wd['blocked']))?></a></dd>
+				<dt><i class="fa-solid fa-ban" aria-hidden="true"></i><?=gettext('Blocked')?></dt><dd><a href="/fleet/fleet.php?tab=settings&amp;view=access&amp;section=allowed"><?=$h(sprintf(gettext('%d addresses'), $wd['blocked']))?></a></dd>
 <?php endif; ?>
 			</dl>
 		</section>

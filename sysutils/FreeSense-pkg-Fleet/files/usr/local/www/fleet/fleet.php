@@ -818,10 +818,16 @@ endif;
 	$aq = trim((string)($_GET['aq'] ?? ''));
 	$shown_allowed = array_filter($allowed, function ($why, $c) use ($aq) { return ($aq === '') || (stripos($c . ' ' . $why, $aq) !== false); }, ARRAY_FILTER_USE_BOTH);
 	$open_left = $acc['open_until'] - time();
+	$acc_sec = fs_view_param(array('exposure', 'allowed'), in_array((string)($_POST['access_action'] ?? ''), array('add', 'remove', 'unblock'), true) ? 'allowed' : 'exposure', 'section');
+	echo '<div class="fs-fleet-subswitch">';
+	fs_view_switch(array('exposure' => gettext('Exposure'), 'allowed' => sprintf(gettext('Allowed list (%d)'), count($allowed)) .
+	    (empty($blocked) ? '' : ' · ' . sprintf(gettext('%d blocked'), count($blocked)))), $acc_sec, 'section');
+	echo '</div>';
 ?>
+<?php if ($acc_sec === 'exposure'): ?>
 <div class="panel panel-default">
 	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Can firewalls reach this controller?')?></h2>
-		<form method="post" action="?tab=settings&amp;view=access" class="ms-auto"><button class="btn btn-sm btn-outline-secondary" type="submit" name="access_action" value="check"><i class="fa-solid fa-satellite-dish icon-embed-btn" aria-hidden="true"></i><?=gettext('Check now')?></button></form></div>
+		<form method="post" action="?tab=settings&amp;view=access&amp;section=exposure" class="ms-auto"><button class="btn btn-sm btn-outline-secondary" type="submit" name="access_action" value="check"><i class="fa-solid fa-satellite-dish icon-embed-btn" aria-hidden="true"></i><?=gettext('Check now')?></button></form></div>
 	<div class="panel-body fs-fleet-pad">
 		<p class="fs-fleet-lead"><?=htmlspecialchars($set_leads['access'])?></p>
 <?php if (empty($chk)): ?>
@@ -855,11 +861,12 @@ endif;
 	</div>
 </div>
 
-<form method="post" action="?tab=settings&amp;view=access">
+<form method="post" action="?tab=settings&amp;view=access&amp;section=exposure">
 <div class="panel panel-default">
 	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Who may connect')?></h2></div>
 	<div class="panel-body fs-fleet-pad">
-		<div class="fs-fleet-settings">
+		<div class="fs-fleet-settings fs-fleet-settings--wide">
+			<div class="fs-fleet-ports">
 <?php foreach (array('enroll' => array(gettext('Enrollment port'), sprintf('TCP %d', $s['enroll_port']), gettext('New firewalls join here, and the standby controller fetches its copies.')),
 	    'tunnel' => array(gettext('Tunnel port'), sprintf('UDP %d', $s['wg_port']), gettext('Joined firewalls keep their management tunnel here. WireGuard does not answer anyone without a firewall\'s key, so this port is invisible to scans; limit it only when every firewall has a fixed address (a firewall whose address changes is cut off until you allow the new one).'))) as $k => list($label, $port, $help)): ?>
 			<fieldset class="fs-fleet-field"><legend class="form-label"><?=htmlspecialchars($label)?> <span class="fs-muted fs-mono small"><?=htmlspecialchars($port)?></span></legend>
@@ -870,6 +877,7 @@ endif;
 <?php endif; ?>
 				<div class="fs-fleet-hint"><?=htmlspecialchars($help)?></div></fieldset>
 <?php endforeach; ?>
+			</div>
 			<div class="form-check form-switch">
 				<input class="form-check-input" type="checkbox" role="switch" id="acc-fw" name="firewalls"<?=$acc['firewalls'] ? ' checked' : ''?>/>
 				<label class="form-check-label" for="acc-fw"><?=gettext('Allow the addresses firewalls connect from')?></label>
@@ -888,35 +896,36 @@ endif;
 		</div>
 	</div>
 	<div class="panel-footer d-flex gap-2 flex-wrap align-items-center">
-		<button class="btn btn-primary" type="submit" name="access_action" value="save"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save')?></button>
 <?php if ($open_left > 0): ?>
-		<span class="ms-auto"><?=fs_badge('warn', sprintf(gettext('Open for joining: %d min left'), ceil($open_left / 60)))?></span>
+		<span><?=fs_badge('warn', sprintf(gettext('Open for joining: %d min left'), ceil($open_left / 60)))?></span>
 		<button class="btn btn-outline-secondary" type="submit" name="access_action" value="close"><?=gettext('Close now')?></button>
 <?php elseif ($acc['enroll'] === 'list'): ?>
-		<span class="ms-auto fs-muted small"><?=gettext('A firewall whose address you do not know:')?></span>
+		<span class="fs-muted small"><?=gettext('A firewall whose address you do not know:')?></span>
 		<select class="form-select form-select-sm w-auto" name="open_minutes" aria-label="<?=gettext('How long')?>"><?php foreach (FLEET_ACCESS_OPEN_MINUTES as $m): ?><option value="<?=$m?>"<?=($m === 60) ? ' selected' : ''?>><?=htmlspecialchars(($m < 60) ? sprintf(gettext('%d minutes'), $m) : sprintf(gettext('%d hours'), $m / 60))?></option><?php endforeach; ?></select>
 		<button class="btn btn-outline-secondary" type="submit" name="access_action" value="open"><i class="fa-solid fa-door-open icon-embed-btn" aria-hidden="true"></i><?=gettext('Open for joining')?></button>
 <?php endif; ?>
+		<button class="btn btn-primary ms-auto" type="submit" name="access_action" value="save"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save')?></button>
 	</div>
 </div>
 </form>
 
+<?php else: ?>
 <div class="panel panel-default">
 	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Allowed list')?> <span class="fs-count"><?=count($allowed)?></span></h2>
-		<form method="get" class="ms-auto d-flex gap-2"><input type="hidden" name="tab" value="settings"/><input type="hidden" name="view" value="access"/>
+		<form method="get" class="ms-auto d-flex gap-2"><input type="hidden" name="tab" value="settings"/><input type="hidden" name="view" value="access"/><input type="hidden" name="section" value="allowed"/>
 			<input class="form-control form-control-sm" type="search" name="aq" value="<?=htmlspecialchars($aq)?>" placeholder="<?=gettext('Search address or reason')?>" aria-label="<?=gettext('Search the allowed list')?>"/></form></div>
 	<div class="panel-body table-responsive"><table class="table fs-table">
 		<thead><tr><th><?=gettext('Address or network')?></th><th><?=gettext('Why')?></th><th class="text-end"></th></tr></thead>
 		<tbody>
 <?php foreach (array_slice($shown_allowed, 0, 200, true) as $c => $why): ?>
 		<tr><td class="fs-mono"><?=htmlspecialchars((string)$c)?></td><td class="small"><?=htmlspecialchars($why)?></td>
-			<td class="text-end"><?php if (in_array((string)$c, $manual, true)): ?><form method="post" action="?tab=settings&amp;view=access"><input type="hidden" name="cidr" value="<?=htmlspecialchars((string)$c)?>"/><button class="btn btn-sm btn-link text-danger" type="submit" name="access_action" value="remove"><?=gettext('Remove')?></button></form><?php else: ?><span class="fs-muted small"><?=gettext('automatic')?></span><?php endif; ?></td></tr>
+			<td class="text-end"><?php if (in_array((string)$c, $manual, true)): ?><form method="post" action="?tab=settings&amp;view=access&amp;section=allowed"><input type="hidden" name="cidr" value="<?=htmlspecialchars((string)$c)?>"/><button class="btn btn-sm btn-link text-danger" type="submit" name="access_action" value="remove"><?=gettext('Remove')?></button></form><?php else: ?><span class="fs-muted small"><?=gettext('automatic')?></span><?php endif; ?></td></tr>
 <?php endforeach; ?>
 <?php if (empty($shown_allowed)): ?>
 		<tr><td colspan="3" class="fs-muted"><?=($aq !== '') ? gettext('Nothing matches.') : gettext('Nothing is allowed yet. With "Only the allowed list", nobody can reach that port.')?></td></tr>
 <?php endif; ?>
 		</tbody></table></div>
-	<form method="post" action="?tab=settings&amp;view=access" class="panel-footer d-flex gap-2 flex-wrap align-items-end">
+	<form method="post" action="?tab=settings&amp;view=access&amp;section=allowed" class="panel-footer d-flex gap-2 flex-wrap align-items-end">
 		<div class="fs-fleet-field mb-0"><label class="form-label" for="acc-cidr"><?=gettext('Address or network')?></label><input class="form-control fs-mono" id="acc-cidr" name="cidr" required placeholder="203.0.113.0/24"/></div>
 		<div class="fs-fleet-field mb-0"><label class="form-label" for="acc-note"><?=gettext('Why')?></label><input class="form-control" id="acc-note" name="note" maxlength="80" placeholder="<?=gettext('Office internet')?>"/></div>
 		<button class="btn btn-outline-secondary" type="submit" name="access_action" value="add"><i class="fa-solid fa-plus icon-embed-btn" aria-hidden="true"></i><?=gettext('Allow')?></button>
@@ -931,10 +940,11 @@ endif;
 		<tbody>
 <?php foreach ($blocked as $ip => $until): ?>
 		<tr><td class="fs-mono"><?=htmlspecialchars((string)$ip)?></td><td class="small"><?=htmlspecialchars(date('Y-m-d H:i', (int)$until))?></td>
-			<td class="text-end"><form method="post" action="?tab=settings&amp;view=access"><input type="hidden" name="ip" value="<?=htmlspecialchars((string)$ip)?>"/><button class="btn btn-sm btn-outline-secondary" type="submit" name="access_action" value="unblock"><?=gettext('Unblock')?></button></form></td></tr>
+			<td class="text-end"><form method="post" action="?tab=settings&amp;view=access&amp;section=allowed"><input type="hidden" name="ip" value="<?=htmlspecialchars((string)$ip)?>"/><button class="btn btn-sm btn-outline-secondary" type="submit" name="access_action" value="unblock"><?=gettext('Unblock')?></button></form></td></tr>
 <?php endforeach; ?>
 		</tbody></table></div>
 </div>
+<?php endif; ?>
 <?php endif; ?>
 <?php elseif ($set_view === 'standby'):
 	$sb_role = fleet_standby_role();
@@ -1051,7 +1061,7 @@ endif;
 ?>
 <div class="panel panel-default">
 	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Self-check')?></h2>
-		<form method="post" action="?tab=settings&amp;view=access" class="ms-auto"><button class="btn btn-sm btn-outline-secondary" type="submit" name="access_action" value="check"><i class="fa-solid fa-satellite-dish icon-embed-btn" aria-hidden="true"></i><?=gettext('Test the ports from outside')?></button></form></div>
+		<form method="post" action="?tab=settings&amp;view=access&amp;section=exposure" class="ms-auto"><button class="btn btn-sm btn-outline-secondary" type="submit" name="access_action" value="check"><i class="fa-solid fa-satellite-dish icon-embed-btn" aria-hidden="true"></i><?=gettext('Test the ports from outside')?></button></form></div>
 	<div class="panel-body fs-fleet-pad">
 		<p class="fs-fleet-lead"><?=htmlspecialchars($set_leads['selfcheck'])?></p>
 		<ul class="fs-fleet-checklist">
