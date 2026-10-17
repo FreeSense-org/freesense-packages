@@ -405,7 +405,22 @@ fieldset.fs-fleet-field legend { float: none; width: auto; font-size: inherit; }
 }
 .fs-fleet-review { margin: var(--fs-sp-3) 0 var(--fs-sp-4); }
 .fs-fleet-review .fs-fleet-diff { margin-bottom: var(--fs-sp-4); }
-.fs-fleet-review-actions { display: flex; gap: var(--fs-sp-2); }
+.fs-fleet-review-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--fs-sp-2); }
+/*
+ * Button rows (docs/webui: Button rows): one right-aligned row, never stacked;
+ * Cancel and other buttons first, the primary (or danger) button last; a
+ * note goes to the left. Applies to review rows and to panel footers that
+ * hold buttons (not the stepper's own row, not table "Add" footers).
+ */
+.fs-fleet-review-actions > .btn-primary, .fs-fleet-review-actions > .btn-danger,
+.fs-fleet-review-actions > form:has(> .btn-primary, > .btn-danger) { order: 2; }
+.fs-fleet-review-actions > :not(.btn):not(form):not(input) { order: -1; margin-right: auto; }
+.fs-fleet-review-actions > form { display: inline-flex; gap: var(--fs-sp-2); margin: 0; }
+.panel-footer:not(.fs-step-nav):not(.fs-fleet-review-actions):not(:has([data-tl-add])):has(> .btn, > form > .btn) {
+	display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--fs-sp-2);
+}
+.panel-footer:not(.fs-step-nav):not(.fs-fleet-review-actions):has(> .btn, > form > .btn) > :not(.btn):not(form):not(input) { order: -1; margin: 0 auto 0 0; }
+.panel-footer:not(.fs-step-nav):not(.fs-fleet-review-actions):has(> .btn, > form > .btn) > :is(.btn-primary, .btn-danger) { order: 2; }
 .fs-fleet-diff pre {
 	max-height: 28rem;
 	margin: var(--fs-sp-2) 0 0;

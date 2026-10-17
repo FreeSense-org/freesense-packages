@@ -247,11 +247,13 @@ if (($kconf !== null) && $manage):
 		</div>
 	</div>
 
-	<p class="d-flex gap-2"><button class="btn btn-primary" type="submit"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save layout')?></button>
+	<div class="fs-form-actions">
+		<a class="btn btn-outline-secondary fs-step-back" href="/fleet/fleet_kiosks.php"><i class="fa-solid fa-arrow-left icon-embed-btn" aria-hidden="true"></i><?=gettext('Back')?></a>
 <?php if ($kconf === 'live'): ?>
 		<a class="btn btn-outline-secondary" href="/fleet/noc.php" target="_blank" rel="noopener"><?=gettext('Open live view')?></a>
 <?php endif; ?>
-		<a class="btn btn-link" href="/fleet/fleet_kiosks.php"><?=gettext('Back')?></a></p>
+		<button class="btn btn-primary" type="submit"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save layout')?></button>
+	</div>
 </form>
 <?php
 	include('foot.inc');

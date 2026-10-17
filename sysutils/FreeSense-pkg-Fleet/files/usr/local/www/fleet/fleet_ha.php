@@ -324,7 +324,7 @@ list($pairs, $boxes) = fleet_ha_now();
 <?php endforeach; ?>
 			<div class="form-text"><?=gettext('Users and certificates are not offered: syncing them would replace the secondary\'s Fleet access. Fleet sets the shared addresses on both itself.')?></div></fieldset>
 <?php endif; ?>
-		<p class="mt-3 mb-0"><button class="btn btn-primary" name="review" value="1" data-fs-step-submit<?=empty($common) ? ' disabled' : ''?>><i class="fa-solid fa-magnifying-glass icon-embed-btn" aria-hidden="true"></i><?=gettext('Next: review')?></button></p>
+		<button class="btn btn-primary" name="review" value="1" data-fs-step-submit<?=empty($common) ? ' disabled' : ''?>><i class="fa-solid fa-magnifying-glass icon-embed-btn" aria-hidden="true"></i><?=gettext('Next: review')?></button>
 <?php fs_step_end(); ?>
 <?php fs_steps_end(); ?>
 	</div>
@@ -351,9 +351,9 @@ list($pairs, $boxes) = fleet_ha_now();
 <?php endif; ?>
 	</div>
 	<div class="panel-footer fs-step-nav">
-		<button class="btn btn-outline-secondary" name="back" value="1"><i class="fa-solid fa-arrow-left icon-embed-btn" aria-hidden="true"></i><?=gettext('Back')?></button>
+		<button class="btn btn-outline-secondary fs-step-back" name="back" value="1"><i class="fa-solid fa-arrow-left icon-embed-btn" aria-hidden="true"></i><?=gettext('Back')?></button>
+		<span class="fs-step-note"><?=gettext('It runs as an operation in Activity; if anything fails, Fleet undoes it on both.')?></span>
 		<button class="btn btn-primary" name="setup" value="1"><i class="fa-solid fa-clone icon-embed-btn" aria-hidden="true"></i><?=htmlspecialchars(sprintf(gettext('Set up %1$s and %2$s as a pair'), $pf['label'], $sf['label']))?></button>
-		<span class="fs-muted small"><?=gettext('It runs as an operation in Activity; if anything fails, Fleet undoes it on both.')?></span>
 	</div>
 </form>
 <?php endif; ?>
