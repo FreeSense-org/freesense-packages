@@ -1173,3 +1173,5 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 .fs-fleet-settings--wide { max-width: 60rem; }
 @media (max-width: 760px) { .fs-fleet-ports { grid-template-columns: 1fr; } }
 .fs-fleet-subswitch { display: block; margin: calc(-1 * var(--fs-sp-2)) 0 var(--fs-sp-4); }
+.fs-fleet-picker-nav a[aria-current="page"] { background: var(--bs-tertiary-bg); color: var(--fs-text, var(--bs-body-color)); font-weight: 600; box-shadow: inset 2px 0 0 var(--fs-accent, var(--bs-primary)); }
+.fs-fleet-picker-help { white-space: nowrap; padding-inline: 0; }

@@ -454,8 +454,10 @@ $state_badge = function (string $state) {
 	    'SEC-001' => 'fa-key', 'SEC-002' => 'fa-lock', 'SEC-003' => 'fa-user-shield', 'NAME-001' => 'fa-font', 'NAME-002' => 'fa-globe', 'NAME-003' => 'fa-sitemap', 'NAME-004' => 'fa-tags', 'CUSTOM' => 'fa-sliders');
 	$n_on = count($pol['rules']);
 	$n_lock = count(array_filter($pol['rules'], function ($r) { return ($r[1] ?? '') === 'lock'; }));
+	/* One area at a time; the others stay in the form (hidden), so saving still posts every rule. */
+	$area_now = fs_view_param(array_map('strtolower', array_keys($areas)), strtolower((string)array_key_first($areas)), 'area');
 ?>
-	<div class="fs-fleet-picker" data-fleet-picker>
+	<div class="fs-fleet-picker" data-fleet-picker data-area-now="<?=htmlspecialchars($area_now)?>">
 		<div class="fs-fleet-picker-bar">
 			<div class="fs-fleet-picker-sum" aria-live="polite">
 				<span><strong data-picker="on"><?=$n_on?></strong> <?=gettext('rules on')?></span>
@@ -470,17 +472,19 @@ $state_badge = function (string $state) {
 				<button type="button" data-show="lockable" aria-pressed="false"><?=gettext('Can lock')?></button>
 				<button type="button" data-show="fixable" aria-pressed="false"><?=gettext('Can fix')?></button>
 			</div>
+			<button type="button" class="btn btn-sm btn-link fs-fleet-picker-help" data-bs-toggle="popover" data-bs-trigger="focus" data-bs-placement="bottom"
+			    data-bs-content="<?=htmlspecialchars(gettext('Fix: Fleet has the firewall correct the setting in its maintenance window, after a safety backup, and does not retry a failed fix by itself. Lock: the firewall refuses saves that break the rule, also while the controller is offline; a console administrator can suspend it (break-glass).'))?>"><i class="fa-regular fa-circle-question icon-embed-btn" aria-hidden="true"></i><?=gettext('What are Fix and Lock?')?></button>
 		</div>
 		<div class="fs-fleet-picker-body">
 			<nav class="fs-fleet-picker-nav" aria-label="<?=gettext('Rule areas')?>">
 <?php foreach ($areas as $area => $rids): $on_here = count(array_intersect($rids, array_keys($pol['rules']))); ?>
-				<a href="#area-<?=strtolower($area)?>" data-area-link="<?=strtolower($area)?>"><i class="fa-solid <?=$area_info[$area][0]?>" aria-hidden="true"></i>
+				<a href="?view=edit&amp;id=<?=(int)($_GET['id'] ?? 0)?>&amp;area=<?=strtolower($area)?>" data-area-link="<?=strtolower($area)?>"<?=(strtolower($area) === $area_now) ? ' aria-current="page"' : ''?>><i class="fa-solid <?=$area_info[$area][0]?>" aria-hidden="true"></i>
 					<span><?=htmlspecialchars(gettext($area))?></span><span class="fs-count" data-area-count><?=$on_here?>/<?=count($rids)?></span></a>
 <?php endforeach; ?>
 			</nav>
 			<div class="fs-fleet-picker-areas">
 <?php foreach ($areas as $area => $rids): ?>
-			<section class="fs-fleet-area" id="area-<?=strtolower($area)?>" data-area="<?=strtolower($area)?>">
+			<section class="fs-fleet-area" id="area-<?=strtolower($area)?>" data-area="<?=strtolower($area)?>"<?=(strtolower($area) === $area_now) ? '' : ' hidden'?>>
 				<header class="fs-fleet-area-head"><span class="fs-fleet-area-icon"><i class="fa-solid <?=$area_info[$area][0]?>" aria-hidden="true"></i></span>
 					<div><h2><?=htmlspecialchars(gettext($area))?></h2><p><?=htmlspecialchars($area_info[$area][1])?></p></div></header>
 				<div class="fs-fleet-rule-grid">
@@ -527,10 +531,9 @@ $state_badge = function (string $state) {
 			</div>
 		</div>
 	</div>
-	<div class="fs-fleet-review-actions fs-fleet-policy-actions">
-		<button class="btn btn-primary" type="submit" name="policy_save" value="1"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save policy')?></button>
+	<div class="fs-form-actions fs-fleet-policy-actions">
 		<a class="btn btn-outline-secondary" href="?view=policies"><?=gettext('Cancel')?></a>
-		<p class="fs-fleet-policy-note"><?=gettext('Fix: Fleet has the firewall correct the setting in its maintenance window, after a safety backup, and does not retry a failed fix by itself. Lock: the firewall refuses saves that break the rule, also while the controller is offline; a console administrator can suspend it (break-glass).')?></p>
+		<button class="btn btn-primary" type="submit" name="policy_save" value="1"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save policy')?></button>
 	</div>
 </form>
 <?php endif; ?>
