@@ -88,6 +88,11 @@ define('FLEET_POLL_INTERVALS', array(10, 15, 30, 60));
  */
 define('FLEET_SETTINGS_SECTIONS', array('controller' => 'Controller', 'monitoring' => 'Monitoring', 'actions' => 'Actions and notices',
     'backups' => 'Backups', 'updates' => 'Updates', 'schedules' => 'Schedules', 'access' => 'Access', 'standby' => 'Standby server', 'selfcheck' => 'Self-check', 'advanced' => 'Advanced'));
+/* Settings that only matter while a switch is on: shown as one sub-section under that switch. */
+define('FLEET_TUNABLE_GROUPS', array(
+	'inet' => array('master' => 'inet_enable', 'label' => 'Internet connection', 'keys' => array('inet_interval', 'inet_grace',
+	    'inet_loss_warn', 'inet_loss_bad', 'inet_latency_warn', 'inet_jitter_warn', 'inet_flaps_warn', 'inet_wide_pct', 'inet_all')),
+));
 define('FLEET_TUNABLES', array(
 	'poll_interval' => array('monitoring', 'choice', 15, array(10, 15, 30, 60), null, 'Check each firewall every',
 	    'How quickly the dashboard sees a change. Shorter intervals cost a little more traffic over each tunnel.'),

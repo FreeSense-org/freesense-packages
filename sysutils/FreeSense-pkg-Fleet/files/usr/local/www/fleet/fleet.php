@@ -1072,39 +1072,59 @@ endif;
 	<div class="panel-heading"><h2 class="panel-title"><?=htmlspecialchars($set_labels[$set_view])?></h2></div>
 	<div class="panel-body fs-fleet-pad">
 		<p class="fs-fleet-lead"><?=htmlspecialchars($set_leads[$set_view])?></p>
-		<div class="fs-fleet-settings">
-<?php foreach (FLEET_TUNABLES as $key => list($sec, $unit, $default, $min, $max, $label, $help)):
-	if ($sec !== $set_view) {
+<?php
+	$units = array('min' => gettext('minutes'), 's' => gettext('seconds'), 'h' => gettext('hours'), 'count' => '', 'ms' => gettext('ms'), 'pct' => '%', 'd' => gettext('days'));
+	/* One setting as a form field; switches span the whole grid row. */
+	$tunable = function ($key) use ($s, $units) {
+		list(, $unit, $default, $min, $max, $label, $help) = FLEET_TUNABLES[$key];
+		$value = $s[$key];
+		$h = 'htmlspecialchars';
+		$hint = '<div id="' . $key . '-help" class="fs-fleet-hint">';
+		if ($unit === 'bool') {
+			return '<div class="form-check form-switch fs-fleet-settings-full"><input class="form-check-input" type="checkbox" role="switch" id="' . $key . '" name="' . $key . '" aria-describedby="' . $key . '-help"' . ($value ? ' checked' : '') . '/>' .
+			    '<label class="form-check-label" for="' . $key . '">' . $h(gettext($label)) . '</label>' . $hint . $h(gettext($help)) . '</div></div>';
+		}
+		$out = '<div class="fs-fleet-field"><label class="form-label" for="' . $key . '">' . $h(gettext($label)) . '</label>';
+		if ($unit === 'choice') {
+			$out .= '<select class="form-select fs-fleet-narrow" id="' . $key . '" name="' . $key . '" aria-describedby="' . $key . '-help">';
+			foreach ($min as $opt) {
+				$out .= '<option value="' . (int)$opt . '"' . (($value === $opt) ? ' selected' : '') . '>' . (($key === 'poll_interval') ? sprintf(gettext('%d seconds'), $opt) : (int)$opt) .
+				    (($opt === $default) ? ' ' . gettext('(default)') : '') . '</option>';
+			}
+			return $out . '</select>' . $hint . $h(gettext($help)) . '</div></div>';
+		}
+		$out .= '<div class="input-group fs-fleet-narrow"><input class="form-control" type="number" id="' . $key . '" name="' . $key . '" min="' . (int)$min . '" max="' . (int)$max . '" step="1" value="' . (int)$value . '" aria-describedby="' . $key . '-help" required/>';
+		if ($units[$unit] !== '') {
+			$out .= '<span class="input-group-text">' . $h($units[$unit]) . '</span>';
+		}
+		return $out . '</div>' . $hint . (($help !== '') ? $h(gettext($help)) : '') . ' ' . sprintf(gettext('%1$d to %2$d, default %3$d.'), $min, $max, $default) . '</div></div>';
+	};
+	$grouped = array();
+	foreach (FLEET_TUNABLE_GROUPS as $tg) {
+		$grouped = array_merge($grouped, $tg['keys']);
+	}
+?>
+		<div class="fs-fleet-settings fs-fleet-settings--grid">
+<?php foreach (FLEET_TUNABLES as $key => $t):
+	if (($t[0] !== $set_view) || in_array($key, $grouped, true)) {
 		continue;
 	}
-	$units = array('min' => gettext('minutes'), 's' => gettext('seconds'), 'h' => gettext('hours'), 'count' => '', 'ms' => gettext('ms'), 'pct' => '%', 'd' => gettext('days'));
-	$value = $s[$key];
+	echo "\t\t\t" . $tunable($key) . "\n";
+	foreach (FLEET_TUNABLE_GROUPS as $tg):
+		if ($tg['master'] !== $key) {
+			continue;
+		}
 ?>
-<?php if ($unit === 'bool'): ?>
-			<div class="form-check form-switch">
-				<input class="form-check-input" type="checkbox" role="switch" id="<?=$key?>" name="<?=$key?>" aria-describedby="<?=$key?>-help"<?=$value ? ' checked' : ''?>/>
-				<label class="form-check-label" for="<?=$key?>"><?=htmlspecialchars(gettext($label))?></label>
-				<div id="<?=$key?>-help" class="fs-fleet-hint"><?=htmlspecialchars(gettext($help))?></div>
-			</div>
-<?php elseif ($unit === 'choice'): ?>
-			<div class="fs-fleet-field"><label class="form-label" for="<?=$key?>"><?=htmlspecialchars(gettext($label))?></label>
-				<select class="form-select fs-fleet-narrow" id="<?=$key?>" name="<?=$key?>" aria-describedby="<?=$key?>-help">
-<?php foreach ($min as $opt): ?>
-					<option value="<?=(int)$opt?>"<?=($value === $opt) ? ' selected' : ''?>><?=($key === 'poll_interval') ? sprintf(gettext('%d seconds'), $opt) : (int)$opt?><?=($opt === $default) ? ' ' . gettext('(default)') : ''?></option>
+			<fieldset class="fs-fleet-subsection fs-fleet-settings-full" data-fleet-requires="<?=$key?>"<?=$s[$key] ? '' : ' hidden'?>>
+				<legend><?=htmlspecialchars(gettext($tg['label']))?></legend>
+				<div class="fs-fleet-settings fs-fleet-settings--grid">
+<?php foreach ($tg['keys'] as $gk): ?>
+					<?=$tunable($gk)?>
+
 <?php endforeach; ?>
-				</select>
-				<div id="<?=$key?>-help" class="fs-fleet-hint"><?=htmlspecialchars(gettext($help))?></div></div>
-<?php else: ?>
-			<div class="fs-fleet-field"><label class="form-label" for="<?=$key?>"><?=htmlspecialchars(gettext($label))?></label>
-				<div class="input-group fs-fleet-narrow">
-					<input class="form-control" type="number" id="<?=$key?>" name="<?=$key?>" min="<?=(int)$min?>" max="<?=(int)$max?>" step="1" value="<?=(int)$value?>" aria-describedby="<?=$key?>-help" required/>
-<?php if ($units[$unit] !== ''): ?>
-					<span class="input-group-text"><?=htmlspecialchars($units[$unit])?></span>
-<?php endif; ?>
 				</div>
-				<div id="<?=$key?>-help" class="fs-fleet-hint"><?=($help !== '') ? htmlspecialchars(gettext($help)) : ''?> <?=sprintf(gettext('%1$d to %2$d, default %3$d.'), $min, $max, $default)?></div></div>
-<?php endif; ?>
-<?php endforeach; ?>
+			</fieldset>
+<?php endforeach; endforeach; ?>
 		</div>
 	</div>
 	<div class="panel-footer">
