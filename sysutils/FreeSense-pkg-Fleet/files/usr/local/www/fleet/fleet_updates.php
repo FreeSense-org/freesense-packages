@@ -138,7 +138,8 @@ $target = fleet_rollout_target();
 	uksort($versions, function ($a, $b) { return version_compare($b, $a); });
 ?>
 <div class="row g-3 fs-fleet-panels">
-	<div class="col-md-4"><div class="fs-tile"><span class="fs-tile-label"><?=gettext('Newest version offered')?></span><span class="fs-tile-value"><?=htmlspecialchars($target ?? '-')?></span></div></div>
+	<div class="col-md-4"><div class="fs-tile"><span class="fs-tile-label"><?=gettext('Newest version offered')?></span><span class="fs-tile-value"><?=htmlspecialchars($target ?? (string)(array_key_first(array_diff_key($versions, array(gettext('unknown') => 1))) ?? '-'))?></span>
+		<?php if (($target === null) && ($avail === 0) && ($failed === 0) && !empty($versions)): ?><span class="fs-tile-hint"><?=gettext('All up to date')?></span><?php endif; ?></div></div>
 	<div class="col-md-4"><div class="fs-tile"><span class="fs-tile-label"><?=gettext('Can update')?></span><span class="fs-tile-value"><?=(int)$avail?></span></div></div>
 	<div class="col-md-4"><div class="fs-tile"><span class="fs-tile-label"><?=gettext('Could not check')?></span><span class="fs-tile-value"><?=(int)$failed?></span></div></div>
 </div>

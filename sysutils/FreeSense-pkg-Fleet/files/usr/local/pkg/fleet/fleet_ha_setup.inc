@@ -88,7 +88,15 @@ function fleet_ha_ifaces(array $status): array {
 		}
 		$bits = fleet_ha_bits((string)($i['subnet'] ?? ''));
 		$out[(string)$i['name']] = array('name' => (string)($i['description'] ?? $i['name']), 'ip' => (string)($i['ipaddr'] ?? ''),
-		    'bits' => $bits, 'up' => in_array($i['status'] ?? '', array('up', 'associated'), true));
+		    'bits' => $bits, 'up' => in_array($i['status'] ?? '', array('up', 'associated'), true), 'dev' => (string)($i['hwif'] ?? ''), 'clash' => array());
+	}
+	/* Two assignments on one network card: their addresses cannot be told apart, so neither is offered. */
+	foreach ($out as $k => $i) {
+		foreach ($out as $k2 => $j) {
+			if (($k !== $k2) && ($i['dev'] !== '') && ($i['dev'] === $j['dev'])) {
+				$out[$k]['clash'][] = $j['name'];
+			}
+		}
 	}
 	return $out;
 }

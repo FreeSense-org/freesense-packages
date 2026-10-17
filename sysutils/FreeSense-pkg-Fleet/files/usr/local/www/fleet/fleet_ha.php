@@ -211,7 +211,19 @@ list($pairs, $boxes) = fleet_ha_now();
 	$pf = $chosen ? fleet_ha_setup_facts(fleet_box_get($in['primary'])) : null;
 	$sf = $chosen ? fleet_ha_setup_facts(fleet_box_get($in['secondary'])) : null;
 	$common = $chosen ? array_intersect_key($pf['ifaces'], $sf['ifaces']) : array();
-	$common = array_filter($common, function ($i, $k) use ($sf) { return ($i['ip'] !== '') && ($sf['ifaces'][$k]['ip'] !== ''); }, ARRAY_FILTER_USE_BOTH);
+	$clashes = array();
+	foreach (($chosen ? array($pf, $sf) : array()) as $fx) {
+		foreach ($fx['ifaces'] as $i) {
+			if (!empty($i['clash'])) {
+				$clashes[] = sprintf(gettext('On %1$s, %2$s and %3$s use the same network card (%4$s). Fix the interface assignments first; neither is offered here.'),
+				    $fx['label'], $i['name'], implode(', ', $i['clash']), $i['dev']);
+			}
+		}
+	}
+	$clashes = array_values(array_unique($clashes));
+	$common = array_filter($common, function ($i, $k) use ($sf) {
+		return ($i['ip'] !== '') && ($sf['ifaces'][$k]['ip'] !== '') && empty($i['clash']) && empty($sf['ifaces'][$k]['clash']);
+	}, ARRAY_FILTER_USE_BOTH);
 	$posted = ($_SERVER['REQUEST_METHOD'] === 'POST') ? $form_in() : null;
 	/* First visit: Fleet's suggestion from the two firewalls' interfaces. */
 	$suggested = (($posted === null) && $chosen) ? fleet_ha_suggest($pf['ifaces'], $sf['ifaces']) : null;
@@ -243,12 +255,15 @@ list($pairs, $boxes) = fleet_ha_now();
 	<div class="panel-body fs-fleet-pad pt-0"><p class="fs-fleet-hint mb-0"><?=gettext('Only managed firewalls that are not in a pair are listed.')?></p></div>
 </form>
 <?php if ($chosen): ?>
-<form method="post" class="panel panel-default">
+<form method="post" class="panel panel-default" action="?view=setup&amp;primary=<?=urlencode($in['primary'])?>&amp;secondary=<?=urlencode($in['secondary'])?>#ha-review">
 	<input type="hidden" name="view" value="setup"/><input type="hidden" name="primary" value="<?=htmlspecialchars($in['primary'])?>"/><input type="hidden" name="secondary" value="<?=htmlspecialchars($in['secondary'])?>"/>
 	<div class="panel-heading"><h2 class="panel-title"><?=gettext('2. Shared addresses and sync')?></h2></div>
 <?php if ($suggested !== null): ?>
 	<div class="panel-body fs-fleet-pad pb-0"><p class="fs-fleet-hint mb-0"><?=gettext('Filled in from the two firewalls: the sync interface, and the first free address of each other shared network. Check nothing else on those networks uses the shared addresses.')?></p></div>
 <?php endif; ?>
+<?php foreach ($clashes as $c): ?>
+	<div class="panel-body fs-fleet-pad pb-0"><p class="fs-fleet-problem mb-0"><?=htmlspecialchars($c)?></p></div>
+<?php endforeach; ?>
 <?php if (empty($common)): ?>
 	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-problem mb-0"><?=gettext('The two firewalls have no interface with an IPv4 address in common (or one of them did not answer).')?></p></div>
 <?php else: ?>
@@ -280,7 +295,7 @@ list($pairs, $boxes) = fleet_ha_now();
 	<div class="panel-footer"><button class="btn btn-sm btn-outline-secondary" name="review" value="1"><i class="fa-solid fa-magnifying-glass icon-embed-btn" aria-hidden="true"></i><?=gettext('Review')?></button></div>
 <?php endif; ?>
 <?php if ($plan !== null): ?>
-	<div class="panel-body fs-fleet-pad fs-fleet-ha-review">
+	<div class="panel-body fs-fleet-pad fs-fleet-ha-review" id="ha-review" tabindex="-1">
 		<h3 class="fs-fleet-subhead"><?=gettext('3. Review')?></h3>
 		<ul>
 <?php foreach ($plan['vips'] as $v): ?>

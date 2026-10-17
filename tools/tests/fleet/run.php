@@ -957,6 +957,9 @@ check(fleet_alert_classify('state', 'n-abc123 (Shop): online -> offline (FLEET-E
     fleet_alert_classify('state', 'n-abc123 (Shop): offline -> online')[0] === 'online' && fleet_alert_classify('state', 'n-abc123 (Shop): new -> online') === null &&
     fleet_alert_classify('state', 'n-abc123 (Shop): online -> degraded') === null && fleet_alert_classify('state', 'n-abc123 (Shop): degraded -> online') === null,
     'alerts from state changes: offline and back, not first contact or degraded (no "back online" without an "offline" first)');
+check((fleet_alert_pin_normalize('AB:' . str_repeat('cd', 31)) === 'ab' . str_repeat('cd', 31)) && (fleet_alert_pin_normalize('') === '') &&
+    (fleet_alert_pin_normalize('sha256 Fingerprint=' . implode(':', str_split(str_repeat('0F', 32), 2))) === str_repeat('0f', 32)) && (fleet_alert_pin_normalize('xyz') === null),
+    'a trusted webhook certificate: SHA-256 with or without colons or the openssl prefix; anything else is refused');
 check(fleet_alert_classify('policy', 'FLEET-E321: Lock suspended on Shop')[0] === 'breakglass' && fleet_alert_classify('policy', 'FLEET-E320: Shop: the fix failed')[0] === 'policy' &&
     fleet_alert_classify('policy', 'Baseline: 4 rules for all') === null && fleet_alert_classify('replicas', 'Sync failed: x')[0] === 'copies' &&
     fleet_alert_classify('replicas', 'Copies synced to 2 firewalls (3 items each)') === null && fleet_alert_classify('pending', 'e-1 for t')[0] === 'approval' &&
@@ -1351,6 +1354,9 @@ check((fleet_ha_bits('255.255.255.0') === 24) && (fleet_ha_bits('24') === 24) &&
 $hfa = array('label' => 'A', 'role' => 'managed', 'state' => 'online', 'api_level' => 12, 'in_pair' => false, 'hasync_peer' => '', 'vhids' => array(1),
     'ifaces' => fleet_ha_ifaces(array(array('name' => 'lan', 'description' => 'LAN', 'ipaddr' => '10.1.0.2', 'subnet' => '255.255.255.0', 'status' => 'up'),
     array('name' => 'opt1', 'description' => 'SYNC', 'ipaddr' => '10.9.0.1', 'subnet' => '255.255.255.252', 'status' => 'up'))));
+$hcl = fleet_ha_ifaces(array(array('name' => 'lan', 'description' => 'LAN', 'hwif' => 'vtnet1', 'ipaddr' => '10.2.0.2', 'subnet' => '24'),
+    array('name' => 'opt1', 'description' => 'SYNC', 'hwif' => 'vtnet1', 'ipaddr' => '10.2.0.2', 'subnet' => '24'), array('name' => 'wan', 'description' => 'WAN', 'hwif' => 'vtnet0', 'ipaddr' => '192.0.2.5', 'subnet' => '24')));
+check(($hcl['lan']['clash'] === array('SYNC')) && ($hcl['opt1']['clash'] === array('LAN')) && ($hcl['wan']['clash'] === array()), 'HA setup: two assignments on one network card are found');
 $hfb = array('label' => 'B', 'gui_cert' => str_repeat('ab', 32), 'vhids' => array(2), 'ifaces' => fleet_ha_ifaces(array(array('name' => 'lan', 'description' => 'LAN', 'ipaddr' => '10.1.0.3', 'subnet' => '255.255.255.0', 'status' => 'up'),
     array('name' => 'opt1', 'description' => 'SYNC', 'ipaddr' => '10.9.0.2', 'subnet' => '255.255.255.252', 'status' => 'up')))) + $hfa;
 $hin = array('primary' => 'a', 'secondary' => 'b', 'vips' => array(array('iface' => 'lan', 'address' => '10.1.0.1')), 'sync_iface' => 'opt1', 'sections' => array('rules', 'users'));
@@ -1540,5 +1546,9 @@ $tt = fleet_trends_top($tb, array('a' => 'Alpha', 'b' => 'Beta'), function ($x) 
 check((count($tt) === 1) && ($tt[0]['label'] === 'Beta') && ($tt[0]['peak'] === 90.0) && ($tt[0]['data'] === array(null, 90.0)), 'top firewalls by their peak');
 check(fleet_trends_versions(array(array('version' => '1.2.0'), array('version' => '1.1.5'), array('version' => '1.2.0'), array())) ===
     array(array('label' => '1.2.0', 'value' => 2), array('label' => '1.1.5', 'value' => 1), array('label' => 'Unknown', 'value' => 1)), 'firewalls per version, most first');
+check(fleet_users_keys_without_shell('ssh-ed25519 AAAA x', array(array('page-dashboard-all'))) && !fleet_users_keys_without_shell('ssh-ed25519 AAAA x', array(array('user-shell-access'))) &&
+    !fleet_users_keys_without_shell('', array()) && !fleet_users_keys_without_shell('ssh-ed25519 AAAA x', array(array('page-all'))), 'an SSH key without the shell privilege is pointed out');
+check((fleet_users_difference_kind(null, 'h') === 'pending') && (fleet_users_difference_kind('h', 'h') === 'drift') && (fleet_users_difference_kind('old', 'h') === 'pending') &&
+    (fleet_users_desired_hash(array('a' => 1)) === fleet_users_desired_hash(array('a' => 1))), 'users never synced (or changed in Fleet since) are pending, not drift');
 
 echo "Fleet controller tests: OK\n";

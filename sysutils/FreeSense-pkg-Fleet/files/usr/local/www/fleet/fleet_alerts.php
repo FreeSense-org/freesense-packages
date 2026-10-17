@@ -62,7 +62,9 @@ if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 	} catch (InvalidArgumentException | RuntimeException $e) {
 		$input_errors[] = $e->getMessage();
 		if (isset($_POST['save'])) {
-			$reopen = array_intersect_key($_POST, array_flip(array('id', 'name', 'type', 'min_severity', 'report_hour', 'cfg_chat')));
+			/* Everything but the secrets comes back into the form. */
+			$reopen = array_intersect_key($_POST, array_flip(array('id', 'name', 'type', 'min_severity', 'report_hour', 'cfg_telegram_chat', 'cfg_webhook_pin',
+			    'cfg_ntfy_pin', 'cfg_gotify_pin')));
 			$reopen['events[]'] = array_values((array)($_POST['events'] ?? array()));
 			$reopen['enabled'] = !empty($_POST['enabled']);
 		}
@@ -173,7 +175,7 @@ $event_labels = array_map(function ($e) { return $e[0]; }, $events);
 				<button type="button" class="btn btn-sm btn-link" data-fs-modal="#chan-modal" data-fs-modal-title="<?=htmlspecialchars(sprintf(gettext('Change %s'), $ch['name']))?>"
 				    data-fs-fill="<?=htmlspecialchars(json_encode(array('id' => (string)$ch['id'], 'name' => $ch['name'], 'type' => $ch['type'], 'events[]' => $ch['events'],
 				    'min_severity' => $ch['min_severity'], 'enabled' => !empty($ch['enabled']), 'report_hour' => ($ch['report_hour'] === null) ? '' : (string)$ch['report_hour'],
-				    'cfg_chat' => (string)($ch['config']['chat'] ?? ''))))?>"><?=gettext('Change')?></button>
+				    'cfg_telegram_chat' => (string)($ch['config']['chat'] ?? ''), 'cfg_' . $ch['type'] . '_pin' => (string)($ch['config']['pin'] ?? ''))))?>"><?=gettext('Change')?></button>
 				<form method="post" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="delete" value="<?=(int)$ch['id']?>"><?=gettext('Delete')?></button></form>
 			</div>
 <?php endif; ?>
@@ -185,7 +187,11 @@ $event_labels = array_map(function ($e) { return $e[0]; }, $events);
 
 <?php if ($manage):
 	fs_modal_form_begin('chan-modal', gettext('Add an alert channel'), '/fleet/fleet_alerts.php?view=channels', array('id' => ''), $reopen);
+	/* The reopened dialog covers the page's error box: repeat the error in it. */
+	if (($reopen !== null) && !empty($input_errors)):
 ?>
+	<div class="alert alert-danger" role="alert"><?=htmlspecialchars(implode(' ', $input_errors))?></div>
+<?php endif; ?>
 	<div class="row g-3 mb-3">
 		<div class="col-sm-7"><label class="form-label" for="cname"><?=gettext('Name')?></label>
 			<input class="form-control" id="cname" name="name" maxlength="60" required placeholder="<?=gettext('NOC team')?>"/></div>
@@ -201,9 +207,18 @@ $event_labels = array_map(function ($e) { return $e[0]; }, $events);
 <?php if ($t === 'email'): ?>
 		<p class="fs-fleet-hint mb-0"><?=gettext('Sent with the e-mail settings in System > Advanced > Notifications, to the address there.')?></p>
 <?php endif; ?>
-<?php foreach ($def[2] as $field => $label): $secret = in_array($field, FLEET_ALERT_SECRETS, true); ?>
+<?php foreach ($def[2] as $field => $label):
+	$secret = in_array($field, FLEET_ALERT_SECRETS, true);
+	/* An address is not a password: a password field makes browsers offer to save it. Tokens stay masked but are never saved by the browser. */
+	$attrs = ($field === 'url') ? 'type="url" autocomplete="off" spellcheck="false" inputmode="url"' :
+	    (($field === 'token') ? 'type="password" autocomplete="new-password"' : 'type="text" autocomplete="off" spellcheck="false"');
+?>
 		<label class="form-label" for="c<?=$t . $field?>"><?=htmlspecialchars(gettext($label))?></label>
-		<input class="form-control mb-2" id="c<?=$t . $field?>" name="cfg_<?=$field?>" <?=$secret ? 'type="password" autocomplete="off"' : 'type="text"'?> data-fleet-secret-hint="<?=$secret ? '1' : '0'?>"/>
+		<input class="form-control mb-2" id="c<?=$t . $field?>" name="cfg_<?=$t?>_<?=$field?>" <?=$attrs?> disabled data-fleet-secret-hint="<?=$secret ? '1' : '0'?>"
+		    data-fleet-optional="<?=in_array($field, FLEET_ALERT_OPTIONAL, true) ? '1' : '0'?>"/>
+<?php if ($field === 'pin'): ?>
+		<p class="form-text mt-0"><?=htmlspecialchars(gettext('For a receiver with a self-signed or private-CA certificate. Get it with: openssl s_client -connect host:port </dev/null | openssl x509 -noout -fingerprint -sha256'))?></p>
+<?php endif; ?>
 <?php endforeach; ?>
 	</div>
 <?php endforeach; ?>
