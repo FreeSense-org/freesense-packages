@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 27);
+define('FLEET_DB_SCHEMA', 28);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -460,6 +460,13 @@ CREATE TABLE IF NOT EXISTS samples_hourly (node_id TEXT NOT NULL, time INTEGER N
 	states_max INTEGER, temp REAL, rx_bps REAL, tx_bps REAL);
 CREATE INDEX IF NOT EXISTS samples_hourly_time ON samples_hourly (time, node_id);
 PRAGMA user_version = 27;
+SQL);
+	}
+	if ($version < 28) {
+		/* NOC screens: each screen's layout, list and panels (JSON, fleet_kiosk_config_parse()). */
+		$db->exec(<<<'SQL'
+ALTER TABLE kiosk_keys ADD COLUMN config TEXT NOT NULL DEFAULT '{}';
+PRAGMA user_version = 28;
 SQL);
 	}
 	$db->exec('COMMIT');

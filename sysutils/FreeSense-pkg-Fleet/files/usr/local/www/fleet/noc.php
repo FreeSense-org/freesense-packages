@@ -36,4 +36,4 @@ $v = function ($f) {
 	return (int)@filemtime('/usr/local/www/fleet/assets/' . $f);
 };
 list($style, $theme) = fleet_kiosk_look((string)($_GET['style'] ?? ''), (string)($_GET['theme'] ?? ''));
-echo fleet_kiosk_page(true, $style, $theme, true, array('css' => $v('fleet-kiosk.css'), 'js' => $v('fleet-kiosk.js')));
+echo fleet_kiosk_page(true, $style, $theme, true, array('css' => $v('fleet-kiosk.css'), 'js' => $v('fleet-kiosk.js'), 'charts' => $v('fleet-charts.js')));

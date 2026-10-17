@@ -36,4 +36,4 @@ $v = function ($f) {
 };
 /* ?style= and ?theme= pin the look; otherwise the screen takes the one saved for it. */
 list($style, $theme) = fleet_kiosk_look((string)($_GET['style'] ?? ''), (string)($_GET['theme'] ?? ''));
-echo fleet_kiosk_page(false, $style, $theme, isset($_GET['style']) || isset($_GET['theme']), array('css' => $v('fleet-kiosk.css'), 'js' => $v('fleet-kiosk.js')));
+echo fleet_kiosk_page(false, $style, $theme, isset($_GET['style']) || isset($_GET['theme']), array('css' => $v('fleet-kiosk.css'), 'js' => $v('fleet-kiosk.js'), 'charts' => $v('fleet-charts.js')));
