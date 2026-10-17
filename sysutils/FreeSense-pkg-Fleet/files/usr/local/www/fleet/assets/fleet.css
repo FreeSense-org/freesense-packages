@@ -1090,7 +1090,8 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 .fs-fleet-pulse-key.s-new { background: color-mix(in srgb, var(--fs-neutral) 45%, var(--fs-surface)); }
 .fs-fleet-pulse-key.s-none { border: 1px solid var(--fs-border); }
 
-.fs-fleet-ov-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: var(--fs-sp-3); align-items: start; }
+.fs-fleet-ov-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: var(--fs-sp-3); align-items: stretch; }
+.fs-fleet-ov-grid > .fs-fleet-cp { display: flex; flex-direction: column; }
 .fs-fleet-attention { grid-column: span 2; }
 @media (max-width: 760px) { .fs-fleet-attention { grid-column: auto; } }
 .fs-fleet-attn-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--fs-sp-2); }
