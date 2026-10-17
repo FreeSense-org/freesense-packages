@@ -63,8 +63,9 @@ function fleet_widget_problems(array $boxes, array $ha_pairs, array $labels, int
 		}
 		$names = array_map(function ($n) use ($labels) { return $labels[$n] ?? $n; }, $p['nodes']);
 		natcasesort($names);
-		$items[] = array(1, implode(' + ', $names), '/fleet/fleet_ha.php', array('block', ($p['problem'][0] === 'split') ? 'Split-brain' : 'No MASTER'),
-		    ($p['problem'][0] === 'split') ? 'Both are MASTER: check the link between them' : 'No firewall is MASTER');
+		$items[] = array(1, implode(' + ', $names), '/fleet/fleet_ha.php', array(($p['problem'][0] === 'down') ? 'warn' : 'block', fleet_ha_problem_badge($p['problem'])),
+		    array('split' => 'Both are MASTER: check the link between them', 'nomaster' => 'No firewall is MASTER',
+		    'down' => 'A member does not answer; its partner carries the shared addresses')[$p['problem'][0]] ?? '');
 	}
 	foreach ($boxes as $b) {
 		if ($b['state'] === 'degraded') {

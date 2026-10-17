@@ -324,7 +324,7 @@ function fleet_ops_follow(array $box, ?array $status, int $now): void {
  * count), firewalls offline (red), degraded (yellow), actions running
  * (spinner and count), else a green icon. Opens a short summary panel.
  */
-function fleet_nav_item(int $running, int $failed, int $offline = 0, int $degraded = 0): array {
+function fleet_nav_item(int $running, int $failed, int $offline = 0, int $degraded = 0, int $policy = 0): array {
 	$item = array('id' => 'activity', 'icon' => 'fa-tower-broadcast', 'href' => '/fleet/fleet_dashboard.php', 'poll' => '/fleet/fleet_nav.php',
 	    'panel' => '/fleet/fleet_nav.php?panel=1', 'busy' => $running > 0, 'hidden' => false);
 	$n = function (int $c, string $one, string $many) { return ($c === 1) ? $one : sprintf($many, $c); };
@@ -336,6 +336,9 @@ function fleet_nav_item(int $running, int $failed, int $offline = 0, int $degrad
 	}
 	if ($degraded > 0) {
 		return $item + array('badge' => $degraded, 'kind' => 'warn', 'label' => 'FreeSense Fleet: ' . $n($degraded, '1 firewall degraded', '%d firewalls degraded'));
+	}
+	if ($policy > 0) {
+		return $item + array('badge' => $policy, 'kind' => 'warn', 'label' => 'FreeSense Fleet: ' . $n($policy, '1 firewall fails a policy rule', '%d firewalls fail a policy rule'));
 	}
 	if ($running > 0) {
 		return $item + array('badge' => $running, 'kind' => 'info', 'label' => 'FreeSense Fleet: ' . $n($running, '1 action running', '%d actions running'));
@@ -349,7 +352,8 @@ function fleet_nav_now(int $now): array {
 	$q = fleet_db()->prepare("SELECT COUNT(*) FROM ops WHERE parent IS NULL AND state = 'failed' AND finished >= ?");
 	$q->execute(array($now - 60 * fleet_opt('nav_failed')));
 	$st = array_column(fleet_db()->query('SELECT state, COUNT(*) AS n FROM boxes GROUP BY state')->fetchAll(), 'n', 'state');
-	return fleet_nav_item($running, (int)$q->fetchColumn(), (int)($st['offline'] ?? 0), (int)($st['degraded'] ?? 0));
+	$policy = (int)fleet_db()->query("SELECT COUNT(DISTINCT node_id) FROM compliance WHERE state = 'fail'")->fetchColumn();
+	return fleet_nav_item($running, (int)$q->fetchColumn(), (int)($st['offline'] ?? 0), (int)($st['degraded'] ?? 0), $policy);
 }
 
 /*
@@ -361,6 +365,7 @@ function fleet_nav_panel_html(int $now): string {
 	$st = array_column(fleet_db()->query('SELECT state, COUNT(*) AS n FROM boxes GROUP BY state')->fetchAll(), 'n', 'state');
 	$total = array_sum($st);
 	$bad = (int)($st['offline'] ?? 0) + (int)($st['degraded'] ?? 0);
+	$policy = (int)fleet_db()->query("SELECT COUNT(DISTINCT node_id) FROM compliance WHERE state = 'fail'")->fetchColumn();
 	$kinds = array('reboot' => 'Reboot', 'backup' => 'Back up', 'restore' => 'Restore', 'update' => 'Update', 'template' => 'Apply template to', 'users' => 'Sync users to');
 	$name = function ($op) use ($kinds) {
 		return ($op['node_id'] === '') ? (string)$op['title'] : (($kinds[$op['kind']] ?? ucfirst((string)$op['kind'])) . ' ' . ($op['label'] ?? $op['node_id']));
@@ -378,7 +383,8 @@ function fleet_nav_panel_html(int $now): string {
 
 	$out = '<div class="fs-navpanel-head"><span class="fs-navpanel-state fs-tone-' . (($st['offline'] ?? 0) ? 'block' : ($bad ? 'warn' : 'pass')) . '"><i class="fa-solid ' .
 	    ($bad ? 'fa-triangle-exclamation' : 'fa-circle-check') . '" aria-hidden="true"></i></span><div><strong>' . $h(gettext('FreeSense Fleet')) . '</strong><span>' .
-	    $h($bad ? sprintf(gettext('%1$d of %2$d need attention'), $bad, $total) : sprintf(gettext('All %d firewalls are fine'), $total)) . '</span></div></div>';
+	    $h($bad ? sprintf(gettext('%1$d of %2$d need attention'), $bad, $total) : (($policy > 0) ?
+	    sprintf(gettext('All %1$d firewalls are online; %2$d fail a policy rule'), $total, $policy) : sprintf(gettext('All %d firewalls are fine'), $total))) . '</span></div></div>';
 	$out .= '<div class="fs-navpanel-counts">';
 	foreach (array('online' => array(gettext('Online'), 'pass'), 'degraded' => array(gettext('Degraded'), 'warn'), 'offline' => array(gettext('Offline'), 'block')) as $k => list($l, $tone)) {
 		$c = (int)($st[$k] ?? 0);

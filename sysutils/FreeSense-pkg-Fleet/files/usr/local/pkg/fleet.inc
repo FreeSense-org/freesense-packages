@@ -288,10 +288,14 @@ function fleet_dashboard_data(array $rows, int $pending, int $now, array $groups
 	});
 	$total = count($boxes);
 	$attention = $counts['offline'] + $counts['degraded'];
+	$counts['policy'] = count(array_filter($boxes, function ($b) { return $b['policy'] > 0; }));
 	if ($total === 0) {
 		$headline = 'No firewalls yet';
 	} elseif ($attention === 0) {
 		$headline = ($total === 1) ? 'The firewall is online' : "All {$total} firewalls are online";
+		if ($counts['policy'] > 0) {
+			$headline .= sprintf('; %d %s a policy rule', $counts['policy'], ($counts['policy'] === 1) ? 'fails' : 'fail');
+		}
 	} else {
 		$headline = "{$attention} of {$total} " . (($total === 1) ? 'firewall needs' : 'firewalls need') . ' attention';
 	}

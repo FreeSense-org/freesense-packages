@@ -284,7 +284,7 @@ if ($savemsg) {
 						<?=($ha_carp === 'none') ? gettext('Not used') : (in_array($ha_carp, array('master', 'backup'), true) ? htmlspecialchars(strtoupper($ha_carp)) : fs_badge('warn', ucfirst($ha_carp)))?>
 <?php if ($ha_pair !== null): ?>
 						<div class="small"><?=gettext('HA pair with')?> <?php foreach (array_diff($ha_pair['nodes'], array($box['node_id'])) as $hn): ?><a href="/fleet/fleet_box.php?id=<?=urlencode($hn)?>"><?=htmlspecialchars($ha_boxes[$hn]['label'])?></a> <?php endforeach; ?>
-							<?=($ha_pair['problem'] === null) ? '' : fs_badge('down', ($ha_pair['problem'][0] === 'split') ? gettext('Split-brain') : gettext('No MASTER'))?>
+							<?=($ha_pair['problem'] === null) ? '' : fs_badge('down', gettext(fleet_ha_problem_badge($ha_pair['problem'])))?>
 							<?=($ha_pair['primary'] === $box['node_id']) ? '<span class="fs-muted">' . gettext('(pushes HA sync)') . '</span>' : ''?></div>
 <?php endif; ?></dd>
 					<dt><?=gettext('Fleet policy')?></dt><dd><?=isset($st['policy_bundle']['version']) ? sprintf(gettext('Version %d'), (int)$st['policy_bundle']['version']) : gettext('None')?><?php if (!empty($st['breakglass'])): ?> <?=fs_badge('warn', gettext('Lock suspended'))?><?php endif; ?></dd>
