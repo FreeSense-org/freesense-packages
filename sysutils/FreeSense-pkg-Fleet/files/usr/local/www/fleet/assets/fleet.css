@@ -1170,3 +1170,6 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 .fs-fleet-subsection { border: 1px solid var(--fs-border); border-radius: var(--fs-radius, 6px); padding: var(--fs-sp-3) var(--fs-sp-4) var(--fs-sp-4); margin: 0; max-width: none; }
 .fs-fleet-subsection > legend { float: none; width: auto; padding: 0 var(--fs-sp-2); margin: 0; font-size: var(--fs-fs-sm, .875rem); font-weight: 600; }
 .fs-fleet-subsection[hidden] { display: none; }
+.fs-fleet-settings--wide { max-width: 60rem; }
+@media (max-width: 760px) { .fs-fleet-ports { grid-template-columns: 1fr; } }
+.fs-fleet-subswitch { display: block; margin: calc(-1 * var(--fs-sp-2)) 0 var(--fs-sp-4); }

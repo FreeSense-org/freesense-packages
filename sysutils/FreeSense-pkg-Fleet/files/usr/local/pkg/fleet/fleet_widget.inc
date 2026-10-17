@@ -246,7 +246,7 @@ function fleet_widget_html(array $d, array $cfg): string {
 		}
 		$out .= '<dt><i class="fa-solid fa-bell" aria-hidden="true"></i>' . $h(gettext('Alerts (24 h)')) . '</dt><dd><a href="/fleet/fleet_alerts.php">' . (int)$d['alerts'] . '</a></dd>';
 		if ($d['blocked'] > 0) {
-			$out .= '<dt><i class="fa-solid fa-ban" aria-hidden="true"></i>' . $h(gettext('Blocked')) . '</dt><dd><a href="/fleet/fleet.php?tab=settings&amp;view=access">' . $h(sprintf(gettext('%d addresses (wrong keys)'), $d['blocked'])) . '</a></dd>';
+			$out .= '<dt><i class="fa-solid fa-ban" aria-hidden="true"></i>' . $h(gettext('Blocked')) . '</dt><dd><a href="/fleet/fleet.php?tab=settings&amp;view=access&amp;section=allowed">' . $h(sprintf(gettext('%d addresses (wrong keys)'), $d['blocked'])) . '</a></dd>';
 		}
 		$out .= '</dl>';
 	}
