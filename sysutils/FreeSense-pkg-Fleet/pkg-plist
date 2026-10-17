@@ -36,6 +36,7 @@ pkg/fleet/fleet_updates.inc
 pkg/fleet/fleet_store.inc
 sbin/freesense-fleet-backup
 sbin/freesense-fleet-poll
+sbin/freesense-fleet-rules
 sbin/freesense-fleet-run
 sbin/freesense-fleet-standby
 share/FreeSense-pkg-Fleet/info.xml

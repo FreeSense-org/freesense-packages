@@ -1109,3 +1109,26 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 
 /* NOC screen layout: the panel order numbers. */
 .fs-fleet-order { max-width: 5.5rem; }
+
+/* Add a firewall: the ways it can connect, the text to paste on the new firewall. */
+.fs-fleet-ways { display: grid; gap: var(--fs-sp-2); }
+.fs-fleet-way { display: flex; gap: var(--fs-sp-2); align-items: flex-start; padding: var(--fs-sp-2) var(--fs-sp-3); border: 1px solid var(--fs-border); border-radius: var(--fs-r-md); cursor: pointer; }
+.fs-fleet-way:has(input:checked) { border-color: var(--fs-coral); background: color-mix(in srgb, var(--fs-coral) 6%, transparent); }
+.fs-fleet-way.is-off { opacity: .6; cursor: not-allowed; }
+.fs-fleet-way .form-check-input { margin-top: .25rem; flex: none; }
+.fs-fleet-ways:not(:has(input[value="direct"]:checked)) [data-fleet-direct] { display: none; }
+.fs-fleet-paste { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--fs-sp-2) var(--fs-sp-3); align-items: start; margin: var(--fs-sp-3) 0; }
+.fs-fleet-paste .fs-fleet-secret-label { grid-column: 1 / -1; }
+.fs-fleet-paste-text { margin: 0; padding: var(--fs-sp-2) var(--fs-sp-3); border: 1px solid var(--fs-border); border-radius: var(--fs-r-md); background: var(--bs-tertiary-bg);
+	font-family: var(--fs-font-mono, ui-monospace, monospace); font-size: var(--fs-fs-sm); white-space: pre-wrap; word-break: break-all; max-height: 12rem; overflow: auto; }
+.fs-fleet-manual { margin-top: var(--fs-sp-3); }
+.fs-fleet-manual summary { cursor: pointer; color: var(--fs-text-muted); }
+@media (max-width: 720px) { .fs-fleet-paste { grid-template-columns: 1fr; } }
+
+/* Controller settings: the first-run guide and the self-check list. */
+.fs-fleet-guide { margin: 0 0 var(--fs-sp-4); padding: var(--fs-sp-3) var(--fs-sp-4); border: 1px solid var(--fs-border); border-left: 4px solid var(--fs-coral); border-radius: var(--fs-r-md); }
+.fs-fleet-listen { margin: 0; padding: 0; border: 0; }
+.fs-fleet-checklist { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--fs-sp-2); }
+.fs-fleet-check { display: grid; grid-template-columns: 7rem minmax(0, 1fr) auto; gap: var(--fs-sp-3); align-items: center; padding: var(--fs-sp-2) 0; border-top: 1px solid var(--fs-border); }
+.fs-fleet-check:first-child { border-top: 0; }
+@media (max-width: 720px) { .fs-fleet-check { grid-template-columns: 1fr; } }

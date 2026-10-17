@@ -39,18 +39,24 @@ check(preg_match('/^fd[0-9a-f]{2}:[0-9a-f]{4}:[0-9a-f]{4}:f1::\/64$/D', $ov) ===
 check(fleet_overlay_host('fd12:3456:789a:f1::/64', 1) === 'fd12:3456:789a:f1::1' && fleet_overlay_host('fd12:3456:789a:f1::/64', 16) === 'fd12:3456:789a:f1::10',
     'overlay host addresses');
 $s = fleet_ctl_settings_from(array('enable' => 'on', 'public_host' => ' hq.example.net ', 'enroll_port' => '99999'));
-check($s === array('enable' => true, 'public_host' => 'hq.example.net', 'enroll_port' => 8443, 'wg_port' => 51830) + fleet_tunables_from(array()), 'settings with defaults');
+check($s === array('enable' => true, 'public_host' => 'hq.example.net', 'enroll_port' => 8443, 'wg_port' => 51830, 'listen' => array(), 'iface_hosts' => array(),
+    'rules_manual' => false) + fleet_tunables_from(array()), 'settings with defaults');
+$sl = fleet_ctl_settings_from(array('listen' => 'wan, lan,tailscale,bad iface,wan', 'iface_hosts' => json_encode(array('lan' => '10.0.0.1:8443', 'opt1' => 'bad host:x')),
+    'rules_manual' => 'on'));
+check(($sl['listen'] === array('wan', 'lan', 'tailscale')) && ($sl['iface_hosts'] === array('lan' => '10.0.0.1:8443')) && $sl['rules_manual'],
+    'listen on chosen interfaces (the tailnet too), an address per interface, rules by hand');
+check((fleet_enroll_listen(8443, array()) === "\t\tlisten 8443 ssl;\n\t\tlisten [::]:8443 ssl;\n") &&
+    (fleet_enroll_listen(8443, array('192.0.2.1', '2001:db8::1', '192.0.2.1')) === "\t\tlisten 192.0.2.1:8443 ssl;\n\t\tlisten [2001:db8::1]:8443 ssl;\n") &&
+    (strpos(fleet_enroll_nginx_conf(8443, '/t.pem', '/s', array('10.0.0.1')), 'listen 10.0.0.1:8443 ssl;') !== false) &&
+    (strpos(fleet_enroll_nginx_conf(8443, '/t.pem', '/s', array('10.0.0.1')), 'listen [::]:8443') === false),
+    'the enrollment endpoint listens on every address, or only on the chosen interfaces\' addresses');
 check(fleet_ctl_settings_from(array('poll_interval' => '30'))['poll_interval'] === 30 && fleet_ctl_settings_from(array('poll_interval' => '7'))['poll_interval'] === 15, 'status interval: 10, 15, 30 or 60 s');
 check(fleet_ctl_settings_from(array())['enable'] === false, 'off by default');
 check(fleet_hostport('fd12::1', 8443) === '[fd12::1]:8443' && fleet_hostport('hq', 1) === 'hq:1', 'host:port');
-$rules = fleet_ctl_filter_rules(fleet_ctl_settings_from(array('enable' => 'on', 'enroll_port' => '9443', 'wg_port' => '51999')));
-check(strpos($rules, 'proto tcp from any to (self) port 9443') !== false && strpos($rules, 'proto udp from any to (self) port 51999') !== false &&
-    strpos($rules, 'wgfctl0') === false, 'pass rules for both ports');
 $early = fleet_ctl_early_rules(fleet_ctl_settings_from(array('enable' => 'on')));
 check(strpos($early, 'pass in quick on wgfctl0') !== false && strpos($early, 'pass out quick on wgfctl0') !== false &&
     fleet_ctl_early_rules(fleet_ctl_settings_from(array())) === '',
     'overlay rules in both directions, as early rules (they must come before "Block all IPv6")');
-check(fleet_ctl_filter_rules(fleet_ctl_settings_from(array())) === '', 'no rules while off');
 $conf = fleet_enroll_nginx_conf(8443, '/fleet/tls.pem');
 check(strpos($conf, 'location ^~ /fleet/join/') !== false && strpos($conf, "return 404") !== false && strpos($conf, 'limit_req zone=fleetjoin') !== false &&
     strpos($conf, 'pid /var/run/fleet-enroll.pid;') !== false && !preg_match('#pid /var/run/nginx[^;]*\.pid#', $conf),
@@ -82,8 +88,27 @@ check($bad(function () use ($now) { fleet_invite_create('root', 'x', 86400, 'adm
     $bad(function () use ($now) { fleet_invite_create('monitor', 'x', 60, 'admin', 'hq:8443', $now); }) &&
     $bad(function () use ($now) { fleet_invite_create('monitor', 'x', 86400, 'admin', 'bad host:x', $now); }), 'invalid invitations are refused');
 list($link, $key, $tid) = fleet_invite_create('managed', 'Copenhagen office', 86400, 'admin', 'hq.example.net:8443', $now);
-$parsed = fleet_join_link_parse($link);
-check($parsed['cert_sha256'] === $fp && $parsed['token_id'] === $tid, 'the link pins the enrollment certificate');
+$parsed = fleet_invite_link_parse($link);
+check($parsed['cert_sha256'] === $fp && $parsed['token_id'] === $tid && ($parsed['method'] === 'tunnel') && (substr($link, -2) === '.t'), 'the link pins the enrollment certificate and says how the firewall connects');
+$lv = fleet_invite_link_build('hq:8443', 'aabbccddeeff', str_repeat('A', 43), str_repeat('AB', 32), 'tailscale', str_repeat('x', 80));
+check(($lv === 'https://hq:8443/fleet/join#aabbccddeeff.' . str_repeat('A', 43) . '.' . str_repeat('ab', 32) . '.s.' . str_repeat('x', 80)) &&
+    (fleet_invite_link_parse($lv)['ts'] === str_repeat('x', 80)) && (fleet_invite_link_parse($lv)['method'] === 'tailscale') &&
+    (fleet_invite_link_parse(fleet_invite_link_build('hq', 'aabbccddeeff', str_repeat('A', 43), str_repeat('ab', 32), 'direct'))['port'] === 443) &&
+    (fleet_invite_link_parse('https://hq:8443/fleet/join#aabbccddeeff.' . str_repeat('A', 43) . '.' . str_repeat('ab', 32)) === null) &&
+    (fleet_invite_link_parse('https://hq:8443/fleet/join#aabbccddeeff.' . str_repeat('A', 43) . '.' . str_repeat('ab', 32) . '.t.' . str_repeat('x', 80)) === null),
+    'join links v2: method t, s or d; only a Tailscale link carries a sealed key; links without a method are refused');
+/* Test vector shared with System's join client (fleet_join.inc): same inputs, same blob. */
+$tvk = fleet_join_key_normalize('FLT-4CDG-SEP1-HMVV-MF7V-JNWN');
+$tvb = fleet_invite_ts_seal('tskey-auth-TEST', (string)$tvk, str_repeat("\x01", 16), str_repeat("\x02", 12));
+check(($tvk !== null) && (fleet_invite_ts_open($tvb, $tvk) === 'tskey-auth-TEST') && (fleet_invite_ts_open($tvb, 'WRONGKEYDATA') === null) &&
+    (strlen(base64_decode(strtr($tvb, '-_', '+/'))) === 44 + strlen('tskey-auth-TEST')) && (fleet_invite_ts_open('abc', $tvk) === null),
+    'the Tailscale key is sealed to the join key (salt 16, nonce 12, tag 16, data; base64url)');
+if (function_exists('fleet_seal_with_key')) {
+	check(($tvb === fleet_seal_with_key('tskey-auth-TEST', 'FLT-4CDG-SEP1-HMVV-MF7V-JNWN', str_repeat("", 16), str_repeat("", 12))) &&
+	    (fleet_unseal_with_key($tvb, 'FLT-4CDG-SEP1-HMVV-MF7V-JNWN') === 'tskey-auth-TEST') && (fleet_join_link_parse($lv)['ts_sealed'] === str_repeat('x', 80)),
+	    'the controller seals exactly as the System join client unseals (shared test vector), and System reads v2 links');
+}
+check(fleet_invite_paste('https://x/fleet/join#a', 'FLT-1') === "FreeSense Fleet invitation\nhttps://x/fleet/join#a\nKey: FLT-1", 'one text to paste: link and key');
 $row = fleet_db()->query("SELECT * FROM invitations WHERE token_id = '{$tid}'")->fetch();
 check(strpos(json_encode($row), $parsed['token_secret']) === false && strpos(json_encode($row), str_replace('-', '', substr($key, 4))) === false,
     'neither the token secret nor the join key is stored');
@@ -166,7 +191,7 @@ check($join_error($parsed, $key, $io($ev, $un)) === 'E102', 'a used link is E102
 
 /* burning: 5 wrong proofs */
 list($link2, $key2, $tid2) = fleet_invite_create('monitor', 'Branch', 86400, 'admin', 'hq.example.net:8443', $now);
-$p2 = fleet_join_link_parse($link2);
+$p2 = fleet_invite_link_parse($link2);
 for ($i = 1; $i <= 5; $i++) {
 	list($wk) = fleet_join_key_generate();
 	$ev = array();
@@ -181,7 +206,7 @@ list($link3, $key3, $tid3) = fleet_invite_create('monitor', 'Rejected', 86400, '
 $approve_after_polls = 1000;
 $ev = array();
 $un = array();
-$p3 = fleet_join_link_parse($link3);
+$p3 = fleet_invite_link_parse($link3);
 $io3 = $io($ev, $un);
 $io3['sleep'] = function ($s) use (&$clock) {
 	$clock += $s;
@@ -194,7 +219,7 @@ check($join_error($p3, $key3, $io3) === 'E103' && $un === array(), 'a rejected b
 list($link4, $key4) = fleet_invite_create('monitor', 'Late', 3600, 'admin', 'hq.example.net:8443', $now);
 $clock = $now + 7200;
 $ev = array();
-check($join_error(fleet_join_link_parse($link4), $key4, $io($ev, $un)) === 'E102', 'an expired invitation is E102');
+check($join_error(fleet_invite_link_parse($link4), $key4, $io($ev, $un)) === 'E102', 'an expired invitation is E102');
 
 $audit = fleet_db()->query('SELECT action FROM audit')->fetchAll(PDO::FETCH_COLUMN);
 foreach (array('invite', 'bad_proof', 'burned', 'pending', 'approve', 'reject', 'joined') as $a) {
@@ -919,7 +944,7 @@ if (trim((string)@shell_exec('command -v openssl')) !== '') {
 	@unlink($ftmp);
 }
 check(fleet_factory_passphrase_problem('short') !== null && fleet_factory_passphrase_problem('aaaaaaaaaaaaaaa') !== null && fleet_factory_passphrase_problem('Spring rollout 2026') === null, 'bundle passphrases');
-$fseed = fleet_factory_seed(fleet_join_link_build('fw.example.net:8443', 'aabbccddeeff', str_repeat('A', 43), str_repeat('ab', 32)), 'pin', 'FLT-AAAA-BBBB', '123456');
+$fseed = fleet_factory_seed(fleet_invite_link_build('fw.example.net:8443', 'aabbccddeeff', str_repeat('A', 43), str_repeat('ab', 32), 'tunnel'), 'pin', 'FLT-AAAA-BBBB', '123456');
 check(!isset($fseed['key']) && isset($fseed['sealed_key']['data']) && !isset(fleet_factory_seed('l', 'attended', 'FLT-X', null)['sealed_key']) &&
     fleet_factory_seed('l', 'unattended', 'FLT-X', null)['key'] === 'FLT-X', 'seeds: attended without key, PIN sealed, unattended with key');
 if (is_file($src . '/src/etc/inc/fleet_seed.inc')) {
@@ -1198,7 +1223,7 @@ check((count(fleet_ts_join_problems(null, null)) === 2) && (fleet_ts_join_proble
 /* ---- Deployment Factory over Tailscale ---- */
 require_once('fleet_seed.inc');
 list($fshown) = fleet_join_key_generate();
-$flink = 'https://100.64.0.1:8443/fleet/join#abcdef012345.' . str_repeat('A', 43) . '.' . str_repeat('a', 64);
+$flink = 'https://100.64.0.1:8443/fleet/join#abcdef012345.' . str_repeat('A', 43) . '.' . str_repeat('a', 64) . '.s';
 $ftsk = 'tskey-auth-kTEST123CNTRL-abcdefghijkl';
 $fa = fleet_seed_parse(json_encode(fleet_factory_seed($flink, 'attended', $fshown, null, $ftsk)));
 $fp = fleet_seed_parse(json_encode(fleet_factory_seed($flink, 'pin', $fshown, '482913', $ftsk)));
@@ -1207,7 +1232,7 @@ check((fleet_seed_tailscale_key($fa, (string)fleet_join_key_normalize($fshown)) 
     (fleet_seed_tailscale_key($fp, '482913') === $ftsk) && !isset($fp['tailscale']['key']) && (fleet_seed_tailscale_key($fu, '') === $ftsk) &&
     !isset(fleet_factory_seed($flink, 'attended', $fshown, null)['tailscale']),
     'Factory seeds carry the Tailscale key the way System opens it: sealed to the join key or PIN, plain only unattended');
-check(fleet_factory_settings(array('name' => 'B', 'mode' => 'pin', 'via' => 'tailscale'))['via'] === 'tailscale' && fleet_factory_settings(array('name' => 'B', 'via' => 'x'))['via'] === '',
+check(fleet_factory_settings(array('name' => 'B', 'mode' => 'pin', 'via' => 'tailscale'))['via'] === 'tailscale' && fleet_factory_settings(array('name' => 'B', 'via' => 'x'))['via'] === 'tunnel',
     'a batch is over the internet or over Tailscale');
 
 /* ---- NOC looks and the live view ---- */
@@ -1483,14 +1508,30 @@ check(($alw === array('198.51.100.0/24' => 'Office', '203.0.113.9' => 'Firewall 
     !isset(fleet_access_allowed(array('firewalls' => false) + $acl, array('Shop' => '203.0.113.9'), array(), array(), 1000)['203.0.113.9']),
     'the allowed list: entries, firewalls\' addresses, open invitations and the standby (an expired invitation is gone)');
 $ars = array('enable' => true, 'enroll_port' => 8443, 'wg_port' => 51830);
-$arl = fleet_access_rules($ars, $acl, $alw + array('2001:db8::/48' => 'v6'), array('198.18.0.9' => 5000, '198.18.0.10' => 10), 1000);
-check((strpos($arl, 'block in quick proto tcp from { 198.18.0.9 } to (self) port 8443') !== false) && (strpos($arl, '198.18.0.10') === false) &&
-    (strpos($arl, 'pass in quick inet proto tcp from { 198.51.100.0/24 203.0.113.9 192.0.2.4 192.0.2.200 } to (self) port 8443') !== false) &&
-    (strpos($arl, 'pass in quick inet6 proto tcp from { 2001:db8::/48 } to (self) port 8443') !== false) &&
-    (strpos($arl, 'pass in quick proto udp from any to (self) port 51830') !== false) &&
-    (strpos(fleet_access_rules($ars, array('open_until' => 2000) + $acl, array(), array(), 1000), 'pass in quick proto tcp from any to (self) port 8443') !== false) &&
-    (strpos(fleet_access_rules($ars, $acl, array(), array(), 1000), 'port 8443') === false) && (fleet_access_rules(array('enable' => false) + $ars, $acl, $alw, array(), 1000) === ''),
-    'the port rules: blocked first, then anyone or only the allowed list per port (nothing when it is empty), open for joining lets anyone join for a while');
+$ars = fleet_ctl_settings_from(array('enable' => 'on'));
+$arl = fleet_access_rule_set($ars, array('wan', 'lan'), $acl, $alw + array('2001:db8::/48' => 'v6'), array('198.18.0.9' => 5000, '198.18.0.10' => 10), 1000);
+$arr = array_column($arl['rules'], null, 'descr');
+check((count($arl['rules']) === 4) && ($arl['rules'][0]['type'] === 'block') && ($arl['rules'][1]['type'] === 'block') &&
+    ($arr['FreeSense Fleet: enrollment']['interface'] === 'wan,lan') && ($arr['FreeSense Fleet: enrollment']['floating'] === 'yes') &&
+    ($arr['FreeSense Fleet: enrollment']['source']['address'] === 'FleetEnroll') && ($arr['FreeSense Fleet: enrollment']['destination'] === array('network' => '(self)', 'port' => '8443')) &&
+    ($arr['FreeSense Fleet: tunnel']['protocol'] === 'udp') && ($arr['FreeSense Fleet: tunnel']['destination']['port'] === '51830') &&
+    empty(array_filter($arl['rules'], function ($r) { return $r['fleet_auto'] !== '1'; })),
+    'Fleet\'s rules: visible floating rules on the chosen interfaces, blocked first, marked as Fleet\'s');
+check(($arl['aliases']['FleetBlocked']['address'] === '198.18.0.9') && ($arl['aliases']['FleetTunnel']['address'] === '0.0.0.0/0 ::/0') &&
+    ($arl['aliases']['FleetEnroll']['address'] === '198.51.100.0/24 203.0.113.9 192.0.2.4 192.0.2.200 2001:db8::/48') &&
+    (fleet_access_rule_set($ars, array('wan'), array('open_until' => 2000) + $acl, array(), array(), 1000)['aliases']['FleetEnroll']['address'] === '0.0.0.0/0 ::/0') &&
+    (fleet_access_rule_set($ars, array('wan'), $acl, array(), array(), 1000)['aliases']['FleetEnroll']['address'] === ''),
+    'the aliases: anyone or only the allowed list per port (nothing when it is empty), open for joining lets anyone join for a while');
+check((fleet_access_rule_set(array('enable' => false) + $ars, array('wan'), $acl, $alw, array(), 1000) === array('aliases' => array(), 'rules' => array())) &&
+    (fleet_access_rule_set(array('rules_manual' => true) + $ars, array('wan'), $acl, $alw, array(), 1000)['rules'] === array()) &&
+    (fleet_access_rule_set($ars, array(), $acl, $alw, array(), 1000)['rules'] === array()),
+    'no rules while off, when the admin opens the ports by hand, or with no interface');
+$amine = array(array('descr' => 'new fleet', 'fleet_auto' => '1'));
+check(fleet_access_merge(array(array('descr' => 'a'), array('descr' => 'old fleet', 'fleet_auto' => '1'), array('descr' => 'b')), $amine, true) ===
+    array(array('descr' => 'new fleet', 'fleet_auto' => '1'), array('descr' => 'a'), array('descr' => 'b')) &&
+    fleet_access_merge(array(array('descr' => 'a'), array('descr' => 'old', 'fleet_auto' => '1')), array(), false) === array(array('descr' => 'a')) &&
+    (fleet_access_tracker('x') === fleet_access_tracker('x')) && (fleet_access_tracker('x') !== fleet_access_tracker('y')),
+    'Fleet replaces only its own rules (removed when it has none), and keeps their trackers');
 list($afl, $afn) = fleet_access_fail_add(array('198.18.0.1' => array(100, 990), '198.18.0.2' => array(10)), '198.18.0.1', 1000);
 check(($afn === 2) && !isset($afl['198.18.0.2']) && (fleet_access_fail_add($afl, '198.18.0.1', 1000 + FLEET_ACCESS_WINDOW + 1)[1] === 1),
     'wrong keys count within ten minutes; old ones are forgotten');
@@ -1499,8 +1540,8 @@ check((fleet_access_endpoints_parse(array("k1=\t203.0.113.9:51820", "k2=\t[2001:
 check((fleet_access_reach_kind(array('203.0.113.1'), array('203.0.113.1', '10.0.0.1'))[0] === 'local') && (fleet_access_reach_kind(array('198.51.100.1'), array('10.0.0.1'))[0] === 'forward') &&
     (fleet_access_reach_kind(array(), array('10.0.0.1'))[0] === 'unresolved'), 'the public address is on this controller, or forwarded to it');
 $aix = (string)file_get_contents($repo . '/sysutils/FreeSense-pkg-Fleet/files/usr/local/pkg/fleet/enroll/index.php');
-check((substr_count($aix, 'fleet_access_failed(') === 2) && (strpos((string)file_get_contents($repo . '/sysutils/FreeSense-pkg-Fleet/files/usr/local/pkg/fleet.inc'), 'fleet_access_filter_rules(') !== false),
-    'wrong keys at the enrollment port and the standby route count; the filter takes the access rules');
+check((substr_count($aix, 'fleet_access_failed(') === 2) && (strpos((string)file_get_contents($repo . '/sysutils/FreeSense-pkg-Fleet/files/usr/local/pkg/fleet.inc'), 'fleet_access_tailnet_rules(') !== false),
+    'wrong keys at the enrollment port and the standby route count; the filter hook adds the tailnet rules');
 $cpb = array('method' => 'both', 'iface' => 'opt1', 'paths' => array(array('method' => 'direct', 'address' => '10.0.0.2', 'ok' => true), array('method' => 'tailscale', 'address' => '100.64.0.2', 'ok' => false)));
 check((fleet_conn_paths(null) === array()) && (fleet_conn_paths(array('method' => 'wireguard')) === array()) && (count(fleet_conn_paths($cpb)) === 2) &&
     (fleet_conn_paths(array('method' => 'tailscale', 'address' => 'x'))[0]['method'] === 'tailscale') && (FLEET_CONN_PATHS['both'] === array('direct', 'tailscale')) &&
@@ -1550,9 +1591,11 @@ check(((int)$sdb->query('PRAGMA user_version')->fetchColumn() >= 27) && ($sdb->q
     'schema 27 has the sample tables');
 check((strpos((string)$sdb->query("SELECT sql FROM sqlite_master WHERE name = 'kiosk_keys'")->fetchColumn(), 'config') !== false),
     'schema 28: every NOC screen has its own layout');
-check(((int)$sdb->query('PRAGMA user_version')->fetchColumn() === 30) && (strpos((string)$sdb->query("SELECT sql FROM sqlite_master WHERE name = 'gw_hourly'")->fetchColumn(), 'flaps') !== false) &&
+check((strpos((string)$sdb->query("SELECT sql FROM sqlite_master WHERE name = 'gw_hourly'")->fetchColumn(), 'flaps') !== false) &&
     ((int)$sdb->query("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('gw_samples', 'gw_hourly', 'inet_state', 'inet_log')")->fetchColumn() === 4),
     'schema 29 has the internet tables');
+check(((int)$sdb->query('PRAGMA user_version')->fetchColumn() === 31) && (strpos((string)$sdb->query("SELECT sql FROM sqlite_master WHERE name = 'invitations'")->fetchColumn(), 'via_iface') !== false),
+    'schema 31: an invitation keeps how the firewall connects and the interface of a direct path');
 $sdb->exec("INSERT INTO samples (node_id, time, cpu) VALUES ('sx', 100, 5), ('sy', 100, 9)");
 $sdb->exec("INSERT INTO samples_hourly (node_id, time, n, cpu, cpu_max) VALUES ('sx', 50, 12, 4, 8)");
 check((count(fleet_samples_rows(null, 0, 200)) === 3) && (count(fleet_samples_rows(array('sx'), 0, 200)) === 2) && (fleet_samples_rows(array(), 0, 200) === array()) &&
@@ -1644,7 +1687,7 @@ $ffs = fleet_inet_fleet_stats(array('a' => array('loss' => 1.0, 'latency' => 10.
     'b' => array('loss' => 3.0, 'latency' => 30.0, 'jitter' => null, 'score' => 70, 'flaps' => 1, 'loss_min' => 5)));
 check(($ffs['loss'] === 2.0) && ($ffs['latency'] === 20.0) && ($ffs['jitter'] === 1.0) && ($ffs['score'] === 80) && ($ffs['flaps'] === 3) && ($ffs['loss_min'] === 15) &&
     (fleet_inet_fleet_stats(array())['score'] === null), 'internet: the fleet figures average the firewalls and add up flaps and minutes with loss');
-check((FLEET_DB_SCHEMA === 30) && isset(FLEET_ALERT_EVENTS['inet_down'], FLEET_ALERT_EVENTS['inet_wide'], FLEET_ALERT_EVENTS['inet_unstable'], FLEET_TUNABLES['inet_enable']) && (fleet_tunables_from(array())['inet_enable'] === false),
+check((FLEET_DB_SCHEMA >= 30) && isset(FLEET_ALERT_EVENTS['inet_down'], FLEET_ALERT_EVENTS['inet_wide'], FLEET_ALERT_EVENTS['inet_unstable'], FLEET_TUNABLES['inet_enable']) && (fleet_tunables_from(array())['inet_enable'] === false),
     'internet: schema 30, alert kinds, and the option is off by default');
 
 $kb = array(array('id' => 'a', 'label' => 'Alpha', 'state' => 'online', 'groups' => array()), array('id' => 'b', 'label' => 'Beta', 'state' => 'online', 'groups' => array()),

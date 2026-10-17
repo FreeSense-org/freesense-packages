@@ -42,7 +42,6 @@ $who = (string)($_SESSION['Username'] ?? 'admin');
 $input_errors = array();
 $savemsg = null;
 $new_invite = null;
-$new_ts_key = null;
 $new_name = null;
 $standby_code = null;
 
@@ -53,7 +52,7 @@ if (isset($_POST['reissue']) && $s['enable']) {
 	$old = $old->fetch();
 	if ($old) {
 		fleet_invite_revoke((string)$old['token_id'], $who);
-		$_POST = array('invite' => '1', 'role' => (string)$old['role'], 'label' => (string)$old['label'], 'via' => (string)($old['via'] ?? ''),
+		$_POST = array('invite' => '1', 'role' => (string)$old['role'], 'label' => (string)$old['label'], 'via' => (string)($old['via'] ?? 'tunnel'), 'via_iface' => (string)($old['via_iface'] ?? ''),
 		    'naming_group' => (string)(int)($old['group_id'] ?? 0), 'hostname' => (string)($old['hostname'] ?? ''),
 		    'hours' => (string)max(1, (int)round(((int)$old['expires'] - (int)$old['created']) / 3600)));
 	}
@@ -90,8 +89,22 @@ if (isset($_POST['save_section']) && array_key_exists((string)$_POST['save_secti
 	$tab = 'settings';
 	$host = trim((string)($_POST['public_host'] ?? ''));
 	/* Controller: kept with every other stored value (Monitoring, Backups...). */
+	$listen = array_values(array_filter(array_map('strval', (array)($_POST['listen'] ?? array())), function ($i) { return ($i === 'tailscale') || fleet_conn_iface_ok($i); }));
+	$hosts = array();
+	foreach ((array)($_POST['iface_host'] ?? array()) as $hif => $hv) {
+		$hv = trim((string)$hv);
+		if ($hv === '') {
+			continue;
+		}
+		if (!fleet_conn_iface_ok((string)$hif) || !fleet_join_valid_authority($hv)) {
+			$input_errors[] = sprintf(gettext('The address for %s is not a host name or IP address (with an optional port).'), (string)$hif);
+			continue;
+		}
+		$hosts[(string)$hif] = $hv;
+	}
 	$post = array_merge((array)config_get_path('installedpackages/fleet/config/0', array()), array('enable' => !empty($_POST['enable']) ? 'on' : '',
-	    'public_host' => $host, 'enroll_port' => (string)($_POST['enroll_port'] ?? ''), 'wg_port' => (string)($_POST['wg_port'] ?? '')));
+	    'public_host' => $host, 'enroll_port' => (string)($_POST['enroll_port'] ?? ''), 'wg_port' => (string)($_POST['wg_port'] ?? ''),
+	    'listen' => implode(',', $listen), 'iface_hosts' => empty($hosts) ? '' : json_encode($hosts), 'rules_manual' => !empty($_POST['rules_manual']) ? 'on' : ''));
 	$check = fleet_ctl_settings_from($post);
 	if ($check['enable'] && !fleet_join_valid_authority($host)) {
 		$input_errors[] = gettext('Enter the host name or IP address firewalls use to reach this controller.');
@@ -110,34 +123,32 @@ if (isset($_POST['save_section']) && array_key_exists((string)$_POST['save_secti
 			$input_errors = array_merge($input_errors, $problems);
 		}
 	}
+} elseif (isset($_POST['selfcheck_fix']) && $s['enable']) {
+	$tab = 'settings';
+	$_GET['view'] = 'selfcheck';
+	if ($_POST['selfcheck_fix'] === 'rules') {
+		fleet_access_reload();
+		$savemsg = gettext('Fleet\'s firewall rules and aliases were written again and the filter reloaded.');
+	} elseif ($_POST['selfcheck_fix'] === 'restart') {
+		$problems = fleet_sync_config();
+		$savemsg = empty($problems) ? gettext('The tunnel and the enrollment endpoint were started again.') : null;
+		$input_errors = array_merge($input_errors, $problems);
+	}
 } elseif (($_POST['invite'] ?? false) && $s['enable']) {
 	try {
-		$via = ((string)($_POST['via'] ?? '') === 'tailscale') ? 'tailscale' : '';
+		$via = (string)($_POST['via'] ?? 'tunnel');
+		$via_iface = (string)($_POST['via_iface'] ?? '');
 		$ttl = 3600 * max(1, min(720, (int)($_POST['hours'] ?? fleet_opt('invite_hours'))));
-		$authority = fleet_hostport($s['public_host'], $s['enroll_port']);
-		if ($via === 'tailscale') {
-			list($ts_problems, $ts_address) = fleet_ts_join_ready();
-			if (!empty($ts_problems)) {
-				throw new InvalidArgumentException(implode(' ', $ts_problems));
-			}
-			$authority = fleet_hostport($ts_address, $s['enroll_port']);
-		}
+		$authority = fleet_invite_authority($s, $via, $via_iface);
 		$invite_ip = trim((string)($_POST['public_ip'] ?? ''));
 		if (($invite_ip !== '') && (fleet_access_cidr($invite_ip) === null)) {
 			throw new InvalidArgumentException(gettext('The firewall\'s public address must be an IP address or network.'));
 		}
-		$new_invite = fleet_invite_create((string)($_POST['role'] ?? 'monitor'), trim((string)($_POST['label'] ?? '')), $ttl, $who, $authority, time(), $via);
+		$inv_label = trim((string)($_POST['label'] ?? ''));
+		$new_invite = fleet_invite_create((string)($_POST['role'] ?? 'monitor'), $inv_label, $ttl, $who, $authority, time(), $via,
+		    function (string $tid) use ($inv_label, $ttl, $who) { return fleet_ts_authkey_mint($inv_label, $ttl, $who, $tid); }, $via_iface);
 		if ($invite_ip !== '') {
-			fleet_access_invite_ip($new_invite[2], $invite_ip, trim((string)($_POST['label'] ?? '')), $new_invite[3]);
-		}
-		if ($via === 'tailscale') {
-			try {
-				$new_ts_key = fleet_ts_authkey_mint(trim((string)($_POST['label'] ?? '')), $ttl, $who, $new_invite[2]);
-			} catch (RuntimeException $e) {
-				fleet_invite_revoke($new_invite[2], $who);
-				$new_invite = null;
-				throw new InvalidArgumentException($e->getMessage());
-			}
+			fleet_access_invite_ip($new_invite[2], $invite_ip, $inv_label, $new_invite[3]);
 		}
 		try {
 			$new_name = fleet_invite_set_name($new_invite[2], (int)($_POST['naming_group'] ?? 0), (string)($_POST['site'] ?? ''), (string)($_POST['fw_role'] ?? ''),
@@ -566,45 +577,35 @@ if ($savemsg) {
 ?>
 <?php else: ?>
 
-<?php if ($new_invite !== null): list($link, $key, $tid, $expires) = $new_invite; ?>
+<?php if ($new_invite !== null): list($link, $key, $tid, $expires, $inv_tskey) = $new_invite; $inv_method = fleet_invite_link_parse($link)['method'] ?? 'tunnel'; ?>
 <section class="fs-fleet-block fs-fleet-invite" aria-labelledby="invite-title">
 	<h2 id="invite-title" class="fs-fleet-section-title"><?=sprintf(gettext('Invitation for %s'), htmlspecialchars(trim((string)($_POST['label'] ?? ''))))?></h2>
-	<p class="fs-fleet-lead"><?=sprintf(gettext('Valid until %s. The join key is shown only now: copy it, and send it by a different channel than the link.'), htmlspecialchars(date('Y-m-d H:i', $expires)))?></p>
+	<p class="fs-fleet-lead"><?=sprintf(gettext('Valid until %s. This is shown only now: copy it and give it to whoever sets up the firewall. It holds the join key, so send it the way you would send a password.'), htmlspecialchars(date('Y-m-d H:i', $expires)))?></p>
 <?php if (!empty($new_name[0]) || !empty($new_name[1])): ?>
 	<p><i class="fa-solid fa-tag" aria-hidden="true"></i> <?=gettext('It will be named')?> <strong class="fs-mono"><?=htmlspecialchars(trim(($new_name[0] ?: '*') . (($new_name[1] !== '') ? '.' . $new_name[1] : '')))?></strong> <?=gettext('when it joins.')?></p>
 <?php endif; ?>
-	<div class="fs-fleet-secret">
-		<span class="fs-fleet-secret-label"><?=gettext('Join link')?></span>
-		<code id="fleet-link" class="fs-fleet-secret-value"><?=htmlspecialchars($link)?></code>
-		<button type="button" class="btn btn-sm btn-outline-secondary" data-fs-copy="#fleet-link"><i class="fa-regular fa-clone icon-embed-btn" aria-hidden="true"></i><?=gettext('Copy link')?></button>
+	<div class="fs-fleet-paste">
+		<span class="fs-fleet-secret-label"><?=gettext('Copy for the firewall')?></span>
+		<pre id="fleet-paste" class="fs-fleet-paste-text"><?=htmlspecialchars(fleet_invite_paste($link, $key))?></pre>
+		<button type="button" class="btn btn-primary" data-fs-copy="#fleet-paste"><i class="fa-regular fa-clone icon-embed-btn" aria-hidden="true"></i><?=gettext('Copy')?></button>
 	</div>
-	<div class="fs-fleet-secret">
-		<span class="fs-fleet-secret-label"><?=gettext('Join key')?></span>
-		<code id="fleet-key" class="fs-fleet-secret-value fs-fleet-key"><?=htmlspecialchars($key)?></code>
-		<button type="button" class="btn btn-sm btn-outline-secondary" data-fs-copy="#fleet-key"><i class="fa-regular fa-clone icon-embed-btn" aria-hidden="true"></i><?=gettext('Copy key')?></button>
-	</div>
-<?php if ($new_ts_key !== null): ?>
-	<div class="fs-fleet-secret">
-		<span class="fs-fleet-secret-label"><?=gettext('Tailscale key')?></span>
-		<code id="fleet-tskey" class="fs-fleet-secret-value fs-fleet-key"><?=htmlspecialchars($new_ts_key)?></code>
-		<button type="button" class="btn btn-sm btn-outline-secondary" data-fs-copy="#fleet-tskey"><i class="fa-regular fa-clone icon-embed-btn" aria-hidden="true"></i><?=gettext('Copy key')?></button>
-	</div>
-	<p class="fs-fleet-hint"><?=gettext('A one-time, pre-approved Tailscale key for this firewall only. It is shown only now; it expires with the invitation.')?></p>
+	<p class="fs-fleet-hint"><?=htmlspecialchars(array(
+		'tunnel' => gettext('It connects over the Fleet tunnel (WireGuard), which the firewall sets up by itself.'),
+		'tailscale' => gettext('It connects over Tailscale: the text holds a one-time, pre-approved Tailscale key, sealed with the join key. The firewall installs Tailscale and logs in by itself; no public port is needed.'),
+		'direct' => gettext('It joins over the Fleet tunnel, then the controller reaches it directly on the internal network; the tunnel stays as the fallback.'),
+	)[$inv_method] ?? '')?></p>
 	<h3 class="h6 mt-3"><?=gettext('On the new firewall')?></h3>
 	<ol class="fs-fleet-steps">
-		<li><?=gettext('Install Tailscale: System > Package Manager > Available Packages > Tailscale.')?></li>
-		<li><?=gettext('VPN > Tailscale > Authentication: paste the Tailscale key, save; then enable Tailscale on its Settings tab. Or at the console:')?>
-			<code class="d-block mt-1">tailscale up --auth-key='&lt;Tailscale key&gt;'</code></li>
-		<li><?=sprintf(gettext('Join the fleet: console option 17, or %s, and type the join key when asked. The link uses this controller\'s tailnet address, so no public port is needed.'), '<code>freesense-join join \'&lt;link&gt;\'</code>')?></li>
-		<li><?=gettext('Approve it below when the codes match. Fleet then moves its management onto the Tailscale path by itself; the Fleet tunnel (also over the tailnet) stays as the fallback.')?></li>
+		<li><?=gettext('Open System > Fleet > Add to fleet and paste the text.')?></li>
+		<li><?=gettext('It checks the controller, connects and shows a 6-digit code. Approve it below when the same code appears here.')?></li>
 	</ol>
-<?php else: ?>
-	<ol class="fs-fleet-steps">
-		<li><?=sprintf(gettext('On the new firewall, open the console and choose option 17, or run %s.'), '<code>freesense-join join \'&lt;link&gt;\'</code>')?></li>
-		<li><?=gettext('Paste the link, then type the join key when asked.')?></li>
-		<li><?=gettext('The firewall shows a 6-digit code. Approve it below when the same code appears here.')?></li>
-	</ol>
-<?php endif; ?>
+	<details class="fs-fleet-manual"><summary><?=gettext('Without the web interface')?></summary>
+		<p class="mb-1"><?=sprintf(gettext('At the console choose option 17, or run %s, and type the join key when asked:'), '<code>freesense-join join \'&lt;link&gt;\'</code>')?></p>
+		<div class="fs-fleet-secret"><span class="fs-fleet-secret-label"><?=gettext('Join link')?></span><code id="fleet-link" class="fs-fleet-secret-value"><?=htmlspecialchars($link)?></code>
+			<button type="button" class="btn btn-sm btn-outline-secondary" data-fs-copy="#fleet-link"><i class="fa-regular fa-clone icon-embed-btn" aria-hidden="true"></i><?=gettext('Copy link')?></button></div>
+		<div class="fs-fleet-secret"><span class="fs-fleet-secret-label"><?=gettext('Join key')?></span><code id="fleet-key" class="fs-fleet-secret-value fs-fleet-key"><?=htmlspecialchars($key)?></code>
+			<button type="button" class="btn btn-sm btn-outline-secondary" data-fs-copy="#fleet-key"><i class="fa-regular fa-clone icon-embed-btn" aria-hidden="true"></i><?=gettext('Copy key')?></button></div>
+	</details>
 </section>
 <?php endif; ?>
 
@@ -636,14 +637,29 @@ if ($savemsg) {
 	<h2 id="add-title" class="fs-fleet-section-title"><?=gettext('Add a firewall')?></h2>
 	<p class="fs-fleet-lead"><?=gettext('Creates a join link and key for one firewall. It must be able to reach this controller on the enrollment and tunnel ports.')?></p>
 	<form method="post" class="fs-fleet-form">
-<?php list($ts_join_problems, $ts_join_address) = fleet_ts_join_ready(); ?>
-		<fieldset class="fs-fleet-field fs-fleet-field--full"><legend class="form-label"><?=gettext('The new firewall reaches this controller')?></legend>
-			<label class="form-check"><input class="form-check-input" type="radio" name="via" value="" checked/> <span class="form-check-label"><?=gettext('Over the internet (the Fleet tunnel: needs the public address and ports in Settings)')?></span></label>
-			<label class="form-check"><input class="form-check-input" type="radio" name="via" value="tailscale"<?=empty($ts_join_problems) ? '' : ' disabled'?>/> <span class="form-check-label"><?=gettext('Over Tailscale (no public port: Fleet creates a one-time Tailscale key)')?></span></label>
-<?php if (!empty($ts_join_problems)): ?>
-			<div class="form-text"><?=htmlspecialchars(implode(' ', array_map('gettext', $ts_join_problems)))?></div>
-<?php else: ?>
-			<div class="form-text"><?=htmlspecialchars(sprintf(gettext('Ready: this controller is %s in the tailnet and the API token works.'), $ts_join_address))?></div>
+<?php
+	list($ts_join_problems, $ts_join_address) = fleet_ts_join_ready();
+	$inv_ifaces = array_diff_key(get_configured_interface_with_descr(), array('wan' => 1));
+	$inv_rec = fleet_invite_recommend(json_decode((string)fleet_setting('access_check', '{}'), true) ?: array(), empty($ts_join_problems), $s['public_host'] !== '');
+	$inv_ways = array(
+		'tunnel' => array(gettext('Fleet tunnel (WireGuard)'), gettext('Over the internet: needs the public address and the two ports (Settings > Controller).'), true),
+		'tailscale' => array(gettext('Tailscale'), empty($ts_join_problems) ? sprintf(gettext('No public port: the firewall installs Tailscale and joins this controller at %s in the tailnet.'), $ts_join_address) :
+		    implode(' ', array_map('gettext', $ts_join_problems)), empty($ts_join_problems)),
+		'direct' => array(gettext('Direct'), gettext('The firewall and this controller share an internal network (LAN, MPLS, VPN): it joins there, no internet port needed.'), !empty($inv_ifaces)),
+	);
+?>
+		<fieldset class="fs-fleet-field fs-fleet-field--full fs-fleet-ways"><legend class="form-label"><?=gettext('How the new firewall connects')?></legend>
+<?php foreach ($inv_ways as $wk => list($wt, $wh, $wok)): ?>
+			<label class="fs-fleet-way<?=$wok ? '' : ' is-off'?>"><input class="form-check-input" type="radio" name="via" value="<?=$wk?>"<?=($wk === $inv_rec) ? ' checked' : ''?><?=$wok ? '' : ' disabled'?>/>
+				<span><strong><?=htmlspecialchars($wt)?></strong><?=($wk === $inv_rec) ? ' ' . fs_badge('pass', gettext('Recommended')) : ''?><span class="fs-fleet-hint d-block"><?=htmlspecialchars($wh)?></span></span></label>
+<?php endforeach; ?>
+<?php if (!empty($inv_ifaces)): ?>
+			<div class="fs-fleet-field mt-2" data-fleet-direct><label class="form-label" for="via_iface"><?=gettext('Internal network (direct)')?></label>
+				<select class="form-select" id="via_iface" name="via_iface">
+<?php foreach ($inv_ifaces as $ik => $idescr): ?>
+					<option value="<?=htmlspecialchars($ik)?>"><?=htmlspecialchars($idescr . ' (' . (get_interface_ip($ik) ?: gettext('no address')) . ')')?></option>
+<?php endforeach; ?>
+				</select></div>
 <?php endif; ?>
 		</fieldset>
 		<div class="fs-fleet-field fs-fleet-field--wide"><label class="form-label" for="label"><?=gettext('Name')?></label>
@@ -700,7 +716,7 @@ if ($savemsg) {
 		<thead><tr><th><?=gettext('Name')?></th><th><?=gettext('Access')?></th><th><?=gettext('Valid until')?></th><th><?=gettext('Wrong keys')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
 		<tbody>
 <?php foreach ($invites as $i): ?>
-		<tr><td><?=htmlspecialchars($i['label'])?><?=(($i['via'] ?? '') === 'tailscale') ? ' ' . fs_badge('neutral', gettext('Over Tailscale')) : ''?></td><td><?=htmlspecialchars($role_name($i['role']))?></td>
+		<tr><td><?=htmlspecialchars($i['label'])?><?=' ' . fs_badge('neutral', array('tunnel' => gettext('Fleet tunnel'), 'tailscale' => gettext('Tailscale'), 'direct' => gettext('Direct'))[$i['via'] ?? 'tunnel'] ?? gettext('Fleet tunnel'))?></td><td><?=htmlspecialchars($role_name($i['role']))?></td>
 			<td><?=htmlspecialchars(date('Y-m-d H:i', (int)$i['expires']))?></td>
 			<td><?=((int)$i['failures'] > 0) ? fs_badge('warn', (int)$i['failures'] . ' / ' . fleet_opt('invite_failures')) : '<span class="fs-muted">0</span>'?></td>
 			<td class="text-end text-nowrap"><form method="post" class="d-inline"><button class="btn btn-sm btn-link" name="reissue" value="<?=htmlspecialchars($i['token_id'])?>"
@@ -722,6 +738,7 @@ if ($savemsg) {
 		'actions' => gettext('Reboots, backups and restores started from Fleet: how long results stay visible and when you are told.'),
 		'backups' => gettext('Central backups of each firewall\'s configuration, taken every night and when it changes.'),
 		'advanced' => gettext('Values you rarely need to change. The defaults suit most fleets.'),
+		'selfcheck' => gettext('Everything firewalls need to reach and trust this controller, checked now. Where Fleet can repair something safely, there is a button.'),
 		'access' => gettext('Firewalls reach this controller on two public ports. Fleet checks they answer from outside, and lets in anyone or only the allowed list.'),
 		'standby' => gettext('A second FreeSense with the Fleet package keeps a verified, encrypted copy of this controller and can take over. Firewalls learn its address automatically, also ones that join later, and move to it by themselves when it takes over.'),
 	);
@@ -962,6 +979,27 @@ if ($savemsg) {
 </div>
 </form>
 <?php endif; ?>
+<?php elseif ($set_view === 'selfcheck'):
+	$sc = fleet_selfcheck($s);
+	$sc_badge = array('pass' => array('pass', gettext('OK')), 'warn' => array('warn', gettext('Check')), 'block' => array('block', gettext('Problem')), 'info' => array('neutral', gettext('Not checked')));
+?>
+<div class="panel panel-default">
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Self-check')?></h2>
+		<form method="post" action="?tab=settings&amp;view=access" class="ms-auto"><button class="btn btn-sm btn-outline-secondary" type="submit" name="access_action" value="check"><i class="fa-solid fa-satellite-dish icon-embed-btn" aria-hidden="true"></i><?=gettext('Test the ports from outside')?></button></form></div>
+	<div class="panel-body fs-fleet-pad">
+		<p class="fs-fleet-lead"><?=htmlspecialchars($set_leads['selfcheck'])?></p>
+		<ul class="fs-fleet-checklist">
+<?php foreach ($sc as $item): list($bk, $bt) = $sc_badge[$item['state']]; ?>
+			<li class="fs-fleet-check"><span class="fs-fleet-check-state"><?=fs_badge($bk, $bt)?></span>
+				<span class="fs-fleet-check-body"><strong><?=htmlspecialchars($item['title'])?></strong><span class="fs-fleet-hint d-block"><?=htmlspecialchars($item['text'])?></span></span>
+<?php if (($item['fix'] ?? '') !== ''): ?>
+				<form method="post" action="?tab=settings&amp;view=selfcheck"><button class="btn btn-sm btn-outline-secondary" name="selfcheck_fix" value="<?=htmlspecialchars($item['fix'])?>"><?=htmlspecialchars($item['fix_label'])?></button></form>
+<?php endif; ?>
+			</li>
+<?php endforeach; ?>
+		</ul>
+	</div>
+</div>
 <?php elseif ($set_view !== 'controller'): ?>
 <form method="post" action="?tab=settings&amp;view=<?=htmlspecialchars($set_view)?>">
 <div class="panel panel-default">
@@ -1014,13 +1052,34 @@ if ($savemsg) {
 	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Controller')?></h2></div>
 	<div class="panel-body fs-fleet-pad">
 	<p class="fs-fleet-lead"><?=htmlspecialchars($set_leads['controller'])?></p>
+<?php
+	$ctl_ifaces = get_configured_interface_with_descr();
+	$wan_ip = (string)(get_interface_ip('wan') ?: '');
+	$first_run = !$s['enable'] && ($s['public_host'] === '');
+	list($ctl_ts_problems, $ctl_ts_addr) = fleet_ts_join_ready();
+	$rule_ifaces = empty($s['listen']) ? array_keys($ctl_ifaces) : array_values(array_intersect($s['listen'], array_keys($ctl_ifaces)));
+?>
+<?php if ($first_run): ?>
+	<div class="fs-fleet-guide">
+		<h3 class="h6"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> <?=gettext('Set up this controller')?></h3>
+		<ol class="fs-fleet-steps">
+			<li><?=($wan_ip !== '') ? sprintf(gettext('The address firewalls use: Fleet found %s on WAN and filled it in. Use a DNS name instead if you have one, or the address of a port forward to this firewall.'), '<strong class="fs-mono">' . htmlspecialchars($wan_ip) . '</strong>') :
+			    gettext('The address firewalls use: a public IP address or DNS name of this firewall, or of a port forward to it.')?></li>
+			<li><?=gettext('The ports: TCP 8443 for joining and UDP 51830 for the tunnel are fine for most networks.')?></li>
+			<li><?=gettext('Where firewalls connect: every interface, or only the ones you tick. Fleet adds the firewall rules for them itself (shown locked under Firewall > Rules > Floating) and removes them when you untick an interface or switch Fleet off.')?></li>
+			<li><?=empty($ctl_ts_problems) ? sprintf(gettext('Tailscale is ready (%s): firewalls can also join over the tailnet, with no public port.'), htmlspecialchars($ctl_ts_addr)) :
+			    gettext('Tailscale (optional): firewalls can join over a tailnet without a public port once Tailscale runs here and an API token is set (Firewalls > Connections).')?></li>
+			<li><?=gettext('Switch it on and save. Then Settings > Self-check shows whether firewalls can reach it.')?></li>
+		</ol>
+	</div>
+<?php endif; ?>
 	<div class="fs-fleet-settings">
 		<div class="form-check form-switch">
 			<input class="form-check-input" type="checkbox" role="switch" id="enable" name="enable" <?=$s['enable'] ? 'checked' : ''?>/>
 			<label class="form-check-label" for="enable"><?=gettext('Run this firewall as a FreeSense Fleet controller')?></label>
 		</div>
 		<div class="fs-fleet-field"><label class="form-label" for="public_host"><?=gettext('Address firewalls use to reach this controller')?></label>
-			<input class="form-control" id="public_host" name="public_host" value="<?=htmlspecialchars($s['public_host'])?>" placeholder="fleet.example.net" aria-describedby="host-help"/>
+			<input class="form-control" id="public_host" name="public_host" value="<?=htmlspecialchars(($s['public_host'] === '') ? $wan_ip : $s['public_host'])?>" placeholder="fleet.example.net" aria-describedby="host-help"/>
 			<div id="host-help" class="fs-fleet-hint"><?=gettext('A public IP address or DNS name, or the address of a port forward to this firewall.')?></div></div>
 		<div class="fs-fleet-ports">
 			<div class="fs-fleet-field"><label class="form-label" for="enroll_port"><?=gettext('Enrollment port (TCP)')?></label>
@@ -1028,6 +1087,36 @@ if ($savemsg) {
 			<div class="fs-fleet-field"><label class="form-label" for="wg_port"><?=gettext('Tunnel port (UDP)')?></label>
 				<input class="form-control" id="wg_port" name="wg_port" inputmode="numeric" value="<?=(int)$s['wg_port']?>"/></div>
 		</div>
+		<fieldset class="fs-fleet-listen"><legend class="form-label"><?=gettext('Firewalls connect on')?></legend>
+			<p class="fs-fleet-hint mt-0"><?=gettext('Tick none for every interface. The enrollment endpoint listens only on the ticked interfaces\' addresses, and Fleet opens the two ports only there.')?></p>
+			<div class="table-responsive"><table class="table fs-table">
+				<thead><tr><th><?=gettext('Interface')?></th><th><?=gettext('Its address')?></th><th><?=gettext('Address firewalls use there')?> <span class="fs-muted small"><?=gettext('(optional)')?></span></th></tr></thead>
+				<tbody>
+<?php foreach ($ctl_ifaces + array('tailscale' => gettext('Tailscale (tailnet)')) as $lk => $ldescr):
+	$laddr = ($lk === 'tailscale') ? (string)($ctl_ts_addr ?? '') : (string)(get_interface_ip($lk) ?: ''); ?>
+				<tr><td><label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="listen[]" value="<?=htmlspecialchars($lk)?>"<?=in_array($lk, $s['listen'], true) ? ' checked' : ''?>/>
+					<span class="form-check-label"><?=htmlspecialchars($ldescr)?></span></label></td>
+					<td class="fs-mono small"><?=($laddr !== '') ? htmlspecialchars($laddr) : '<span class="fs-muted">-</span>'?></td>
+					<td><?php if ($lk !== 'tailscale'): ?><input class="form-control form-control-sm fs-mono" name="iface_host[<?=htmlspecialchars($lk)?>]" value="<?=htmlspecialchars($s['iface_hosts'][$lk] ?? '')?>"
+					    placeholder="<?=htmlspecialchars(($laddr !== '') ? fleet_hostport($laddr, $s['enroll_port']) : '')?>" aria-label="<?=htmlspecialchars(sprintf(gettext('Address firewalls use on %s'), $ldescr))?>"/><?php endif; ?></td></tr>
+<?php endforeach; ?>
+				</tbody></table></div>
+		</fieldset>
+		<div class="form-check form-switch">
+			<input class="form-check-input" type="checkbox" role="switch" id="rules_manual" name="rules_manual" <?=$s['rules_manual'] ? 'checked' : ''?>/>
+			<label class="form-check-label" for="rules_manual"><?=gettext('Let me manage the firewall rules myself')?></label>
+		</div>
+<?php if ($s['rules_manual']): ?>
+		<div class="fs-fleet-note"><?=gettext('Fleet adds no rules. Open these yourself:')?>
+			<ul class="mb-0">
+				<li><?=htmlspecialchars(sprintf(gettext('TCP %1$d to this firewall (joining), on %2$s'), $s['enroll_port'], implode(', ', $rule_ifaces) ?: gettext('the interfaces firewalls use')))?></li>
+				<li><?=htmlspecialchars(sprintf(gettext('UDP %1$d to this firewall (tunnel), on the same interfaces'), $s['wg_port']))?></li>
+			</ul>
+			<?=gettext('Then use Settings > Self-check, "Test the ports from outside".')?></div>
+<?php elseif ($s['enable']): ?>
+		<p class="fs-fleet-hint"><?=sprintf(gettext('Fleet keeps 4 rules under %1$s (locked; change them here) and the aliases FleetEnroll, FleetTunnel and FleetBlocked, for: %2$s.'),
+		    '<a href="/firewall_rules.php?if=FloatingRules">' . gettext('Firewall > Rules > Floating') . '</a>', htmlspecialchars(implode(', ', $rule_ifaces)))?></p>
+<?php endif; ?>
 <?php if ($ready && !fleet_data_on_zfs()): ?>
 		<div class="fs-fleet-note"><?=fs_badge('warn', gettext('No rollback'))?> <?=gettext('This controller runs on UFS. Fleet works, but a failed update of this controller cannot roll back automatically. ZFS is recommended for the controller.')?></div>
 <?php endif; ?>
