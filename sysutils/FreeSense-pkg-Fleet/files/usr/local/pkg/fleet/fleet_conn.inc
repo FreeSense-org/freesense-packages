@@ -435,6 +435,16 @@ function fleet_conn_open_path(array $box, callable $tunnel, string $key, array $
 	if (($method === 'tailscale') && function_exists('fleet_ts_devices')) {
 		try {
 			$d = fleet_ts_device_for((array)fleet_ts_devices(true), $address);
+			/* Key expiry would drop the path months later: turn it off now (a setting). */
+			if (($d !== null) && fleet_ts_expiry_should_disable($d, (bool)fleet_opt('ts_expiry_auto'))) {
+				list($code) = fleet_ts_api('POST', '/device/' . rawurlencode((string)$d['id']) . '/key', array('keyExpiryDisabled' => true));
+				if (($code >= 200) && ($code < 300)) {
+					$d['keyExpiryDisabled'] = true;
+					fleet_setting_set('tailscale_devices', '');
+					fleet_audit($who, 'connections', "{$box['label']}: Tailscale key expiry turned off for device " . (string)($d['name'] ?? $d['id']));
+					$note .= ' Tailscale key expiry was turned off for it.';
+				}
+			}
 			foreach (($d === null) ? array() : fleet_ts_device_problems($d, $now) as $p) {
 				$note .= ' ' . ltrim($p[0] . ': ' . $p[2], ': ');
 			}

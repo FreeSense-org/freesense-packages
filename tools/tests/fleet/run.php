@@ -1737,4 +1737,7 @@ check((fleet_trends_group_ids(0) === array()) && (fleet_trends_group_ids(3) === 
     'charts for a screen with several groups use the firewalls of all of them');
 check(fleet_kiosk_config_parse(array('group_rows' => '1'))['group_rows'] && !fleet_kiosk_config_parse(array())['group_rows'], 'the grouped list is a setting, off by default');
 
+check(fleet_ts_expiry_should_disable(array('id' => 'd1', 'keyExpiryDisabled' => false), true) && !fleet_ts_expiry_should_disable(array('id' => 'd1', 'keyExpiryDisabled' => true), true) &&
+    !fleet_ts_expiry_should_disable(array('id' => 'd1'), false) && !fleet_ts_expiry_should_disable(array(), true), 'Tailscale key expiry is turned off by itself only when the setting is on and it is on');
+
 echo "Fleet controller tests: OK\n";
