@@ -114,15 +114,20 @@ if (($kconf !== null) && $manage):
 	$h = function ($s) { return htmlspecialchars((string)$s); };
 	$chk = function (bool $on) { return $on ? ' checked' : ''; };
 	$groups = fleet_groups_all();
+	$ksections = array('layout' => gettext('Layout'), 'list' => gettext('Firewall list'), 'panels' => gettext('Panels'), 'sound' => gettext('Sound'));
+	$ksec = fs_view_param(array_keys($ksections), 'layout', 'section');
+	/* One section at a time; the others stay in the form, so saving still sends every value. */
+	$tab = function (string $name) use ($ksec) { return ' data-tab-panel="' . $name . '"' . (($name === $ksec) ? '' : ' hidden'); };
 ?>
 <p><a class="fs-fleet-back" href="/fleet/fleet_kiosks.php"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i><?=gettext('NOC screens')?></a></p>
 <section class="fs-fleet-area">
 	<header class="fs-fleet-area-head"><span class="fs-fleet-area-icon"><i class="fa-solid fa-sliders" aria-hidden="true"></i></span>
 		<div><h2><?=$h(sprintf(gettext('Layout of %s'), $cname))?></h2><p><?=gettext('On the left, panels with the state of the fleet, its HA pairs and the fleet server, and charts; on the right, the firewall list. Each side turns its pages by itself when it does not fit. A problem always comes first.')?></p></div></header>
 </section>
-<form method="post" action="?config=<?=$h($kconf)?>" class="fs-fleet-kcfg">
+<div data-fleet-tabs-switch><?php fs_view_switch($ksections, $ksec, 'section'); ?></div>
+<form method="post" action="?config=<?=$h($kconf)?>&amp;section=<?=$h($ksec)?>" class="fs-fleet-kcfg" data-fleet-tabs>
 	<input type="hidden" name="save_config" value="1"/>
-	<div class="panel panel-default">
+	<div class="panel panel-default"<?=$tab('layout')?>>
 		<div class="panel-heading"><h2 class="panel-title"><?=gettext('Layout')?></h2></div>
 		<div class="panel-body fs-fleet-pad">
 			<div class="row g-3 mb-3">
@@ -158,7 +163,7 @@ if (($kconf !== null) && $manage):
 		</div>
 	</div>
 
-	<div class="panel panel-default">
+	<div class="panel panel-default"<?=$tab('list')?>>
 		<div class="panel-heading"><h2 class="panel-title"><?=gettext('Firewall list')?></h2></div>
 		<div class="panel-body fs-fleet-pad">
 			<fieldset class="mb-3"><legend class="form-label"><?=gettext('Columns')?></legend>
@@ -205,36 +210,44 @@ if (($kconf !== null) && $manage):
 		</div>
 	</div>
 
-	<div class="panel panel-default">
+	<div class="panel panel-default"<?=$tab('panels')?>>
 		<div class="panel-heading"><h2 class="panel-title"><?=gettext('Panels')?></h2></div>
-		<div class="panel-body table-responsive"><table class="table fs-table">
-			<thead><tr><th><?=gettext('Show')?></th><th><?=gettext('Panel')?></th><th><?=gettext('Order')?></th></tr></thead>
-			<tbody>
+		<div class="panel-body fs-fleet-pad">
+			<p class="fs-fleet-hint"><?=gettext('Tick the panels to show and put them in order: drag a row, or use the arrows. Panels that do not fit go on the next page.')?></p>
+			<ol class="fs-fleet-order-list" data-fleet-order>
 <?php
 	$order = array_flip($kcfg['panels']);
 	$ids = array_keys(FLEET_KIOSK_PANELS);
 	usort($ids, function ($a, $b) use ($order) { return array($order[$a] ?? 99, $a) <=> array($order[$b] ?? 99, $b); });
-	foreach ($ids as $i => $k):
+	foreach ($ids as $i => $k): $pname = gettext(FLEET_KIOSK_PANELS[$k][0]);
 ?>
-			<tr><td><input class="form-check-input" type="checkbox" id="kp-<?=$k?>" name="panels[]" value="<?=$k?>"<?=$chk(isset($order[$k]))?>/></td>
-				<td><label for="kp-<?=$k?>"><?=$h(gettext(FLEET_KIOSK_PANELS[$k][0]))?></label><?=(FLEET_KIOSK_PANELS[$k][1] === 2) ? ' <span class="fs-muted small">' . gettext('(tall)') . '</span>' : ''?></td>
-				<td><input class="form-control form-control-sm fs-fleet-order" type="number" min="1" max="99" name="order[<?=$k?>]" value="<?=$i + 1?>" aria-label="<?=$h(sprintf(gettext('Order of %s'), FLEET_KIOSK_PANELS[$k][0]))?>"/></td></tr>
+				<li draggable="true" data-name="<?=$h($pname)?>">
+					<i class="fa-solid fa-grip-vertical fs-fleet-order-grip" aria-hidden="true"></i>
+					<label class="form-check mb-0"><input class="form-check-input" type="checkbox" id="kp-<?=$k?>" name="panels[]" value="<?=$k?>"<?=$chk(isset($order[$k]))?>/>
+						<span class="form-check-label"><?=$h($pname)?><?=(FLEET_KIOSK_PANELS[$k][1] === 2) ? ' <span class="fs-muted small">' . gettext('(tall)') . '</span>' : ''?></span></label>
+					<input type="hidden" name="order[<?=$k?>]" value="<?=$i + 1?>"/>
+					<span class="fs-fleet-order-move">
+						<button type="button" class="btn btn-sm btn-link" data-move="-1" aria-label="<?=$h(sprintf(gettext('Move %s up'), $pname))?>"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button>
+						<button type="button" class="btn btn-sm btn-link" data-move="1" aria-label="<?=$h(sprintf(gettext('Move %s down'), $pname))?>"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i></button>
+					</span>
+				</li>
 <?php endforeach; ?>
-			</tbody></table></div>
-		<div class="panel-body fs-fleet-pad pt-0"><div class="row g-3">
-			<div class="col-sm-4"><label class="form-label" for="kpflip"><?=gettext('Next panels every')?></label>
-				<div class="input-group"><input class="form-control" type="number" id="kpflip" name="panel_flip" min="5" max="300" value="<?=(int)$kcfg['panel_flip']?>"/><span class="input-group-text"><?=gettext('seconds')?></span></div></div>
-			<div class="col-sm-4"><label class="form-label" for="krange"><?=gettext('Charts show')?></label>
-				<select class="form-select" id="krange" name="range">
+			</ol>
+			<p class="visually-hidden" aria-live="polite" data-fleet-order-live></p>
+			<div class="row g-3 mt-1">
+				<div class="col-sm-4"><label class="form-label" for="kpflip"><?=gettext('Next panels every')?></label>
+					<div class="input-group"><input class="form-control" type="number" id="kpflip" name="panel_flip" min="5" max="300" value="<?=(int)$kcfg['panel_flip']?>"/><span class="input-group-text"><?=gettext('seconds')?></span></div></div>
+				<div class="col-sm-4"><label class="form-label" for="krange"><?=gettext('Charts show')?></label>
+					<select class="form-select" id="krange" name="range">
 <?php foreach (FLEET_KIOSK_RANGES as $k => $t): ?>
-					<option value="<?=$k?>"<?=($kcfg['range'] === $k) ? ' selected' : ''?>><?=$h(gettext($t))?></option>
+						<option value="<?=$k?>"<?=($kcfg['range'] === $k) ? ' selected' : ''?>><?=$h(gettext($t))?></option>
 <?php endforeach; ?>
-				</select></div>
+					</select></div>
+			</div>
 		</div>
-		<p class="fs-fleet-hint"><?=gettext('Panels that do not fit go on the next page. Lower numbers come first.')?></p></div>
 	</div>
 
-	<div class="panel panel-default">
+	<div class="panel panel-default"<?=$tab('sound')?>>
 		<div class="panel-heading"><h2 class="panel-title"><?=gettext('Sound')?></h2></div>
 		<div class="panel-body fs-fleet-pad">
 			<label class="form-check mb-2"><input class="form-check-input" type="checkbox" name="sound" value="1"<?=$chk($kcfg['sound'])?>/>
@@ -255,6 +268,7 @@ if (($kconf !== null) && $manage):
 		<button class="btn btn-primary" type="submit"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save layout')?></button>
 	</div>
 </form>
+<script src="/fleet/assets/fleet-tabs.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-tabs.js')?>"></script>
 <?php
 	include('foot.inc');
 	exit;

@@ -1218,3 +1218,14 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 .fs-fleet-order-move .btn { padding: .1rem .4rem; color: var(--fs-text-muted); }
 .fs-fleet-order-move .btn:disabled { visibility: hidden; }
 [data-fleet-tabs-switch] { margin-bottom: var(--fs-sp-3); }
+
+/* Ordered list of panels (NOC screen layout): drag a row or use the arrows. */
+.fs-fleet-order-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--fs-border); border-radius: var(--fs-r-md); max-width: 40rem; }
+.fs-fleet-order-list li { display: flex; align-items: center; gap: var(--fs-sp-2); padding: .3rem .6rem; border-top: 1px solid var(--fs-border); }
+.fs-fleet-order-list li:first-child { border-top: 0; }
+.fs-fleet-order-list li.is-dragging { opacity: .5; }
+.fs-fleet-order-grip { color: var(--fs-text-muted); cursor: grab; }
+.fs-fleet-order-move { margin-left: auto; display: flex; }
+.fs-fleet-order-move .btn { padding: .1rem .4rem; color: var(--fs-text-muted); }
+.fs-fleet-order-move .btn:disabled { visibility: hidden; }
+[data-fleet-tabs-switch] { margin-bottom: var(--fs-sp-3); }
