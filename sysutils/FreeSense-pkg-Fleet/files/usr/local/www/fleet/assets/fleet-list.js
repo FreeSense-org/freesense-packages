@@ -8,16 +8,36 @@
 (function () {
 	'use strict';
 
+	/* A page may load this twice (its own tag and the filter bar's): run once. */
+	if (window.fsFleetList) {
+		return;
+	}
+	window.fsFleetList = true;
+
 	Array.prototype.forEach.call(document.querySelectorAll('[data-fleet-filters]'), function (form) {
+		form.classList.add('is-live');
+		/* Leave empty choices out of the address (?group=1, not ?q=&state=&group=1). */
+		function go() {
+			Array.prototype.forEach.call(form.elements, function (el) {
+				if (el.name && (el.value === '')) {
+					el.disabled = true;
+				}
+			});
+			form.submit();
+		}
+		/* Back to this page from the browser's cache: the fields left out above must work again. */
+		window.addEventListener('pageshow', function () {
+			Array.prototype.forEach.call(form.elements, function (el) { el.disabled = false; });
+		});
 		Array.prototype.forEach.call(form.querySelectorAll('select'), function (s) {
-			s.addEventListener('change', function () { form.submit(); });
+			s.addEventListener('change', go);
 		});
 		var q = form.querySelector('input[name="q"]');
 		var timer = null;
 		if (q) {
 			q.addEventListener('input', function () {
 				clearTimeout(timer);
-				timer = setTimeout(function () { form.submit(); }, 600);
+				timer = setTimeout(go, 600);
 			});
 			/* Back at the end of what was typed after the page reloads. */
 			if (q.value !== '' && new URLSearchParams(window.location.search).has('q')) {

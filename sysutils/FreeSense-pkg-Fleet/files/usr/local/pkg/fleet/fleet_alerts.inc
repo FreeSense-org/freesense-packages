@@ -256,7 +256,7 @@ function fleet_alert_channel_save(?int $id, array $in, string $who): int {
 			throw new InvalidArgumentException(sprintf('Fill in "%s".', $label));
 		}
 		if (($field === 'url') && !fleet_alert_url_ok($v)) {
-			throw new InvalidArgumentException('The address starts with https:// and has no spaces.');
+			throw new InvalidArgumentException('The address starts with https:// (http:// only in a lab; it is sent unencrypted) and has no spaces.');
 		}
 		if (($field === 'chat') && !preg_match('/^-?\d{1,20}$|^@[A-Za-z0-9_]{4,64}$/D', $v)) {
 			throw new InvalidArgumentException('A Telegram chat id is a number (or @channelname).');
@@ -373,8 +373,29 @@ function fleet_alert_send_pinned(string $url, array $headers, string $body, stri
 	if ($code !== 0) {
 		return "The service answered HTTP {$code}";
 	}
-	/* Never echo the address: it may hold a token. */
-	return (stripos($err, 'fingerprint') !== false) ? 'The receiver\'s certificate does not match the trusted fingerprint' : 'Could not connect';
+	/* PHP reports a fingerprint mismatch as an unknown connect error: read the certificate the receiver shows. Never echo the address: it may hold a token. */
+	$seen = fleet_alert_peer_sha256($url);
+	if (($seen !== null) && !hash_equals($pin, $seen)) {
+		return 'The receiver\'s certificate does not match the trusted fingerprint (it shows ' . implode(':', str_split(strtoupper($seen), 2)) . ')';
+	}
+	return 'Could not connect' . (($err !== '') ? ' (' . preg_replace('~\S+://\S+~', 'the receiver', $err) . ')' : '');
+}
+
+/* The SHA-256 fingerprint (lower-case hex) of the certificate an https receiver shows, or null when it cannot be reached. Nothing is sent. */
+function fleet_alert_peer_sha256(string $url): ?string {
+	$p = parse_url($url);
+	if (!isset($p['host'])) {
+		return null;
+	}
+	$ctx = stream_context_create(array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'capture_peer_cert' => true,
+	    'SNI_enabled' => true, 'peer_name' => trim($p['host'], '[]'))));
+	$s = @stream_socket_client('ssl://' . $p['host'] . ':' . (int)($p['port'] ?? 443), $no, $msg, 5, STREAM_CLIENT_CONNECT, $ctx);
+	if ($s === false) {
+		return null;
+	}
+	$cert = stream_context_get_params($s)['options']['ssl']['peer_certificate'] ?? null;
+	fclose($s);
+	return ($cert !== null) ? (string)openssl_x509_fingerprint($cert, 'sha256') : null;
 }
 
 /* What an alert looks like when it is sent. */

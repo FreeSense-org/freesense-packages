@@ -34,8 +34,9 @@
 require_once('guiconfig.inc');
 require_once('fleet.inc');
 
-$pgtitle = array(gettext('System'), gettext('FreeSense Fleet'));
 $tab = (($_REQUEST['tab'] ?? '') === 'settings') ? 'settings' : 'firewalls';
+/* Same trail as the other Fleet pages. */
+$pgtitle = array(gettext('Status'), gettext('FreeSense Fleet'), ($tab === 'settings') ? gettext('Settings') : gettext('Firewalls'));
 $s = fleet_ctl_settings();
 $who = (string)($_SESSION['Username'] ?? 'admin');
 $input_errors = array();

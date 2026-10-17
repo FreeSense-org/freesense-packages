@@ -202,6 +202,12 @@ function fleet_list_filterbar(array $base, array $f, array $selects, string $sea
 	if (!empty($f)) {
 		$h .= '<a class="btn btn-sm btn-link" href="' . htmlspecialchars(fleet_list_url($base, array(), array())) . '">' . gettext('Clear filters') . '</a>';
 	}
+	/* The bar needs fleet-list.js; bring it along once so no page forgets it. */
+	static $script = false;
+	if (!$script) {
+		$script = true;
+		$h .= '<script src="/fleet/assets/fleet-list.js?v=' . (int)@filemtime('/usr/local/www/fleet/assets/fleet-list.js') . '" defer></script>';
+	}
 	return $h . '</form>';
 }
 

@@ -599,13 +599,17 @@ fieldset.fs-fleet-field legend { float: none; width: auto; font-size: inherit; }
 	gap: var(--fs-sp-2);
 	margin-bottom: var(--fs-sp-3);
 }
-.fs-fleet-filterbar .form-select { width: auto; min-width: 9rem; }
-.fs-fleet-search { position: relative; flex: 1 1 16rem; max-width: 24rem; }
+.fs-fleet-filterbar .form-select { width: auto; min-width: 8rem; }
+/* A plain search box (no icon) sits on the line with its button, not above it. */
+.fs-fleet-filterbar > .form-control { flex: 1 1 16rem; width: auto; max-width: 24rem; }
+/* The filters apply as they change (fleet-list.js); the button is only for browsers without JavaScript. */
+.fs-fleet-filterbar.is-live > button[type="submit"] { display: none; }
+.fs-fleet-search { position: relative; flex: 1 1 12rem; max-width: 24rem; }
 .fs-fleet-search i { position: absolute; top: 50%; left: 0.6rem; transform: translateY(-50%); color: var(--fs-text-muted); pointer-events: none; }
 .fs-fleet-search .form-control { padding-left: 2rem; }
 .fs-fleet-pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--fs-sp-2); font-variant-numeric: tabular-nums; }
 @media (max-width: 720px) {
-	.fs-fleet-search { max-width: none; flex-basis: 100%; }
+	.fs-fleet-search, .fs-fleet-filterbar > .form-control { max-width: none; flex-basis: 100%; }
 	.fs-fleet-filterbar .form-select { flex: 1 1 8rem; }
 }
 
@@ -835,6 +839,8 @@ a.fs-fleet-tile-link:hover, a.fs-fleet-tile-link:focus-visible { border-color: v
 .fs-fleet-callout > i { color: var(--fs-info); margin-top: .2rem; }
 .fs-fleet-rcard-actions { display: flex; flex-wrap: wrap; gap: 0; margin: auto -.5rem -.25rem; }
 .fs-fleet-off { opacity: .65; }
+/* The alert channel dialog lists every kind of alert: two columns keep it on one screen. */
+#chan-modal .modal-dialog { max-width: min(46rem, calc(100vw - 2rem)); }
 .fs-fleet-checkgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .25rem var(--fs-sp-3); }
 .fs-fleet-keyline { display: flex; flex-wrap: wrap; align-items: center; gap: var(--fs-sp-2); }
 .fs-fleet-keyline code { flex: 1 1 24rem; padding: .4rem .6rem; border: 1px solid var(--fs-border); border-radius: var(--fs-r-md); background: var(--bs-tertiary-bg); word-break: break-all; }
