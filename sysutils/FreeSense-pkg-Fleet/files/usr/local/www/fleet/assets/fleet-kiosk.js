@@ -145,7 +145,7 @@
 		if (b.problem) {
 			t.appendChild(el('div', 'k-problem', b.problem));
 		} else if (b.groups.length || b.version) {
-			t.appendChild(el('div', 'k-meta', [b.groups.join(', '), b.version].filter(Boolean).join('  ')));
+			t.appendChild(el('div', 'k-meta', [b.groups.join(', '), b.version].filter(Boolean).join(' · ')));
 		}
 		var flags = el('div', 'k-flags');
 		if (b.breakglass) { flags.appendChild(el('span', 'k-flag k-f-bad', 'Lock off')); }

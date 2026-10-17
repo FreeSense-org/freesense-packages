@@ -1101,3 +1101,6 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 .fs-fleet-chips [aria-pressed="true"] { background: var(--bs-secondary-bg); color: var(--bs-emphasis-color); border-color: var(--bs-emphasis-color); }
 .fs-fleet-gw + .fs-fleet-gw { margin-top: var(--fs-sp-3); padding-top: var(--fs-sp-3); border-top: 1px solid var(--fs-border); }
 .fs-fleet-gw-name { font-size: var(--fs-fs-base); font-weight: 600; margin: 0 0 var(--fs-sp-2); }
+
+/* A select in a table cell keeps its choice on one line ("TCP and UDP"). */
+.fs-fleet-nowrap { width: auto; min-width: max-content; white-space: nowrap; }
