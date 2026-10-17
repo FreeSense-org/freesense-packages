@@ -168,7 +168,7 @@ $target_options = function (string $selected = '') use ($groups, $boxes) {
 	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint"><?=gettext('No schedules yet. A schedule backs up, reboots or updates firewalls at a set time, for example the Retail shops every night at 02:30.')?></p></div>
 <?php else: ?>
 	<div class="panel-body fs-fleet-pad">
-		<form method="get" class="fs-fleet-filterbar" role="search">
+		<form method="get" class="fs-fleet-filterbar" role="search" data-fleet-filters><script src="/fleet/assets/fleet-list.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-list.js')?>" defer></script>
 			<input class="form-control form-control-sm" type="search" name="q" value="<?=htmlspecialchars($q)?>" placeholder="<?=gettext('Search name, group or firewall')?>" aria-label="<?=gettext('Search schedules')?>"/>
 			<select class="form-select form-select-sm" name="kind" aria-label="<?=gettext('What it does')?>">
 				<option value=""><?=gettext('Any job')?></option>

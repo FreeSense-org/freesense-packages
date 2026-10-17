@@ -228,7 +228,7 @@ $state_badge = function (string $state) {
 <div class="panel panel-default">
 	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Firewalls')?></h2></div>
 	<div class="panel-body fs-fleet-pad">
-		<form method="get" class="fs-fleet-filterbar" role="search">
+		<form method="get" class="fs-fleet-filterbar" role="search" data-fleet-filters><script src="/fleet/assets/fleet-list.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-list.js')?>" defer></script>
 			<input type="hidden" name="view" value="compliance"/>
 			<input class="form-control form-control-sm" type="search" name="q" value="<?=htmlspecialchars($q)?>" placeholder="<?=gettext('Search firewall or failing rule')?>" aria-label="<?=gettext('Search firewalls')?>"/>
 			<select class="form-select form-select-sm" name="state" aria-label="<?=gettext('State')?>">
@@ -297,7 +297,7 @@ $state_badge = function (string $state) {
 	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint"><?=gettext('No policies yet. Add one for all firewalls first (a baseline), then policies for groups or single firewalls that need something else: the most specific one wins for each rule.')?></p></div>
 <?php else: ?>
 	<div class="panel-body fs-fleet-pad">
-		<form method="get" class="fs-fleet-filterbar" role="search">
+		<form method="get" class="fs-fleet-filterbar" role="search" data-fleet-filters><script src="/fleet/assets/fleet-list.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-list.js')?>" defer></script>
 			<input type="hidden" name="view" value="policies"/>
 			<input class="form-control form-control-sm" type="search" name="q" value="<?=htmlspecialchars($pq)?>" placeholder="<?=gettext('Search name, description, group or firewall')?>" aria-label="<?=gettext('Search policies')?>"/>
 			<button class="btn btn-sm btn-outline-secondary" type="submit"><?=gettext('Search')?></button>
@@ -344,7 +344,7 @@ $state_badge = function (string $state) {
 <div class="panel panel-default">
 	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Exceptions')?></h2></div>
 	<div class="panel-body fs-fleet-pad">
-		<form method="get" class="fs-fleet-filterbar" role="search">
+		<form method="get" class="fs-fleet-filterbar" role="search" data-fleet-filters><script src="/fleet/assets/fleet-list.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-list.js')?>" defer></script>
 			<input type="hidden" name="view" value="exceptions"/>
 			<input class="form-control form-control-sm" type="search" name="q" value="<?=htmlspecialchars($eq)?>" placeholder="<?=gettext('Search firewall, rule, reason or who')?>" aria-label="<?=gettext('Search exceptions')?>"/>
 			<label class="form-check small"><input class="form-check-input" type="checkbox" name="ended" value="1"<?=$show_ended ? ' checked' : ''?>/> <span class="form-check-label"><?=gettext('Include ended')?></span></label>

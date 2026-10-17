@@ -281,7 +281,7 @@ $now = time();
 <?php endif; ?>
 	</div>
 	<div class="panel-body fs-fleet-pad">
-		<form method="get" class="fs-fleet-filterbar" role="search">
+		<form method="get" class="fs-fleet-filterbar" role="search" data-fleet-filters><script src="/fleet/assets/fleet-list.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-list.js')?>" defer></script>
 			<input type="hidden" name="view" value="overview"/>
 			<input class="form-control form-control-sm" type="search" name="q" value="<?=htmlspecialchars($q)?>" placeholder="<?=gettext('Search firewall or set')?>" aria-label="<?=gettext('Search firewalls')?>"/>
 			<select class="form-select form-select-sm" name="group" aria-label="<?=gettext('Group')?>">
@@ -494,7 +494,7 @@ $now = time();
 	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint"><?=sprintf(gettext('No sets yet: every firewall keeps the default (%s, Settings > Backups). A set keeps more or fewer backups for chosen groups or firewalls, for example a year of monthly backups for the datacenter.'), htmlspecialchars(fleet_keep_rule_text($def)))?></p></div>
 <?php else: ?>
 	<div class="panel-body fs-fleet-pad">
-		<form method="get" class="fs-fleet-filterbar" role="search">
+		<form method="get" class="fs-fleet-filterbar" role="search" data-fleet-filters><script src="/fleet/assets/fleet-list.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-list.js')?>" defer></script>
 			<input type="hidden" name="view" value="sets"/>
 			<input class="form-control form-control-sm" type="search" name="q" value="<?=htmlspecialchars($sq)?>" placeholder="<?=gettext('Search name, group or firewall')?>" aria-label="<?=gettext('Search sets')?>"/>
 			<button class="btn btn-sm btn-outline-secondary" type="submit"><?=gettext('Search')?></button>

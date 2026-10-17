@@ -181,7 +181,7 @@ $targets_select = function (string $id, array $chosen = array()) use ($fgroups, 
 	</div>
 <?php else: ?>
 	<div class="panel-body fs-fleet-pad">
-		<form method="get" class="fs-fleet-filterbar" role="search">
+		<form method="get" class="fs-fleet-filterbar" role="search" data-fleet-filters><script src="/fleet/assets/fleet-list.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-list.js')?>" defer></script>
 			<input type="hidden" name="view" value="users"/>
 			<input class="form-control form-control-sm" type="search" name="q" value="<?=htmlspecialchars($q)?>" placeholder="<?=gettext('Search name or group')?>" aria-label="<?=gettext('Search users')?>"/>
 			<select class="form-select form-select-sm" name="group" aria-label="<?=gettext('Group')?>">
