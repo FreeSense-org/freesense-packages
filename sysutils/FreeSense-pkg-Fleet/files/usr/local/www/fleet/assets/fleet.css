@@ -935,7 +935,7 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 /* HA pair setup. */
 .fs-fleet-ha-pick { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--fs-sp-3); }
 .fs-fleet-ha-pick > .fs-fleet-hint { grid-column: 1 / -1; margin: 0; padding: 0; }
-.fs-fleet-ha-review { border-top: 1px solid var(--fs-border); }
+.fs-fleet-vhid { max-width: 6rem; }
 
 /* Dashboard widget (widgets/widgets/fleet.widget.php): quiet when healthy, a problem stands out. */
 .fs-fleet-widget { display: grid; gap: var(--fs-sp-3); padding: var(--fs-sp-3); }
