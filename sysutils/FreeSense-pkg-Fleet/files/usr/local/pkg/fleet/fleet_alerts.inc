@@ -372,7 +372,9 @@ function fleet_alert_send_pinned(string $url, array $headers, string $body, stri
 	} finally {
 		restore_error_handler();
 	}
-	$code = (isset($http_response_header[0]) && preg_match('~^HTTP/\S+\s+(\d{3})~', $http_response_header[0], $m)) ? (int)$m[1] : 0;
+	/* PHP 8.4+: the response headers without the deprecated $http_response_header. */
+	$hdrs = http_get_last_response_headers() ?? array();
+	$code = (isset($hdrs[0]) && preg_match('~^HTTP/\S+\s+(\d{3})~', $hdrs[0], $m)) ? (int)$m[1] : 0;
 	if (($r !== false) && ($code >= 200) && ($code < 300)) {
 		return null;
 	}

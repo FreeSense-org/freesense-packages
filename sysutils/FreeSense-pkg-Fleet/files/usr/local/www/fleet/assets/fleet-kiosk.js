@@ -49,9 +49,9 @@
 	/* Columns: heading, smallest width (em), share of the rest, and how late it is dropped when the list is narrow (higher stays longer). */
 	var COLS = {
 		state: ['State', 6, .7, 99], name: ['Firewall', 8, 1.8, 99], host: ['Hostname', 8, 1.2, 1],
-		groups: ['Groups', 6, 1, 4], version: ['Version', 5.5, .7, 3], seen: ['Seen', 4.5, .5, 2],
+		groups: ['Groups', 7, 1.1, 9], version: ['Version', 5.5, .7, 3], seen: ['Seen', 4.5, .5, 2],
 		cpu: ['CPU', 6, .8, 7], mem: ['Memory', 6, .8, 6], states: ['States', 4.5, .5, 2],
-		traffic: ['Traffic', 10, 1.1, 5], uptime: ['Up 24 h', 4.5, .5, 5], inet: ['Internet', 9, 1, 8], ha: ['HA', 5, .5, 8], flags: ['Notes', 6, 1, 9]
+		traffic: ['Traffic', 10, 1.1, 4], uptime: ['Up 24 h', 4.5, .5, 5], inet: ['Internet', 7.5, .9, 8], ha: ['HA', 5, .4, 8], flags: ['Notes', 5, .9, 9]
 	};
 	var cols = [];
 
@@ -240,7 +240,15 @@
 		var em = parseFloat(getComputedStyle(list).fontSize) || 16;
 		var gap = 0.9 * em;
 		var room = list.clientWidth - 2 * em;
-		cols = cfg.columns.slice();
+		/* A column no firewall has anything for (notes, HA roles, groups) gives its room to the others. */
+		var some = function (f) { return (data && data.boxes || []).some(f); };
+		var has = {
+			flags: some(function (b) { return b.breakglass || b.policy || b.update || b.op; }),
+			ha: some(function (b) { return b.ha; }),
+			groups: some(function (b) { return (b.groups || []).length; }) && !cfg.group_rows,
+			inet: some(function (b) { return b.inet; })
+		};
+		cols = cfg.columns.filter(function (k) { return has[k] !== false; });
 		var need = function () { return cols.reduce(function (a, k) { return a + COLS[k][1] * em + gap; }, 0); };
 		while (room > 0 && need() > room && cols.length > 2) {
 			var drop = cols.reduce(function (a, k) { return COLS[k][3] < COLS[a][3] ? k : a; }, cols[cols.length - 1]);
@@ -288,7 +296,10 @@
 			if (b.problem) { c.appendChild(el('span', 'k-problem', b.problem)); }
 			break;
 		case 'host': c.textContent = b.host || ''; break;
-		case 'groups': c.textContent = (b.groups || []).join(', '); break;
+		case 'groups':
+			(b.groups || []).forEach(function (g, i) { c.appendChild(chip(g, (b.gc || [])[i])); });
+			c.title = (b.groups || []).join(', ');
+			break;
 		case 'version': c.textContent = (b.version || '-').replace('-DEVELOPMENT', ' dev').replace('-RELEASE', ''); c.title = b.version || ''; break;
 		case 'seen': c.textContent = b.seen ? ago(b.seen) : '-'; break;
 		case 'cpu': c.appendChild(meter(b.cpu, 70, 90)); break;
@@ -311,14 +322,98 @@
 			if (b.inet.score !== null && b.inet.score !== undefined) {
 				c.appendChild(el('span', 'k-score k-score-' + scoreTone(b.inet.score), 'Q ' + b.inet.score));
 			}
-			/* Compact for the list: "0.6 ms · 0%". */
-			c.appendChild(el('span', 'k-inet-text', (b.inet.text || INET[b.inet.state]).replace(' % loss', '%')));
-			c.title = INET[b.inet.state] + (b.inet.gw ? ' · ' + b.inet.gw : '');
+			/* Compact: the score always, loss only when there is some, "down" when there is none; latency in the tooltip. */
+			if (b.inet.state === 'down') {
+				c.appendChild(el('span', 'k-inet-text', 'down'));
+			} else if (b.inet.loss) {
+				c.appendChild(el('span', 'k-inet-text', Math.round(b.inet.loss * 10) / 10 + '% loss'));
+			} else if (b.inet.score === null || b.inet.score === undefined) {
+				c.appendChild(el('span', 'k-inet-text', b.inet.delay === null || b.inet.delay === undefined ? INET[b.inet.state] : b.inet.delay + ' ms'));
+			}
+			c.title = INET[b.inet.state] + (b.inet.delay !== null && b.inet.delay !== undefined ? ' · ' + b.inet.delay + ' ms' : '') +
+			    (b.inet.loss !== null && b.inet.loss !== undefined ? ' · ' + b.inet.loss + '% loss' : '') + (b.inet.gw ? ' · ' + b.inet.gw : '');
 			if (b.inet.state === 'down') { c.classList.add('k-t-bad'); } else if (b.inet.state === 'degraded') { c.classList.add('k-t-warn'); }
 			break;
 		case 'flags': c.appendChild(flags(b)); break;
 		}
 		return c;
+	}
+
+	/* A firewall group as a small chip in its colour. */
+	function chip(name, color) {
+		var g = el('span', 'k-gchip k-gc-' + (color || '0'));
+		g.appendChild(el('i', ''));
+		g.appendChild(document.createTextNode(name));
+		return g;
+	}
+
+	/* A group's heading in a grouped list: its name, then how its firewalls are. */
+	function groupHead(g, members) {
+		var h = el('div', 'k-lrow k-ghead k-gw-' + worst(members));
+		h.setAttribute('role', 'row');
+		var name = el('span', 'k-ghead-name');
+		name.appendChild(chip(g.name, g.color));
+		h.appendChild(name);
+		h.appendChild(el('span', 'k-ghead-sum', groupSum(members)));
+		return h;
+	}
+
+	function worst(members) {
+		var on = function (s) { return members.some(function (b) { return b.state === s; }); };
+		if (on('offline')) { return 'offline'; }
+		if (on('degraded')) { return 'degraded'; }
+		if (members.some(function (b) { return b.inet && (b.inet.state === 'down' || b.inet.state === 'degraded'); })) { return 'inet'; }
+		return 'ok';
+	}
+
+	function groupSum(members) {
+		var n = function (f) { return members.filter(f).length; };
+		var online = n(function (b) { return b.state === 'online'; });
+		var parts = [online + ' / ' + members.length + ' online'];
+		var late = n(function (b) { return b.state === 'degraded'; });
+		var off = n(function (b) { return b.state === 'offline'; });
+		var noinet = n(function (b) { return b.inet && b.inet.state === 'down'; });
+		var poor = n(function (b) { return b.inet && b.inet.state === 'degraded'; });
+		if (off) { parts.push(off + ' offline'); }
+		if (late) { parts.push(late + ' late'); }
+		if (noinet) { parts.push(noinet + ' no internet'); }
+		if (poor) { parts.push(poor + ' poor internet'); }
+		return parts.join(' · ');
+	}
+
+	/*
+	 * The list as pages of items: a group heading is never the last item of
+	 * a page, and a group that goes on to the next page gets its heading
+	 * again there.
+	 */
+	function listPages(boxes, per) {
+		if (!cfg.group_rows) {
+			var plain = [];
+			for (var i = 0; i < boxes.length; i += per) { plain.push(boxes.slice(i, i + per).map(function (b) { return { box: b }; })); }
+			return plain.length ? plain : [[]];
+		}
+		var groups = {};
+		(data.group_rows || []).forEach(function (g) { groups[g.id] = g; });
+		var members = {};
+		boxes.forEach(function (b) { (members[b.g] = members[b.g] || []).push(b); });
+		var pages = [], cur = [], last = null;
+		var head = function (gid, more) {
+			var g = groups[gid] || { id: gid, name: gid ? 'Group' : 'No group', color: '' };
+			return { head: g, members: members[gid] || [], more: more };
+		};
+		boxes.forEach(function (b) {
+			var isNew = b.g !== last;
+			if (cur.length && cur.length + (isNew ? 2 : 1) > per) {
+				pages.push(cur);
+				cur = [];
+				isNew = true;
+			}
+			if (isNew) { cur.push(head(b.g, b.g === last)); }
+			cur.push({ box: b });
+			last = b.g;
+		});
+		if (cur.length) { pages.push(cur); }
+		return pages.length ? pages : [[]];
 	}
 
 	function row(b) {
@@ -361,13 +456,21 @@
 		}
 		/* One row first to measure, then as many as fit. */
 		list.appendChild(row(boxes[0]));
-		var per = rowsPerPage();
-		var pages = Math.max(1, Math.ceil(boxes.length / per));
-		if (page >= pages) { page = 0; }
+		var per = Math.max(2, rowsPerPage());
 		list.removeChild(list.lastChild);
-		boxes.slice(page * per, page * per + per).forEach(function (b) { list.appendChild(row(b)); });
-		pager(pages, $('k-pager'), page, data.counts.offline && cfg.hold ? 'held while a firewall is offline' : '');
-		return pages;
+		var pages = listPages(boxes, per);
+		if (page >= pages.length) { page = 0; }
+		pages[page].forEach(function (it) {
+			if (it.head) {
+				var h = groupHead(it.head, it.members);
+				if (it.more) { h.appendChild(el('span', 'k-ghead-more', 'continued')); }
+				list.appendChild(h);
+			} else {
+				list.appendChild(row(it.box));
+			}
+		});
+		pager(pages.length, $('k-pager'), page, data.counts.offline && cfg.hold ? 'held while a firewall is offline' : '');
+		return pages.length;
 	}
 
 	function pager(pages, at, current, note) {
@@ -639,6 +742,40 @@
 		outages: function (p, b) {
 			return chartBox(b, { type: 'bars', labels: p.days.map(day), series: [{ name: 'Outages', data: p.day, tone: 'block' }] });
 		},
+		groups: function (p, b) {
+			var ul = el('ul', 'k-groups');
+			var WORST = { offline: ['Offline', 'bad'], degraded: ['Late', 'warn'], inet: ['Internet', 'warn'], ha: ['HA', 'warn'], policy: ['Policy', 'warn'], ok: ['OK', 'ok'] };
+			p.rows.forEach(function (g) {
+				var li = el('li', 'k-grow k-gw-' + g.worst);
+				var top = el('div', 'k-grow-top');
+				top.appendChild(chip(g.name, g.color));
+				var facts = [g.online + ' / ' + g.total + ' online'];
+				if (g.offline) { facts.push(g.offline + ' offline'); }
+				if (g.degraded) { facts.push(g.degraded + ' late'); }
+				if (g.inet) { facts.push(g.inet + ' internet'); }
+				if (g.ha) { facts.push(g.ha + ' HA'); }
+				if (g.policy) { facts.push(g.policy + ' policy'); }
+				top.appendChild(el('span', 'k-grow-facts', facts.join(' · ')));
+				top.appendChild(el('span', 'k-badge k-b-' + WORST[g.worst][1], WORST[g.worst][0]));
+				li.appendChild(top);
+				/* One bar: online, late and offline as shares of the group. */
+				var bar = el('div', 'k-gbar');
+				bar.setAttribute('role', 'img');
+				bar.setAttribute('aria-label', g.online + ' online, ' + g.degraded + ' late, ' + g.offline + ' offline');
+				[['online', 'ok'], ['degraded', 'warn'], ['offline', 'bad'], ['new', 'none']].forEach(function (s) {
+					if (g[s[0]]) {
+						var f = el('i', 'k-gbar-' + s[1]);
+						f.style.flexGrow = String(g[s[0]]);
+						bar.appendChild(f);
+					}
+				});
+				li.appendChild(bar);
+				ul.appendChild(li);
+			});
+			if (!p.rows.length) { ul.appendChild(el('li', 'k-quiet', 'No groups yet.')); }
+			b.appendChild(ul);
+			return null;
+		},
 		inet: function (p, b) {
 			var s = el('div', 'k-stats k-stats-col');
 			s.appendChild(stat('with internet now', p.total ? (p.up + p.degraded) + ' / ' + p.total : '-', p.down ? 'bad' : (p.degraded ? 'warn' : 'ok')));
@@ -709,7 +846,7 @@
 		}
 	};
 	var TITLES = {
-		health: 'Fleet health', ha: 'HA pairs', controller: 'Fleet server', pulse: 'Availability, last 24 hours', load: 'CPU and memory', traffic: 'Traffic, whole fleet',
+		health: 'Fleet health', groups: 'Groups', ha: 'HA pairs', controller: 'Fleet server', pulse: 'Availability, last 24 hours', load: 'CPU and memory', traffic: 'Traffic, whole fleet',
 		states: 'State tables, fullest', temp: 'Temperature, warmest', alerts: 'Alerts', ops: 'Operations', backups: 'Backups', compliance: 'Policy compliance',
 		versions: 'Versions', busiest: 'Busiest firewalls', outages: 'Outages per day',
 		inet: 'Internet now', inet_quality: 'Internet quality', inet_worst: 'Worst internet connections', inet_score: 'Connection quality (lowest first)', inet_pulse: 'Internet, last 24 hours',
@@ -718,6 +855,7 @@
 	var SIZES = { ha: 2, controller: 2, pulse: 2, alerts: 2, inet_quality: 2 };
 	function size(id) {
 		if (id === 'ha') { return (data.panels.ha && data.panels.ha.pairs.length > 1) ? 2 : 1; }
+		if (id === 'groups') { return ((data.panels.groups || {}).rows || []).length > 2 ? 2 : 1; }
 		if (id === 'pulse' || id === 'inet_pulse') { return ((data.panels[id] || {}).rows || []).length > 8 ? 2 : 1; }
 		return SIZES[id] || 1;
 	}
@@ -750,7 +888,8 @@
 		/* A panel with nothing to show (no temperature sensors, no samples yet) gives its place to the next. */
 		var empty = function (id) {
 			var p = data.panels[id];
-			return ((id === 'temp' || id === 'states' || id === 'inet_worst' || id === 'inet_score') && !(p.top || []).length) || (id === 'busiest' && !(p.busiest || []).length);
+			return ((id === 'temp' || id === 'states' || id === 'inet_worst' || id === 'inet_score') && !(p.top || []).length) || (id === 'busiest' && !(p.busiest || []).length) ||
+			    (id === 'ha' && !(p.pairs || []).length) || (id === 'groups' && !(p.rows || []).length);
 		};
 		var ids = cfg.panels.filter(function (id) { return data.panels && data.panels[id] && PANELS[id] && !empty(id); });
 		var pages = panelPages(ids);
