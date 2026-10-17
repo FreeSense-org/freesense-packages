@@ -227,15 +227,17 @@ fieldset.fs-fleet-field legend { float: none; width: auto; font-size: inherit; }
 }
 
 /* Fields in one row on wide screens, stacked on narrow ones. */
+/* Fields line up by their labels (one may have help text below); a button sits on the inputs' line. */
 .fs-fleet-form {
 	display: flex;
 	flex-wrap: wrap;
-	align-items: flex-end;
+	align-items: flex-start;
 	gap: var(--fs-sp-3);
 }
 .fs-fleet-field { display: flex; flex-direction: column; min-width: 10rem; }
 .fs-fleet-field .form-label { margin-bottom: var(--fs-sp-1); font-weight: 500; }
 .fs-fleet-field--wide { flex: 1 1 18rem; }
+.fs-fleet-form > .fs-fleet-field--button, .fs-fleet-form > button { align-self: flex-end; }
 .fs-fleet-field--full { flex: 1 1 100%; border: 0; padding: 0; margin: 0; }
 .fs-fleet-settings {
 	display: flex;
@@ -930,6 +932,7 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 
 /* HA pair setup. */
 .fs-fleet-ha-pick { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--fs-sp-3); }
+.fs-fleet-ha-pick > .fs-fleet-hint { grid-column: 1 / -1; margin: 0; padding: 0; }
 .fs-fleet-ha-review { border-top: 1px solid var(--fs-border); }
 
 /* Dashboard widget (widgets/widgets/fleet.widget.php): quiet when healthy, a problem stands out. */
