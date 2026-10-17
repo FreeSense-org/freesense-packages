@@ -151,7 +151,7 @@ $target_options = function (string $selected = '') use ($groups, $boxes) {
 };
 ?>
 <?php if ($ask_run !== null): list($rs, $rn) = $ask_run; ?>
-<div class="fs-fleet-confirm" role="alertdialog" aria-labelledby="run-q">
+<div class="fs-fleet-confirm mb-3" role="alertdialog" aria-labelledby="run-q">
 	<p class="fs-fleet-confirm-q" id="run-q"><?=htmlspecialchars(sprintf(($rs['kind'] === 'reboot') ?
 	    ngettext('Reboot %d firewall now?', 'Reboot %d firewalls now, one at a time?', $rn) : ngettext('Update %d firewall now?', 'Update %d firewalls now, one at a time?', $rn), $rn))?></p>
 	<p class="fs-fleet-confirm-hint"><?=htmlspecialchars(sprintf(gettext('"%s" runs now instead of at its time. Each firewall is offline while it restarts; the next one starts when it is back.'), $rs['name']))?></p>
