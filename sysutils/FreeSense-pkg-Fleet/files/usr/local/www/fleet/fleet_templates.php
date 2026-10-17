@@ -469,7 +469,7 @@ $is_list = function (array $t): bool {
 			return htmlspecialchars((string)($r[$k] ?? ''));
 		};
 		$sel = function (string $name, array $opts, string $cur) use ($n) {
-			$h = '<select class="form-select form-select-sm" name="row[' . $n . '][' . $name . ']" aria-label="' . htmlspecialchars(ucfirst($name)) . '">';
+			$h = '<select class="form-select form-select-sm fs-fleet-nowrap" name="row[' . $n . '][' . $name . ']" aria-label="' . htmlspecialchars(ucfirst($name)) . '">';
 			foreach ($opts as $k => $label) {
 				$h .= '<option value="' . htmlspecialchars($k) . '"' . (($k === $cur) ? ' selected' : '') . '>' . htmlspecialchars(gettext($label)) . '</option>';
 			}
@@ -478,7 +478,8 @@ $is_list = function (array $t): bool {
 		$in = function (string $name, string $ph, int $max = 64) use ($n, $v) {
 			return '<input class="form-control form-control-sm fs-mono" name="row[' . $n . '][' . $name . ']" value="' . $v($name) . '" maxlength="' . $max . '" placeholder="' . htmlspecialchars($ph) . '" aria-label="' . htmlspecialchars(ucfirst($name)) . '"/>';
 		};
-		$h = '<tr data-tl-row><td>' . $in('key', 'allow-dns', 24) . '</td>';
+		/* Hints that agree with each other: a web rule, or a web server forward. */
+		$h = '<tr data-tl-row><td>' . $in('key', ($edit_kind === 'rules') ? 'allow-web' : 'web-server', 24) . '</td>';
 		if ($edit_kind === 'rules') {
 			$h .= '<td>' . $sel('action', FLEET_TRULE_ACTIONS, (string)($r['action'] ?? 'pass')) . '</td><td>' . $in('iface', 'lan', 10) . '</td><td>' .
 			    $sel('proto', FLEET_TRULE_PROTOS, (string)($r['proto'] ?? 'any')) . '</td><td>' . $in('src', 'any') . '</td><td>' . $in('dst', 'any') . '</td><td>' . $in('port', '443', 31) .
@@ -487,7 +488,7 @@ $is_list = function (array $t): bool {
 			$h .= '<td>' . $in('iface', 'wan', 10) . '</td><td>' . $sel('proto', array('tcp' => 'TCP', 'udp' => 'UDP', 'tcp/udp' => 'TCP and UDP'), (string)($r['proto'] ?? 'tcp')) . '</td><td>' .
 			    $in('port', '443', 31) . '</td><td>' . $in('target', '10.0.0.10') . '</td><td>' . $in('local', '443', 31) . '</td>';
 		}
-		return $h . '<td>' . str_replace('fs-mono', '', $in('descr', '', 120)) . '</td><td><button type="button" class="btn btn-sm btn-link fs-fleet-danger-link" data-tl-remove aria-label="' .
+		return $h . '<td>' . str_replace('fs-mono', '', $in('descr', ($edit_kind === 'rules') ? gettext('Web out') : gettext('Web server'), 120)) . '</td><td><button type="button" class="btn btn-sm btn-link fs-fleet-danger-link" data-tl-remove aria-label="' .
 		    gettext('Remove this row') . '"><i class="fa-solid fa-trash" aria-hidden="true"></i></button></td></tr>';
 	};
 	/* The settings form's values: what was typed, the template's, or sensible starting values. */

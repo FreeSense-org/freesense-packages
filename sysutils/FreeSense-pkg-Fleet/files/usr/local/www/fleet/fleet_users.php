@@ -401,7 +401,7 @@ elseif ($st !== null): ?>
 			</select></div>
 		<div class="col-sm-6"><label class="form-label" for="upw"><?=gettext('Password')?></label>
 			<input class="form-control" type="password" id="upw" name="password" minlength="10" autocomplete="new-password"/>
-			<div class="form-text"><?=gettext('Blank: keep it (a new user can then sign in with SSH keys only).')?></div></div>
+			<div class="form-text"><?=gettext('Leave empty for SSH keys only, or to keep the current password.')?></div></div>
 		<div class="col-sm-6"><label class="form-label" for="upw2"><?=gettext('Password again')?></label>
 			<input class="form-control" type="password" id="upw2" name="password_again" autocomplete="new-password"/></div>
 		<div class="col-12"><label class="form-label" for="ukeys"><?=gettext('SSH public keys')?></label>
