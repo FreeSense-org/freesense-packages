@@ -332,7 +332,7 @@ function fleet_trends(string $range, int $group, int $now): array {
 		$cur = function ($a) { foreach (array_reverse($a) as $v) { if ($v !== null) { return round($v, 1); } } return null; };
 		$mem = $b[$r['node']]['mem'] ?? array_fill(0, $n, null);
 		$st = $b[$r['node']]['states'] ?? array_fill(0, $n, null);
-		return array('label' => $r['label'], 'link' => '/fleet/fleet_box.php?id=' . urlencode($r['node']) . '&view=stats', 'cpu' => $r['data'], 'mem' => array_map(function ($v) {
+		return array('label' => $r['label'], 'node' => $r['node'], 'link' => '/fleet/fleet_box.php?id=' . urlencode($r['node']) . '&view=stats', 'cpu' => $r['data'], 'mem' => array_map(function ($v) {
 			return ($v === null) ? null : round($v, 1);
 		}, $mem), 'states' => $st, 'cpu_now' => $cur($r['data']), 'mem_now' => $cur($mem), 'peak' => round($r['peak'], 1));
 	}, $busy);

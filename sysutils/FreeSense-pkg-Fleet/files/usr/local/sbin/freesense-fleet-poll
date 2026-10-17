@@ -63,6 +63,8 @@ do {
 			}
 		}
 	}
+	/* How long a round over every firewall took (the NOC's fleet server panel). */
+	fleet_setting_set('poll_round', json_encode(array('at' => $round, 'secs' => time() - $round, 'boxes' => (int)fleet_db()->query('SELECT COUNT(*) FROM boxes')->fetchColumn())));
 	if (!empty($due)) {
 		fleet_backup_many($due, 'change', 'system');
 	}

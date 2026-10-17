@@ -102,6 +102,185 @@ function fleet_kiosk_look(string $style, string $theme): array {
 }
 
 /*
+ * What a screen shows: the left side holds panels (general fleet
+ * information and charts), the right side the firewall list. Every
+ * panel: key => array(title, size), size 1 = one row, 2 = two rows.
+ */
+define('FLEET_KIOSK_PANELS', array(
+	'health' => array('Fleet health', 1),
+	'ha' => array('HA pairs', 2),
+	'controller' => array('Fleet server', 2),
+	'pulse' => array('Availability', 2),
+	'load' => array('CPU and memory', 1),
+	'traffic' => array('Traffic', 1),
+	'states' => array('State tables', 1),
+	'temp' => array('Temperature', 1),
+	'alerts' => array('Alerts', 2),
+	'ops' => array('Operations', 1),
+	'backups' => array('Backups', 1),
+	'compliance' => array('Policy compliance', 1),
+	'versions' => array('Versions', 1),
+	'busiest' => array('Busiest firewalls', 1),
+	'outages' => array('Outages', 1),
+));
+/* The firewall list's columns: key => heading. */
+define('FLEET_KIOSK_COLUMNS', array(
+	'state' => 'State', 'name' => 'Firewall', 'host' => 'Hostname', 'groups' => 'Groups', 'version' => 'Version', 'seen' => 'Last seen',
+	'cpu' => 'CPU', 'mem' => 'Memory', 'states' => 'States', 'traffic' => 'Traffic', 'uptime' => 'Up (24 h)', 'ha' => 'HA', 'flags' => 'Notes',
+));
+define('FLEET_KIOSK_SORTS', array('problems' => 'Problems first', 'name' => 'Name', 'group' => 'Group'));
+define('FLEET_KIOSK_LAYOUTS', array('split' => 'Panels and firewall list', 'list' => 'Firewall list only', 'panels' => 'Panels only'));
+define('FLEET_KIOSK_RANGES', array('24h' => 'Last 24 hours', '7d' => 'Last 7 days', '30d' => 'Last 30 days'));
+define('FLEET_KIOSK_BEEPS', array('offline' => 'A firewall goes offline', 'degraded' => 'A firewall answers late', 'ha' => 'An HA pair has a problem'));
+
+/* pure: a screen's settings with every value present and in range. */
+function fleet_kiosk_config_defaults(): array {
+	return array(
+		'layout' => 'split', 'left' => 40, 'side' => 'left', 'view' => 'list',
+		'columns' => array('state', 'name', 'groups', 'version', 'cpu', 'mem', 'traffic', 'uptime', 'ha', 'flags'),
+		'sort' => 'problems', 'groups' => array(), 'rows' => 0, 'flip' => 12, 'hold' => true,
+		'panels' => array_keys(FLEET_KIOSK_PANELS), 'panel_flip' => 20, 'range' => '24h',
+		'sound' => false, 'beep' => array('offline', 'ha'),
+		'heading' => '', 'subheading' => '',
+	);
+}
+
+/* pure: one line of header text: no markup or control characters, at most $max characters. */
+function fleet_kiosk_text($v, int $max): string {
+	$v = preg_replace('/\s+/u', ' ', preg_replace('/[\x00-\x1f\x7f<>]+/u', ' ', (string)$v) ?? '') ?? '';
+	return mb_substr(trim($v), 0, $max);
+}
+
+/*
+ * pure: a screen's settings from a form ($form: unticked boxes are off)
+ * or from stored JSON (a missing value is the default); unknown values
+ * fall back to the defaults and numbers are clamped. Panels come in the
+ * order given ($in['order'][key] numbers, when a form sends them).
+ */
+function fleet_kiosk_config_parse(array $in, bool $form = false): array {
+	$d = fleet_kiosk_config_defaults();
+	$pick = function (string $k, array $allowed) use ($in, $d) {
+		$v = (string)($in[$k] ?? '');
+		return isset($allowed[$v]) ? $v : $d[$k];
+	};
+	$clamp = function (string $k, int $lo, int $hi) use ($in, $d) {
+		return (isset($in[$k]) && is_numeric($in[$k])) ? max($lo, min($hi, (int)$in[$k])) : $d[$k];
+	};
+	$list = function (string $k, array $allowed) use ($in, $d, $form) {
+		if (!isset($in[$k])) {
+			return $form ? array() : $d[$k];
+		}
+		return array_values(array_unique(array_filter(array_map('strval', (array)$in[$k]), function ($v) use ($allowed) { return isset($allowed[$v]); })));
+	};
+	$flag = function (string $k) use ($in, $d, $form) {
+		return array_key_exists($k, $in) ? !empty($in[$k]) : ($form ? false : $d[$k]);
+	};
+	$c = array(
+		'layout' => $pick('layout', FLEET_KIOSK_LAYOUTS),
+		'left' => (int)(round($clamp('left', 25, 75) / 5) * 5),
+		'side' => (($in['side'] ?? '') === 'right') ? 'right' : 'left',
+		'view' => (($in['view'] ?? '') === 'tiles') ? 'tiles' : 'list',
+		'columns' => $list('columns', FLEET_KIOSK_COLUMNS),
+		'sort' => $pick('sort', FLEET_KIOSK_SORTS),
+		'groups' => array_values(array_unique(array_filter(array_map('intval', (array)($in['groups'] ?? array())), function ($g) { return $g > 0; }))),
+		'rows' => (isset($in['rows']) && is_numeric($in['rows']) && ((int)$in['rows'] > 0)) ? max(3, min(50, (int)$in['rows'])) : 0,
+		'flip' => $clamp('flip', 5, 120),
+		'hold' => $flag('hold'),
+		'panels' => $list('panels', FLEET_KIOSK_PANELS),
+		'panel_flip' => $clamp('panel_flip', 5, 300),
+		'range' => $pick('range', FLEET_KIOSK_RANGES),
+		'sound' => $flag('sound'),
+		'beep' => $list('beep', FLEET_KIOSK_BEEPS),
+		'heading' => fleet_kiosk_text($in['heading'] ?? $d['heading'], 60),
+		'subheading' => fleet_kiosk_text($in['subheading'] ?? $d['subheading'], 100),
+	);
+	/* Every list shows what a firewall is and how it is; the columns keep the catalogue's order. */
+	$c['columns'] = array_values(array_intersect(array_keys(FLEET_KIOSK_COLUMNS), array_merge(array('state', 'name'), $c['columns'])));
+	if (isset($in['order']) && is_array($in['order'])) {
+		$order = $in['order'];
+		$pos = array_flip($c['panels']);
+		usort($c['panels'], function ($a, $b) use ($order, $pos) {
+			return array((int)($order[$a] ?? 99), $pos[$a]) <=> array((int)($order[$b] ?? 99), $pos[$b]);
+		});
+	}
+	if (($c['layout'] === 'panels') && empty($c['panels'])) {
+		$c['layout'] = 'list';
+	}
+	return $c;
+}
+
+/* pure: stored JSON as settings (a screen saved before settings existed gets the defaults). */
+function fleet_kiosk_config_json(string $json): array {
+	$a = json_decode($json, true);
+	return fleet_kiosk_config_parse(is_array($a) ? $a : array());
+}
+
+/* pure: the boxes a screen shows: its groups only, in its order. $boxes: fleet_dashboard_data() boxes (problems first). */
+function fleet_kiosk_boxes(array $boxes, array $cfg): array {
+	if (!empty($cfg['groups'])) {
+		$boxes = array_values(array_filter($boxes, function ($b) use ($cfg) {
+			return !empty(array_intersect($cfg['groups'], array_map('intval', array_column($b['groups'], 'id'))));
+		}));
+	}
+	if ($cfg['sort'] !== 'problems') {
+		$rank = array('offline' => 0, 'degraded' => 1);
+		usort($boxes, function ($a, $b) use ($cfg, $rank) {
+			$ka = ($cfg['sort'] === 'group') ? strtolower((string)($a['groups'][0]['name'] ?? '~')) : '';
+			$kb = ($cfg['sort'] === 'group') ? strtolower((string)($b['groups'][0]['name'] ?? '~')) : '';
+			/* A problem is never hidden on page two, whatever the order. */
+			return array($rank[$a['state']] ?? 2, $ka, strtolower($a['label'])) <=> array($rank[$b['state']] ?? 2, $kb, strtolower($b['label']));
+		});
+	}
+	return $boxes;
+}
+
+/*
+ * pure: panels as a screen that hides names may show them: firewall
+ * names become the numbers the list uses ($anon: node id => "Firewall
+ * N"), links, alert texts and the server's own name are left out.
+ */
+function fleet_kiosk_panels_hide(array $panels, array $anon): array {
+	$name = function ($node) use ($anon) {
+		return $anon[(string)$node] ?? 'Firewall';
+	};
+	foreach ($panels as $k => $p) {
+		foreach (array('rows', 'top', 'busiest') as $list) {
+			if (isset($p[$list])) {
+				foreach ($p[$list] as $i => $r) {
+					$p[$list][$i]['label'] = $name($r['node'] ?? '');
+					unset($p[$list][$i]['link'], $p[$list][$i]['node']);
+				}
+			}
+		}
+		if (isset($p['latest'])) {
+			foreach ($p['latest'] as $i => $a) {
+				$p['latest'][$i]['box'] = ($a['node'] ?? '') === '' ? '' : $name($a['node']);
+				$p['latest'][$i]['text'] = '';
+				unset($p['latest'][$i]['node']);
+			}
+		}
+		if (isset($p['pairs'])) {
+			foreach ($p['pairs'] as $i => $pair) {
+				$p['pairs'][$i]['name'] = sprintf('Pair %d', $i + 1);
+				foreach ($pair['members'] as $j => $m) {
+					$p['pairs'][$i]['members'][$j]['label'] = $name($m['node']);
+					unset($p['pairs'][$i]['members'][$j]['node']);
+				}
+			}
+		}
+		if (isset($p['rules'])) {
+			$p['rules'] = array_map(function ($r) { return array('label' => $r['label'], 'value' => $r['value']); }, $p['rules']);
+		}
+		if ($k === 'controller') {
+			$p['host'] = '';
+			$p['standby_addr'] = '';
+		}
+		$panels[$k] = $p;
+	}
+	return $panels;
+}
+
+/*
  * pure: the NOC page. $live: the WebUI's own live view (session, a style
  * picker, links to the firewalls) rather than a wall screen with a key.
  * $fixed: the style came from the URL, so the screen's saved style does
@@ -116,7 +295,8 @@ function fleet_kiosk_page(bool $live, string $style, string $theme, bool $fixed,
 		$opts .= '<option value="' . $k . '"' . (($k === $style) ? ' selected' : '') . '>' . $h($name) . '</option>';
 	}
 	$picker = $live ? '<label class="k-pick"><span>Style</span><select id="k-style">' . $opts . '</select></label>' .
-	    '<button type="button" id="k-theme" aria-label="Light or dark">' . (($theme === 'light') ? 'Light' : (($theme === 'dark') ? 'Dark' : 'Auto')) . '</button>' : '';
+	    '<button type="button" id="k-theme" aria-label="Light or dark">' . (($theme === 'light') ? 'Light' : (($theme === 'dark') ? 'Dark' : 'Auto')) . '</button>' .
+	    '<a class="k-btn" id="k-config" href="/fleet/fleet_kiosks.php?config=live">Configure</a>' : '';
 	return '<!doctype html>
 <html lang="en" class="k--' . $h($style) . '"' . (($theme !== 'auto') ? ' data-theme="' . $h($theme) . '"' : '') . ' data-theme-choice="' . $h($theme) . '">
 <head>
@@ -129,9 +309,10 @@ function fleet_kiosk_page(bool $live, string $style, string $theme, bool $fixed,
 <body data-mode="' . ($live ? 'live' : 'kiosk') . '" data-fixed="' . ($fixed ? '1' : '0') . '">
 <div class="k-fx" aria-hidden="true"></div>
 <header class="k-top">
-	<div class="k-brand"><span class="k-mark" aria-hidden="true">FS</span><span id="k-title">FreeSense Fleet</span></div>
-	<p class="k-headline" id="k-headline" aria-live="polite">Connecting...</p>
-	<ul class="k-counts" id="k-counts" aria-label="Firewalls by state"></ul>
+	<div class="k-brand"><span class="k-mark" aria-hidden="true">FS</span>
+		<div class="k-titles"><h1 class="k-heading" id="k-title">FreeSense Fleet</h1><p class="k-sub" id="k-sub" hidden></p></div></div>
+	<ul class="k-counts k-rings" id="k-counts" aria-label="Firewalls by state"></ul>
+	<p class="k-sr" id="k-headline" aria-live="polite">Connecting...</p>
 	<div class="k-side">
 		<time class="k-clock" id="k-clock"></time>
 		<span class="k-fresh" id="k-fresh"></span>
@@ -142,14 +323,22 @@ function fleet_kiosk_page(bool $live, string $style, string $theme, bool $fixed,
 	</div>
 </header>
 <div class="k-ops" id="k-ops" hidden></div>
-<main class="k-grid" id="k-grid" aria-label="Firewalls"></main>
-<footer class="k-foot"><span id="k-page"></span></footer>
+<main class="k-body" id="k-body">
+	<section class="k-panels" id="k-panels" aria-label="Fleet"></section>
+	<section class="k-right" aria-label="Firewalls">
+		<div class="k-list" id="k-list" role="table" aria-label="Firewalls"></div>
+		<div class="k-grid" id="k-grid"></div>
+		<div class="k-pager" id="k-pager" aria-live="off"></div>
+	</section>
+</main>
+<footer class="k-foot"><span id="k-ppager"></span><span id="k-page"></span></footer>
 <div class="k-blocked" id="k-blocked" hidden>
 	<h1>This screen is not connected</h1>
 	<p id="k-blocked-text">' . ($live ? 'Your WebUI session ended. Log in again and reopen the live view.' :
 	    'The kiosk link is missing its key, or the key was revoked, or this screen is on a network the key is not allowed from.') . '</p>
 	<p>' . ($live ? '<a href="/fleet/fleet_dashboard.php">Open FreeSense Fleet</a>' : 'An administrator makes a new link in FreeSense Fleet under Dashboard, NOC screens.') . '</p>
 </div>
+<script src="/fleet/assets/fleet-charts.js?v=' . (int)($versions['charts'] ?? 0) . '"></script>
 <script src="/fleet/assets/fleet-kiosk.js?v=' . (int)($versions['js'] ?? 0) . '"></script>
 </body>
 </html>
@@ -161,12 +350,21 @@ function fleet_kiosk_page(bool $live, string $style, string $theme, bool $fixed,
  * running group operations. With $hide, names, hostnames, addresses and
  * error texts are left out and firewalls are numbered.
  */
-function fleet_kiosk_view(array $data, array $running, bool $hide, string $title, array $look = array('freesense', 'auto')): array {
+function fleet_kiosk_view(array $data, array $running, bool $hide, string $title, array $look = array('freesense', 'auto'), ?array $cfg = null, array $extra = array(),
+    array $panels = array()): array {
+	$cfg = $cfg ?? fleet_kiosk_config_defaults();
+	$shown = fleet_kiosk_boxes($data['boxes'], $cfg);
 	$boxes = array();
-	foreach ($data['boxes'] as $i => $b) {
+	$anon = array();
+	foreach ($shown as $i => $b) {
+		$node = (string)($b['id'] ?? ($b['node_id'] ?? ''));
+		$x = $extra[$node] ?? array();
 		$box = array('state' => $b['state'], 'groups' => array_column($b['groups'], 'name'), 'version' => $b['version'], 'seen' => $b['seen'],
 		    'policy' => $b['policy'], 'breakglass' => $b['breakglass'], 'update' => ($b['update'] !== null),
-		    'op' => (($b['op'] !== null) && in_array($b['op']['state'] ?? '', array('running', 'queued'), true)) ? array('text' => (string)($b['op']['text'] ?? ''), 'progress' => $b['op']['progress'] ?? null) : null);
+		    'op' => (($b['op'] !== null) && in_array($b['op']['state'] ?? '', array('running', 'queued'), true)) ? array('text' => (string)($b['op']['text'] ?? ''), 'progress' => $b['op']['progress'] ?? null) : null,
+		    'cpu' => $x['cpu'] ?? null, 'mem' => $x['mem'] ?? null, 'states' => $x['states'] ?? null, 'states_max' => $x['states_max'] ?? null,
+		    'rx' => $x['rx'] ?? null, 'tx' => $x['tx'] ?? null, 'up' => $x['up'] ?? null, 'ha' => (string)($x['ha'] ?? ''));
+		$anon[$node] = sprintf('Firewall %d', $i + 1);
 		if ($hide) {
 			$box['name'] = sprintf('Firewall %d', $i + 1);
 			$box['host'] = '';
@@ -183,17 +381,30 @@ function fleet_kiosk_view(array $data, array $running, bool $hide, string $title
 			$box['problem'] = mb_strimwidth((string)$b['problem'], 0, 90, '...');
 		}
 		if (!$hide) {
-			$box['id'] = (string)($b['node_id'] ?? '');
+			$box['id'] = $node;
 		}
 		$boxes[] = $box;
+	}
+	/* A screen for some groups counts and heads only those. */
+	if (!empty($cfg['groups'])) {
+		$data['counts'] = array_merge($data['counts'], array('online' => 0, 'degraded' => 0, 'offline' => 0, 'new' => 0));
+		foreach ($boxes as $b) {
+			$data['counts'][$b['state']] = ($data['counts'][$b['state']] ?? 0) + 1;
+		}
+		$data['total'] = count($boxes);
+		$bad = $data['counts']['offline'] + $data['counts']['degraded'];
+		$data['headline'] = ($data['total'] === 0) ? 'No firewalls in these groups' : (($bad === 0) ? sprintf('All %d firewalls are online', $data['total']) :
+		    sprintf('%d of %d %s attention', $bad, $data['total'], ($data['total'] === 1) ? 'firewall needs' : 'firewalls need'));
 	}
 	$ops = array();
 	foreach ($running as $o) {
 		$ops[] = array('title' => $hide ? 'Fleet operation' : (string)$o['title'], 'done' => (int)($o['done'] ?? 0), 'total' => (int)($o['total'] ?? 0),
 		    'percent' => (int)($o['percent'] ?? 0));
 	}
+	$panels = array_intersect_key($panels, array_flip($cfg['panels']));
 	return array('title' => $title, 'headline' => $data['headline'], 'total' => $data['total'], 'counts' => $data['counts'], 'boxes' => $boxes, 'ops' => $ops,
-	    'checked' => $data['checked'], 'now' => $data['now'], 'style' => $look[0], 'theme' => $look[1]);
+	    'checked' => $data['checked'], 'now' => $data['now'], 'style' => $look[0], 'theme' => $look[1],
+	    'layout' => array_diff_key($cfg, array('groups' => 1)), 'panels' => $hide ? fleet_kiosk_panels_hide($panels, $anon) : $panels);
 }
 
 /* ------------------------------------------------------------------ */
@@ -274,4 +485,202 @@ function fleet_kiosk_check(string $key, string $ip, int $now): array {
 		fleet_db()->prepare('UPDATE kiosk_keys SET last_used = ?, last_ip = ? WHERE id = ?')->execute(array($now, $ip, (int)$row['id']));
 	}
 	return array($row, null);
+}
+
+/* ------------------------------------------------------------------ */
+/* Settings and data                                                   */
+/* ------------------------------------------------------------------ */
+
+/* The settings of a screen (its id) or of the WebUI's live view ('live'). */
+function fleet_kiosk_config_get(string $target): array {
+	if ($target === 'live') {
+		return fleet_kiosk_config_json((string)fleet_setting('noc_config', '{}'));
+	}
+	$q = fleet_db()->prepare('SELECT config FROM kiosk_keys WHERE id = ? AND revoked IS NULL');
+	$q->execute(array((int)$target));
+	$v = $q->fetchColumn();
+	if ($v === false) {
+		throw new InvalidArgumentException('That screen does not exist or its link was revoked.');
+	}
+	return fleet_kiosk_config_json((string)$v);
+}
+
+function fleet_kiosk_config_set(string $target, array $cfg, string $who): void {
+	$json = json_encode($cfg);
+	if ($target === 'live') {
+		fleet_setting_set('noc_config', $json);
+		fleet_audit($who, 'kiosk', 'Live view layout changed');
+		return;
+	}
+	fleet_kiosk_config_get($target);
+	fleet_db()->prepare('UPDATE kiosk_keys SET config = ? WHERE id = ? AND revoked IS NULL')->execute(array($json, (int)$target));
+	fleet_audit($who, 'kiosk', "Screen {$target}: layout changed");
+}
+
+/* A value kept for $ttl seconds in the data folder, so many screens do not each work it out. */
+function fleet_kiosk_cached(string $name, int $ttl, callable $make) {
+	$f = FLEET_DATA . '/kiosk-cache-' . preg_replace('/[^a-z0-9_-]/', '', $name) . '.json';
+	$st = @stat($f);
+	if (($st !== false) && (time() - $st['mtime'] < $ttl)) {
+		$v = json_decode((string)@file_get_contents($f), true);
+		if (is_array($v)) {
+			return $v;
+		}
+	}
+	$v = $make();
+	@file_put_contents($f . '.tmp', json_encode($v));
+	@rename($f . '.tmp', $f);
+	return $v;
+}
+
+/* node id => the list's live values: the newest load sample, availability over 24 hours and the HA role. */
+function fleet_kiosk_extra(): array {
+	return fleet_kiosk_cached('extra', 30, function () {
+		$out = array();
+		$q = fleet_db()->query('SELECT s.node_id, s.cpu, s.mem, s.states, s.states_max, s.rx_bps, s.tx_bps FROM samples s
+		    JOIN (SELECT node_id, MAX(time) AS t FROM samples GROUP BY node_id) m ON m.node_id = s.node_id AND m.t = s.time WHERE s.time > ' . (time() - 1800));
+		foreach ($q->fetchAll() as $r) {
+			$out[$r['node_id']] = array('cpu' => ($r['cpu'] === null) ? null : round((float)$r['cpu'], 1), 'mem' => ($r['mem'] === null) ? null : round((float)$r['mem'], 1),
+			    'states' => ($r['states'] === null) ? null : (int)$r['states'], 'states_max' => ($r['states_max'] === null) ? null : (int)$r['states_max'],
+			    'rx' => ($r['rx_bps'] === null) ? null : (int)$r['rx_bps'], 'tx' => ($r['tx_bps'] === null) ? null : (int)$r['tx_bps']);
+		}
+		foreach (fleet_stats('24h', null, 2)['boxes'] as $b) {
+			$out[$b['node']]['up'] = $b['percent'];
+		}
+		list($pairs) = fleet_ha_now();
+		foreach ($pairs as $p) {
+			foreach ($p['nodes'] as $n) {
+				$out[$n]['ha'] = in_array($n, $p['masters'], true) ? 'MASTER' : 'BACKUP';
+			}
+		}
+		return $out;
+	});
+}
+
+/* The fleet server itself: host, load, memory, disk, database, the poll, the tunnel and the standby. */
+function fleet_kiosk_controller(): array {
+	$sys = function (string $name) {
+		return (int)trim((string)@shell_exec('/sbin/sysctl -n ' . escapeshellarg($name) . ' 2>/dev/null'));
+	};
+	$load = function_exists('sys_getloadavg') ? (sys_getloadavg() ?: array()) : array();
+	$page = $sys('hw.pagesize');
+	$total = $sys('hw.physmem');
+	$free = $page * ($sys('vm.stats.vm.v_free_count') + $sys('vm.stats.vm.v_inactive_count') + $sys('vm.stats.vm.v_cache_count'));
+	$db = FLEET_DATA . '/fleet.db';
+	$round = json_decode((string)fleet_setting('poll_round', '{}'), true) ?: array();
+	list(, $hs) = fleet_ctl_exec(array('/usr/bin/wg', 'show', FLEET_CTL_IF, 'latest-handshakes'));
+	$peers = 0;
+	$recent = 0;
+	foreach (explode("\n", trim((string)$hs)) as $l) {
+		$f = preg_split('/\s+/', trim($l));
+		if (count($f) === 2) {
+			$peers++;
+			$recent += ((int)$f[1] > 0) && ((time() - (int)$f[1]) < 300) ? 1 : 0;
+		}
+	}
+	$sb = fleet_standby_overview();
+	$row = fleet_controller_row();
+	$disk_total = @disk_total_space(FLEET_DATA) ?: 0;
+	return array(
+		'host' => $row['label'], 'version' => $row['version'], 'uptime' => $row['uptime'],
+		'load' => array_map(function ($v) { return round((float)$v, 2); }, array_slice($load, 0, 3)), 'cpus' => max(1, $sys('hw.ncpu')),
+		'mem_pct' => ($total > 0) ? round(100 * (1 - min($free, $total) / $total), 1) : null, 'mem_total' => $total,
+		'disk_pct' => ($disk_total > 0) ? round(100 * (1 - (@disk_free_space(FLEET_DATA) ?: 0) / $disk_total), 1) : null,
+		'disk_free' => ($disk_total > 0) ? (int)(@disk_free_space(FLEET_DATA) ?: 0) : null,
+		'db_bytes' => (int)@filesize($db) + (int)@filesize($db . '-wal'),
+		'poll_at' => (int)($round['at'] ?? 0), 'poll_secs' => (int)($round['secs'] ?? 0), 'poll_boxes' => (int)($round['boxes'] ?? 0),
+		'poll_interval' => (int)fleet_ctl_settings()['poll_interval'],
+		'tunnel_peers' => $peers, 'tunnel_recent' => $recent,
+		'pending' => (int)fleet_db()->query("SELECT COUNT(*) FROM enrollments WHERE state = 'pending'")->fetchColumn(),
+		'standby_role' => $sb['role'], 'standby_addr' => $sb['addr'], 'standby_seen' => $sb['seen'], 'standby_version' => $sb['version'],
+		'fleet_version' => trim((string)@shell_exec("/usr/sbin/pkg query '%v' FreeSense-pkg-Fleet 2>/dev/null")),
+	);
+}
+
+/* The HA pairs as the NOC draws them: members with their role and state, the problem, and the last HA alert. */
+function fleet_kiosk_ha(): array {
+	list($pairs, $boxes) = fleet_ha_now();
+	$out = array();
+	foreach ($pairs as $p) {
+		$members = array();
+		foreach ($p['nodes'] as $n) {
+			$up = (($boxes[$n]['state'] ?? '') === 'online') && ((int)($boxes[$n]['misses'] ?? 0) === 0);
+			$members[] = array('node' => $n, 'label' => (string)($boxes[$n]['label'] ?? $n), 'state' => (string)($boxes[$n]['state'] ?? 'new'),
+			    'role' => !$up ? 'down' : (in_array($n, $p['masters'], true) ? 'MASTER' : 'BACKUP'), 'primary' => $p['primary'] === $n);
+		}
+		$last = fleet_db()->prepare("SELECT MAX(time) FROM alerts WHERE event IN ('ha_problem', 'ha_ok') AND node_id IN (" . implode(',', array_fill(0, count($p['nodes']), '?')) . ')');
+		$last->execute(array_values($p['nodes']));
+		$labels = array_column($members, 'label');
+		natcasesort($labels);
+		$out[] = array('name' => implode(' + ', $labels), 'members' => $members, 'vips' => count($p['vips']),
+		    'problem' => ($p['problem'] === null) ? '' : fleet_ha_problem_badge($p['problem']), 'last' => (int)$last->fetchColumn() ?: null);
+	}
+	return $out;
+}
+
+/*
+ * Every panel's data for a range and (one) group, kept 30 seconds. With
+ * names: the hide pass (fleet_kiosk_panels_hide) is done per screen.
+ */
+function fleet_kiosk_panels(array $cfg, int $now): array {
+	$group = (count($cfg['groups']) === 1) ? (int)$cfg['groups'][0] : 0;
+	return fleet_kiosk_cached("panels-{$cfg['range']}-{$group}", 30, function () use ($cfg, $group, $now) {
+		$tr = fleet_trends($cfg['range'], $group, $now);
+		$st = fleet_stats('24h', null, 2);
+		$days = $tr['days'];
+		$p = array();
+		$p['health'] = array('up' => $st['percent'], 'outages' => $st['outages'], 'longest' => $st['longest'], 't' => $tr['up']['t'], 'avail' => $tr['up']['up']);
+		$p['pulse'] = fleet_trends_pulse($group, $now);
+		$p['load'] = array('t' => $tr['t'], 'cpu' => $tr['load']['cpu_med'], 'cpu_p90' => $tr['load']['cpu_p90'], 'mem' => $tr['load']['mem_med'], 'mem_p90' => $tr['load']['mem_p90'],
+		    'sampled' => $tr['sampled']);
+		$p['traffic'] = array('t' => $tr['t'], 'rx' => $tr['load']['rx'], 'tx' => $tr['load']['tx']);
+		$p['states'] = array('t' => $tr['t'], 'top' => array_map(function ($r) { return array('label' => $r['label'], 'node' => $r['node'], 'data' => $r['data'], 'peak' => round($r['peak'], 1)); }, $tr['states_top']));
+		$p['temp'] = array('t' => $tr['t'], 'top' => array_map(function ($r) { return array('label' => $r['label'], 'node' => $r['node'], 'data' => $r['data'], 'peak' => round($r['peak'], 1)); }, $tr['temp_top']));
+		$latest = array();
+		foreach (fleet_db()->query('SELECT time, event, severity, node_id FROM alerts ORDER BY id DESC LIMIT 6')->fetchAll() as $a) {
+			$latest[] = array('time' => (int)$a['time'], 'severity' => (string)$a['severity'], 'title' => (string)(FLEET_ALERT_EVENTS[$a['event']][0] ?? $a['event']),
+			    'node' => (string)$a['node_id'], 'box' => (string)(fleet_box_get((string)$a['node_id'])['label'] ?? ''), 'text' => '');
+		}
+		$p['alerts'] = array('days' => $days, 'day' => $tr['alerts_day'], 'latest' => $latest);
+		$p['ops'] = array('days' => $days, 'day' => $tr['ops_day'],
+		    'failed_24h' => (int)fleet_db()->query("SELECT COUNT(*) FROM ops WHERE parent IS NULL AND state = 'failed' AND started > " . ($now - 86400))->fetchColumn());
+		$newest = fleet_db()->query('SELECT MIN(t) AS oldest, COUNT(*) AS n FROM (SELECT MAX(time) AS t FROM backups GROUP BY node_id)')->fetch();
+		$p['backups'] = array('days' => $days, 'day' => $tr['backups_day'], 'oldest' => ($newest['oldest'] === null) ? null : (int)$newest['oldest'],
+		    'with' => (int)$newest['n'], 'total' => $tr['total'],
+		    'ok_24h' => (int)fleet_db()->query('SELECT COUNT(*) FROM backups WHERE time > ' . ($now - 86400))->fetchColumn());
+		$rules = array();
+		$cat = fleet_policy_catalog();
+		foreach (fleet_db()->query("SELECT rule_id, COUNT(DISTINCT node_id) AS n FROM compliance WHERE state = 'fail' GROUP BY rule_id ORDER BY n DESC LIMIT 5")->fetchAll() as $r) {
+			$base = preg_replace('/:\d+$/', '', (string)$r['rule_id']);
+			$rules[] = array('label' => (string)($cat[$base]['title'] ?? $base) . ' ' . $base, 'value' => (int)$r['n']);
+		}
+		$p['compliance'] = $tr['compliance'] + array('rules' => $rules, 'checked' => (int)fleet_setting('compliance_checked', '0'));
+		$updates = 0;
+		foreach (fleet_db()->query('SELECT update_info FROM boxes')->fetchAll(PDO::FETCH_COLUMN) as $u) {
+			$updates += (fleet_update_verdict(json_decode((string)$u, true) ?: null) !== null) ? 1 : 0;
+		}
+		$p['versions'] = array('versions' => $tr['versions'], 'updates' => $updates);
+		$p['busiest'] = array('busiest' => array_map(function ($r) {
+			return array('label' => $r['label'], 'node' => $r['node'], 'cpu' => $r['cpu_now'], 'mem' => $r['mem_now'], 'peak' => $r['peak']);
+		}, array_slice($tr['busiest'], 0, 5)));
+		$p['outages'] = array('days' => $days, 'day' => $tr['outages_day']);
+		$p['ha'] = array('pairs' => fleet_kiosk_ha());
+		$p['controller'] = fleet_kiosk_controller();
+		return $p;
+	});
+}
+
+/*
+ * What noc_data.php and kiosk_data.php answer: the fleet now, a screen's
+ * list and panels. $cfg: the screen's settings.
+ */
+function fleet_kiosk_payload(bool $hide, string $title, array $look, array $cfg): array {
+	$now = time();
+	$data = fleet_dashboard_data(
+	    fleet_db()->query('SELECT node_id, name, label, overlay, role, state, last_seen, error, status, update_info, (SELECT MAX(time) FROM backups b WHERE b.node_id = boxes.node_id) AS last_backup FROM boxes')->fetchAll(),
+	    (int)fleet_db()->query("SELECT COUNT(*) FROM enrollments WHERE state = 'pending'")->fetchColumn(), $now, fleet_groups_by_box(), fleet_ops_for_tiles($now), array());
+	$panels = (($cfg['layout'] === 'list') || empty($cfg['panels'])) ? array() : fleet_kiosk_panels($cfg, $now);
+	$view = fleet_kiosk_view($data, fleet_ops_groups_running(), $hide, $title, $look, $cfg, fleet_kiosk_extra(), $panels);
+	$view['ha_problems'] = count(array_filter($panels['ha']['pairs'] ?? fleet_kiosk_ha(), function ($p) { return $p['problem'] !== ''; }));
+	return $view;
 }

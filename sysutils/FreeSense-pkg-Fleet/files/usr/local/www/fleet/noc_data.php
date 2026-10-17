@@ -37,8 +37,4 @@ if (!fleet_ctl_settings()['enable'] || !is_file(FLEET_DATA . '/fleet.db')) {
 	echo json_encode(array('error' => 'This firewall is not a fleet controller.'));
 	exit;
 }
-$now = time();
-$data = fleet_dashboard_data(
-    fleet_db()->query('SELECT node_id, name, label, overlay, role, state, last_seen, error, status, update_info, (SELECT MAX(time) FROM backups b WHERE b.node_id = boxes.node_id) AS last_backup FROM boxes')->fetchAll(),
-    (int)fleet_db()->query("SELECT COUNT(*) FROM enrollments WHERE state = 'pending'")->fetchColumn(), $now, fleet_groups_by_box(), fleet_ops_for_tiles($now), array());
-echo json_encode(fleet_kiosk_view($data, fleet_ops_groups_running(), false, 'Fleet live view'));
+echo json_encode(fleet_kiosk_payload(false, 'Fleet live view', array('freesense', 'auto'), fleet_kiosk_config_get('live')));

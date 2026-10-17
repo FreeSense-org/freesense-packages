@@ -1221,6 +1221,39 @@ check((strpos($nocp, 'class="k--blueprint" data-theme="dark"') !== false) && (st
 $nocv = fleet_kiosk_view(array('boxes' => array(array('node_id' => 'n1', 'state' => 'online', 'groups' => array(), 'version' => '', 'seen' => 0, 'policy' => 0, 'breakglass' => false,
     'update' => null, 'op' => null, 'label' => 'A', 'host' => 'a', 'problem' => '')), 'headline' => '', 'total' => 1, 'counts' => array(), 'checked' => 0, 'now' => 0), array(), true, 'T', array('control', 'dark'));
 check(!isset($nocv['boxes'][0]['id']) && ($nocv['style'] === 'control') && ($nocv['theme'] === 'dark'), 'a screen that hides names gets no firewall ids, and every screen gets its saved look');
+$kc = fleet_kiosk_config_parse(array());
+check(($kc === fleet_kiosk_config_defaults()) && (count(FLEET_KIOSK_PANELS) === 15) && in_array('ha', $kc['panels'], true) && in_array('controller', $kc['panels'], true),
+    'a screen without settings gets the defaults: split view, every panel, list fitted to the screen');
+$kc = fleet_kiosk_config_parse(array('layout' => 'panels', 'left' => '93', 'side' => 'right', 'view' => 'tiles', 'columns' => array('cpu', 'bogus', 'ha'), 'sort' => 'up',
+    'groups' => array('3', '0', 'x', '3'), 'rows' => '1', 'flip' => '2', 'panel_flip' => '9999', 'range' => '1y', 'panels' => array('alerts', 'ha', 'nope', 'health'),
+    'order' => array('health' => 1, 'ha' => 2, 'alerts' => 3), 'beep' => array('ha', 'boom')), true);
+check(($kc['layout'] === 'panels') && ($kc['left'] === 75) && ($kc['side'] === 'right') && ($kc['view'] === 'tiles') && ($kc['columns'] === array('state', 'name', 'cpu', 'ha')) &&
+    ($kc['sort'] === 'problems') && ($kc['groups'] === array(3)) && ($kc['rows'] === 3) && ($kc['flip'] === 5) && ($kc['panel_flip'] === 300) && ($kc['range'] === '24h') &&
+    ($kc['panels'] === array('health', 'ha', 'alerts')) && ($kc['beep'] === array('ha')) && ($kc['hold'] === false) && ($kc['sound'] === false),
+    'screen settings: clamped, unknown values dropped, state and name always shown, panels in the order asked for, unticked boxes off');
+check(fleet_kiosk_config_parse(array('layout' => 'panels', 'panels' => array()), true)['layout'] === 'list' && fleet_kiosk_config_json('not json') === fleet_kiosk_config_defaults() &&
+    (fleet_kiosk_config_json(json_encode($kc)) === $kc), 'panels only with no panel shows the list; stored settings read back the same');
+$kpan = array('pulse' => array('rows' => array(array('label' => 'Copenhagen HQ', 'node' => 'n1', 'link' => '/fleet/fleet_box.php?id=n1', 'cells' => array()))),
+    'alerts' => array('latest' => array(array('time' => 1, 'severity' => 'critical', 'title' => 'Firewall offline', 'node' => 'n1', 'box' => 'Copenhagen HQ', 'text' => 'x'))),
+    'ha' => array('pairs' => array(array('name' => 'Copenhagen HQ + Oslo', 'members' => array(array('node' => 'n1', 'label' => 'Copenhagen HQ', 'role' => 'MASTER'), array('node' => 'n2', 'label' => 'Oslo', 'role' => 'BACKUP')))) ),
+    'busiest' => array('busiest' => array(array('label' => 'Oslo', 'node' => 'n2', 'cpu' => 4))),
+    'controller' => array('host' => 'hq-fleet.example', 'standby_addr' => '198.51.100.7', 'load' => array(0.1)));
+$kh = fleet_kiosk_panels_hide($kpan, array('n1' => 'Firewall 1', 'n2' => 'Firewall 2'));
+$khj = json_encode($kh);
+check((strpos($khj, 'Copenhagen') === false) && (strpos($khj, 'Oslo') === false) && (strpos($khj, 'hq-fleet') === false) && (strpos($khj, '198.51') === false) && (strpos($khj, 'fleet_box') === false) &&
+    ($kh['ha']['pairs'][0]['name'] === 'Pair 1') && ($kh['ha']['pairs'][0]['members'][1]['label'] === 'Firewall 2') && ($kh['alerts']['latest'][0]['box'] === 'Firewall 1') &&
+    ($kh['busiest']['busiest'][0]['label'] === 'Firewall 2'), 'hidden names in the panels: firewalls numbered as in the list, no links, server name or addresses');
+$kv = fleet_kiosk_view($kdata, array(), false, 'NOC', array('freesense', 'auto'), fleet_kiosk_config_parse(array('sort' => 'name')),
+    array('n9' => array('cpu' => 12.5, 'mem' => 40.0, 'rx' => 1000, 'tx' => 2000, 'up' => 99.5, 'ha' => 'MASTER')), $kpan);
+check(($kv['boxes'][0]['name'] === 'Copenhagen HQ') && array_key_exists('cpu', $kv['boxes'][1]) && array_key_exists('ha', $kv['boxes'][1]) && isset($kv['layout']['columns']) &&
+    !isset($kv['layout']['groups']) && isset($kv['panels']['ha']), 'the list carries load, traffic, availability and HA role; a problem stays first in any order; panels and layout are sent');
+$kg = fleet_kiosk_view($kdata, array(), false, 'NOC', array('freesense', 'auto'), fleet_kiosk_config_parse(array('groups' => array(1))));
+check((count($kg['boxes']) === 1) && ($kg['total'] === 1) && ($kg['counts']['offline'] === 1) && ($kg['headline'] === '1 of 1 firewall needs attention'),
+    'a screen for some groups shows, counts and heads only their firewalls');
+$kx = fleet_kiosk_view(array('boxes' => array(array('id' => 'n7', 'state' => 'online', 'groups' => array(), 'version' => '', 'seen' => 0, 'policy' => 0, 'breakglass' => false,
+    'update' => null, 'op' => null, 'label' => 'A', 'host' => 'a', 'problem' => '')), 'headline' => '', 'total' => 1, 'counts' => array(), 'checked' => 0, 'now' => 0), array(), false, 'T',
+    array('freesense', 'auto'), null, array('n7' => array('cpu' => 5.0)));
+check(($kx['boxes'][0]['id'] === 'n7') && ($kx['boxes'][0]['cpu'] === 5.0), 'the live view links each firewall (the dashboard rows carry id, not node_id)');
 
 /* ---- rule and port forward templates ---- */
 $tlbad = function (string $kind, array $in) {
@@ -1513,8 +1546,10 @@ $shr = fleet_samples_hourly(array(
 check((count($shr) === 3) && ($shr[0]['node_id'] === 'a') && ($shr[0]['time'] === 7200) && ($shr[0]['n'] === 2) && ($shr[0]['cpu'] === 20.0) && ($shr[0]['cpu_max'] === 30.0) &&
     ($shr[0]['mem'] === 50.0) && ($shr[0]['temp'] === null) && ($shr[2]['time'] === 10800), 'hourly rows: averages per firewall and hour, the CPU peak, empty values stay empty');
 $sdb = fleet_db();
-check(((int)$sdb->query('PRAGMA user_version')->fetchColumn() === 27) && ($sdb->query("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('samples', 'samples_hourly')")->fetchColumn() == 2),
+check(((int)$sdb->query('PRAGMA user_version')->fetchColumn() >= 27) && ($sdb->query("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('samples', 'samples_hourly')")->fetchColumn() == 2),
     'schema 27 has the sample tables');
+check(((int)$sdb->query('PRAGMA user_version')->fetchColumn() === 28) && (strpos((string)$sdb->query("SELECT sql FROM sqlite_master WHERE name = 'kiosk_keys'")->fetchColumn(), 'config') !== false),
+    'schema 28: every NOC screen has its own layout');
 $sdb->exec("INSERT INTO samples (node_id, time, cpu) VALUES ('sx', 100, 5), ('sy', 100, 9)");
 $sdb->exec("INSERT INTO samples_hourly (node_id, time, n, cpu, cpu_max) VALUES ('sx', 50, 12, 4, 8)");
 check((count(fleet_samples_rows(null, 0, 200)) === 3) && (count(fleet_samples_rows(array('sx'), 0, 200)) === 2) && (fleet_samples_rows(array(), 0, 200) === array()) &&
@@ -1550,5 +1585,10 @@ check(fleet_users_keys_without_shell('ssh-ed25519 AAAA x', array(array('page-das
     !fleet_users_keys_without_shell('', array()) && !fleet_users_keys_without_shell('ssh-ed25519 AAAA x', array(array('page-all'))), 'an SSH key without the shell privilege is pointed out');
 check((fleet_users_difference_kind(null, 'h') === 'pending') && (fleet_users_difference_kind('h', 'h') === 'drift') && (fleet_users_difference_kind('old', 'h') === 'pending') &&
     (fleet_users_desired_hash(array('a' => 1)) === fleet_users_desired_hash(array('a' => 1))), 'users never synced (or changed in Fleet since) are pending, not drift');
+
+check((fleet_kiosk_config_parse(array('heading' => "  ACME <b>NOC</b>
+ ", 'subheading' => str_repeat('x', 300)))['heading'] === 'ACME b NOC /b') &&
+    (mb_strlen(fleet_kiosk_config_parse(array('subheading' => str_repeat('x', 300)))['subheading']) === 100) && (fleet_kiosk_config_parse(array())['heading'] === ''),
+    'live view header text: one plain line, limited in length, empty by default');
 
 echo "Fleet controller tests: OK\n";

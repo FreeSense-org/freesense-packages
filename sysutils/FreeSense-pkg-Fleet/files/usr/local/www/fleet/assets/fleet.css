@@ -1104,3 +1104,6 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 
 /* A select in a table cell keeps its choice on one line ("TCP and UDP"). */
 .fs-fleet-nowrap { width: auto; min-width: max-content; white-space: nowrap; }
+
+/* NOC screen layout: the panel order numbers. */
+.fs-fleet-order { max-width: 5.5rem; }
