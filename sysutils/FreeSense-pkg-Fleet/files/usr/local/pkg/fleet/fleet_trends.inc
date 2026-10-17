@@ -199,14 +199,27 @@ function fleet_trends_versions(array $statuses): array {
 /* Store                                                               */
 /* ------------------------------------------------------------------ */
 
-/* The firewalls (node_id, label, joined, status) of a group, or all when $group is 0. */
-function fleet_trends_boxes(int $group): array {
-	$boxes = fleet_db()->query('SELECT node_id, label, state, status FROM boxes ORDER BY label COLLATE NOCASE')->fetchAll();
-	if ($group > 0) {
-		$by = fleet_groups_by_box();
-		$boxes = array_values(array_filter($boxes, function ($b) use ($by, $group) { return in_array($group, array_column($by[$b['node_id']] ?? array(), 'id'), true); }));
+/* pure: group ids from one id (0 = all) or a list of ids (empty = all). */
+function fleet_trends_group_ids(int|array $group): array {
+	$ids = is_array($group) ? $group : array($group);
+	return array_values(array_unique(array_filter(array_map('intval', $ids), function ($g) { return $g > 0; })));
+}
+
+/* pure: the boxes in any of these groups ($by: fleet_groups_by_box()); all of them for no groups. */
+function fleet_trends_in_groups(array $boxes, array $by, array $groups): array {
+	if (empty($groups)) {
+		return $boxes;
 	}
-	return $boxes;
+	return array_values(array_filter($boxes, function ($b) use ($by, $groups) {
+		return !empty(array_intersect($groups, array_column($by[$b['node_id']] ?? array(), 'id')));
+	}));
+}
+
+/* The firewalls (node_id, label, joined, status) of one group or several (0 or none: all). */
+function fleet_trends_boxes(int|array $group): array {
+	$boxes = fleet_db()->query('SELECT node_id, label, state, status FROM boxes ORDER BY label COLLATE NOCASE')->fetchAll();
+	$ids = fleet_trends_group_ids($group);
+	return empty($ids) ? $boxes : fleet_trends_in_groups($boxes, fleet_groups_by_box(), $ids);
 }
 
 /* Each firewall's state changes over [$from, $to): node => array(before, log). */
@@ -228,7 +241,7 @@ function fleet_trends_logs(array $boxes, int $from, int $to): array {
  * The fleet pulse: the last 24 hours in half hours, one row per firewall,
  * worst first. {t, rows: [{label, link, node, cells, bad}], healthy}.
  */
-function fleet_trends_pulse(int $group, int $now): array {
+function fleet_trends_pulse(int|array $group, int $now): array {
 	$n = 48;
 	$size = 1800;
 	$to = intdiv($now, $size) * $size + $size;
@@ -253,12 +266,13 @@ function fleet_trends_pulse(int $group, int $now): array {
 }
 
 /* Everything the Trends view draws for a range (24h, 7d, 30d) and a group (0 = all). */
-function fleet_trends(string $range, int $group, int $now): array {
+function fleet_trends(string $range, int|array $group, int $now): array {
 	$span = FLEET_STATS_RANGES[$range] ?? 86400;
 	$n = FLEET_TRENDS_POINTS[$range] ?? 96;
 	$size = max(300, intdiv($span, $n));
 	$from = $now - $n * $size;
 	$boxes = fleet_trends_boxes($group);
+	$grouped = !empty(fleet_trends_group_ids($group));
 	$nodes = array_column($boxes, 'node_id');
 	$labels = array_column($boxes, 'label', 'node_id');
 	$t = array();
@@ -292,25 +306,25 @@ function fleet_trends(string $range, int $group, int $now): array {
 	$out['days'] = $days;
 	$out['outages_day'] = fleet_trends_per_day($outs, $days, array('outages'))['outages'];
 	$in = empty($nodes) ? '' : implode(',', array_map(array(fleet_db(), 'quote'), $nodes));
-	$q = fleet_db()->prepare('SELECT time, severity FROM alerts WHERE time >= ?' . (($group > 0) ? " AND node_id IN ({$in})" : ''));
+	$q = fleet_db()->prepare('SELECT time, severity FROM alerts WHERE time >= ?' . ($grouped ? " AND node_id IN ({$in})" : ''));
 	$q->execute(array($dfrom));
-	$out['alerts_day'] = fleet_trends_per_day(array_map(function ($r) { return array($r['time'], $r['severity']); }, ($group > 0 && $in === '') ? array() : $q->fetchAll()),
+	$out['alerts_day'] = fleet_trends_per_day(array_map(function ($r) { return array($r['time'], $r['severity']); }, ($grouped && $in === '') ? array() : $q->fetchAll()),
 	    $days, array('critical', 'warning', 'info'));
 	$q = fleet_db()->prepare('SELECT started, kind, state FROM ops WHERE parent IS NULL AND started >= ?');
 	$q->execute(array($dfrom));
 	$ops = $q->fetchAll();
 	$out['ops_day'] = fleet_trends_per_day(array_map(function ($r) { return array($r['started'], ($r['state'] === 'failed') ? 'failed' : (($r['state'] === 'done') ? 'done' : 'other')); }, $ops),
 	    $days, array('done', 'failed'));
-	$q = fleet_db()->prepare('SELECT time FROM backups WHERE time >= ?' . (($group > 0) ? " AND node_id IN ({$in})" : ''));
+	$q = fleet_db()->prepare('SELECT time FROM backups WHERE time >= ?' . ($grouped ? " AND node_id IN ({$in})" : ''));
 	$q->execute(array($dfrom));
-	$bk = fleet_trends_per_day(array_map(function ($r) { return array($r['time'], 'ok'); }, ($group > 0 && $in === '') ? array() : $q->fetchAll()), $days, array('ok'));
+	$bk = fleet_trends_per_day(array_map(function ($r) { return array($r['time'], 'ok'); }, ($grouped && $in === '') ? array() : $q->fetchAll()), $days, array('ok'));
 	$bf = fleet_trends_per_day(array_map(function ($r) { return array($r['started'], 'failed'); }, array_filter($ops, function ($r) {
 		return (strpos((string)$r['kind'], 'backup') === 0) && ($r['state'] === 'failed');
 	})), $days, array('failed'));
 	$out['backups_day'] = array('ok' => $bk['ok'], 'failed' => $bf['failed']);
 
 	/* Load from the samples. */
-	$b = fleet_trends_buckets(fleet_samples_rows(($group > 0) ? $nodes : null, $from, $now), $from, $size, $n);
+	$b = fleet_trends_buckets(fleet_samples_rows($grouped ? $nodes : null, $from, $now), $from, $size, $n);
 	$b = array_intersect_key($b, array_flip($nodes));
 	$out['load'] = fleet_trends_load($b, $n);
 	$out['sampled'] = count($b);

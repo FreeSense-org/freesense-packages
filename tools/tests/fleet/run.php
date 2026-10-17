@@ -1222,7 +1222,7 @@ $nocv = fleet_kiosk_view(array('boxes' => array(array('node_id' => 'n1', 'state'
     'update' => null, 'op' => null, 'label' => 'A', 'host' => 'a', 'problem' => '')), 'headline' => '', 'total' => 1, 'counts' => array(), 'checked' => 0, 'now' => 0), array(), true, 'T', array('control', 'dark'));
 check(!isset($nocv['boxes'][0]['id']) && ($nocv['style'] === 'control') && ($nocv['theme'] === 'dark'), 'a screen that hides names gets no firewall ids, and every screen gets its saved look');
 $kc = fleet_kiosk_config_parse(array());
-check(($kc === fleet_kiosk_config_defaults()) && (count(FLEET_KIOSK_PANELS) === 21) && in_array('inet', $kc['panels'], true) && in_array('inet', $kc['columns'], true) && in_array('ha', $kc['panels'], true) && in_array('controller', $kc['panels'], true),
+check(($kc === fleet_kiosk_config_defaults()) && (count(FLEET_KIOSK_PANELS) === 22) && in_array('inet', $kc['panels'], true) && in_array('inet', $kc['columns'], true) && in_array('ha', $kc['panels'], true) && in_array('controller', $kc['panels'], true),
     'a screen without settings gets the defaults: split view, every panel, list fitted to the screen');
 $kc = fleet_kiosk_config_parse(array('layout' => 'panels', 'left' => '93', 'side' => 'right', 'view' => 'tiles', 'columns' => array('cpu', 'bogus', 'ha'), 'sort' => 'up',
     'groups' => array('3', '0', 'x', '3'), 'rows' => '1', 'flip' => '2', 'panel_flip' => '9999', 'range' => '1y', 'panels' => array('alerts', 'ha', 'nope', 'health'),
@@ -1652,5 +1652,30 @@ $kb = array(array('id' => 'a', 'label' => 'Alpha', 'state' => 'online', 'groups'
 check(array_column(fleet_kiosk_boxes($kb, fleet_kiosk_config_defaults(), array('b' => 'down')), 'id') === array('c', 'b', 'a') &&
     array_column(fleet_kiosk_boxes($kb, array('sort' => 'name') + fleet_kiosk_config_defaults(), array('a' => 'degraded')), 'id') === array('c', 'a', 'b'),
     'live view list: late firewalls, then no internet, then poor internet come first');
+
+$gb = array(
+    array('id' => 'a', 'label' => 'A', 'state' => 'online', 'policy' => 0, 'groups' => array(array('id' => 1, 'name' => 'Shops', 'color' => '2'))),
+    array('id' => 'b', 'label' => 'B', 'state' => 'offline', 'policy' => 0, 'groups' => array(array('id' => 2, 'name' => 'Branches', 'color' => '3'))),
+    array('id' => 'c', 'label' => 'C', 'state' => 'online', 'policy' => 1, 'groups' => array(array('id' => 1, 'name' => 'Shops', 'color' => '2'), array('id' => 2, 'name' => 'Branches', 'color' => '3'))),
+    array('id' => 'd', 'label' => 'D', 'state' => 'online', 'policy' => 0, 'groups' => array()));
+$gr = fleet_kiosk_group_rows($gb, array('a' => 'down'), array());
+check((array_column($gr, 'name') === array('Branches', 'Shops', 'No group')) && ($gr[0]['worst'] === 'offline') && ($gr[0]['total'] === 2) && ($gr[1]['inet'] === 1) &&
+    ($gr[1]['worst'] === 'inet') && ($gr[1]['policy'] === 1) && ($gr[2]['id'] === 0) && ($gr[1]['color'] === '2'),
+    'Groups panel: one row per group, counted per member (also in two groups), problem groups first, "No group" last');
+$gr1 = fleet_kiosk_group_rows($gb, array(), array('c' => true), array(1));
+check((count($gr1) === 1) && ($gr1[0]['name'] === 'Shops') && ($gr1[0]['ha'] === 1) && ($gr1[0]['worst'] === 'ha'), 'a group screen shows only its groups, without "No group"');
+$gl = fleet_kiosk_group_list(array(array('name' => 'A', 'g' => 1), array('name' => 'D', 'g' => 0), array('name' => 'B', 'g' => 2), array('name' => 'C', 'g' => 1)), $gr);
+check(array_column($gl, 'name') === array('B', 'A', 'C', 'D'), 'a grouped list follows the group order and keeps each group\'s firewalls in their order');
+$gview = fleet_kiosk_view(array('boxes' => array(array('id' => 'n1', 'state' => 'online', 'groups' => array(array('id' => 5, 'name' => 'Customer X', 'color' => '4')), 'version' => '1.2', 'seen' => 0,
+    'policy' => 0, 'breakglass' => false, 'update' => null, 'op' => null, 'label' => 'fw', 'host' => 'h', 'problem' => '')), 'headline' => '', 'total' => 1, 'counts' => array(), 'checked' => 0, 'now' => 0),
+    array(), true, 'T', array('freesense', 'auto'), array('group_rows' => true) + fleet_kiosk_config_defaults());
+check(($gview['group_rows'][0]['name'] === 'Group 1') && ($gview['boxes'][0]['groups'] === array()) && ($gview['boxes'][0]['gc'] === array()) && ($gview['boxes'][0]['g'] === 5) &&
+    ($gview['panels']['groups']['rows'][0]['name'] === 'Group 1') && (strpos(json_encode($gview), 'Customer X') === false),
+    'a screen that hides names numbers its groups and never sends their names');
+check((fleet_trends_group_ids(0) === array()) && (fleet_trends_group_ids(3) === array(3)) && (fleet_trends_group_ids(array(2, '4', 0, 2)) === array(2, 4)) &&
+    (array_column(fleet_trends_in_groups(array(array('node_id' => 'a'), array('node_id' => 'b'), array('node_id' => 'c')),
+    array('a' => array(array('id' => 1)), 'b' => array(array('id' => 2)), 'c' => array(array('id' => 3))), array(1, 3)), 'node_id') === array('a', 'c')),
+    'charts for a screen with several groups use the firewalls of all of them');
+check(fleet_kiosk_config_parse(array('group_rows' => '1'))['group_rows'] && !fleet_kiosk_config_parse(array())['group_rows'], 'the grouped list is a setting, off by default');
 
 echo "Fleet controller tests: OK\n";

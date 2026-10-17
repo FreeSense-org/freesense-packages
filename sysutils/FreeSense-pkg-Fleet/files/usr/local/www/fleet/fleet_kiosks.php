@@ -185,6 +185,9 @@ if (($kconf !== null) && $manage):
 				<div class="col-sm-3"><span class="form-label d-block">&nbsp;</span><label class="form-check"><input class="form-check-input" type="checkbox" name="hold" value="1"<?=$chk($kcfg['hold'])?>/>
 					<span class="form-check-label"><?=gettext('Stay on page 1 while a firewall is offline')?></span></label></div>
 			</div>
+			<div class="mb-3"><label class="form-check"><input class="form-check-input" type="checkbox" name="group_rows" value="1"<?=$chk($kcfg['group_rows'])?>/>
+				<span class="form-check-label"><?=gettext('Group the list by firewall group')?></span></label>
+				<div class="form-text"><?=gettext('Each group gets a heading with how its firewalls are, the group with a problem first. A firewall in several groups is listed under the first of them (by name). The Groups column is left out then.')?></div></div>
 			<fieldset><legend class="form-label"><?=gettext('Only these groups')?></legend>
 <?php if (empty($groups)): ?>
 				<p class="fs-fleet-hint mb-0"><?=gettext('No groups yet: the screen shows every firewall.')?></p>
@@ -192,10 +195,11 @@ if (($kconf !== null) && $manage):
 				<div class="fs-fleet-checkgrid">
 <?php foreach ($groups as $grp): ?>
 					<label class="form-check"><input class="form-check-input" type="checkbox" name="groups[]" value="<?=(int)$grp['id']?>"<?=$chk(in_array((int)$grp['id'], $kcfg['groups'], true))?>/>
-						<span class="form-check-label"><?=$h($grp['name'])?></span></label>
+						<span class="form-check-label"><span class="fs-fleet-group" style="--fs-fleet-group: var(--fs-series-<?=$h(fleet_group_color((string)$grp['color']))?>)"><?=$h($grp['name'])?></span>
+						<span class="fs-muted small"><?=(int)$grp['members']?></span></span></label>
 <?php endforeach; ?>
 				</div>
-				<div class="form-text"><?=gettext('None ticked: every firewall. With one group, the charts show that group too.')?></div>
+				<div class="form-text"><?=gettext('None ticked: every firewall. The counts, panels and charts show the ticked groups only.')?></div>
 <?php endif; ?>
 			</fieldset>
 		</div>
