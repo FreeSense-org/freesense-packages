@@ -61,50 +61,68 @@
 
 	/* From the controller. */
 	var dt = d.days.map(function (s) { var p = s.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]).getTime() / 1000; });
-	FC.draw($('days'), {type: 'pulse', t: dt, states: T, label: T.online, rows: [{label: '', link: '#', cells: d.day_cells}]});
-	if (vals(d.states).length) {
-		FC.draw($('states'), {type: 'line', t: d.t, label: T.states, series: [{name: T.states, data: d.states, fill: true, color: 7}]});
-		sum('states', d.states_max ? T.limit.replace('%s', FC.short(d.states_max)) : '');
-	} else {
-		note($('states'), T.no_samples);
+	/* Only the chosen group of charts is on the page; draw what is there. */
+	if ($('days')) {
+		FC.draw($('days'), {type: 'pulse', t: dt, states: T, label: T.online, rows: [{label: '', link: '#', cells: d.day_cells}]});
 	}
-	if (vals(d.temp).length) {
-		FC.draw($('temp'), {type: 'line', t: d.t, unit: '°', max: 100, label: T.temp, marks: [{v: 80, label: T.warn_temp}], series: [{name: T.temp, data: d.temp, color: 8}]});
-		sum('temp', T.peak.replace('%s', FC.short(peak(d.temp), ' °C')));
-	} else {
-		note($('temp'), vals(d.states).length ? T.no_temp : T.no_samples);
+	if ($('states')) {
+		if (vals(d.states).length) {
+			FC.draw($('states'), {type: 'line', t: d.t, label: T.states, series: [{name: T.states, data: d.states, fill: true, color: 7}]});
+			sum('states', d.states_max ? T.limit.replace('%s', FC.short(d.states_max)) : '');
+		} else {
+			note($('states'), T.no_samples);
+		}
 	}
-	FC.draw($('alerts'), {type: 'bars', labels: days, label: T.critical, series: [{name: T.critical, data: d.alerts_day.critical, tone: 'block'},
-	    {name: T.warning, data: d.alerts_day.warning, tone: 'warn'}, {name: T.info, data: d.alerts_day.info, tone: 'info'}]});
-	FC.draw($('backups'), {type: 'bars', labels: days, label: T.backups, series: [{name: T.backups, data: d.backups_day, tone: 'c4'}]});
+	if ($('temp')) {
+		if (vals(d.temp).length) {
+			FC.draw($('temp'), {type: 'line', t: d.t, unit: '°', max: 100, label: T.temp, marks: [{v: 80, label: T.warn_temp}], series: [{name: T.temp, data: d.temp, color: 8}]});
+			sum('temp', T.peak.replace('%s', FC.short(peak(d.temp), ' °C')));
+		} else {
+			note($('temp'), vals(d.states).length ? T.no_temp : T.no_samples);
+		}
+	}
+	if ($('alerts')) {
+		FC.draw($('alerts'), {type: 'bars', labels: days, label: T.critical, series: [{name: T.critical, data: d.alerts_day.critical, tone: 'block'},
+		    {name: T.warning, data: d.alerts_day.warning, tone: 'warn'}, {name: T.info, data: d.alerts_day.info, tone: 'info'}]});
+	}
+	if ($('backups')) {
+		FC.draw($('backups'), {type: 'bars', labels: days, label: T.backups, series: [{name: T.backups, data: d.backups_day, tone: 'c4'}]});
+	}
 
 	/* From the firewall. */
-	get('history').then(function (h) {
-		FC.draw($('sys'), {type: 'line', t: h.t, max: 100, unit: '%', label: T.cpu, empty: T.no_history,
-		    series: [{name: T.cpu, data: h.cpu, color: 1}, {name: T.memory, data: h.mem, color: 3}]});
-		var a = avg(h.cpu);
-		sum('sys', a === null ? '' : T.cpu + ' ' + T.avg.replace('%s', FC.short(a, ' %')));
-	}, function (e) { note($('sys'), e); });
+	if ($('sys')) {
+		get('history').then(function (h) {
+			FC.draw($('sys'), {type: 'line', t: h.t, max: 100, unit: '%', label: T.cpu, empty: T.no_history,
+			    series: [{name: T.cpu, data: h.cpu, color: 1}, {name: T.memory, data: h.mem, color: 3}]});
+			var a = avg(h.cpu);
+			sum('sys', a === null ? '' : T.cpu + ' ' + T.avg.replace('%s', FC.short(a, ' %')));
+		}, function (e) { note($('sys'), e); });
+	}
 
-	get('gateways').then(function (h) {
-		var names = Object.keys(h.gateways || {});
-		if (!names.length) {
-			note($('gw'), T.no_gw);
-			return;
-		}
-		var el = $('gw');
-		el.innerHTML = names.map(function (n, k) { return '<div class="fs-fleet-gw" data-gw="' + k + '"><h4 class="fs-fleet-gw-name">' + esc(n) + '</h4><div></div></div>'; }).join('');
-		names.forEach(function (n, k) {
-			var g = h.gateways[n];
-			FC.draw(el.querySelector('[data-gw="' + k + '"] div'), {type: 'line', t: h.t, unit: ' ms', height: 150, label: n, legend: true,
-			    series: [{name: T.delay, data: g.delay, color: 3}, {name: T.stddev, data: g.stddev, dash: true, color: 5},
-			    {name: T.loss + ' %', data: g.loss, color: 8}]});
-		});
-		var d0 = h.gateways[names[0]];
-		sum('gw', names[0] + ' ' + T.avg.replace('%s', FC.short(avg(d0.delay), ' ms')));
-	}, function (e) { note($('gw'), e); });
+	if ($('gw')) {
+		get('gateways').then(function (h) {
+			var names = Object.keys(h.gateways || {});
+			if (!names.length) {
+				note($('gw'), T.no_gw);
+				return;
+			}
+			var el = $('gw');
+			el.innerHTML = names.map(function (n, k) { return '<div class="fs-fleet-gw" data-gw="' + k + '"><h4 class="fs-fleet-gw-name">' + esc(n) + '</h4><div></div></div>'; }).join('');
+			names.forEach(function (n, k) {
+				var g = h.gateways[n];
+				FC.draw(el.querySelector('[data-gw="' + k + '"] div'), {type: 'line', t: h.t, unit: ' ms', height: 150, label: n, legend: true,
+				    series: [{name: T.delay, data: g.delay, color: 3}, {name: T.stddev, data: g.stddev, dash: true, color: 5},
+				    {name: T.loss + ' %', data: g.loss, color: 8}]});
+			});
+			var d0 = h.gateways[names[0]];
+			sum('gw', names[0] + ' ' + T.avg.replace('%s', FC.short(avg(d0.delay), ' ms')));
+		}, function (e) { note($('gw'), e); });
+	}
 
 	var chips = root.querySelector('[data-ifs]');
+	if (!chips) {
+		return;
+	}
 	var traffic = function (ifn) {
 		chips.querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-if') === ifn ? 'true' : 'false'); });
 		get('traffic', '&if=' + encodeURIComponent(ifn)).then(function (h) {

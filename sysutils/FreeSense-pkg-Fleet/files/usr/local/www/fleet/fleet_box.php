@@ -513,6 +513,13 @@ if ($savemsg) {
 <?php elseif ($view === 'stats'):
 	$srange = in_array($_GET['range'] ?? '', array('1h', '24h', '7d', '30d'), true) ? (string)$_GET['range'] : '24h';
 	$st = fleet_trends_box($box['node_id'], $srange, time());
+	/* One group of charts at a time; the availability strip stays on top of each. */
+	$ssections = array('system' => gettext('Availability and load'), 'network' => gettext('Network'));
+	if (fleet_inet_enabled()) {
+		$ssections['internet'] = gettext('Internet');
+	}
+	$ssections['activity'] = gettext('Activity');
+	$ssec = fs_view_param(array_keys($ssections), 'system', 'section');
 	$st['alerts'] = array_map(function ($a) {
 		return $a + array('title' => FLEET_ALERT_EVENTS[$a['event']][0] ?? $a['event'], 'when' => date('Y-m-d H:i', (int)$a['time']));
 	}, $st['alerts']);
@@ -530,14 +537,6 @@ if ($savemsg) {
 	};
 ?>
 <div id="fs-fleet-bstats" data-node="<?=htmlspecialchars($box['node_id'])?>" data-range="<?=$srange?>" data-strings="<?=htmlspecialchars(json_encode($sstrings))?>">
-	<div class="fs-fleet-dash-controls">
-		<nav class="btn-group btn-group-sm" aria-label="<?=gettext('Range')?>">
-<?php foreach (array('1h' => gettext('1 hour'), '24h' => gettext('24 hours'), '7d' => gettext('7 days'), '30d' => gettext('30 days')) as $rk => $rl): ?>
-			<a class="btn btn-outline-secondary" href="<?=$here('stats', array('range' => $rk))?>"<?=($rk === $srange) ? ' aria-current="true"' : ''?>><?=$rl?></a>
-<?php endforeach; ?>
-		</nav>
-	</div>
-	<h2 class="fs-fleet-section"><i class="fa-solid fa-heart-pulse" aria-hidden="true"></i><?=gettext('Availability')?></h2>
 	<ul class="fs-fleet-strip fs-fleet-strip--quiet">
 <?php foreach (array('24h' => gettext('24 hours'), '7d' => gettext('7 days'), '30d' => gettext('30 days')) as $rk => $rl): $ap = $st['avail'][$rk]; ?>
 		<li><span class="fs-fleet-strip-item"><span class="fs-fleet-cp-icon fs-fc-<?=($ap === null) ? 'neutral' : (($ap < 95) ? 'block' : (($ap < 99.5) ? 'warn' : 'pass'))?>"><i class="fa-solid fa-heart-pulse" aria-hidden="true"></i></span>
@@ -546,6 +545,19 @@ if ($savemsg) {
 		<li><span class="fs-fleet-strip-item"><span class="fs-fleet-cp-icon fs-fc-<?=empty($st['outages']) ? 'neutral' : 'warn'?>"><i class="fa-solid fa-plug-circle-xmark" aria-hidden="true"></i></span>
 			<span class="fs-fleet-strip-v"><?=count($st['outages'])?></span><span class="fs-fleet-strip-l"><?=gettext('outages, 30 days')?></span></span></li>
 	</ul>
+	<div class="fs-fleet-dash-controls fs-fleet-stats-bar">
+		<?php fs_view_switch($ssections, $ssec, 'section'); ?>
+<?php if (in_array($ssec, array('system', 'network'), true)): ?>
+		<nav class="btn-group btn-group-sm ms-auto" aria-label="<?=gettext('Range')?>">
+<?php foreach (array('1h' => gettext('1 hour'), '24h' => gettext('24 hours'), '7d' => gettext('7 days'), '30d' => gettext('30 days')) as $rk => $rl): ?>
+			<a class="btn btn-outline-secondary" href="<?=$here('stats', array('range' => $rk, 'section' => $ssec))?>"<?=($rk === $srange) ? ' aria-current="true"' : ''?>><?=$rl?></a>
+<?php endforeach; ?>
+		</nav>
+<?php else: ?>
+		<span class="ms-auto small fs-muted"><?=($ssec === 'activity') ? gettext('Last 30 days') : gettext('Last 24 hours, 7 and 30 days')?></span>
+<?php endif; ?>
+	</div>
+<?php if ($ssec === 'system'): ?>
 	<div class="fs-fleet-charts">
 		<section class="fs-fleet-cp is-wide"><?=$sh('fa-wave-square', 'pass', gettext('Last 30 days'))?><div class="fs-fleet-cp-body" data-chart="days"></div></section>
 		<section class="fs-fleet-cp is-wide"><?=$sh('fa-plug-circle-xmark', 'block', gettext('Outages'))?>
@@ -566,10 +578,11 @@ if ($savemsg) {
 		<section class="fs-fleet-cp"><?=$sh('fa-table-list', 'c7', gettext('State table'), 'states')?><div class="fs-fleet-cp-body" data-chart="states"></div></section>
 		<section class="fs-fleet-cp"><?=$sh('fa-temperature-half', 'c8', gettext('Temperature'), 'temp')?><div class="fs-fleet-cp-body" data-chart="temp"></div></section>
 	</div>
+<?php endif; ?>
 <?php
 	/* Internet connectivity (an option): the firewall's gateways at the last check, availability and the internet alerts. */
 	$inet = fleet_inet_enabled() ? (fleet_inet_now()[$box['node_id']] ?? null) : null;
-	if (fleet_inet_enabled()):
+	if ($ssec === 'internet'):
 		$inet_av = array();
 		$inet_st = array();
 		foreach (array('24h' => 86400, '7d' => 604800, '30d' => 2592000) as $rk => $secs) {
@@ -633,14 +646,15 @@ if ($savemsg) {
 		<div class="panel-footer small fs-muted"><?=gettext('The gateway quality chart below shows the firewall\'s own history (from its RRD files).')?> <a href="/fleet/fleet_internet.php"><?=gettext('All gateways in the fleet')?></a></div>
 	</div>
 <?php endif; ?>
-	<h2 class="fs-fleet-section"><i class="fa-solid fa-network-wired" aria-hidden="true"></i><?=gettext('Network')?></h2>
+<?php if ($ssec === 'network'): ?>
 	<div class="fs-fleet-charts">
 		<section class="fs-fleet-cp is-wide"><?=$sh('fa-right-left', 'c6', gettext('Traffic'), 'traffic')?>
 			<div class="fs-fleet-chips" data-ifs role="group" aria-label="<?=gettext('Interface')?>"></div>
 			<div class="fs-fleet-cp-body" data-chart="traffic"></div></section>
 		<section class="fs-fleet-cp is-wide"><?=$sh('fa-route', 'c3', gettext('Gateway quality'), 'gw')?><div class="fs-fleet-cp-body" data-chart="gw"></div></section>
 	</div>
-	<h2 class="fs-fleet-section"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i><?=gettext('Activity, 30 days')?></h2>
+<?php endif; ?>
+<?php if ($ssec === 'activity'): ?>
 	<div class="fs-fleet-charts">
 		<section class="fs-fleet-cp"><?=$sh('fa-bell', 'warn', gettext('Alerts per day'), 'alerts')?><div class="fs-fleet-cp-body" data-chart="alerts"></div>
 <?php if (!empty($st['alerts'])): ?>
@@ -653,6 +667,7 @@ if ($savemsg) {
 		</section>
 		<section class="fs-fleet-cp"><?=$sh('fa-box-archive', 'c4', gettext('Backups per day'), 'backups')?><div class="fs-fleet-cp-body" data-chart="backups"></div></section>
 	</div>
+<?php endif; ?>
 	<script type="application/json" data-fleet-json><?=json_encode($st, JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_SLASHES)?></script>
 </div>
 <script src="<?=$asset('fleet-charts.js')?>"></script>
