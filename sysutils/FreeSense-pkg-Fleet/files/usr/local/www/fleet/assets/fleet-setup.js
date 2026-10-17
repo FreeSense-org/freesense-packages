@@ -76,3 +76,19 @@
 	form.addEventListener('fs:step-next', draw);
 	draw();
 }());
+
+/* Settings sub-sections that only matter while a switch is on (data-fleet-requires="<switch id>"). The fields stay in the form, so saving still sends them. */
+(function () {
+	'use strict';
+	Array.prototype.forEach.call(document.querySelectorAll('[data-fleet-requires]'), function (box) {
+		var sw = document.getElementById(box.getAttribute('data-fleet-requires'));
+		if (!sw) {
+			return;
+		}
+		var sync = function () {
+			box.hidden = !sw.checked;
+		};
+		sw.addEventListener('change', sync);
+		sync();
+	});
+}());

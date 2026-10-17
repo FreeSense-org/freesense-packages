@@ -1163,3 +1163,10 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 .fs-fleet-webui-form { display: flex; flex-wrap: wrap; gap: var(--fs-sp-2); align-items: center; }
 .fs-fleet-webui-form .form-select { width: auto; max-width: 100%; }
 .fs-fleet-webui-how summary { cursor: pointer; font-size: .875em; color: var(--fs-link, inherit); }
+
+/* Settings sections: fields in a grid that uses the width; switches and sub-sections take a whole row. */
+.fs-fleet-settings--grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr)); gap: var(--fs-sp-4) var(--fs-sp-5); max-width: none; align-items: start; }
+.fs-fleet-settings-full { grid-column: 1 / -1; max-width: 48rem; }
+.fs-fleet-subsection { border: 1px solid var(--fs-border); border-radius: var(--fs-radius, 6px); padding: var(--fs-sp-3) var(--fs-sp-4) var(--fs-sp-4); margin: 0; max-width: none; }
+.fs-fleet-subsection > legend { float: none; width: auto; padding: 0 var(--fs-sp-2); margin: 0; font-size: var(--fs-fs-sm, .875rem); font-weight: 600; }
+.fs-fleet-subsection[hidden] { display: none; }
