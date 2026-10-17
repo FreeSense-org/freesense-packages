@@ -73,8 +73,9 @@ function fleet_policy_catalog(): array {
 		    'help' => 'SSH is off, or allows key logins only (no passwords).', 'params' => array()),
 		'SEC-002' => array('area' => 'Security', 'title' => 'WebGUI over HTTPS', 'kind' => 'config', 'severity' => 'high',
 		    'help' => 'The WebGUI uses HTTPS.', 'params' => array(), 'path' => 'system/webgui/protocol', 'op' => 'equals', 'value' => 'https'),
-		'SEC-003' => array('area' => 'Security', 'title' => 'WebGUI login protection', 'kind' => 'config', 'severity' => 'medium',
-		    'help' => 'Login protection (blocking repeated failed logins) is not turned off.', 'params' => array(), 'path' => 'system/webgui/noantilockout', 'op' => 'absent'),
+		'SEC-003' => array('area' => 'Security', 'title' => 'WebGUI login protection', 'kind' => 'login_protection', 'severity' => 'medium',
+		    'help' => 'Login protection (blocking addresses after repeated failed logins) is not weakened: its pass list does not cover every address and it blocks after at most this many failures.',
+		    'params' => array('threshold' => array('int', 'Blocks after at most (attack score)', '30'))),
 		'NAME-001' => array('area' => 'Naming', 'title' => 'Hostname pattern', 'kind' => 'config', 'severity' => 'low',
 		    'help' => 'The hostname matches the naming pattern.', 'params' => array('regex' => array('regex', 'Pattern (regular expression)', '^[a-z]{2}-[a-z0-9]+-[a-z]+[0-9]{2}$')),
 		    'path' => 'system/hostname', 'op' => 'regex'),
@@ -93,7 +94,7 @@ function fleet_policy_catalog(): array {
 
 define('FLEET_POLICY_MODES', array('audit' => 'Audit', 'remediate' => 'Remediate', 'lock' => 'Lock'));
 /* Rules one value can fix; the firewall keeps its own allow-list too (System, fleet_guard.inc). */
-define('FLEET_POLICY_REMEDIABLE', array('OPS-001', 'OPS-003', 'SEC-003', 'NAME-002', 'NAME-003'));
+define('FLEET_POLICY_REMEDIABLE', array('OPS-001', 'OPS-003', 'NAME-002', 'NAME-003'));
 
 /* ------------------------------------------------------------------ */
 /* Pure: rules                                                         */
@@ -151,6 +152,12 @@ function fleet_policy_rule_from(string $id, array $in): array {
 		throw new InvalidArgumentException("{$id}: time servers are host names or addresses separated by spaces.");
 	}
 	return array($id, $params, $mode);
+}
+
+/* pure: one name for an update channel, whatever spelling a firewall or policy uses (devel = development). */
+function fleet_channel_name(string $c): string {
+	$c = strtolower(trim($c));
+	return array('devel' => 'development', 'dev' => 'development', 'release' => 'stable')[$c] ?? $c;
 }
 
 /* pure: can a rule be locked on the firewall? (configuration rules only: the firewall checks them itself) */
@@ -249,7 +256,24 @@ function fleet_policy_check(string $id, array $params, array $facts): array {
 		if ($c === '') {
 			return array('unknown', 'Channel not known yet (no update check)');
 		}
-		return (strcasecmp($c, $params['channel']) === 0) ? array('pass', "Follows {$c}") : array('fail', "Follows {$c}, should follow {$params['channel']}");
+		return (fleet_channel_name($c) === fleet_channel_name($params['channel'])) ? array('pass', "Follows {$c}") : array('fail', "Follows {$c}, should follow {$params['channel']}");
+	case 'login_protection':
+		$pass = fleet_config_values($facts['config'] ?? null, 'system/sshguard_whitelist');
+		if ($pass === null) {
+			return array('unknown', 'No configuration backup yet');
+		}
+		foreach (preg_split('/[\s,]+/', (string)($pass[0] ?? ''), -1, PREG_SPLIT_NO_EMPTY) as $net) {
+			if (in_array(strtolower($net), array('any', '0.0.0.0/0', '::/0', '0.0.0.0/1', '128.0.0.0/1'), true)) {
+				return array('fail', "The pass list contains {$net}: login protection never blocks");
+			}
+		}
+		$t = fleet_config_values($facts['config'], 'system/sshguard_threshold');
+		$t = (string)($t[0] ?? '');
+		$max = (int)($params['threshold'] ?? 30);
+		if (($t !== '') && ((int)$t > $max)) {
+			return array('fail', "Blocks after an attack score of {$t} (at most {$max})");
+		}
+		return array('pass', ($t === '') ? 'Default threshold, no open pass list' : "Threshold {$t}, no open pass list");
 	case 'backup_age':
 		if (empty($facts['last_backup'])) {
 			return array('fail', 'No backup on the controller');
@@ -550,6 +574,12 @@ function fleet_policy_group_params(string $what, ?array $group): array {
 	return ($what === 'domain') ? array('value' => $v, '_group' => $group['name']) : array('regex' => fleet_naming_regex($v), '_group' => $group['name']);
 }
 
+/* pure: does this check result start a "failing a High rule" alert? $was: the rule ids that failed at the last check. */
+function fleet_policy_fail_alerts(string $rid, string $state, array $was): bool {
+	$base = preg_replace('/:\d+$/', '', $rid);
+	return ($state === 'fail') && !in_array($rid, $was, true) && ((fleet_policy_catalog()[$base]['severity'] ?? '') === 'high');
+}
+
 /* Check every firewall (or one) against its effective rules and keep the result. Exceptions turn a failure into "excepted". */
 function fleet_compliance_refresh(?string $only = null, bool $push = true): void {
 	$policies = fleet_policies_all();
@@ -563,6 +593,9 @@ function fleet_compliance_refresh(?string $only = null, bool $push = true): void
 		}
 		$eff = fleet_box_effective($box['node_id'], $policies, $groups);
 		$facts = empty($eff) ? array() : fleet_box_facts($box);
+		$was = fleet_db()->prepare("SELECT rule_id FROM compliance WHERE node_id = ? AND state = 'fail'");
+		$was->execute(array($box['node_id']));
+		$was = $was->fetchAll(PDO::FETCH_COLUMN);
 		fleet_db()->prepare('DELETE FROM compliance WHERE node_id = ?')->execute(array($box['node_id']));
 		$ins = fleet_db()->prepare('INSERT INTO compliance (node_id, rule_id, state, detail, policy_id, conflict, checked) VALUES (?, ?, ?, ?, ?, ?, ?)');
 		foreach ($eff as $rid => list($params, $mode, $pid, $pname, $conflict)) {
@@ -572,6 +605,9 @@ function fleet_compliance_refresh(?string $only = null, bool $push = true): void
 				$detail .= ' (exception until ' . date('Y-m-d', (int)$e['expires'] - 1) . ')';
 			}
 			$ins->execute(array($box['node_id'], $rid, $state, $detail, $pid, $conflict, $now));
+			if (fleet_policy_fail_alerts($rid, $state, $was)) {
+				fleet_alert('policy_fail', $box['node_id'], sprintf('%s fails %s (%s): %s', $box['label'], fleet_policy_rule_title($rid, $params), $pname, $detail));
+			}
 		}
 	}
 	if ($only === null) {
