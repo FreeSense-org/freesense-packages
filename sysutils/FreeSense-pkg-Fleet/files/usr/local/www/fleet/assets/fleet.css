@@ -1159,3 +1159,7 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 .fs-fleet-check { display: grid; grid-template-columns: 7rem minmax(0, 1fr) auto; gap: var(--fs-sp-3); align-items: center; padding: var(--fs-sp-2) 0; border-top: 1px solid var(--fs-border); }
 .fs-fleet-check:first-child { border-top: 0; }
 @media (max-width: 720px) { .fs-fleet-check { grid-template-columns: 1fr; } }
+
+.fs-fleet-webui-form { display: flex; flex-wrap: wrap; gap: var(--fs-sp-2); align-items: center; }
+.fs-fleet-webui-form .form-select { width: auto; max-width: 100%; }
+.fs-fleet-webui-how summary { cursor: pointer; font-size: .875em; color: var(--fs-link, inherit); }

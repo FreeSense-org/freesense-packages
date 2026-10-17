@@ -301,6 +301,36 @@ if ($savemsg) {
 					<dt><?=gettext('Tunnel address')?></dt><dd class="fs-mono"><?=htmlspecialchars($box['overlay'])?></dd>
 					<dt><?=gettext('Joined')?></dt><dd><?=$when($box['joined'])?></dd>
 					<dt><?=gettext('Last seen')?></dt><dd><?=$when($box['last_seen'])?></dd>
+<?php if ($manage): ?>
+					<dt><?=gettext('Open WebUI')?></dt><dd id="webui">
+<?php if (empty($users)): ?>
+						<span class="fs-muted"><?=gettext('Not allowed on this firewall')?></span>
+						<details class="fs-fleet-webui-how"><summary><?=gettext('How to allow it')?></summary>
+							<p class="small fs-muted mb-1"><?=gettext("A local administrator turns it on, for chosen users only, on the firewall's console:")?></p>
+							<code class="fs-fleet-command">freesense-join handoff-users admin</code></details>
+<?php elseif (empty($webgui)): ?>
+						<span class="fs-muted"><?=gettext('Not reported yet')?></span>
+<?php else: ?>
+						<form method="post" action="<?=$here('overview')?>" class="fs-fleet-webui-form" title="<?=gettext("Signs you in on the firewall's own WebUI with a one-time link that is valid for 60 seconds. Works only if your browser can reach the address you choose.")?>">
+<?php if (count($webgui) === 1): ?>
+							<input type="hidden" name="base" value="<?=htmlspecialchars((string)(array_values($webgui)[0]['url'] ?? ''))?>"/>
+<?php else: ?>
+							<select class="form-select form-select-sm" name="base" aria-label="<?=gettext('Address')?>">
+<?php foreach ($webgui as $w): ?>
+								<option value="<?=htmlspecialchars($w['url'])?>"><?=htmlspecialchars($w['name'] . ': ' . $w['url'])?></option>
+<?php endforeach; ?>
+							</select>
+<?php endif; ?>
+							<select class="form-select form-select-sm" name="user" aria-label="<?=gettext('Sign in as')?>">
+<?php foreach ($users as $u): ?>
+								<option value="<?=htmlspecialchars($u)?>"><?=htmlspecialchars($u)?></option>
+<?php endforeach; ?>
+							</select>
+							<button class="btn btn-sm btn-primary" type="submit" name="open_webui" value="1" <?=($state === 'offline') ? 'disabled' : ''?>><i class="fa-solid fa-arrow-up-right-from-square icon-embed-btn" aria-hidden="true"></i><?=gettext('Open')?></button>
+						</form>
+<?php endif; ?>
+					</dd>
+<?php endif; ?>
 <?php if ($manage): $latest = fleet_backup_latest($box['node_id']); ?>
 					<dt><?=gettext('Last backup')?></dt><dd><?=$latest ? $when($latest['time']) . ' <a class="fs-fleet-inline-link" href="' . $here('backups') . '">' . gettext('Backups') . '</a>' : $when(0)?></dd>
 <?php endif; ?>
@@ -330,8 +360,10 @@ if ($savemsg) {
 							<span class="fs-fleet-group" style="--fs-fleet-group: var(--fs-series-<?=htmlspecialchars(fleet_group_color((string)$grp['color']))?>)"><?=htmlspecialchars($grp['name'])?></span></label>
 <?php endforeach; ?>
 					</fieldset>
-					<button class="btn btn-sm btn-primary" type="submit" name="set_groups" value="1"><?=gettext('Save groups')?></button>
-					<a class="btn btn-sm btn-outline-secondary" href="<?=$here('overview')?>"><?=gettext('Cancel')?></a>
+					<div class="fs-form-actions">
+						<a class="btn btn-sm btn-outline-secondary" href="<?=$here('overview')?>"><?=gettext('Cancel')?></a>
+						<button class="btn btn-sm btn-primary" type="submit" name="set_groups" value="1"><?=gettext('Save groups')?></button>
+					</div>
 				</form>
 <?php endif; ?>
 			</div>
@@ -339,41 +371,6 @@ if ($savemsg) {
 		</div>
 	</div>
 </div>
-
-<?php if ($manage): ?>
-<div class="panel panel-default" id="webui">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Open WebUI')?></h2></div>
-	<div class="panel-body fs-fleet-pad">
-<?php if (empty($users)): ?>
-		<p class="fs-fleet-lead"><?=gettext("This firewall does not allow sign-in from the controller. A local administrator turns it on, for chosen users only, on the firewall's console:")?></p>
-		<code class="fs-fleet-command">freesense-join handoff-users admin</code>
-<?php elseif (empty($webgui)): ?>
-		<p class="fs-fleet-lead"><?=gettext('This firewall has not reported a WebGUI address yet. It does so with its next status check.')?></p>
-<?php else: ?>
-		<form method="post" action="<?=$here('overview')?>" class="fs-fleet-form">
-			<div class="fs-fleet-field fs-fleet-field--wide"><label class="form-label" for="base"><?=gettext('Address')?></label>
-				<select class="form-select" id="base" name="base">
-<?php foreach ($webgui as $w): ?>
-					<option value="<?=htmlspecialchars($w['url'])?>"><?=htmlspecialchars($w['name'] . ': ' . $w['url'])?></option>
-<?php endforeach; ?>
-				</select></div>
-			<div class="fs-fleet-field"><label class="form-label" for="user"><?=gettext('Sign in as')?></label>
-				<select class="form-select" id="user" name="user">
-<?php foreach ($users as $u): ?>
-					<option value="<?=htmlspecialchars($u)?>"><?=htmlspecialchars($u)?></option>
-<?php endforeach; ?>
-				</select></div>
-			<div class="fs-fleet-field fs-fleet-field--button">
-				<button class="btn btn-primary" type="submit" name="open_webui" value="1" <?=($state === 'offline') ? 'disabled' : ''?>><i class="fa-solid fa-arrow-up-right-from-square icon-embed-btn" aria-hidden="true"></i><?=gettext('Open WebUI')?></button>
-			</div>
-		</form>
-<?php endif; ?>
-	</div>
-<?php if (!empty($users) && !empty($webgui)): ?>
-	<div class="panel-footer small fs-muted"><?=gettext("Signs you in on the firewall's own WebUI with a one-time link that is valid for 60 seconds. Works only if your browser can reach the address you choose.")?></div>
-<?php endif; ?>
-</div>
-<?php endif; ?>
 
 <?php elseif ($view === 'backups'):
 	$backups = fleet_backup_list($box['node_id'], 200);
