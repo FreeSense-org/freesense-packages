@@ -77,6 +77,11 @@ function fleet_ts_device_problems(array $d, int $now): array {
 	return $out;
 }
 
+/* pure: whether Fleet turns this device's key expiry off by itself (setting on, expiry on, device known). */
+function fleet_ts_expiry_should_disable(array $d, bool $auto): bool {
+	return $auto && (($d['id'] ?? '') !== '') && empty($d['keyExpiryDisabled']);
+}
+
 /*
  * pure: the API body for a one-time auth key: single use, approved in
  * advance, not ephemeral (the firewall stays in the tailnet). Tailscale

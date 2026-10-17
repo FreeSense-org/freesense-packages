@@ -113,6 +113,8 @@ define('FLEET_TUNABLES', array(
 	    'How often the default gateway may change between up, poor and down in an hour before Fleet tells you. 0: never.'),
 	'inet_wide_pct' => array('monitoring', 'pct', 30, 5, 100, 'One upstream outage alert when this share loses its internet',
 	    'At least three firewalls at the same time: one alert instead of one per firewall.'),
+	'ts_expiry_auto' => array('access', 'bool', true, null, null, 'Turn Tailscale key expiry off for firewalls on a Tailscale path',
+	    'With a Tailscale API token, Fleet turns key expiry off when it sets up the Tailscale path of a firewall, so the path does not drop months later (FLEET-E136). Off: you do it in the Tailscale admin console.'),
 	'inet_all' => array('monitoring', 'bool', false, null, null, 'Keep the history of every gateway, not only the default one',
 	    'For firewalls with several WANs. More rows in the database.'),
 	'toast_done' => array('actions', 'bool', true, null, null, 'Tell me when an action is done',
