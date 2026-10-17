@@ -238,54 +238,84 @@ list($pairs, $boxes) = fleet_ha_now();
 	<header class="fs-fleet-area-head"><span class="fs-fleet-area-icon"><i class="fa-solid fa-clone" aria-hidden="true"></i></span>
 		<div><h2><?=gettext('Set up an HA pair')?></h2><p><?=gettext('The primary becomes MASTER and the secondary BACKUP for each shared address. Both need the same interfaces on the same networks, and a sync interface (ideally a direct link). Each firewall is changed under commit-confirm; if anything fails, Fleet undoes the setup on both.')?></p></div></header>
 </section>
+<?php
+	$ha_steps = array('pick' => gettext('Firewalls'), 'addr' => gettext('Shared addresses'), 'sync' => gettext('Sync'), 'review' => gettext('Review'));
+	/* The choices travel along as hidden fields to the review, and back. */
+	$ha_hidden = function (array $p) use ($in) {
+		$h = '<input type="hidden" name="view" value="setup"/><input type="hidden" name="primary" value="' . htmlspecialchars($in['primary']) . '"/>' .
+		    '<input type="hidden" name="secondary" value="' . htmlspecialchars($in['secondary']) . '"/>';
+		foreach ($p['vips'] as $v) {
+			$k = htmlspecialchars($v['iface']);
+			$h .= '<input type="hidden" name="vip_on[' . $k . ']" value="1"/><input type="hidden" name="vip_addr[' . $k . ']" value="' . htmlspecialchars($v['address']) . '"/>' .
+			    '<input type="hidden" name="vip_vhid[' . $k . ']" value="' . (int)($v['vhid'] ?? 0) . '"/>';
+		}
+		$h .= '<input type="hidden" name="sync_iface" value="' . htmlspecialchars($p['sync_iface']) . '"/>';
+		foreach ($p['sections'] as $sec) {
+			$h .= '<input type="hidden" name="sections[' . htmlspecialchars($sec) . ']" value="1"/>';
+		}
+		return $h;
+	};
+?>
+<?php if (!$chosen): ?>
+<?php fs_stepper($ha_steps, 'pick', array(), gettext('Set up an HA pair')); ?>
 <form method="get" class="panel panel-default">
 	<input type="hidden" name="view" value="setup"/>
 	<div class="panel-heading"><h2 class="panel-title"><?=gettext('1. The two firewalls')?></h2></div>
-	<div class="panel-body fs-fleet-pad fs-fleet-ha-pick">
+	<div class="panel-body fs-fleet-pad">
+		<p class="fs-step-lead"><?=gettext('Choose which firewall is the primary (it carries the shared addresses) and which is the secondary. Fleet then reads their interfaces; nothing changes yet.')?></p>
+		<div class="fs-fleet-ha-pick">
 <?php foreach (array('primary' => gettext('Primary (MASTER)'), 'secondary' => gettext('Secondary (BACKUP)')) as $k => $l): ?>
-		<div><label class="form-label" for="ha-<?=$k?>"><?=$l?></label>
-			<select class="form-select" id="ha-<?=$k?>" name="<?=$k?>"><option value=""><?=gettext('Choose...')?></option>
+			<div><label class="form-label" for="ha-<?=$k?>"><?=$l?></label>
+				<select class="form-select" id="ha-<?=$k?>" name="<?=$k?>" required><option value=""><?=gettext('Choose...')?></option>
 <?php foreach ($choice as $n => $label): ?>
-				<option value="<?=htmlspecialchars($n)?>"<?=($in[$k] === $n) ? ' selected' : ''?>><?=htmlspecialchars($label)?></option>
+					<option value="<?=htmlspecialchars($n)?>"<?=($in[$k] === $n) ? ' selected' : ''?>><?=htmlspecialchars($label)?></option>
 <?php endforeach; ?>
-			</select></div>
+				</select></div>
 <?php endforeach; ?>
-		<div class="align-self-end"><button class="btn btn-outline-secondary" type="submit"><?=gettext('Read their interfaces')?></button></div>
-		<p class="fs-fleet-hint mb-0"><?=gettext('Only managed firewalls that are not in a pair are listed.')?></p>
+			<p class="fs-fleet-hint mb-0"><?=gettext('Only managed firewalls that are not in a pair are listed.')?></p>
+		</div>
 	</div>
+	<div class="panel-footer fs-step-nav"><a class="btn btn-outline-secondary" href="?view=pairs"><?=gettext('Cancel')?></a>
+		<button class="btn btn-primary" type="submit"><i class="fa-solid fa-arrow-right icon-embed-btn" aria-hidden="true"></i><?=gettext('Next: read their interfaces')?></button></div>
 </form>
-<?php if ($chosen): ?>
-<form method="post" class="panel panel-default" action="?view=setup&amp;primary=<?=urlencode($in['primary'])?>&amp;secondary=<?=urlencode($in['secondary'])?>#ha-review">
+<?php elseif ($plan === null): ?>
+<form method="post" class="panel panel-default" action="?view=setup&amp;primary=<?=urlencode($in['primary'])?>&amp;secondary=<?=urlencode($in['secondary'])?>">
 	<input type="hidden" name="view" value="setup"/><input type="hidden" name="primary" value="<?=htmlspecialchars($in['primary'])?>"/><input type="hidden" name="secondary" value="<?=htmlspecialchars($in['secondary'])?>"/>
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('2. Shared addresses and sync')?></h2></div>
+	<div class="panel-body fs-fleet-pad">
+<?php fs_steps_begin($ha_steps, isset($_POST['back']) ? 'sync' : 'addr', gettext('Set up an HA pair')); ?>
+<?php fs_step_begin('addr', sprintf(gettext('%1$s and %2$s share these networks. Tick the ones that get a shared address; each needs a free address on that network.'), $pf['label'], $sf['label'])); ?>
+		<p class="mb-3"><a href="?view=setup"><i class="fa-solid fa-arrow-left icon-embed-btn" aria-hidden="true"></i><?=gettext('Choose other firewalls')?></a></p>
 <?php if ($suggested !== null): ?>
-	<div class="panel-body fs-fleet-pad pb-0"><p class="fs-fleet-hint mb-0"><?=gettext('Filled in from the two firewalls: the sync interface, and the first free address of each other shared network. Check nothing else on those networks uses the shared addresses.')?></p></div>
+		<p class="fs-fleet-hint"><?=gettext('Filled in from the two firewalls: the first free address of each other shared network. Check nothing else on those networks uses them.')?></p>
 <?php endif; ?>
 <?php foreach ($clashes as $c): ?>
-	<div class="panel-body fs-fleet-pad pb-0"><p class="fs-fleet-problem mb-0"><?=htmlspecialchars($c)?></p></div>
+		<p class="fs-fleet-problem"><?=htmlspecialchars($c)?></p>
 <?php endforeach; ?>
 <?php if (empty($common)): ?>
-	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-problem mb-0"><?=gettext('The two firewalls have no interface with an IPv4 address in common (or one of them did not answer).')?></p></div>
+		<p class="fs-fleet-problem mb-0"><?=gettext('The two firewalls have no interface with an IPv4 address in common (or one of them did not answer).')?></p>
 <?php else: ?>
-	<div class="panel-body table-responsive"><table class="table fs-table">
-		<thead><tr><th><?=gettext('Share')?></th><th><?=gettext('Interface')?></th><th><?=htmlspecialchars($pf['label'])?></th><th><?=htmlspecialchars($sf['label'])?></th><th><?=gettext('Shared address')?></th><th><?=gettext('VHID')?></th></tr></thead>
-		<tbody>
+		<div class="table-responsive"><table class="table fs-table">
+			<thead><tr><th><?=gettext('Share')?></th><th><?=gettext('Interface')?></th><th><?=htmlspecialchars($pf['label'])?></th><th><?=htmlspecialchars($sf['label'])?></th><th><?=gettext('Shared address')?></th><th><?=gettext('VHID')?></th></tr></thead>
+			<tbody>
 <?php foreach ($common as $k => $i): ?>
-		<tr><td><input class="form-check-input" type="checkbox" name="vip_on[<?=htmlspecialchars($k)?>]" value="1" id="vip-<?=htmlspecialchars($k)?>"<?=isset($on[$k]) ? ' checked' : ''?>/></td>
-			<td><label for="vip-<?=htmlspecialchars($k)?>"><strong><?=htmlspecialchars($i['name'])?></strong> <span class="fs-muted fs-mono small"><?=htmlspecialchars($k)?></span></label></td>
-			<td class="fs-mono small"><?=htmlspecialchars($i['ip'] . '/' . $i['bits'])?></td><td class="fs-mono small"><?=htmlspecialchars($sf['ifaces'][$k]['ip'] . '/' . $sf['ifaces'][$k]['bits'])?></td>
-			<td><input class="form-control form-control-sm fs-mono" name="vip_addr[<?=htmlspecialchars($k)?>]" value="<?=htmlspecialchars($on[$k]['address'] ?? '')?>" placeholder="<?=gettext('a free address')?>" aria-label="<?=gettext('Shared address')?>"/></td>
-			<td><input class="form-control form-control-sm" style="max-width:6rem" name="vip_vhid[<?=htmlspecialchars($k)?>]" value="<?=(int)($on[$k]['vhid'] ?? 0) ?: ''?>" placeholder="<?=gettext('auto')?>" inputmode="numeric" aria-label="VHID"/></td></tr>
+			<tr><td><input class="form-check-input" type="checkbox" name="vip_on[<?=htmlspecialchars($k)?>]" value="1" id="vip-<?=htmlspecialchars($k)?>"<?=isset($on[$k]) ? ' checked' : ''?>/></td>
+				<td><label for="vip-<?=htmlspecialchars($k)?>"><strong><?=htmlspecialchars($i['name'])?></strong> <span class="fs-muted fs-mono small"><?=htmlspecialchars($k)?></span></label></td>
+				<td class="fs-mono small"><?=htmlspecialchars($i['ip'] . '/' . $i['bits'])?></td><td class="fs-mono small"><?=htmlspecialchars($sf['ifaces'][$k]['ip'] . '/' . $sf['ifaces'][$k]['bits'])?></td>
+				<td><input class="form-control form-control-sm fs-mono" name="vip_addr[<?=htmlspecialchars($k)?>]" value="<?=htmlspecialchars($on[$k]['address'] ?? '')?>" placeholder="<?=gettext('a free address')?>" aria-label="<?=gettext('Shared address')?>"/></td>
+				<td><input class="form-control form-control-sm fs-fleet-vhid" name="vip_vhid[<?=htmlspecialchars($k)?>]" value="<?=(int)($on[$k]['vhid'] ?? 0) ?: ''?>" placeholder="<?=gettext('auto')?>" inputmode="numeric" pattern="[0-9]*" aria-label="VHID"/></td></tr>
 <?php endforeach; ?>
-		</tbody></table></div>
-	<div class="panel-body fs-fleet-pad">
+			</tbody></table></div>
+<?php endif; ?>
+<?php fs_step_end(); ?>
+<?php fs_step_begin('sync', gettext('The primary sends its connection states and the configuration you choose to the secondary over this interface.')); ?>
+<?php if (!empty($common)): ?>
 		<div class="mb-3"><label class="form-label" for="ha-sync"><?=gettext('Sync interface')?></label>
-			<select class="form-select" id="ha-sync" name="sync_iface" style="max-width:24rem">
+			<select class="form-select fs-field-md" id="ha-sync" name="sync_iface">
 <?php foreach ($common as $k => $i): ?>
 				<option value="<?=htmlspecialchars($k)?>"<?=($sync_sel === $k) ? ' selected' : ''?>><?=htmlspecialchars("{$i['name']} ({$i['ip']} / {$sf['ifaces'][$k]['ip']})")?></option>
 <?php endforeach; ?>
 			</select>
-			<div class="form-text"><?=gettext('States (pfsync) and the configuration go over it. A dedicated link between the two is best.')?></div>
+			<div class="form-text"><?=gettext('A dedicated link between the two is best.')?></div>
 			<div class="mt-2" data-ha-wan-warning<?=((($sync_sel !== '') ? $sync_sel : (string)array_key_first($common)) === 'wan') ? '' : ' hidden'?>><?php print_callout(htmlspecialchars(gettext('State sync is not encrypted and would cross the internet. Give both firewalls a direct link (or at least an internal network) for sync.')), 'warning', gettext('This is the WAN')); ?></div>
 			<script>document.getElementById('ha-sync').addEventListener('change', function () { document.querySelector('[data-ha-wan-warning]').hidden = (this.value !== 'wan'); });</script></div>
 		<fieldset><legend class="form-label"><?=gettext('The primary pushes to the secondary')?></legend>
@@ -293,13 +323,22 @@ list($pairs, $boxes) = fleet_ha_now();
 			<label class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="sections[<?=$sec?>]" value="1"<?=in_array($sec, $sec_sel, true) ? ' checked' : ''?>/> <span class="form-check-label"><?=gettext($sl)?></span></label>
 <?php endforeach; ?>
 			<div class="form-text"><?=gettext('Users and certificates are not offered: syncing them would replace the secondary\'s Fleet access. Fleet sets the shared addresses on both itself.')?></div></fieldset>
-	</div>
-	<div class="panel-footer"><button class="btn btn-sm btn-outline-secondary" name="review" value="1"><i class="fa-solid fa-magnifying-glass icon-embed-btn" aria-hidden="true"></i><?=gettext('Review')?></button></div>
 <?php endif; ?>
-<?php if ($plan !== null): ?>
-	<div class="panel-body fs-fleet-pad fs-fleet-ha-review" id="ha-review" tabindex="-1">
-		<h3 class="fs-fleet-subhead"><?=gettext('3. Review')?></h3>
-		<ul>
+<?php fs_step_end(); ?>
+<?php fs_steps_end(); ?>
+	</div>
+	<div class="panel-footer fs-step-nav">
+		<button class="btn btn-primary" name="review" value="1" data-fs-step-submit<?=empty($common) ? ' disabled' : ''?>><i class="fa-solid fa-magnifying-glass icon-embed-btn" aria-hidden="true"></i><?=gettext('Next: review')?></button>
+	</div>
+</form>
+<?php else: $posted_now = $form_in(); ?>
+<?php fs_stepper($ha_steps, 'review', array(), gettext('Set up an HA pair')); ?>
+<form method="post" class="panel panel-default" action="?view=setup&amp;primary=<?=urlencode($in['primary'])?>&amp;secondary=<?=urlencode($in['secondary'])?>">
+	<?=$ha_hidden($posted_now)?>
+	<div class="panel-heading"><h2 class="panel-title"><?=gettext('4. Review')?></h2></div>
+	<div class="panel-body fs-fleet-pad fs-fleet-ha-review" id="ha-review">
+		<p class="fs-step-lead"><?=gettext('This is what happens on the two firewalls when you select Set up. Nothing has changed yet.')?></p>
+		<ol>
 <?php foreach ($plan['vips'] as $v): ?>
 			<li><?=htmlspecialchars(sprintf(gettext('%1$s on %2$s, VHID %3$d: %4$s MASTER (skew 0), %5$s BACKUP (skew 100)'), $v['address'] . '/' . $v['bits'], $v['name'], $v['vhid'], $pf['label'], $sf['label']))?></li>
 <?php endforeach; ?>
@@ -308,10 +347,16 @@ list($pairs, $boxes) = fleet_ha_now();
 			    sprintf(gettext('%1$s pushes %2$s to %3$s, logging in as fleet-hasync (a new user on %3$s with only the HA sync privilege)'), $pf['label'],
 			    implode(', ', array_map(function ($s1) { return gettext(FLEET_HA_SECTIONS[$s1]); }, $plan['sections'])), $sf['label']))?></li>
 			<li><?=gettext('New random CARP and sync passwords; Fleet does not keep them.')?></li>
-		</ul>
-		<button class="btn btn-primary" name="setup" value="1"><i class="fa-solid fa-clone icon-embed-btn" aria-hidden="true"></i><?=htmlspecialchars(sprintf(gettext('Set up %1$s and %2$s as a pair'), $pf['label'], $sf['label']))?></button>
-	</div>
+		</ol>
+<?php if ($plan['sync_iface'] === 'wan'): ?>
+		<?php print_callout(htmlspecialchars(gettext('State sync is not encrypted and would cross the internet.')), 'warning', gettext('Sync over the WAN')); ?>
 <?php endif; ?>
+	</div>
+	<div class="panel-footer fs-step-nav">
+		<button class="btn btn-outline-secondary" name="back" value="1"><i class="fa-solid fa-arrow-left icon-embed-btn" aria-hidden="true"></i><?=gettext('Back')?></button>
+		<button class="btn btn-primary" name="setup" value="1"><i class="fa-solid fa-clone icon-embed-btn" aria-hidden="true"></i><?=htmlspecialchars(sprintf(gettext('Set up %1$s and %2$s as a pair'), $pf['label'], $sf['label']))?></button>
+		<span class="fs-muted small"><?=gettext('It runs as an operation in Activity; if anything fails, Fleet undoes it on both.')?></span>
+	</div>
 </form>
 <?php endif; ?>
 <?php endif; ?>
