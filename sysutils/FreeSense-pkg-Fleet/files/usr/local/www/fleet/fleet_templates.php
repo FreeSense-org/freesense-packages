@@ -85,7 +85,7 @@ if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 	}
 }
 if ($ready && $manage && ($view === 'list')) {
-	fs_page_action(gettext('Add template'), '/fleet/fleet_templates.php?view=edit', 'fa-plus', 'primary');
+	fs_page_action(gettext('Add template'), '/fleet/fleet_templates.php?view=edit', 'fa-plus', 'primary', array('data-fs-modal' => '#tpl-new'));
 }
 
 include('head.inc');
@@ -164,7 +164,7 @@ $is_list = function (array $t): bool {
 	<div class="panel-body fs-fleet-pad">
 		<p class="fs-fleet-lead"><?=gettext('A template pushes the same configuration to many firewalls: aliases (lists of servers, networks or ports), or settings such as time and NTP, DNS servers, SNMP and remote logging. Fleet shows what would change on each firewall before anything is applied, and only ever changes aliases it pushed itself.')?></p>
 <?php if ($manage): ?>
-		<a class="btn btn-primary btn-sm" href="?view=edit"><i class="fa-solid fa-plus icon-embed-btn" aria-hidden="true"></i><?=gettext('Add the first template')?></a>
+		<a class="btn btn-primary btn-sm" href="?view=edit" data-fs-modal="#tpl-new"><i class="fa-solid fa-plus icon-embed-btn" aria-hidden="true"></i><?=gettext('Add the first template')?></a>
 <?php endif; ?>
 	</div>
 <?php else: ?>
@@ -228,7 +228,13 @@ $is_list = function (array $t): bool {
 <?php endif; ?>
 </div>
 <?php if ($manage): ?>
-<section class="fs-fleet-area">
+<div class="modal fade" id="tpl-new" tabindex="-1" aria-labelledby="tpl-new-title" aria-hidden="true">
+<div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
+<div class="modal-header"><h2 class="modal-title" id="tpl-new-title"><?=gettext('Add a template')?></h2>
+	<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="<?=gettext('Close')?>"></button></div>
+<div class="modal-body">
+<p class="fs-fleet-lead"><?=gettext('Choose what the template sets. It opens in the editor; nothing reaches a firewall until you apply it.')?></p>
+<section class="fs-fleet-area fs-fleet-tpl-choice">
 	<header class="fs-fleet-area-head"><span class="fs-fleet-area-icon"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i></span>
 		<div><h2><?=gettext('Rules and port forwards for many firewalls')?></h2><p><?=gettext('Applied under commit-confirm: if a change cuts Fleet off from a firewall, the firewall puts its previous rules back by itself.')?></p></div></header>
 	<div class="fs-fleet-rule-grid">
@@ -245,7 +251,7 @@ $is_list = function (array $t): bool {
 <?php endforeach; ?>
 	</div>
 </section>
-<section class="fs-fleet-area">
+<section class="fs-fleet-area fs-fleet-tpl-choice">
 	<header class="fs-fleet-area-head"><span class="fs-fleet-area-icon"><i class="fa-solid fa-sliders" aria-hidden="true"></i></span>
 		<div><h2><?=gettext('Settings for many firewalls')?></h2><p><?=gettext('One set of settings, the same on every firewall it is for. A firewall can have one template of each kind.')?></p></div></header>
 	<div class="fs-fleet-rule-grid">
@@ -264,7 +270,7 @@ $is_list = function (array $t): bool {
 <?php endforeach; ?>
 	</div>
 </section>
-<section class="fs-fleet-area">
+<section class="fs-fleet-area fs-fleet-tpl-choice">
 	<header class="fs-fleet-area-head"><span class="fs-fleet-area-icon"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i></span>
 		<div><h2><?=gettext('Start from ready-made aliases')?></h2><p><?=gettext('Pick one to open it in the editor. Change what you like, choose the firewalls, then save. Nothing is pushed until you apply it.')?></p></div></header>
 	<div class="fs-fleet-rule-grid">
@@ -282,6 +288,9 @@ $is_list = function (array $t): bool {
 <?php endforeach; ?>
 	</div>
 </section>
+</div>
+<div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal"><?=gettext('Cancel')?></button></div>
+</div></div></div>
 <?php endif; ?>
 
 <?php elseif ($view === 'preview'):
