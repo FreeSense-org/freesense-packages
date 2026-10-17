@@ -536,7 +536,7 @@ function fleet_standby_promote(string $who, string $why): void {
 	list($bundle) = $opened;
 	$epoch = max((int)($bundle['epoch'] ?? 0), (int)($st['primary_epoch'] ?? 0)) + 1;
 	$settings = fleet_recover_apply(array((string)base64_decode($bundle['master']), $bundle, array()), true, $who);
-	$settings['public_host'] = $p['own_addr'];
+	$settings['points'] = fleet_ctl_points_main_address((string)($settings['points'] ?? ''), (string)$p['own_addr']);
 	$settings['enable'] = 'on';
 	config_set_path('installedpackages/fleet/config/0', $settings);
 	write_config('FreeSense Fleet: this server took over as the Fleet controller.');

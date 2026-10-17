@@ -22,10 +22,11 @@
 /*
  * FreeSense Fleet controller: package hooks and the system side.
  *
- * Settings (config.xml installedpackages/fleet, kept small): enable,
- * public_host (what boxes use to reach this controller), enroll_port (TCP,
- * default 8443) and wg_port (UDP, default 51830). Everything else is in the
- * data directory (fleet/fleet_store.inc).
+ * Settings (config.xml installedpackages/fleet, kept small): enable, the
+ * connection points (points: JSON list of interface, enrollment port (TCP)
+ * and the address firewalls use there, empty: the interface's own) and
+ * wg_port (UDP, default 51830, one for all points: WireGuard listens on one
+ * port). Everything else is in the data directory (fleet/fleet_store.inc).
  *
  * The controller runs
  *   - the WireGuard interface wgfctl0 at host 1 of the overlay, one peer per box,
@@ -168,20 +169,81 @@ function fleet_ctl_settings_from(array $s): array {
 	};
 	return array(
 		'enable' => isset($s['enable']) && ($s['enable'] !== false) && ($s['enable'] !== ''),
-		'public_host' => trim((string)($s['public_host'] ?? '')),
-		'enroll_port' => $port($s['enroll_port'] ?? '', 8443),
 		'wg_port' => $port($s['wg_port'] ?? '', 51830),
-		/* The interfaces firewalls reach the controller on (none: every address); 'tailscale' is the tailnet. */
-		'listen' => array_values(array_unique(array_filter(array_map('trim', explode(',', (string)($s['listen'] ?? ''))), function ($i) {
-			return ($i === 'tailscale') || fleet_conn_iface_ok($i);
-		}))),
-		/* Per interface, the address firewalls use there (else the interface's own address). */
-		'iface_hosts' => array_filter((array)(json_decode((string)($s['iface_hosts'] ?? ''), true) ?: array()), function ($h, $i) {
-			return is_string($h) && ($h !== '') && fleet_conn_iface_ok((string)$i) && fleet_join_valid_authority($h);
-		}, ARRAY_FILTER_USE_BOTH),
+		'points' => fleet_ctl_points_from((string)($s['points'] ?? '')),
 		/* The admin opens the ports by hand: Fleet adds no rules. */
 		'rules_manual' => (($s['rules_manual'] ?? '') === 'on'),
-	) + fleet_tunables_from($s);
+	) + fleet_ctl_primary(fleet_ctl_points_from((string)($s['points'] ?? ''))) + fleet_tunables_from($s);
+}
+
+/*
+ * pure: the connection points from their JSON: where firewalls reach this
+ * controller. Each: iface (an assigned interface or 'tailscale', once),
+ * port (enrollment, TCP) and address (what firewalls use there; empty: the
+ * interface's own address, found when it is used).
+ */
+function fleet_ctl_points_from(string $json): array {
+	$out = array();
+	foreach ((array)(json_decode($json, true) ?: array()) as $p) {
+		$if = is_array($p) ? (string)($p['iface'] ?? '') : '';
+		if ((($if !== 'tailscale') && !fleet_conn_iface_ok($if)) || isset($out[$if])) {
+			continue;
+		}
+		$port = (int)($p['port'] ?? 0);
+		$addr = trim((string)($p['address'] ?? ''));
+		$out[$if] = array('iface' => $if, 'port' => (($port >= 1) && ($port <= 65535)) ? $port : 8443,
+		    'address' => (($addr !== '') && fleet_ctl_address_ok($addr)) ? $addr : '');
+	}
+	return array_values($out);
+}
+
+/* pure: a host name or IP address firewalls can use (no port: the point has its own). */
+function fleet_ctl_address_ok(string $a): bool {
+	return (strpbrk($a, ':/[] ') === false || filter_var($a, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) && fleet_join_valid_authority(fleet_hostport($a, 443));
+}
+
+/*
+ * pure: the main connection point (the first one not on the tailnet), which
+ * the tunnel endpoint, links in alerts and the standby controller use:
+ * public_host (its set address; empty: found from the interface) and
+ * enroll_port.
+ */
+function fleet_ctl_primary(array $points): array {
+	$main = null;
+	foreach ($points as $p) {
+		if ($p['iface'] !== 'tailscale') {
+			$main = $p;
+			break;
+		}
+	}
+	$main = $main ?? ($points[0] ?? null);
+	return array('public_host' => (string)($main['address'] ?? ''), 'enroll_port' => (int)($main['port'] ?? 8443), 'primary' => (string)($main['iface'] ?? ''));
+}
+
+/* pure: the points JSON with $addr as the main point's address (a standby taking over); WAN when there is none. */
+function fleet_ctl_points_main_address(string $json, string $addr): string {
+	$points = fleet_ctl_points_from($json);
+	$main = fleet_ctl_primary($points)['primary'];
+	if (($main === '') || ($main === 'tailscale')) {
+		array_unshift($points, array('iface' => 'wan', 'port' => 8443, 'address' => ''));
+		$main = 'wan';
+	}
+	foreach ($points as $i => $p) {
+		if ($p['iface'] === $main) {
+			$points[$i]['address'] = fleet_ctl_address_ok($addr) ? $addr : '';
+		}
+	}
+	return json_encode($points);
+}
+
+/* pure: the connection point on an interface, or null. */
+function fleet_ctl_point(array $s, string $iface): ?array {
+	foreach ($s['points'] as $p) {
+		if ($p['iface'] === $iface) {
+			return $p;
+		}
+	}
+	return null;
 }
 
 /* pure: the tunable values with defaults; a value out of range is the default. */
@@ -207,19 +269,18 @@ function fleet_hostport(string $host, int $port): string {
 }
 
 /* pure: the nginx listen lines: every address, or only $addrs (IPv4 and IPv6 addresses of the chosen interfaces). */
-function fleet_enroll_listen(int $port, array $addrs): string {
-	if (empty($addrs)) {
-		return "\t\tlisten {$port} ssl;\n\t\tlisten [::]:{$port} ssl;\n";
-	}
+function fleet_enroll_listen(array $binds): string {
 	$out = '';
-	foreach (array_unique($addrs) as $a) {
-		$out .= "\t\tlisten " . fleet_hostport($a, $port) . " ssl;\n";
+	foreach ($binds as list($a, $port)) {
+		$line = "\t\tlisten " . fleet_hostport($a, (int)$port) . " ssl;\n";
+		$out .= (strpos($out, $line) === false) ? $line : '';
 	}
 	return $out;
 }
 
 /* pure: the enrollment nginx configuration. */
-function fleet_enroll_nginx_conf(int $port, string $tls, string $socket = '/var/run/php-fpm.socket', array $addrs = array()): string {
+/* $binds: array(address, port) the endpoint listens on (one per connection point address). */
+function fleet_enroll_nginx_conf(array $binds, string $tls, string $socket = '/var/run/php-fpm.socket'): string {
 	return "# FreeSense Fleet enrollment endpoint (fleet.inc); serves only /fleet/join/ and /fleet/standby/\n" .
 	    "pid " . FLEET_ENROLL_PID . ";\nuser root wheel;\nworker_processes 1;\n" .
 	    "error_log syslog:server=unix:/var/run/log,facility=local5;\n\n" .
@@ -227,7 +288,7 @@ function fleet_enroll_nginx_conf(int $port, string $tls, string $socket = '/var/
 	    "http {\n\tdefault_type application/json;\n\tserver_tokens off;\n\taccess_log off;\n" .
 	    "\tclient_max_body_size 64k;\n\tclient_header_timeout 10;\n\tclient_body_timeout 10;\n\tkeepalive_timeout 5;\n" .
 	    "\tlimit_req_status 429;\n\tlimit_req_zone \$binary_remote_addr zone=fleetjoin:2m rate=2r/s;\n\n" .
-	    "\tserver {\n" . fleet_enroll_listen($port, $addrs) .
+	    "\tserver {\n" . fleet_enroll_listen($binds) .
 	    "\t\tssl_certificate {$tls};\n\t\tssl_certificate_key {$tls};\n\t\tssl_protocols TLSv1.2 TLSv1.3;\n" .
 	    "\t\tssl_session_tickets off;\n\t\tadd_header X-Content-Type-Options nosniff always;\n" .
 	    "\t\tlocation ^~ /fleet/join/ {\n\t\t\tlimit_req zone=fleetjoin burst=10 nodelay;\n" .
@@ -342,7 +403,36 @@ function fleet_dashboard_data(array $rows, int $pending, int $now, array $groups
 /* ------------------------------------------------------------------ */
 
 function fleet_ctl_settings(): array {
-	return fleet_ctl_settings_from((array)config_get_path('installedpackages/fleet/config/0', []));
+	$s = fleet_ctl_settings_from((array)config_get_path('installedpackages/fleet/config/0', []));
+	if (($s['public_host'] === '') && ($s['primary'] !== '')) {
+		$s['public_host'] = fleet_ctl_point_address(array('iface' => $s['primary'], 'address' => ''));
+	}
+	return $s;
+}
+
+/*
+ * The address firewalls use at a connection point: the one set, else a
+ * dynamic DNS name on that interface, the tailnet address, or the
+ * interface's own IP address ('' when it has none).
+ */
+function fleet_ctl_point_address(array $p): string {
+	if ($p['address'] !== '') {
+		return $p['address'];
+	}
+	if ($p['iface'] === 'tailscale') {
+		return function_exists('fleet_ts_controller_address') ? (string)fleet_ts_controller_address() : '';
+	}
+	foreach ((array)config_get_path('dyndnses/dyndns', array()) as $d) {
+		if (is_array($d) && isset($d['enable']) && (($d['interface'] ?? '') === $p['iface']) && (($d['host'] ?? '') !== '')) {
+			$h = (string)$d['host'];
+			$name = (strpos($h, '.') !== false) ? $h : $h . ((($d['domainname'] ?? '') !== '') ? '.' . $d['domainname'] : '');
+			if (fleet_ctl_address_ok($name)) {
+				return $name;
+			}
+		}
+	}
+	$ip = function_exists('get_interface_ip') ? (string)(get_interface_ip($p['iface']) ?: '') : '';
+	return is_ipaddr($ip) ? $ip : '';
 }
 
 /* One tunable value (defaults where there is no configuration, as in the tests). */
@@ -433,8 +523,8 @@ function fleet_selfcheck(array $s): array {
 	}
 	$pid = is_file(FLEET_ENROLL_PID) ? (int)trim((string)file_get_contents(FLEET_ENROLL_PID)) : 0;
 	$running = ($pid > 0) && (posix_kill($pid, 0) || (posix_get_last_error() === 1));
-	$add(gettext('Enrollment endpoint'), $running ? 'pass' : 'block', $running ? sprintf(gettext('Listening on TCP %1$d (%2$s).'), $s['enroll_port'],
-	    empty($s['listen']) ? gettext('every address') : implode(', ', fleet_ctl_listen_addrs($s))) : gettext('Not running: firewalls cannot join.'),
+	$add(gettext('Enrollment endpoint'), $running ? 'pass' : 'block', $running ? sprintf(gettext('Listening on %s.'), implode(', ', array_map(function ($b) { return fleet_hostport($b[0], $b[1]); }, fleet_ctl_listen_binds($s)))) :
+	    gettext('Not running: firewalls cannot join.'),
 	    $running ? '' : 'restart', gettext('Start it'));
 	$host = $s['public_host'];
 	$resolved = is_ipaddr($host) ? array($host) : (array)@gethostbynamel($host);
@@ -475,23 +565,22 @@ function fleet_selfcheck(array $s): array {
 }
 
 /* The addresses of the chosen interfaces (none: listen on every address). */
-function fleet_ctl_listen_addrs(array $s): array {
+function fleet_ctl_listen_binds(array $s): array {
 	$out = array();
-	foreach ($s['listen'] as $if) {
-		if ($if === 'tailscale') {
+	foreach ($s['points'] as $p) {
+		if ($p['iface'] === 'tailscale') {
 			$ts = function_exists('fleet_ts_controller_address') ? fleet_ts_controller_address() : null;
-			if ($ts !== null) {
-				$out[] = $ts;
-			}
-			continue;
+			$addrs = ($ts !== null) ? array($ts) : array();
+		} else {
+			$addrs = array(get_interface_ip($p['iface']), get_interface_ipv6($p['iface']));
 		}
-		foreach (array(get_interface_ip($if), get_interface_ipv6($if)) as $a) {
+		foreach ($addrs as $a) {
 			if (is_string($a) && ($a !== '') && is_ipaddr($a)) {
-				$out[] = $a;
+				$out[] = array($a, $p['port']);
 			}
 		}
 	}
-	return array_values(array_unique($out));
+	return $out;
 }
 
 /*
@@ -501,36 +590,42 @@ function fleet_ctl_listen_addrs(array $s): array {
  */
 function fleet_invite_authority(array $s, string $method, string $iface): string {
 	if ($method === 'tailscale') {
+		$p = fleet_ctl_point($s, 'tailscale');
+		if ($p === null) {
+			throw new InvalidArgumentException('Add a Tailscale connection point (Settings > Controller).');
+		}
 		list($problems, $ts) = fleet_ts_join_ready();
 		if (!empty($problems)) {
 			throw new InvalidArgumentException(implode(' ', $problems));
 		}
-		return fleet_hostport($ts, $s['enroll_port']);
+		return fleet_hostport(($p['address'] !== '') ? $p['address'] : $ts, $p['port']);
 	}
 	if ($method === 'direct') {
-		if (!fleet_conn_iface_ok($iface) || ($iface === 'wan')) {
-			throw new InvalidArgumentException('Choose an internal interface for a direct connection (not WAN).');
+		$p = fleet_ctl_point($s, $iface);
+		if (($p === null) || in_array($iface, array('wan', 'tailscale'), true)) {
+			throw new InvalidArgumentException('Choose an internal connection point for a direct connection (not WAN or Tailscale).');
 		}
-		if (isset($s['iface_hosts'][$iface])) {
-			return $s['iface_hosts'][$iface];
+	} else {
+		$p = fleet_ctl_point($s, $s['primary']);
+		if (($p === null) || ($p['iface'] === 'tailscale')) {
+			throw new InvalidArgumentException('Add a connection point firewalls reach over the internet (Settings > Controller).');
 		}
-		$ip = get_interface_ip($iface);
-		if (!is_ipaddr((string)$ip)) {
-			throw new InvalidArgumentException('That interface has no address.');
-		}
-		return fleet_hostport($ip, $s['enroll_port']);
 	}
-	return fleet_hostport($s['public_host'], $s['enroll_port']);
+	$host = fleet_ctl_point_address($p);
+	if ($host === '') {
+		throw new InvalidArgumentException('That connection point has no address yet.');
+	}
+	return fleet_hostport($host, $p['port']);
 }
 
 function fleet_ctl_enroll_start(array $s): ?string {
 	fleet_ctl_enroll_stop();
 	$tls = FLEET_DATA . '/tls.pem';
-	$addrs = fleet_ctl_listen_addrs($s);
-	if (!empty($s['listen']) && empty($addrs)) {
-		return 'none of the chosen interfaces has an address; listening on every address until one has';
+	$binds = fleet_ctl_listen_binds($s);
+	if (empty($binds)) {
+		return 'no connection point has an address yet: firewalls cannot join';
 	}
-	file_put_contents(FLEET_ENROLL_CONF, fleet_enroll_nginx_conf($s['enroll_port'], $tls, '/var/run/php-fpm.socket', $addrs));
+	file_put_contents(FLEET_ENROLL_CONF, fleet_enroll_nginx_conf($binds, $tls, '/var/run/php-fpm.socket'));
 	list($rc, $out) = fleet_ctl_exec(array('/usr/local/sbin/nginx', '-c', FLEET_ENROLL_CONF));
 	return ($rc === 0) ? null : 'nginx: ' . $out;
 }

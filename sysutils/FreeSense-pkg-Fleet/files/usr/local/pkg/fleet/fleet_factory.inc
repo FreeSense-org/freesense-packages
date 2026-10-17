@@ -295,7 +295,7 @@ function fleet_factory_generate(array $settings, string $csv, string $passphrase
 		if (!empty($ts_problems)) {
 			throw new InvalidArgumentException(implode(' ', $ts_problems));
 		}
-		$authority = fleet_hostport($ts_address, fleet_ctl_settings()['enroll_port']);
+		$authority = fleet_invite_authority(fleet_ctl_settings(), 'tailscale', '');
 	}
 	$now = time();
 	fleet_db()->prepare('INSERT INTO batches (name, settings, created, who) VALUES (?, ?, ?, ?)')->execute(array($settings['name'], json_encode($settings), $now, $who));
