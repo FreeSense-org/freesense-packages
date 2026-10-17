@@ -605,12 +605,12 @@ if ($savemsg) {
 			<thead><tr><th><?=gettext('Range')?></th><th class="text-end"><?=gettext('Quality')?></th><th class="text-end"><?=gettext('Loss')?></th><th class="text-end"><?=gettext('Latency')?></th>
 				<th class="text-end"><?=gettext('Jitter')?></th><th class="text-end"><?=gettext('Flaps')?></th><th class="text-end"><?=gettext('Minutes with loss')?></th><th class="text-end"><?=gettext('Up')?></th></tr></thead>
 			<tbody>
-<?php foreach ($inet_st as $rk => $st): $n2 = function ($v, $u) { return ($v === null) ? '-' : htmlspecialchars(fleet_inet_num((float)$v) . $u); }; ?>
+<?php foreach ($inet_st as $rk => $ist): $n2 = function ($v, $u) { return ($v === null) ? '-' : htmlspecialchars(fleet_inet_num((float)$v) . $u); }; ?>
 			<tr><td><?=htmlspecialchars(array('24h' => gettext('Last 24 hours'), '7d' => gettext('Last 7 days'), '30d' => gettext('Last 30 days'))[$rk])?></td>
-				<td class="text-end"><?=fleet_inet_score_badge($st['score'] ?? null)?></td>
-				<td class="text-end fs-mono"><?=$n2($st['loss'] ?? null, ' %')?></td><td class="text-end fs-mono"><?=$n2($st['latency'] ?? null, ' ms')?></td>
-				<td class="text-end fs-mono"><?=$n2($st['jitter'] ?? null, ' ms')?></td><td class="text-end fs-mono"><?=($st === null) ? '-' : (int)$st['flaps']?></td>
-				<td class="text-end fs-mono"><?=($st === null) ? '-' : (int)$st['loss_min']?></td><td class="text-end fs-mono"><?=$n2($inet_av[$rk], ' %')?></td></tr>
+				<td class="text-end"><?=fleet_inet_score_badge($ist['score'] ?? null)?></td>
+				<td class="text-end fs-mono"><?=$n2($ist['loss'] ?? null, ' %')?></td><td class="text-end fs-mono"><?=$n2($ist['latency'] ?? null, ' ms')?></td>
+				<td class="text-end fs-mono"><?=$n2($ist['jitter'] ?? null, ' ms')?></td><td class="text-end fs-mono"><?=($ist === null) ? '-' : (int)$ist['flaps']?></td>
+				<td class="text-end fs-mono"><?=($ist === null) ? '-' : (int)$ist['loss_min']?></td><td class="text-end fs-mono"><?=$n2($inet_av[$rk], ' %')?></td></tr>
 <?php endforeach; ?>
 			</tbody></table></div>
 		<div class="panel-body table-responsive"><table class="table fs-table">
