@@ -250,9 +250,9 @@ list($pairs, $boxes) = fleet_ha_now();
 <?php endforeach; ?>
 			</select></div>
 <?php endforeach; ?>
-		<div class="align-self-end"><button class="btn btn-sm btn-outline-secondary" type="submit"><?=gettext('Read their interfaces')?></button></div>
+		<div class="align-self-end"><button class="btn btn-outline-secondary" type="submit"><?=gettext('Read their interfaces')?></button></div>
+		<p class="fs-fleet-hint mb-0"><?=gettext('Only managed firewalls that are not in a pair are listed.')?></p>
 	</div>
-	<div class="panel-body fs-fleet-pad pt-0"><p class="fs-fleet-hint mb-0"><?=gettext('Only managed firewalls that are not in a pair are listed.')?></p></div>
 </form>
 <?php if ($chosen): ?>
 <form method="post" class="panel panel-default" action="?view=setup&amp;primary=<?=urlencode($in['primary'])?>&amp;secondary=<?=urlencode($in['secondary'])?>#ha-review">
@@ -285,7 +285,9 @@ list($pairs, $boxes) = fleet_ha_now();
 				<option value="<?=htmlspecialchars($k)?>"<?=($sync_sel === $k) ? ' selected' : ''?>><?=htmlspecialchars("{$i['name']} ({$i['ip']} / {$sf['ifaces'][$k]['ip']})")?></option>
 <?php endforeach; ?>
 			</select>
-			<div class="form-text"><?=gettext('States (pfsync) and the configuration go over it. A dedicated link between the two is best.')?></div></div>
+			<div class="form-text"><?=gettext('States (pfsync) and the configuration go over it. A dedicated link between the two is best.')?></div>
+			<div class="mt-2" data-ha-wan-warning<?=((($sync_sel !== '') ? $sync_sel : (string)array_key_first($common)) === 'wan') ? '' : ' hidden'?>><?php print_callout(htmlspecialchars(gettext('State sync is not encrypted and would cross the internet. Give both firewalls a direct link (or at least an internal network) for sync.')), 'warning', gettext('This is the WAN')); ?></div>
+			<script>document.getElementById('ha-sync').addEventListener('change', function () { document.querySelector('[data-ha-wan-warning]').hidden = (this.value !== 'wan'); });</script></div>
 		<fieldset><legend class="form-label"><?=gettext('The primary pushes to the secondary')?></legend>
 <?php foreach (FLEET_HA_SECTIONS as $sec => $sl): ?>
 			<label class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="sections[<?=$sec?>]" value="1"<?=in_array($sec, $sec_sel, true) ? ' checked' : ''?>/> <span class="form-check-label"><?=gettext($sl)?></span></label>
