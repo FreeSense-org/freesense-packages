@@ -134,7 +134,7 @@ list($pairs, $boxes) = fleet_ha_now();
 <?php foreach ($pairs as $hp): ?>
 		<tr><td><?php foreach ($hp['nodes'] as $hn): ?><div><a href="/fleet/fleet_box.php?id=<?=urlencode($hn)?>"><?=htmlspecialchars($boxes[$hn]['label'])?></a>
 				<?=in_array($hn, $hp['masters'], true) ? fs_badge('info', 'MASTER') : fs_badge('neutral', 'BACKUP')?><?=($boxes[$hn]['state'] !== 'online') ? ' ' . fs_badge('warn', ucfirst($boxes[$hn]['state'])) : ''?></div><?php endforeach; ?></td>
-			<td><?=($hp['problem'] === null) ? fs_badge('pass', gettext('Healthy')) : fs_badge('down', ($hp['problem'][0] === 'split') ? gettext('Split-brain') : gettext('No MASTER'))?></td>
+			<td><?=($hp['problem'] === null) ? fs_badge('pass', gettext('Healthy')) : fs_badge('down', gettext(fleet_ha_problem_badge($hp['problem'])))?></td>
 			<td class="small"><?=implode('<br>', array_map(function ($k) { return htmlspecialchars(fleet_ha_vip_text($k)); }, array_keys($hp['vips'])))?></td>
 			<td class="small"><?=($hp['primary'] !== null) ? htmlspecialchars(sprintf(gettext('From %s'), $boxes[$hp['primary']]['label'])) : '<span class="fs-muted">' . gettext('None') . '</span>'?></td></tr>
 <?php endforeach; ?>

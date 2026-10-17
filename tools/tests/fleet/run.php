@@ -463,6 +463,11 @@ fleet_op_set($pop, 'done', 'Back');
 check(fleet_ops_for_tiles(time())['node-pg']['progress'] === 100, 'a finished operation is at 100');
 
 /* ---- top-bar item ---- */
+check((fleet_nav_item(0, 0, 0, 0, 3)['kind'] === 'warn') && (fleet_nav_item(0, 0, 0, 0, 3)['label'] === 'FreeSense Fleet: 3 firewalls fail a policy rule') &&
+    (fleet_nav_item(0, 0, 1, 0, 3)['kind'] === 'block'), 'the top bar shows policy failures after offline and degraded firewalls');
+check(fleet_policy_fail_alerts('SEC-001', 'fail', array()) && !fleet_policy_fail_alerts('SEC-001', 'fail', array('SEC-001')) &&
+    !fleet_policy_fail_alerts('OPS-003', 'fail', array()) && !fleet_policy_fail_alerts('SEC-001', 'pass', array()),
+    'a new failure of a High rule raises an alert once; Medium and Low rules do not');
 check((fleet_nav_item(0, 0)['hidden'] === false) && (fleet_nav_item(0, 0)['kind'] === 'pass') && (fleet_nav_item(0, 0)['badge'] === 0) &&
     (fleet_nav_item(2, 0)['busy'] === true) && (fleet_nav_item(2, 0)['badge'] === 2) && (fleet_nav_item(2, 0)['kind'] === 'info') &&
     (fleet_nav_item(2, 1)['kind'] === 'block') && (fleet_nav_item(0, 1)['label'] === 'FreeSense Fleet: 1 action failed') &&
@@ -666,6 +671,17 @@ $pf = array('version' => '1.1.5-RELEASE', 'channel' => 'stable', 'rollback' => f
 check(fleet_policy_check('VER-001', array('version' => '1.1.5'), $pf)[0] === 'pass' && fleet_policy_check('VER-001', array('version' => '1.1.6'), $pf)[0] === 'fail' &&
     fleet_policy_check('VER-002', array('version' => '1.1.5'), $pf)[0] === 'pass' && fleet_policy_check('VER-003', array('versions' => '1.1.6, 1.2.0'), $pf)[1] === 'Runs 1.1.5, allowed: 1.1.6, 1.2.0' &&
     fleet_policy_check('VER-004', array('channel' => 'testing'), $pf)[0] === 'fail', 'version rules: minimum, pinned, allowed, channel');
+check(fleet_policy_check('VER-004', array('channel' => 'development'), array('channel' => 'devel') + $pf)[0] === 'pass' &&
+    fleet_policy_check('VER-004', array('channel' => 'stable'), array('channel' => 'devel') + $pf)[0] === 'fail', 'a devel firewall follows the development channel');
+$lp = function (string $sys) {
+	return array('config' => simplexml_load_string('<freesense><system>' . $sys . '</system></freesense>'));
+};
+check(fleet_policy_check('SEC-003', array(), $lp(''))[0] === 'pass' && fleet_policy_check('SEC-003', array(), $lp('<webgui><noantilockout>true</noantilockout></webgui>'))[0] === 'pass' &&
+    fleet_policy_check('SEC-003', array(), $lp('<sshguard_whitelist>10.0.0.0/8 0.0.0.0/0</sshguard_whitelist>'))[0] === 'fail' &&
+    fleet_policy_check('SEC-003', array('threshold' => '30'), $lp('<sshguard_threshold>200</sshguard_threshold>'))[0] === 'fail' &&
+    fleet_policy_check('SEC-003', array('threshold' => '30'), $lp('<sshguard_threshold>20</sshguard_threshold><sshguard_whitelist>10.0.0.0/8</sshguard_whitelist>'))[0] === 'pass',
+    'login protection: an open pass list or a high threshold fails; the anti-lockout rule does not matter');
+check(!in_array('SEC-003', FLEET_POLICY_REMEDIABLE, true) && !fleet_policy_lockable('SEC-003'), 'Fleet never fixes or locks login protection');
 check(fleet_policy_check('OPS-010', array('days' => '2'), $pf)[0] === 'fail' && fleet_policy_check('OPS-020', array(), $pf)[0] === 'fail' &&
     fleet_policy_check('OPS-001', array(), $pf)[0] === 'pass' && fleet_policy_check('OPS-002', array(), $pf)[0] === 'fail' &&
     fleet_policy_check('OPS-003', array('value' => 'Europe/Copenhagen'), $pf)[0] === 'pass', 'operations rules');
@@ -761,7 +777,7 @@ foreach (array(array('SEC-002', 'https'), array('VER-001', null), array('NAME-00
 list(, $rp, $rmode) = fleet_policy_rule_from('OPS-001', array('fix' => 'pool.ntp.org time.example', 'mode' => 'remediate'));
 check($rmode === 'remediate' && $rp['fix'] === 'pool.ntp.org time.example', 'NTP can be fixed, with the servers to set');
 $br = fleet_policy_lock_rules(array('OPS-001' => array($rp, 'remediate', 1, 'B', null), 'OPS-003' => array(array('value' => 'Europe/Copenhagen'), 'remediate', 1, 'B', null),
-    'SEC-003' => array(array(), 'lock', 1, 'B', null), 'NAME-002' => array(array('value' => 'x.net'), 'audit', 1, 'B', null)));
+    'SEC-002' => array(array(), 'lock', 1, 'B', null), 'NAME-002' => array(array('value' => 'x.net'), 'audit', 1, 'B', null)));
 check(count($br) === 3 && $br[0]['mode'] === 'remediate' && $br[0]['fix'] === 'pool.ntp.org time.example' && $br[2]['mode'] === 'lock', 'the bundle holds lock and remediate rules, not audit ones');
 if (function_exists('fleet_remediate_plan')) {
 	check(fleet_remediate_plan($br[0], null) === array('set', 'pool.ntp.org time.example') && fleet_remediate_plan($br[1], 'Etc/UTC') === array('set', 'Europe/Copenhagen') &&
@@ -939,7 +955,8 @@ check($names(fleet_firewalls_filter($fwall, array('sort' => 'version'))) === 'Al
 /* ---- alerts ---- */
 check(fleet_alert_classify('state', 'n-abc123 (Shop): online -> offline (FLEET-E105)')[0] === 'offline' && fleet_alert_classify('state', 'n-abc123 (Shop): online -> offline')[1] === 'n-abc123' &&
     fleet_alert_classify('state', 'n-abc123 (Shop): offline -> online')[0] === 'online' && fleet_alert_classify('state', 'n-abc123 (Shop): new -> online') === null &&
-    fleet_alert_classify('state', 'n-abc123 (Shop): online -> degraded') === null, 'alerts from state changes: offline and back, not first contact or degraded');
+    fleet_alert_classify('state', 'n-abc123 (Shop): online -> degraded') === null && fleet_alert_classify('state', 'n-abc123 (Shop): degraded -> online') === null,
+    'alerts from state changes: offline and back, not first contact or degraded (no "back online" without an "offline" first)');
 check(fleet_alert_classify('policy', 'FLEET-E321: Lock suspended on Shop')[0] === 'breakglass' && fleet_alert_classify('policy', 'FLEET-E320: Shop: the fix failed')[0] === 'policy' &&
     fleet_alert_classify('policy', 'Baseline: 4 rules for all') === null && fleet_alert_classify('replicas', 'Sync failed: x')[0] === 'copies' &&
     fleet_alert_classify('replicas', 'Copies synced to 2 firewalls (3 items each)') === null && fleet_alert_classify('pending', 'e-1 for t')[0] === 'approval' &&
@@ -1290,7 +1307,11 @@ check((count($hp) === 1) && ($hp[0]['nodes'] === array('a', 'b')) && ($hp[0]['ma
 $hboxes[1] = $hab('b', 'online', array(array(1, '10.0.0.1/24', 'MASTER'), array(2, '192.0.2.1/24', 'BACKUP')));
 check(fleet_ha_pairs($hboxes)[0]['problem'] === array('split', '1@10.0.0.1/24'), 'two MASTERs for one address is split-brain');
 $hboxes[1] = $hab('b', 'offline', array(array(1, '10.0.0.1/24', 'MASTER'), array(2, '192.0.2.1/24', 'MASTER')));
-check(fleet_ha_pairs($hboxes)[0]['problem'] === null, 'an offline partner\'s old state does not count');
+check(fleet_ha_pairs($hboxes)[0]['problem'] === array('down', 'b'), 'an offline partner\'s old state does not count: the pair has a member down');
+$hboxes[1] = $hab('b', 'online', array(array(1, '10.0.0.1/24', 'MASTER'), array(2, '192.0.2.1/24', 'MASTER'))) + array('misses' => 2);
+check(fleet_ha_pairs($hboxes)[0]['problem'] === array('down', 'b'), 'a partner that just stopped answering is down, not split-brain (its MASTER state is old)');
+check(fleet_ha_problem_text(array('nodes' => array('a', 'b'), 'masters' => array('a', 'b'), 'problem' => array('down', 'b')), array('a' => array('label' => 'A'), 'b' => array('label' => 'B')), 'A and B') ===
+    'HA pair A and B: B does not answer. A carries the shared addresses.', 'a member-down alert says who carries the addresses');
 $hboxes[0] = $hab('a', 'online', array(array(1, '10.0.0.1/24', 'BACKUP'), array(2, '192.0.2.1/24', 'MASTER')), '10.9.9.2', array('aliases', 'rules'));
 check(fleet_ha_pairs($hboxes)[0]['problem'] === array('nomaster', '1@10.0.0.1/24'), 'no online MASTER for an address is a problem');
 $hboxes[0] = $hab('a', 'online', array(array(1, '10.0.0.1/24', 'MASTER'), array(2, '192.0.2.1/24', 'MASTER')), '10.9.9.2', array('aliases', 'rules'));

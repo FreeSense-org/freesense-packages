@@ -47,8 +47,11 @@ define('FLEET_HA_WAIT', 600);
  *   vips    => "vhid@address" => node id => state
  *   masters => node ids that are MASTER of an address
  *   primary => the node that pushes HA config sync to the others, or null
- *   problem => null, or array('split'|'nomaster', "vhid@address")
- * Only online firewalls count for the problem (an offline one's state is old).
+ *   problem => null, array('split'|'nomaster', "vhid@address"), or
+ *              array('down', node id) when a member does not answer
+ * Only firewalls that answered their last check count for split-brain and
+ * no MASTER: a silent one's CARP state is old (it may have lost power while
+ * its partner took over). A pair with a silent member is never healthy.
  */
 function fleet_ha_pairs(array $boxes): array {
 	$owner = array();
@@ -69,7 +72,7 @@ function fleet_ha_pairs(array $boxes): array {
 		if (empty($vips)) {
 			continue;
 		}
-		$info[$node] = array('vips' => $vips, 'online' => (($b['state'] ?? '') === 'online'), 'peer' => (string)($st['hasync']['peer'] ?? ''));
+		$info[$node] = array('vips' => $vips, 'online' => ((($b['state'] ?? '') === 'online') && ((int)($b['misses'] ?? 0) === 0)), 'peer' => (string)($st['hasync']['peer'] ?? ''));
 		$parent[$node] = $node;
 		foreach (array_keys($vips) as $k) {
 			if (isset($owner[$k])) {
@@ -117,6 +120,14 @@ function fleet_ha_pairs(array $boxes): array {
 			}
 			if (!empty($live) && ($m === 0)) {
 				$problem = $problem ?? array('nomaster', $k);
+			}
+		}
+		if ($problem === null) {
+			foreach ($nodes as $n) {
+				if (!$info[$n]['online']) {
+					$problem = array('down', $n);
+					break;
+				}
 			}
 		}
 		$out[] = array('nodes' => $nodes, 'vips' => $vips, 'masters' => array_keys($masters), 'primary' => $primary, 'problem' => $problem);
@@ -205,6 +216,9 @@ function fleet_ha_wait_reason(?array $pair, string $node, array $states, array $
 		}
 	}
 	if ($pair['problem'] !== null) {
+		if ($pair['problem'][0] === 'down') {
+			return sprintf('Waiting: %s in the HA pair does not answer', $labels[$pair['problem'][1]] ?? $pair['problem'][1]);
+		}
 		return ($pair['problem'][0] === 'split') ? sprintf('Waiting: the HA pair has two MASTERs for %s', fleet_ha_vip_text($pair['problem'][1])) :
 		    sprintf('Waiting: the HA pair has no MASTER for %s', fleet_ha_vip_text($pair['problem'][1]));
 	}
@@ -226,7 +240,7 @@ function fleet_ha_synced_from(?array $pair, string $node, string $kind, array $s
 
 /* The HA pairs of the fleet now, with the box rows by node id. */
 function fleet_ha_now(): array {
-	$boxes = fleet_db()->query('SELECT node_id, label, state, status FROM boxes')->fetchAll();
+	$boxes = fleet_db()->query('SELECT node_id, label, state, misses, status FROM boxes')->fetchAll();
 	return array(fleet_ha_pairs($boxes), array_column($boxes, null, 'node_id'));
 }
 
@@ -249,7 +263,26 @@ function fleet_ha_sync_source(string $node, string $kind): ?string {
 	return ($from === null) ? null : (string)$boxes[$from]['label'];
 }
 
-/* The minute poll: alert when a pair goes into or out of split-brain or no MASTER. */
+/* pure: one sentence for a pair's problem. $boxes: node id => row with label. */
+function fleet_ha_problem_text(array $p, array $boxes, string $names): string {
+	if ($p['problem'][0] === 'down') {
+		$down = $p['problem'][1];
+		$others = array_values(array_diff($p['nodes'], array($down)));
+		$carry = array_values(array_filter($others, function ($n) use ($p) { return in_array($n, $p['masters'], true); }));
+		return sprintf('HA pair %s: %s does not answer.', $names, $boxes[$down]['label'] ?? $down) .
+		    (empty($carry) ? '' : sprintf(' %s carries the shared addresses.', implode(', ', array_map(function ($n) use ($boxes) { return $boxes[$n]['label'] ?? $n; }, $carry))));
+	}
+	return ($p['problem'][0] === 'split') ?
+	    sprintf('HA pair %s: both are MASTER for %s (split-brain). Check the link between them.', $names, fleet_ha_vip_text($p['problem'][1])) :
+	    sprintf('HA pair %s: no firewall is MASTER for %s.', $names, fleet_ha_vip_text($p['problem'][1]));
+}
+
+/* pure: the short badge text for a pair's problem. */
+function fleet_ha_problem_badge(array $problem): string {
+	return array('split' => 'Split-brain', 'nomaster' => 'No MASTER', 'down' => 'Member down')[$problem[0]] ?? 'Problem';
+}
+
+/* The minute poll: alert when a pair goes into or out of split-brain, no MASTER or a member down. */
 function fleet_ha_tick(): void {
 	list($pairs, $boxes) = fleet_ha_now();
 	$was = json_decode((string)fleet_setting('ha_problems', '{}'), true) ?: array();
@@ -267,9 +300,7 @@ function fleet_ha_tick(): void {
 			continue;
 		}
 		if ($prob !== '') {
-			fleet_alert('ha_problem', $p['nodes'][0], ($p['problem'][0] === 'split') ?
-			    sprintf('HA pair %s: both are MASTER for %s (split-brain). Check the link between them.', $names, fleet_ha_vip_text($p['problem'][1])) :
-			    sprintf('HA pair %s: no firewall is MASTER for %s.', $names, fleet_ha_vip_text($p['problem'][1])));
+			fleet_alert('ha_problem', $p['nodes'][0], fleet_ha_problem_text($p, $boxes, $names));
 		} else {
 			fleet_alert('ha_ok', $p['nodes'][0], sprintf('HA pair %s is healthy again.', $names));
 		}

@@ -632,8 +632,9 @@ function fleet_ha_setup_run(int $op): void {
 			continue;
 		}
 		if ($pair['problem'] !== null) {
-			$why = ($pair['problem'][0] === 'split') ? 'Both became MASTER: the firewalls do not see each other on ' . fleet_ha_vip_text($pair['problem'][1]) . '.' :
-			    'No firewall is MASTER for ' . fleet_ha_vip_text($pair['problem'][1]) . '.';
+			$why = ($pair['problem'][0] === 'down') ? 'A firewall of the pair does not answer.' :
+			    (($pair['problem'][0] === 'split') ? 'Both became MASTER: the firewalls do not see each other on ' . fleet_ha_vip_text($pair['problem'][1]) . '.' :
+			    'No firewall is MASTER for ' . fleet_ha_vip_text($pair['problem'][1]) . '.');
 			continue;
 		}
 		if ($pair['masters'] !== array($p['node_id'])) {

@@ -50,11 +50,12 @@ define('FLEET_ALERT_EVENTS', array(
 	'backup_failed' => array('A backup failed', 'warning'),
 	'breakglass' => array('Lock suspended (break-glass)', 'critical'),
 	'policy' => array('A policy fix failed', 'warning'),
+	'policy_fail' => array('A firewall started failing a High policy rule', 'warning'),
 	'copies' => array('Backup copies or off-site storage failed', 'warning'),
 	'approval' => array('A firewall waits for approval', 'info'),
 	'path_down' => array('A connection path stopped answering (tunnel used)', 'warning'),
 	'path_up' => array('A connection path answers again', 'info'),
-	'ha_problem' => array('An HA pair has two MASTERs or none', 'critical'),
+	'ha_problem' => array('An HA pair has two MASTERs, none, or a member down', 'critical'),
 	'ha_ok' => array('An HA pair is healthy again', 'info'),
 	'join_refused' => array('A join was refused (wrong firewall or key)', 'warning'),
 	'controller_takeover' => array('The standby controller took over, or this controller stepped down', 'critical'),
@@ -96,7 +97,7 @@ function fleet_alert_classify(string $action, string $detail): ?array {
 			if ($s[2] === 'offline') {
 				return array('offline', $node, $detail);
 			}
-			if (($s[2] === 'online') && in_array($s[1], array('offline', 'degraded'), true)) {
+			if (($s[2] === 'online') && ($s[1] === 'offline')) {
 				return array('online', $node, $detail);
 			}
 		}

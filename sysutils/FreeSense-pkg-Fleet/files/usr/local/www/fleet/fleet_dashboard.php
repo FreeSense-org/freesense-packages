@@ -182,7 +182,7 @@ $overview = function () use ($h, $head, $url, $group, $group_names, $manage, $sh
 			<?=$head('fa-clone', 'c3', gettext('HA pairs'), '', 'fs-ha-title')?>
 			<ul class="fs-fleet-attn-list">
 <?php foreach ($ha_pairs as $hp): $names = array_map(function ($n) use ($ha_boxes, $hp) { return $ha_boxes[$n]['label'] . (in_array($n, $hp['masters'], true) ? ' (MASTER)' : ''); }, $hp['nodes']); sort($names, SORT_NATURAL | SORT_FLAG_CASE); ?>
-				<li><?=($hp['problem'] === null) ? fs_badge('pass', gettext('Healthy')) : fs_badge('down', ($hp['problem'][0] === 'split') ? gettext('Split-brain') : gettext('No MASTER'))?>
+				<li><?=($hp['problem'] === null) ? fs_badge('pass', gettext('Healthy')) : fs_badge('down', gettext(fleet_ha_problem_badge($hp['problem'])))?>
 					<a href="/fleet/fleet_box.php?id=<?=urlencode($hp['nodes'][0])?>"><?=$h(implode(' + ', $names))?></a></li>
 <?php endforeach; ?>
 			</ul>
