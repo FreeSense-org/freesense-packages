@@ -101,17 +101,16 @@ function fleet_invite_link_parse(string $link): ?array {
 }
 
 /*
- * pure: the way to recommend for a new firewall. $check: the last
- * reachability check (fleet_access); the tunnel when the public address
- * answers from outside, Tailscale when it does not (or nothing is known)
- * and the tailnet is ready.
+ * pure: the way to recommend for a new firewall. Tailscale when this
+ * controller is ready in a tailnet and has a Tailscale connection point (no
+ * public port needed); else the Fleet tunnel over a point firewalls reach
+ * over the internet; Direct only when an internal point is all there is.
  */
-function fleet_invite_recommend(array $check, bool $ts_ready, bool $public_host): string {
-	$open = !empty($check['probe']['open']);
-	if ($public_host && ($open || !$ts_ready)) {
-		return 'tunnel';
+function fleet_invite_recommend(bool $ts_ready, bool $internet, bool $internal): string {
+	if ($ts_ready) {
+		return 'tailscale';
 	}
-	return $ts_ready ? 'tailscale' : 'tunnel';
+	return (!$internet && $internal) ? 'direct' : 'tunnel';
 }
 
 /* pure: what the admin pastes into System > Fleet > Add to fleet (link and key in one). */
