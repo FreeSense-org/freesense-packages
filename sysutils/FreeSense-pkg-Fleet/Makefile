@@ -1,5 +1,5 @@
 PORTNAME=	FreeSense-pkg-Fleet
-PORTVERSION=	0.4.0
+PORTVERSION=	0.5.0
 CATEGORIES=	sysutils
 MASTER_SITES=	# empty
 DISTFILES=	# empty
@@ -26,6 +26,7 @@ do-install:
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/pkg/fleet/enroll/index.php ${STAGEDIR}${PREFIX}/pkg/fleet/enroll/
 	${INSTALL_SCRIPT} ${FILESDIR}${PREFIX}/sbin/freesense-fleet-backup ${STAGEDIR}${PREFIX}/sbin/
 	${INSTALL_SCRIPT} ${FILESDIR}${PREFIX}/sbin/freesense-fleet-poll ${STAGEDIR}${PREFIX}/sbin/
+	${INSTALL_SCRIPT} ${FILESDIR}${PREFIX}/sbin/freesense-fleet-rules ${STAGEDIR}${PREFIX}/sbin/
 	${INSTALL_SCRIPT} ${FILESDIR}${PREFIX}/sbin/freesense-fleet-run ${STAGEDIR}${PREFIX}/sbin/
 	${INSTALL_SCRIPT} ${FILESDIR}${PREFIX}/sbin/freesense-fleet-standby ${STAGEDIR}${PREFIX}/sbin/
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/fleet/*.php ${STAGEDIR}${PREFIX}/www/fleet/

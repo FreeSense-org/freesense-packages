@@ -253,7 +253,7 @@ function fleet_factory_settings(array $in): array {
 		throw new InvalidArgumentException('That group no longer exists.');
 	}
 	return array('name' => $name, 'mode' => $mode, 'role' => $role, 'days' => $days, 'group' => $gid, 'auto_approve' => ($mode === 'unattended') && !empty($in['auto_approve']),
-	    'via' => ((string)($in['via'] ?? '') === 'tailscale') ? 'tailscale' : '');
+	    'via' => ((string)($in['via'] ?? '') === 'tailscale') ? 'tailscale' : 'tunnel');
 }
 
 /* The naming of a group for the planner, or null. */
@@ -308,19 +308,15 @@ function fleet_factory_generate(array $settings, string $csv, string $passphrase
 	$vms = array();
 	$manifest = array('batch' => $settings['name'], 'created' => gmdate('c', $now), 'mode' => $settings['mode'], 'expires' => gmdate('c', $now + 86400 * $settings['days']), 'firewalls' => array());
 	foreach ($rows as $i => $r) {
-		list($link, $key, $tid, $expires) = fleet_invite_create($settings['role'], $r['label'], 86400 * $settings['days'], $who, $authority, $now, $via);
-		$tskey = null;
-		if ($via === 'tailscale') {
-			try {
-				$tskey = fleet_ts_authkey_mint($r['label'], 86400 * $settings['days'], $who, $tid);
-			} catch (RuntimeException $e) {
-				/* Nothing half-made: the batch's invitations and keys so far go again. */
-				fleet_db()->prepare('INSERT INTO batch_rows (batch_id, n, site, label, hostname, domain, serial, instance_id, token_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-				    ->execute(array($bid, $i + 1, $r['site'], $r['label'], $r['hostname'], $r['domain'], $r['serial'], $r['instance_id'], $tid));
-				fleet_batch_revoke($bid, $who);
-				exec('rm -rf ' . escapeshellarg($dir));
-				throw new RuntimeException('Tailscale key for line ' . $r['line'] . ': ' . $e->getMessage() . ' Nothing was made.');
-			}
+		/* Attended: the paste text alone joins, so a Tailscale key travels sealed in the link; PIN and unattended seeds hold it themselves. */
+		try {
+			list($link, $key, $tid, $expires, $tskey) = fleet_invite_create($settings['role'], $r['label'], 86400 * $settings['days'], $who, $authority, $now, $via,
+			    function (string $t) use ($r, $settings, $who) { return fleet_ts_authkey_mint($r['label'], 86400 * $settings['days'], $who, $t); }, '', $settings['mode'] === 'attended');
+		} catch (InvalidArgumentException $e) {
+			/* Nothing half-made: the batch's invitations and keys so far go again. */
+			fleet_batch_revoke($bid, $who);
+			exec('rm -rf ' . escapeshellarg($dir));
+			throw new RuntimeException('Line ' . $r['line'] . ': ' . $e->getMessage() . ' Nothing was made.');
 		}
 		$host = $r['hostname'];
 		if ($r['scope'] !== null) {
@@ -349,7 +345,11 @@ function fleet_factory_generate(array $settings, string $csv, string $passphrase
 		$fqdn = $host . (($host !== '' && $r['domain'] !== '') ? '.' . $r['domain'] : '');
 		$cards[] = array('label' => $r['label'], 'site' => $r['site'], 'name' => $fqdn, 'serial' => $r['serial'], 'link' => $link, 'folder' => $folder);
 		if ($settings['mode'] !== 'unattended') {
-			$keys[] = array('label' => $r['label'], 'name' => $fqdn, 'secret' => ($settings['mode'] === 'pin') ? $pin : $key);
+			$keys[] = array('label' => $r['label'], 'name' => $fqdn, 'secret' => ($settings['mode'] === 'pin') ? $pin : $key,
+			    'paste' => ($settings['mode'] === 'attended') ? fleet_invite_paste($link, $key) : '');
+			if ($settings['mode'] === 'attended') {
+				file_put_contents("{$dir}/bundle/{$folder}/paste-on-the-firewall.txt", fleet_invite_paste($link, $key) . "\n");
+			}
 		}
 		$manifest['firewalls'][] = array('folder' => $folder, 'label' => $r['label'], 'site' => $r['site'], 'hostname' => $host, 'domain' => $r['domain'],
 		    'serial' => $r['serial'], 'instance_id' => $r['instance_id'], 'invitation' => $tid);
@@ -476,8 +476,8 @@ function fleet_factory_cidata_iso(string $dir, string $out): bool {
 
 function fleet_factory_readme(array $r, array $s, string $host, int $expires): string {
 	$how = array(
-		'attended' => "Copy fleet-join.conf to a USB stick (FAT) and plug it in before the first boot.\nAt the console choose option 17 and type the join key from the key sheet.",
-		'pin' => "Copy fleet-join.conf to a USB stick (FAT) and plug it in before the first boot.\nAt the console choose option 17 and type the PIN from the key sheet.",
+		'attended' => "Easiest: open the new firewall's web interface, System > Fleet > Add to fleet, and paste paste-on-the-firewall.txt (it holds the join key: keep it like a password).\nOr copy fleet-join.conf to a USB stick (FAT) and plug it in before the first boot, then at the console choose option 17 and type the join key from the key sheet.",
+		'pin' => "Copy fleet-join.conf to a USB stick (FAT) and plug it in before the first boot.\nThen System > Fleet > Add to fleet in the web interface (or console option 17) and type the PIN from the key sheet.",
 		'unattended' => "Copy fleet-join.conf to a USB stick (FAT) and plug it in before the first boot.\nThe firewall joins by itself once it is online. It only works on the firewall with this serial or instance id.",
 	);
 	$media = "\n\nOther ways to deliver the same seed:\n" .
@@ -518,5 +518,13 @@ function fleet_factory_keys_html(array $s, array $keys): string {
 	foreach ($keys as $k) {
 		$out .= '<tr><td>' . $h($k['label']) . '</td><td>' . $h($k['name']) . '</td><td class="k">' . $h($k['secret']) . '</td></tr>';
 	}
-	return $out . '</table></html>';
+	$out .= '</table>';
+	$pastes = array_filter($keys, function ($k) { return ($k['paste'] ?? '') !== ''; });
+	if (!empty($pastes)) {
+		$out .= '<h2>' . $h('To paste on each firewall') . '</h2><p>' . $h('On the new firewall: System > Fleet > Add to fleet, paste the text. It joins and shows a code to approve on the controller.') . '</p>';
+		foreach ($pastes as $k) {
+			$out .= '<h3>' . $h($k['label']) . '</h3><pre style="white-space:pre-wrap;word-break:break-all;border:1px solid #999;padding:8px">' . $h($k['paste']) . '</pre>';
+		}
+	}
+	return $out . '</html>';
 }

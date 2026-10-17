@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 30);
+define('FLEET_DB_SCHEMA', 31);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -496,6 +496,14 @@ SQL);
 ALTER TABLE gw_hourly ADD COLUMN flaps INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE gw_hourly ADD COLUMN loss_n INTEGER NOT NULL DEFAULT 0;
 PRAGMA user_version = 30;
+SQL);
+	}
+	if ($version < 31) {
+		/* Join links v2: how the firewall connects (tunnel, tailscale, direct) and the interface of a direct path. */
+		$db->exec(<<<'SQL'
+UPDATE invitations SET via = 'tunnel' WHERE via = '';
+ALTER TABLE invitations ADD COLUMN via_iface TEXT NOT NULL DEFAULT '';
+PRAGMA user_version = 31;
 SQL);
 	}
 	$db->exec('COMMIT');

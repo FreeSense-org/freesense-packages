@@ -32,22 +32,103 @@
 
 require_once('fleet_join.inc');
 require_once('fleet/fleet_store.inc');
+require_once('fleet/fleet_conn.inc');
 
 define('FLEET_INVITE_TTL_MAX', 30 * 86400);
 define('FLEET_CHALLENGE_TTL', 300);
 define('FLEET_ENROLL_PENDING_TTL', 3600);
 define('FLEET_FIRST_HOST', 16);
+/* How an invited firewall reaches the controller after joining; the letter is its mark in the join link. */
+define('FLEET_INVITE_METHODS', array('tunnel' => 't', 'tailscale' => 's', 'direct' => 'd'));
+/* Sealing of the Tailscale key in a join link: as System's fleet_seed.inc seals keys (AES-256-GCM, PBKDF2). */
+define('FLEET_INVITE_SEAL_AAD', 'FreeSense-Fleet-Seed-v1');
+define('FLEET_INVITE_SEAL_ROUNDS', 200000);
 
 /* pure: a label an admin typed for an invitation or box. */
 function fleet_valid_label(string $label): bool {
 	return ($label !== '') && (strlen($label) <= 80) && !preg_match('/[\x00-\x1f\x7f<>]/', $label);
 }
 
+/* pure: base64url without padding. */
+function fleet_b64u(string $raw): string {
+	return rtrim(strtr(base64_encode($raw), '+/', '-_'), '=');
+}
+
 /*
- * Create an invitation. Returns array(link, key as shown, token_id, expires).
- * The key is shown once and never stored.
+ * pure: a Tailscale key sealed to the join key's data (fleet_join_key_normalize),
+ * as it travels in a join link: base64url(salt 16 | nonce 12 | tag 16 | data).
+ * The firewall unseals it with the key the admin types anyway. $salt and
+ * $nonce only for test vectors.
  */
-function fleet_invite_create(string $role, string $label, int $ttl, string $who, string $authority, int $now, string $via = ''): array {
+function fleet_invite_ts_seal(string $tskey, string $key_data, ?string $salt = null, ?string $nonce = null): string {
+	$salt = $salt ?? random_bytes(16);
+	$nonce = $nonce ?? random_bytes(12);
+	$tag = '';
+	$data = openssl_encrypt($tskey, 'aes-256-gcm', hash_pbkdf2('sha256', $key_data, $salt, FLEET_INVITE_SEAL_ROUNDS, 32, true), OPENSSL_RAW_DATA, $nonce, $tag,
+	    FLEET_INVITE_SEAL_AAD, 16);
+	return fleet_b64u($salt . $nonce . $tag . (string)$data);
+}
+
+/* pure: the reverse; null for a wrong key or a damaged blob. */
+function fleet_invite_ts_open(string $blob, string $key_data): ?string {
+	$raw = base64_decode(strtr($blob, '-_', '+/'), true);
+	if (($raw === false) || (strlen($raw) <= 44)) {
+		return null;
+	}
+	$out = openssl_decrypt(substr($raw, 44), 'aes-256-gcm', hash_pbkdf2('sha256', $key_data, substr($raw, 0, 16), FLEET_INVITE_SEAL_ROUNDS, 32, true),
+	    OPENSSL_RAW_DATA, substr($raw, 16, 12), substr($raw, 28, 16), FLEET_INVITE_SEAL_AAD);
+	return ($out === false) ? null : $out;
+}
+
+/*
+ * pure: a join link:
+ *   https://<authority>/fleet/join#<token 12 hex>.<secret 43 b64url>.<cert 64 hex>.<t|s|d>[.<sealed Tailscale key>]
+ */
+function fleet_invite_link_build(string $authority, string $token_id, string $secret, string $cert, string $method, string $ts = ''): string {
+	$m = FLEET_INVITE_METHODS[$method] ?? 't';
+	return "https://{$authority}/fleet/join#{$token_id}.{$secret}." . strtolower($cert) . ".{$m}" . ((($m === 's') && ($ts !== '')) ? ".{$ts}" : '');
+}
+
+/* pure: parse a join link: array(authority, host, port, token_id, token_secret, cert_sha256, method, ts), or null. */
+function fleet_invite_link_parse(string $link): ?array {
+	if (!preg_match('~^https://([^/#?\s]+)/fleet/join#([0-9a-f]{12})\.([A-Za-z0-9_-]{43})\.([0-9a-f]{64})\.([tsd])(?:\.([A-Za-z0-9_-]{60,600}))?$~D', trim($link), $m) ||
+	    !fleet_join_valid_authority($m[1]) || ((($m[6] ?? '') !== '') && ($m[5] !== 's'))) {
+		return null;
+	}
+	preg_match('/^(\[[^\]]+\]|[^:]+)(?::([0-9]+))?$/D', $m[1], $a);
+	return array('authority' => $m[1], 'host' => trim($a[1], '[]'), 'port' => (int)($a[2] ?? 443), 'token_id' => $m[2], 'token_secret' => $m[3],
+	    'cert_sha256' => $m[4], 'method' => array_flip(FLEET_INVITE_METHODS)[$m[5]], 'ts' => (string)($m[6] ?? ''));
+}
+
+/*
+ * pure: the way to recommend for a new firewall. $check: the last
+ * reachability check (fleet_access); the tunnel when the public address
+ * answers from outside, Tailscale when it does not (or nothing is known)
+ * and the tailnet is ready.
+ */
+function fleet_invite_recommend(array $check, bool $ts_ready, bool $public_host): string {
+	$open = !empty($check['probe']['open']);
+	if ($public_host && ($open || !$ts_ready)) {
+		return 'tunnel';
+	}
+	return $ts_ready ? 'tailscale' : 'tunnel';
+}
+
+/* pure: what the admin pastes into System > Fleet > Add to fleet (link and key in one). */
+function fleet_invite_paste(string $link, string $key): string {
+	return "FreeSense Fleet invitation\n{$link}\nKey: {$key}";
+}
+
+/*
+ * Create an invitation. Returns array(link, key as shown, token_id, expires,
+ * Tailscale key or null). The key is shown once and never stored. $method:
+ * tunnel, tailscale or direct ($iface: the controller's interface a direct
+ * path uses). $mint(token_id) makes the one-time Tailscale key; with
+ * $ts_in_link it travels sealed in the link (one paste joins), else the
+ * caller delivers it (Deployment Factory seeds).
+ */
+function fleet_invite_create(string $role, string $label, int $ttl, string $who, string $authority, int $now, string $method = 'tunnel', ?callable $mint = null,
+    string $iface = '', bool $ts_in_link = true): array {
 	if (!in_array($role, array('monitor', 'managed'), true)) {
 		throw new InvalidArgumentException('Choose monitor or managed.');
 	}
@@ -60,15 +141,31 @@ function fleet_invite_create(string $role, string $label, int $ttl, string $who,
 	if (!fleet_join_valid_authority($authority)) {
 		throw new InvalidArgumentException('Set the address boxes use to reach this controller (host name or IP and port).');
 	}
+	if (!isset(FLEET_INVITE_METHODS[$method])) {
+		throw new InvalidArgumentException('Choose how the firewall connects: the Fleet tunnel, Tailscale or direct.');
+	}
+	if (($method === 'direct') && !fleet_conn_iface_ok($iface)) {
+		throw new InvalidArgumentException('Choose the interface the controller reaches the firewall on.');
+	}
 	$cert = fleet_cert_fingerprint(fleet_tls_pem());
 	$token_id = bin2hex(random_bytes(6));
 	$secret = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
 	list($shown, $key_data) = fleet_join_key_generate();
-	fleet_db()->prepare('INSERT INTO invitations (token_id, secret_hash, okm, role, label, created, expires, created_by, via) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+	fleet_db()->prepare('INSERT INTO invitations (token_id, secret_hash, okm, role, label, created, expires, created_by, via, via_iface) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
 	    ->execute(array($token_id, hash('sha256', $secret), fleet_seal(fleet_join_okm($key_data, $cert), fleet_master_key()), $role, $label,
-	    $now, $now + $ttl, $who, ($via === 'tailscale') ? 'tailscale' : ''));
-	fleet_audit($who, 'invite', "{$token_id} {$role} \"{$label}\"" . (($via === 'tailscale') ? ' over Tailscale' : ''));
-	return array(fleet_join_link_build($authority, $token_id, $secret, $cert), $shown, $token_id, $now + $ttl);
+	    $now, $now + $ttl, $who, $method, ($method === 'direct') ? $iface : ''));
+	$tskey = null;
+	if (($method === 'tailscale') && ($mint !== null)) {
+		try {
+			$tskey = (string)$mint($token_id);
+		} catch (RuntimeException $e) {
+			fleet_invite_revoke($token_id, $who);
+			throw new InvalidArgumentException($e->getMessage());
+		}
+	}
+	fleet_audit($who, 'invite', "{$token_id} {$role} \"{$label}\" ({$method})");
+	$ts = (($tskey !== null) && $ts_in_link) ? fleet_invite_ts_seal($tskey, $key_data) : '';
+	return array(fleet_invite_link_build($authority, $token_id, $secret, $cert, $method, $ts), $shown, $token_id, $now + $ttl, $tskey);
 }
 
 function fleet_invite_revoke(string $token_id, string $who): bool {
@@ -259,9 +356,11 @@ function fleet_enroll_complete(array $body, string $bearer, int $now, array $ctx
 		if ((string)($inv['hostname'] ?? '') !== '') {
 			$db->prepare('UPDATE boxes SET name = ? WHERE node_id = ?')->execute(array($inv['hostname'] . ((($inv['domain'] ?? '') !== '') ? '.' . $inv['domain'] : ''), $node_id));
 		}
-		/* Joined over Tailscale: the API goes over the tailnet too, set up by itself once the firewall answers. */
+		/* Invited over Tailscale or direct: the API moves to that path by itself once the firewall answers there; the tunnel stays as the fallback. */
 		if (($inv['via'] ?? '') === 'tailscale') {
 			$db->prepare("UPDATE boxes SET conn_method = 'tailscale', conn_iface = 'tailscale', conn_auto = 1 WHERE node_id = ?")->execute(array($node_id));
+		} elseif ((($inv['via'] ?? '') === 'direct') && fleet_conn_iface_ok((string)($inv['via_iface'] ?? ''))) {
+			$db->prepare("UPDATE boxes SET conn_method = 'direct', conn_iface = ?, conn_auto = 1 WHERE node_id = ?")->execute(array($inv['via_iface'], $node_id));
 		}
 		$db->prepare("UPDATE enrollments SET state = 'joined' WHERE id = ?")->execute(array($e['id']));
 		$db->exec('COMMIT');

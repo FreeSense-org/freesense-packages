@@ -52,7 +52,7 @@ $input_errors = array();
 $savemsg = null;
 $view = fs_view_param(array('list', 'new', 'batch'), 'list');
 $plan = null;
-$form = array('name' => '', 'mode' => 'attended', 'role' => 'managed', 'days' => '14', 'group' => '0', 'auto_approve' => '', 'rows' => '', 'via' => '');
+$form = array('name' => '', 'mode' => 'attended', 'role' => 'managed', 'days' => '14', 'group' => '0', 'auto_approve' => '', 'rows' => '', 'via' => 'tunnel');
 
 if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 	$form = array_merge($form, array_intersect_key($_POST, $form));
@@ -251,7 +251,7 @@ $mode_icons = array('attended' => 'fa-keyboard', 'pin' => 'fa-hashtag', 'unatten
 			</fieldset>
 <?php list($ts_join_problems, $ts_join_address) = fleet_ts_join_ready(); ?>
 			<fieldset class="mt-3"><legend class="form-label"><?=gettext('How the firewalls reach this controller')?></legend>
-				<label class="form-check"><input class="form-check-input" type="radio" name="via" value=""<?=($form['via'] !== 'tailscale') ? ' checked' : ''?>/>
+				<label class="form-check"><input class="form-check-input" type="radio" name="via" value="tunnel"<?=($form['via'] !== 'tailscale') ? ' checked' : ''?>/>
 					<span class="form-check-label"><?=gettext('Over the internet (the Fleet tunnel: needs the public address and ports in Settings)')?></span></label>
 				<label class="form-check"><input class="form-check-input" type="radio" name="via" value="tailscale"<?=($form['via'] === 'tailscale') ? ' checked' : ''?><?=empty($ts_join_problems) ? '' : ' disabled'?>/>
 					<span class="form-check-label"><?=gettext('Over Tailscale (no public port: each seed gets its own one-time Tailscale key, opened by the join key or PIN; first boot installs Tailscale and logs in)')?></span></label>
