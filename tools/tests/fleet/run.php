@@ -38,18 +38,29 @@ $ov = fleet_random_overlay();
 check(preg_match('/^fd[0-9a-f]{2}:[0-9a-f]{4}:[0-9a-f]{4}:f1::\/64$/D', $ov) === 1 && fleet_random_overlay() !== $ov, 'a random ULA /64');
 check(fleet_overlay_host('fd12:3456:789a:f1::/64', 1) === 'fd12:3456:789a:f1::1' && fleet_overlay_host('fd12:3456:789a:f1::/64', 16) === 'fd12:3456:789a:f1::10',
     'overlay host addresses');
-$s = fleet_ctl_settings_from(array('enable' => 'on', 'public_host' => ' hq.example.net ', 'enroll_port' => '99999'));
-check($s === array('enable' => true, 'public_host' => 'hq.example.net', 'enroll_port' => 8443, 'wg_port' => 51830, 'listen' => array(), 'iface_hosts' => array(),
-    'rules_manual' => false) + fleet_tunables_from(array()), 'settings with defaults');
-$sl = fleet_ctl_settings_from(array('listen' => 'wan, lan,tailscale,bad iface,wan', 'iface_hosts' => json_encode(array('lan' => '10.0.0.1:8443', 'opt1' => 'bad host:x')),
-    'rules_manual' => 'on'));
-check(($sl['listen'] === array('wan', 'lan', 'tailscale')) && ($sl['iface_hosts'] === array('lan' => '10.0.0.1:8443')) && $sl['rules_manual'],
-    'listen on chosen interfaces (the tailnet too), an address per interface, rules by hand');
-check((fleet_enroll_listen(8443, array()) === "\t\tlisten 8443 ssl;\n\t\tlisten [::]:8443 ssl;\n") &&
-    (fleet_enroll_listen(8443, array('192.0.2.1', '2001:db8::1', '192.0.2.1')) === "\t\tlisten 192.0.2.1:8443 ssl;\n\t\tlisten [2001:db8::1]:8443 ssl;\n") &&
-    (strpos(fleet_enroll_nginx_conf(8443, '/t.pem', '/s', array('10.0.0.1')), 'listen 10.0.0.1:8443 ssl;') !== false) &&
-    (strpos(fleet_enroll_nginx_conf(8443, '/t.pem', '/s', array('10.0.0.1')), 'listen [::]:8443') === false),
-    'the enrollment endpoint listens on every address, or only on the chosen interfaces\' addresses');
+$s = fleet_ctl_settings_from(array('enable' => 'on', 'wg_port' => '99999'));
+check($s === array('enable' => true, 'wg_port' => 51830, 'points' => array(), 'rules_manual' => false, 'public_host' => '', 'enroll_port' => 8443, 'primary' => '') +
+    fleet_tunables_from(array()), 'settings with defaults');
+$sp = fleet_ctl_settings_from(array('points' => json_encode(array(array('iface' => 'tailscale', 'port' => '9443'), array('iface' => 'wan', 'port' => 8443, 'address' => ' hq.example.net '),
+    array('iface' => 'lan', 'port' => 99999, 'address' => 'bad host:x'), array('iface' => 'wan', 'port' => 1), array('iface' => 'bad iface'))), 'rules_manual' => 'on'));
+check((array_column($sp['points'], 'iface') === array('tailscale', 'wan', 'lan')) && ($sp['points'][0]['port'] === 9443) && ($sp['points'][1]['address'] === 'hq.example.net') &&
+    ($sp['points'][2] === array('iface' => 'lan', 'port' => 8443, 'address' => '')) && ($sp['primary'] === 'wan') && ($sp['public_host'] === 'hq.example.net') &&
+    ($sp['enroll_port'] === 8443) && $sp['rules_manual'] && (fleet_ctl_point($sp, 'tailscale')['port'] === 9443) && (fleet_ctl_point($sp, 'opt1') === null),
+    'connection points: one per interface (the tailnet too), a port each, an address or none; the first one off the tailnet is the main one');
+check((fleet_ctl_primary(array(array('iface' => 'tailscale', 'port' => 9443, 'address' => '')))['primary'] === 'tailscale') && fleet_ctl_address_ok('2001:db8::1') &&
+    !fleet_ctl_address_ok('hq:8443') && fleet_ctl_address_ok('fleet.example.net'),
+    'a tailnet-only controller uses the tailnet point; addresses are hosts without a port');
+check(json_decode(fleet_ctl_points_main_address(json_encode(array(array('iface' => 'wan', 'port' => 8443, 'address' => 'old.example.net'))), '198.51.100.7'), true)[0]['address'] === '198.51.100.7' &&
+    array_column(json_decode(fleet_ctl_points_main_address(json_encode(array(array('iface' => 'tailscale', 'port' => 8443))), 'b.example.net'), true), 'iface') === array('wan', 'tailscale'),
+    'a standby taking over puts its own address on the main connection point');
+check((fleet_enroll_listen(array(array('192.0.2.1', 8443), array('2001:db8::1', 8443), array('192.0.2.1', 8443), array('100.64.0.1', 9443))) ===
+    "		listen 192.0.2.1:8443 ssl;
+		listen [2001:db8::1]:8443 ssl;
+		listen 100.64.0.1:9443 ssl;
+") &&
+    (strpos(fleet_enroll_nginx_conf(array(array('10.0.0.1', 8443)), '/t.pem', '/s'), 'listen 10.0.0.1:8443 ssl;') !== false) &&
+    (strpos(fleet_enroll_nginx_conf(array(array('10.0.0.1', 8443)), '/t.pem', '/s'), 'listen [::]:8443') === false),
+    'the enrollment endpoint listens on the addresses of each connection point, each with its port');
 check(fleet_ctl_settings_from(array('poll_interval' => '30'))['poll_interval'] === 30 && fleet_ctl_settings_from(array('poll_interval' => '7'))['poll_interval'] === 15, 'status interval: 10, 15, 30 or 60 s');
 check(fleet_ctl_settings_from(array())['enable'] === false, 'off by default');
 check(fleet_hostport('fd12::1', 8443) === '[fd12::1]:8443' && fleet_hostport('hq', 1) === 'hq:1', 'host:port');
@@ -57,7 +68,7 @@ $early = fleet_ctl_early_rules(fleet_ctl_settings_from(array('enable' => 'on')))
 check(strpos($early, 'pass in quick on wgfctl0') !== false && strpos($early, 'pass out quick on wgfctl0') !== false &&
     fleet_ctl_early_rules(fleet_ctl_settings_from(array())) === '',
     'overlay rules in both directions, as early rules (they must come before "Block all IPv6")');
-$conf = fleet_enroll_nginx_conf(8443, '/fleet/tls.pem');
+$conf = fleet_enroll_nginx_conf(array(array('10.0.0.1', 8443)), '/fleet/tls.pem');
 check(strpos($conf, 'location ^~ /fleet/join/') !== false && strpos($conf, "return 404") !== false && strpos($conf, 'limit_req zone=fleetjoin') !== false &&
     strpos($conf, 'pid /var/run/fleet-enroll.pid;') !== false && !preg_match('#pid /var/run/nginx[^;]*\.pid#', $conf),
     'the enrollment nginx serves only /fleet/join/, rate-limited, with a pid file rc.restart_webgui does not kill');
@@ -1489,7 +1500,7 @@ check(is_array($sbo) && ($sbo[1]['epoch'] === 4) && ($sbo[1]['created'] === 5) &
 $sbpoll = (string)file_get_contents($repo . '/sysutils/FreeSense-pkg-Fleet/files/usr/local/sbin/freesense-fleet-poll');
 $sbix = (string)file_get_contents($repo . '/sysutils/FreeSense-pkg-Fleet/files/usr/local/pkg/fleet/enroll/index.php');
 check((strpos($sbpoll, 'fleet_standby_endpoints_tick()') !== false) && (strpos($sbpoll, 'fleet_standby_fence_tick(') !== false) && (strpos($sbix, 'fleet_standby_handle(') !== false) &&
-    (strpos(fleet_enroll_nginx_conf(8443, '/fleet/tls.pem'), 'location ^~ /fleet/standby/') !== false),
+    (strpos(fleet_enroll_nginx_conf(array(array('10.0.0.1', 8443)), '/fleet/tls.pem'), 'location ^~ /fleet/standby/') !== false),
     'the poll keeps the standby copy and the firewalls\' endpoints current, and the enrollment port serves the standby');
 /* Controller access. */
 check((fleet_access_cidr(' 203.0.113.5 ') === '203.0.113.5') && (fleet_access_cidr('203.0.113.0/24') === '203.0.113.0/24') && (fleet_access_cidr('203.0.113.5/32') === '203.0.113.5') &&
@@ -1509,7 +1520,7 @@ check(($alw === array('198.51.100.0/24' => 'Office', '203.0.113.9' => 'Firewall 
     'the allowed list: entries, firewalls\' addresses, open invitations and the standby (an expired invitation is gone)');
 $ars = array('enable' => true, 'enroll_port' => 8443, 'wg_port' => 51830);
 $ars = fleet_ctl_settings_from(array('enable' => 'on'));
-$arl = fleet_access_rule_set($ars, array('wan', 'lan'), $acl, $alw + array('2001:db8::/48' => 'v6'), array('198.18.0.9' => 5000, '198.18.0.10' => 10), 1000);
+$arl = fleet_access_rule_set($ars, array('wan' => 8443, 'lan' => 8443), $acl, $alw + array('2001:db8::/48' => 'v6'), array('198.18.0.9' => 5000, '198.18.0.10' => 10), 1000);
 $arr = array_column($arl['rules'], null, 'descr');
 check((count($arl['rules']) === 4) && ($arl['rules'][0]['type'] === 'block') && ($arl['rules'][1]['type'] === 'block') &&
     ($arr['FreeSense Fleet: enrollment']['interface'] === 'wan,lan') && ($arr['FreeSense Fleet: enrollment']['floating'] === 'yes') &&
@@ -1519,13 +1530,18 @@ check((count($arl['rules']) === 4) && ($arl['rules'][0]['type'] === 'block') && 
     'Fleet\'s rules: visible floating rules on the chosen interfaces, blocked first, marked as Fleet\'s');
 check(($arl['aliases']['FleetBlocked']['address'] === '198.18.0.9') && ($arl['aliases']['FleetTunnel']['address'] === '0.0.0.0/0 ::/0') &&
     ($arl['aliases']['FleetEnroll']['address'] === '198.51.100.0/24 203.0.113.9 192.0.2.4 192.0.2.200 2001:db8::/48') &&
-    (fleet_access_rule_set($ars, array('wan'), array('open_until' => 2000) + $acl, array(), array(), 1000)['aliases']['FleetEnroll']['address'] === '0.0.0.0/0 ::/0') &&
-    (fleet_access_rule_set($ars, array('wan'), $acl, array(), array(), 1000)['aliases']['FleetEnroll']['address'] === ''),
+    (fleet_access_rule_set($ars, array('wan' => 8443), array('open_until' => 2000) + $acl, array(), array(), 1000)['aliases']['FleetEnroll']['address'] === '0.0.0.0/0 ::/0') &&
+    (fleet_access_rule_set($ars, array('wan' => 8443), $acl, array(), array(), 1000)['aliases']['FleetEnroll']['address'] === ''),
     'the aliases: anyone or only the allowed list per port (nothing when it is empty), open for joining lets anyone join for a while');
-check((fleet_access_rule_set(array('enable' => false) + $ars, array('wan'), $acl, $alw, array(), 1000) === array('aliases' => array(), 'rules' => array())) &&
-    (fleet_access_rule_set(array('rules_manual' => true) + $ars, array('wan'), $acl, $alw, array(), 1000)['rules'] === array()) &&
+check((fleet_access_rule_set(array('enable' => false) + $ars, array('wan' => 8443), $acl, $alw, array(), 1000) === array('aliases' => array(), 'rules' => array())) &&
+    (fleet_access_rule_set(array('rules_manual' => true) + $ars, array('wan' => 8443), $acl, $alw, array(), 1000)['rules'] === array()) &&
     (fleet_access_rule_set($ars, array(), $acl, $alw, array(), 1000)['rules'] === array()),
     'no rules while off, when the admin opens the ports by hand, or with no interface');
+$arp = fleet_access_rule_set($ars, array('wan' => 8443, 'lan' => 9443, 'opt1' => 8443), $acl, $alw, array(), 1000)['rules'];
+check((count($arp) === 6) && (array_column($arp, 'type') === array('block', 'block', 'block', 'pass', 'pass', 'pass')) &&
+    ($arp[0]['interface'] === 'wan,opt1') && ($arp[1]['interface'] === 'lan') && ($arp[1]['destination']['port'] === '9443') && ($arp[5]['interface'] === 'wan,lan,opt1') &&
+    (count(array_unique(array_column($arp, 'tracker'))) === 6),
+    'connection points with different ports: an enrollment rule pair per port, the tunnel on all of them');
 $amine = array(array('descr' => 'new fleet', 'fleet_auto' => '1'));
 check(fleet_access_merge(array(array('descr' => 'a'), array('descr' => 'old fleet', 'fleet_auto' => '1'), array('descr' => 'b')), $amine, true) ===
     array(array('descr' => 'new fleet', 'fleet_auto' => '1'), array('descr' => 'a'), array('descr' => 'b')) &&

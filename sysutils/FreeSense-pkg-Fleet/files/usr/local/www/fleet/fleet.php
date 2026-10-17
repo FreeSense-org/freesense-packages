@@ -87,29 +87,35 @@ if (isset($_POST['save_section']) && array_key_exists((string)$_POST['save_secti
 	}
 } elseif ($_POST['save_settings'] ?? false) {
 	$tab = 'settings';
-	$host = trim((string)($_POST['public_host'] ?? ''));
-	/* Controller: kept with every other stored value (Monitoring, Backups...). */
-	$listen = array_values(array_filter(array_map('strval', (array)($_POST['listen'] ?? array())), function ($i) { return ($i === 'tailscale') || fleet_conn_iface_ok($i); }));
-	$hosts = array();
-	foreach ((array)($_POST['iface_host'] ?? array()) as $hif => $hv) {
-		$hv = trim((string)$hv);
-		if ($hv === '') {
+	/* The connection points: interface, enrollment port and (optional) the address firewalls use there. */
+	$points = array();
+	foreach ((array)($_POST['points'] ?? array()) as $pi => $pp) {
+		$pif = (string)($pp['iface'] ?? '');
+		if (($pif === '') || ((string)($_POST['point_remove'] ?? '') === (string)$pi)) {
 			continue;
 		}
-		if (!fleet_conn_iface_ok((string)$hif) || !fleet_join_valid_authority($hv)) {
-			$input_errors[] = sprintf(gettext('The address for %s is not a host name or IP address (with an optional port).'), (string)$hif);
-			continue;
+		$pport = trim((string)($pp['port'] ?? ''));
+		$paddr = trim((string)($pp['address'] ?? ''));
+		if (($pif !== 'tailscale') && !fleet_conn_iface_ok($pif)) {
+			$input_errors[] = gettext('Choose an interface for each connection point.');
+		} elseif (isset($points[$pif])) {
+			$input_errors[] = sprintf(gettext('%s is used twice: one connection point per interface.'), $pif);
+		} elseif (!ctype_digit($pport) || ((int)$pport < 1) || ((int)$pport > 65535)) {
+			$input_errors[] = gettext('Ports are numbers from 1 to 65535.');
+		} elseif (($paddr !== '') && !fleet_ctl_address_ok($paddr)) {
+			$input_errors[] = sprintf(gettext('"%s" is not a host name or IP address (the port has its own field).'), $paddr);
+		} else {
+			$points[$pif] = array('iface' => $pif, 'port' => (int)$pport, 'address' => $paddr);
 		}
-		$hosts[(string)$hif] = $hv;
 	}
-	$post = array_merge((array)config_get_path('installedpackages/fleet/config/0', array()), array('enable' => !empty($_POST['enable']) ? 'on' : '',
-	    'public_host' => $host, 'enroll_port' => (string)($_POST['enroll_port'] ?? ''), 'wg_port' => (string)($_POST['wg_port'] ?? ''),
-	    'listen' => implode(',', $listen), 'iface_hosts' => empty($hosts) ? '' : json_encode($hosts), 'rules_manual' => !empty($_POST['rules_manual']) ? 'on' : ''));
+	$post = array_merge(array_diff_key((array)config_get_path('installedpackages/fleet/config/0', array()), array('points' => 1)), array(
+	    'enable' => !empty($_POST['enable']) ? 'on' : '', 'points' => json_encode(array_values($points)), 'wg_port' => (string)($_POST['wg_port'] ?? ''),
+	    'rules_manual' => !empty($_POST['rules_manual']) ? 'on' : ''));
 	$check = fleet_ctl_settings_from($post);
-	if ($check['enable'] && !fleet_join_valid_authority($host)) {
-		$input_errors[] = gettext('Enter the host name or IP address firewalls use to reach this controller.');
+	if ($check['enable'] && empty($points)) {
+		$input_errors[] = gettext('Add at least one connection point: where firewalls reach this controller.');
 	}
-	if ((string)$check['enroll_port'] !== $post['enroll_port'] || (string)$check['wg_port'] !== $post['wg_port']) {
+	if ((string)$check['wg_port'] !== $post['wg_port']) {
 		$input_errors[] = gettext('Ports are numbers from 1 to 65535.');
 	}
 	if (empty($input_errors)) {
@@ -639,14 +645,28 @@ if ($savemsg) {
 	<form method="post" class="fs-fleet-form">
 <?php
 	list($ts_join_problems, $ts_join_address) = fleet_ts_join_ready();
-	$inv_ifaces = array_diff_key(get_configured_interface_with_descr(), array('wan' => 1));
-	$inv_rec = fleet_invite_recommend(json_decode((string)fleet_setting('access_check', '{}'), true) ?: array(), empty($ts_join_problems), $s['public_host'] !== '');
+	$all_ifaces = get_configured_interface_with_descr();
+	$inv_ifaces = array();
+	foreach ($s['points'] as $ip) {
+		if (!in_array($ip['iface'], array('wan', 'tailscale'), true) && isset($all_ifaces[$ip['iface']])) {
+			$inv_ifaces[$ip['iface']] = $all_ifaces[$ip['iface']];
+		}
+	}
+	$ts_point = fleet_ctl_point($s, 'tailscale');
+	$net_point = ($s['primary'] !== '') && ($s['primary'] !== 'tailscale');
+	$ts_ok = ($ts_point !== null) && empty($ts_join_problems);
+	$inv_rec = fleet_invite_recommend(json_decode((string)fleet_setting('access_check', '{}'), true) ?: array(), $ts_ok, $net_point && ($s['public_host'] !== ''));
 	$inv_ways = array(
-		'tunnel' => array(gettext('Fleet tunnel (WireGuard)'), gettext('Over the internet: needs the public address and the two ports (Settings > Controller).'), true),
-		'tailscale' => array(gettext('Tailscale'), empty($ts_join_problems) ? sprintf(gettext('No public port: the firewall installs Tailscale and joins this controller at %s in the tailnet.'), $ts_join_address) :
-		    implode(' ', array_map('gettext', $ts_join_problems)), empty($ts_join_problems)),
-		'direct' => array(gettext('Direct'), gettext('The firewall and this controller share an internal network (LAN, MPLS, VPN): it joins there, no internet port needed.'), !empty($inv_ifaces)),
+		'tunnel' => array(gettext('Fleet tunnel (WireGuard)'), $net_point ? sprintf(gettext('Over the internet: the firewall reaches this controller at %s.'), fleet_hostport($s['public_host'], $s['enroll_port'])) :
+		    gettext('Add a connection point firewalls reach over the internet (Settings > Controller).'), $net_point),
+		'tailscale' => array(gettext('Tailscale'), ($ts_point === null) ? gettext('Add a Tailscale connection point (Settings > Controller).') : (empty($ts_join_problems) ?
+		    sprintf(gettext('No public port: the firewall installs Tailscale and joins this controller at %s in the tailnet.'), $ts_join_address) : implode(' ', array_map('gettext', $ts_join_problems))), $ts_ok),
+		'direct' => array(gettext('Direct'), empty($inv_ifaces) ? gettext('Add a connection point on an internal network, such as LAN (Settings > Controller).') :
+		    gettext('The firewall and this controller share an internal network (LAN, MPLS, VPN): it joins there, no internet port needed.'), !empty($inv_ifaces)),
 	);
+	if (!$inv_ways[$inv_rec][2]) {
+		$inv_rec = (string)(array_keys(array_filter($inv_ways, function ($w) { return $w[2]; }))[0] ?? $inv_rec);
+	}
 ?>
 		<fieldset class="fs-fleet-field fs-fleet-field--full fs-fleet-ways"><legend class="form-label"><?=gettext('How the new firewall connects')?></legend>
 <?php foreach ($inv_ways as $wk => list($wt, $wh, $wok)): ?>
@@ -657,7 +677,7 @@ if ($savemsg) {
 			<div class="fs-fleet-field mt-2" data-fleet-direct><label class="form-label" for="via_iface"><?=gettext('Internal network (direct)')?></label>
 				<select class="form-select" id="via_iface" name="via_iface">
 <?php foreach ($inv_ifaces as $ik => $idescr): ?>
-					<option value="<?=htmlspecialchars($ik)?>"><?=htmlspecialchars($idescr . ' (' . (get_interface_ip($ik) ?: gettext('no address')) . ')')?></option>
+					<option value="<?=htmlspecialchars($ik)?>"><?=htmlspecialchars($idescr . ' (' . (fleet_ctl_point_address(fleet_ctl_point($s, $ik)) ?: gettext('no address')) . ')')?></option>
 <?php endforeach; ?>
 				</select></div>
 <?php endif; ?>
@@ -1048,28 +1068,28 @@ if ($savemsg) {
 </form>
 <?php else: ?>
 <form method="post" action="?tab=settings&amp;view=controller">
+<input type="hidden" name="save_settings" value="1"/>
 <div class="panel panel-default">
 	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Controller')?></h2></div>
 	<div class="panel-body fs-fleet-pad">
 	<p class="fs-fleet-lead"><?=htmlspecialchars($set_leads['controller'])?></p>
 <?php
-	$ctl_ifaces = get_configured_interface_with_descr();
-	$wan_ip = (string)(get_interface_ip('wan') ?: '');
-	$first_run = !$s['enable'] && ($s['public_host'] === '');
+	$ctl_ifaces = get_configured_interface_with_descr() + array('tailscale' => gettext('Tailscale (tailnet)'));
+	$first_run = !$s['enable'] && empty($s['points']);
 	list($ctl_ts_problems, $ctl_ts_addr) = fleet_ts_join_ready();
-	$rule_ifaces = empty($s['listen']) ? array_keys($ctl_ifaces) : array_values(array_intersect($s['listen'], array_keys($ctl_ifaces)));
+	$rule_ifaces = array_keys(fleet_access_ifaces($s));
+	/* The rows: the points, or WAN to start with; one empty row to add a point. */
+	$rows = !empty($s['points']) ? $s['points'] : array(array('iface' => 'wan', 'port' => 8443, 'address' => ''));
+	$rows[] = array('iface' => '', 'port' => 8443, 'address' => '');
 ?>
 <?php if ($first_run): ?>
 	<div class="fs-fleet-guide">
 		<h3 class="h6"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> <?=gettext('Set up this controller')?></h3>
 		<ol class="fs-fleet-steps">
-			<li><?=($wan_ip !== '') ? sprintf(gettext('The address firewalls use: Fleet found %s on WAN and filled it in. Use a DNS name instead if you have one, or the address of a port forward to this firewall.'), '<strong class="fs-mono">' . htmlspecialchars($wan_ip) . '</strong>') :
-			    gettext('The address firewalls use: a public IP address or DNS name of this firewall, or of a port forward to it.')?></li>
-			<li><?=gettext('The ports: TCP 8443 for joining and UDP 51830 for the tunnel are fine for most networks.')?></li>
-			<li><?=gettext('Where firewalls connect: every interface, or only the ones you tick. Fleet adds the firewall rules for them itself (shown locked under Firewall > Rules > Floating) and removes them when you untick an interface or switch Fleet off.')?></li>
-			<li><?=empty($ctl_ts_problems) ? sprintf(gettext('Tailscale is ready (%s): firewalls can also join over the tailnet, with no public port.'), htmlspecialchars($ctl_ts_addr)) :
-			    gettext('Tailscale (optional): firewalls can join over a tailnet without a public port once Tailscale runs here and an API token is set (Firewalls > Connections).')?></li>
-			<li><?=gettext('Switch it on and save. Then Settings > Self-check shows whether firewalls can reach it.')?></li>
+			<li><?=gettext('Switch it on.')?></li>
+			<li><?=gettext('Choose where firewalls connect: WAN for firewalls on the internet, LAN or another internal interface for firewalls on your own networks, Tailscale for firewalls in your tailnet. Each gets a port; the address is found by itself.')?></li>
+			<li><?=gettext('Save. Fleet opens the ports itself (locked rules under Firewall > Rules > Floating) and closes them when you remove a connection point or switch Fleet off.')?></li>
+			<li><?=gettext('Then Settings > Self-check shows whether firewalls can reach it.')?></li>
 		</ol>
 	</div>
 <?php endif; ?>
@@ -1078,30 +1098,36 @@ if ($savemsg) {
 			<input class="form-check-input" type="checkbox" role="switch" id="enable" name="enable" <?=$s['enable'] ? 'checked' : ''?>/>
 			<label class="form-check-label" for="enable"><?=gettext('Run this firewall as a FreeSense Fleet controller')?></label>
 		</div>
-		<div class="fs-fleet-field"><label class="form-label" for="public_host"><?=gettext('Address firewalls use to reach this controller')?></label>
-			<input class="form-control" id="public_host" name="public_host" value="<?=htmlspecialchars(($s['public_host'] === '') ? $wan_ip : $s['public_host'])?>" placeholder="fleet.example.net" aria-describedby="host-help"/>
-			<div id="host-help" class="fs-fleet-hint"><?=gettext('A public IP address or DNS name, or the address of a port forward to this firewall.')?></div></div>
-		<div class="fs-fleet-ports">
-			<div class="fs-fleet-field"><label class="form-label" for="enroll_port"><?=gettext('Enrollment port (TCP)')?></label>
-				<input class="form-control" id="enroll_port" name="enroll_port" inputmode="numeric" value="<?=(int)$s['enroll_port']?>"/></div>
-			<div class="fs-fleet-field"><label class="form-label" for="wg_port"><?=gettext('Tunnel port (UDP)')?></label>
-				<input class="form-control" id="wg_port" name="wg_port" inputmode="numeric" value="<?=(int)$s['wg_port']?>"/></div>
-		</div>
-		<fieldset class="fs-fleet-listen"><legend class="form-label"><?=gettext('Firewalls connect on')?></legend>
-			<p class="fs-fleet-hint mt-0"><?=gettext('Tick none for every interface. The enrollment endpoint listens only on the ticked interfaces\' addresses, and Fleet opens the two ports only there.')?></p>
+		<fieldset class="fs-fleet-points"><legend class="form-label"><?=gettext('Where firewalls connect')?></legend>
+			<p class="fs-fleet-hint mt-0"><?=gettext('One row per interface firewalls reach this controller on, with the port they join on. Leave the address empty to use the interface\'s own (or its dynamic DNS name, or the tailnet address).')?></p>
 			<div class="table-responsive"><table class="table fs-table">
-				<thead><tr><th><?=gettext('Interface')?></th><th><?=gettext('Its address')?></th><th><?=gettext('Address firewalls use there')?> <span class="fs-muted small"><?=gettext('(optional)')?></span></th></tr></thead>
+				<thead><tr><th><?=gettext('Interface')?></th><th><?=gettext('Port (TCP)')?></th><th><?=gettext('Address firewalls use')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
 				<tbody>
-<?php foreach ($ctl_ifaces + array('tailscale' => gettext('Tailscale (tailnet)')) as $lk => $ldescr):
-	$laddr = ($lk === 'tailscale') ? (string)($ctl_ts_addr ?? '') : (string)(get_interface_ip($lk) ?: ''); ?>
-				<tr><td><label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="listen[]" value="<?=htmlspecialchars($lk)?>"<?=in_array($lk, $s['listen'], true) ? ' checked' : ''?>/>
-					<span class="form-check-label"><?=htmlspecialchars($ldescr)?></span></label></td>
-					<td class="fs-mono small"><?=($laddr !== '') ? htmlspecialchars($laddr) : '<span class="fs-muted">-</span>'?></td>
-					<td><?php if ($lk !== 'tailscale'): ?><input class="form-control form-control-sm fs-mono" name="iface_host[<?=htmlspecialchars($lk)?>]" value="<?=htmlspecialchars($s['iface_hosts'][$lk] ?? '')?>"
-					    placeholder="<?=htmlspecialchars(($laddr !== '') ? fleet_hostport($laddr, $s['enroll_port']) : '')?>" aria-label="<?=htmlspecialchars(sprintf(gettext('Address firewalls use on %s'), $ldescr))?>"/><?php endif; ?></td></tr>
+<?php foreach ($rows as $ri => $rp):
+	$rnew = ($rp['iface'] === '');
+	$rdetect = $rnew ? '' : fleet_ctl_point_address(array('iface' => $rp['iface'], 'address' => '')); ?>
+				<tr<?=$rnew ? ' class="fs-fleet-point-new"' : ''?>>
+					<td><select class="form-select form-select-sm" name="points[<?=$ri?>][iface]" aria-label="<?=gettext('Interface')?>">
+<?php if ($rnew): ?>
+						<option value=""><?=gettext('Add...')?></option>
+<?php endif; ?>
+<?php foreach ($ctl_ifaces as $ck => $cd): ?>
+						<option value="<?=htmlspecialchars($ck)?>"<?=($ck === $rp['iface']) ? ' selected' : ''?>><?=htmlspecialchars($cd)?></option>
+<?php endforeach; ?>
+					</select></td>
+					<td><input class="form-control form-control-sm fs-mono" name="points[<?=$ri?>][port]" inputmode="numeric" value="<?=(int)$rp['port']?>" aria-label="<?=gettext('Port (TCP)')?>"/></td>
+					<td><input class="form-control form-control-sm fs-mono" name="points[<?=$ri?>][address]" value="<?=htmlspecialchars($rp['address'])?>"
+					    placeholder="<?=htmlspecialchars(($rdetect !== '') ? $rdetect : ($rnew ? gettext('found by itself') : gettext('no address yet')))?>" aria-label="<?=gettext('Address firewalls use')?>"/>
+<?php if (($rp['iface'] === 'wan') && ($rdetect !== '') && is_private_ip($rdetect)): ?>
+						<div class="fs-fleet-hint"><?=gettext('A private address: firewalls on the internet need the public address or DNS name of the port forward to this firewall.')?></div>
+<?php endif; ?></td>
+					<td class="text-end"><?php if (!$rnew && (count($rows) > 2)): ?><button class="btn btn-sm btn-link fs-fleet-danger-link" type="submit" name="point_remove" value="<?=$ri?>"><?=gettext('Remove')?></button><?php endif; ?></td></tr>
 <?php endforeach; ?>
 				</tbody></table></div>
 		</fieldset>
+		<div class="fs-fleet-field"><label class="form-label" for="wg_port"><?=gettext('Tunnel port (UDP)')?></label>
+			<input class="form-control fs-mono" id="wg_port" name="wg_port" inputmode="numeric" value="<?=(int)$s['wg_port']?>" style="max-width:9rem"/>
+			<div class="fs-fleet-hint"><?=gettext('One for every connection point: the Fleet tunnel (WireGuard) listens on a single port.')?></div></div>
 		<div class="form-check form-switch">
 			<input class="form-check-input" type="checkbox" role="switch" id="rules_manual" name="rules_manual" <?=$s['rules_manual'] ? 'checked' : ''?>/>
 			<label class="form-check-label" for="rules_manual"><?=gettext('Let me manage the firewall rules myself')?></label>
@@ -1109,12 +1135,14 @@ if ($savemsg) {
 <?php if ($s['rules_manual']): ?>
 		<div class="fs-fleet-note"><?=gettext('Fleet adds no rules. Open these yourself:')?>
 			<ul class="mb-0">
-				<li><?=htmlspecialchars(sprintf(gettext('TCP %1$d to this firewall (joining), on %2$s'), $s['enroll_port'], implode(', ', $rule_ifaces) ?: gettext('the interfaces firewalls use')))?></li>
+<?php foreach ($s['points'] as $mp): ?>
+				<li><?=htmlspecialchars(sprintf(gettext('TCP %1$d to this firewall (joining), on %2$s'), $mp['port'], $ctl_ifaces[$mp['iface']] ?? $mp['iface']))?></li>
+<?php endforeach; ?>
 				<li><?=htmlspecialchars(sprintf(gettext('UDP %1$d to this firewall (tunnel), on the same interfaces'), $s['wg_port']))?></li>
 			</ul>
 			<?=gettext('Then use Settings > Self-check, "Test the ports from outside".')?></div>
 <?php elseif ($s['enable']): ?>
-		<p class="fs-fleet-hint"><?=sprintf(gettext('Fleet keeps 4 rules under %1$s (locked; change them here) and the aliases FleetEnroll, FleetTunnel and FleetBlocked, for: %2$s.'),
+		<p class="fs-fleet-hint"><?=sprintf(gettext('Fleet keeps its rules under %1$s (locked; change them here) and the aliases FleetEnroll, FleetTunnel and FleetBlocked, for: %2$s.'),
 		    '<a href="/firewall_rules.php?if=FloatingRules">' . gettext('Firewall > Rules > Floating') . '</a>', htmlspecialchars(implode(', ', $rule_ifaces)))?></p>
 <?php endif; ?>
 <?php if ($ready && !fleet_data_on_zfs()): ?>

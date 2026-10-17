@@ -1127,7 +1127,14 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 
 /* Controller settings: the first-run guide and the self-check list. */
 .fs-fleet-guide { margin: 0 0 var(--fs-sp-4); padding: var(--fs-sp-3) var(--fs-sp-4); border: 1px solid var(--fs-border); border-left: 4px solid var(--fs-coral); border-radius: var(--fs-r-md); }
-.fs-fleet-listen { margin: 0; padding: 0; border: 0; }
+/* Settings > Controller: the connection points table needs more room than the other settings. */
+.fs-fleet-settings:has(.fs-fleet-points) { max-width: 54rem; }
+.fs-fleet-points { margin: 0; padding: 0; border: 0; }
+.fs-fleet-points th { white-space: nowrap; }
+.fs-fleet-points select { min-width: 13rem; }
+.fs-fleet-points td:nth-child(2) input { width: 6.5rem; }
+.fs-fleet-points td:nth-child(3) { min-width: 16rem; }
+.fs-fleet-point-new select { color: var(--fs-text-muted); }
 .fs-fleet-checklist { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--fs-sp-2); }
 .fs-fleet-check { display: grid; grid-template-columns: 7rem minmax(0, 1fr) auto; gap: var(--fs-sp-3); align-items: center; padding: var(--fs-sp-2) 0; border-top: 1px solid var(--fs-border); }
 .fs-fleet-check:first-child { border-top: 0; }

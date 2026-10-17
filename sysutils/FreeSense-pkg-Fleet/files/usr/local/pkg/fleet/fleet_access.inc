@@ -156,8 +156,9 @@ function fleet_access_tracker(string $what): string {
 /*
  * pure: Fleet's firewall rules and aliases, as they go into the
  * configuration (Firewall > Rules > Floating and Firewall > Aliases), each
- * marked fleet_auto (shown locked: change them in Fleet). $ifaces: the
- * interfaces the ports are open on. Blocked addresses first; then each port
+ * marked fleet_auto (shown locked: change them in Fleet). $ifaces:
+ * interface => enrollment port (its connection point); the tunnel port is
+ * open on all of them. Blocked addresses first; then each port
  * open to anyone or only to the allowed list (empty list: nothing passes).
  * Returns array(aliases => [name => alias], rules => [rule]); empty when the
  * controller is off or the admin opens the ports by hand.
@@ -178,20 +179,28 @@ function fleet_access_rule_set(array $s, array $ifaces, array $acc, array $allow
 		$aliases[$name] = array('name' => $name, 'type' => 'network', 'address' => implode(' ', $src[$name]), 'descr' => $descr,
 		    'detail' => implode('||', array_fill(0, count($src[$name]), '')), 'fleet_auto' => '1');
 	}
-	$on = implode(',', $ifaces);
-	$rule = function (string $type, string $proto, string $from, int $port, string $descr) use ($on) {
-		return array('type' => $type, 'interface' => $on, 'ipprotocol' => 'inet46', 'protocol' => $proto, 'source' => array('address' => $from),
+	$rule = function (string $type, string $proto, string $from, int $port, string $descr, array $on) {
+		return array('type' => $type, 'interface' => implode(',', $on), 'ipprotocol' => 'inet46', 'protocol' => $proto, 'source' => array('address' => $from),
 		    'destination' => array('network' => '(self)', 'port' => (string)$port), 'descr' => $descr, 'floating' => 'yes', 'quick' => 'yes', 'direction' => 'in',
 		    /* Answer the way the packet came: firewalls on the WAN's own network must not be answered through its gateway. */
 		    'disablereplyto' => 'yes',
-		    'tracker' => fleet_access_tracker("{$type}-{$proto}-{$from}"), 'fleet_auto' => '1');
+		    'tracker' => fleet_access_tracker("{$type}-{$proto}-{$from}-{$port}"), 'fleet_auto' => '1');
 	};
-	return array('aliases' => $aliases, 'rules' => array(
-		$rule('block', 'tcp', 'FleetBlocked', $s['enroll_port'], 'FreeSense Fleet: blocked after wrong join keys (enrollment)'),
-		$rule('block', 'udp', 'FleetBlocked', $s['wg_port'], 'FreeSense Fleet: blocked after wrong join keys (tunnel)'),
-		$rule('pass', 'tcp', 'FleetEnroll', $s['enroll_port'], 'FreeSense Fleet: enrollment'),
-		$rule('pass', 'udp', 'FleetTunnel', $s['wg_port'], 'FreeSense Fleet: tunnel'),
-	));
+	/* One enrollment rule pair per port (points may use different ones). */
+	$by_port = array();
+	foreach ($ifaces as $if => $port) {
+		$by_port[(int)$port][] = (string)$if;
+	}
+	$all = array_keys($ifaces);
+	$block = $pass = array();
+	foreach ($by_port as $port => $on) {
+		$suffix = (count($by_port) > 1) ? " (TCP {$port})" : '';
+		$block[] = $rule('block', 'tcp', 'FleetBlocked', $port, 'FreeSense Fleet: blocked after wrong join keys (enrollment)' . $suffix, $on);
+		$pass[] = $rule('pass', 'tcp', 'FleetEnroll', $port, 'FreeSense Fleet: enrollment' . $suffix, $on);
+	}
+	$block[] = $rule('block', 'udp', 'FleetBlocked', $s['wg_port'], 'FreeSense Fleet: blocked after wrong join keys (tunnel)', $all);
+	$pass[] = $rule('pass', 'udp', 'FleetTunnel', $s['wg_port'], 'FreeSense Fleet: tunnel', $all);
+	return array('aliases' => $aliases, 'rules' => array_merge($block, $pass));
 }
 
 /*
@@ -291,11 +300,16 @@ function fleet_access_allowed_now(int $now): array {
 	return fleet_access_allowed(fleet_access(), $seen, fleet_access_json('access_invites'), $extra, $now);
 }
 
-/* The interfaces Fleet opens its ports on: the chosen ones, or every assigned interface. */
+/* The interfaces Fleet opens its ports on (its connection points, not the tailnet): interface => enrollment port. */
 function fleet_access_ifaces(array $s): array {
-	$all = function_exists('get_configured_interface_list') ? array_keys(get_configured_interface_list()) : array();
-	$chosen = array_values(array_filter($s['listen'], function ($i) { return $i !== 'tailscale'; }));
-	return empty($s['listen']) ? $all : array_values(array_intersect($chosen, $all));
+	$all = function_exists('get_configured_interface_list') ? get_configured_interface_list() : array();
+	$out = array();
+	foreach ($s['points'] as $p) {
+		if (($p['iface'] !== 'tailscale') && isset($all[$p['iface']])) {
+			$out[$p['iface']] = $p['port'];
+		}
+	}
+	return $out;
 }
 
 /* The rule set for now. */
@@ -338,11 +352,11 @@ function fleet_access_sync_config(): bool {
  * come from the filter hook, with the same aliases as source.
  */
 function fleet_access_tailnet_rules(array $s): string {
-	if (!$s['enable'] || !empty($s['rules_manual']) || !(empty($s['listen']) || in_array('tailscale', $s['listen'], true)) ||
-	    !function_exists('does_interface_exist') || !does_interface_exist('tailscale0')) {
+	$p = fleet_ctl_point($s, 'tailscale');
+	if (!$s['enable'] || !empty($s['rules_manual']) || ($p === null) || !function_exists('does_interface_exist') || !does_interface_exist('tailscale0')) {
 		return '';
 	}
-	return "pass in quick on tailscale0 proto tcp from <FleetEnroll> to (self) port {$s['enroll_port']} keep state label \"USER_RULE: FreeSense Fleet enrollment (tailnet)\"\n" .
+	return "pass in quick on tailscale0 proto tcp from <FleetEnroll> to (self) port {$p['port']} keep state label \"USER_RULE: FreeSense Fleet enrollment (tailnet)\"\n" .
 	    "pass in quick on tailscale0 proto udp from <FleetTunnel> to (self) port {$s['wg_port']} keep state label \"USER_RULE: FreeSense Fleet tunnel (tailnet)\"\n";
 }
 
