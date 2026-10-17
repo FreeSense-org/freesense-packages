@@ -1130,7 +1130,7 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 @media (max-width: 720px) { .fs-fleet-paste { grid-template-columns: 1fr; } }
 
 /* Controller settings: the first-run guide and the self-check list. */
-.fs-fleet-guide { margin: 0 0 var(--fs-sp-4); padding: var(--fs-sp-3) var(--fs-sp-4); border: 1px solid var(--fs-border); border-left: 4px solid var(--fs-coral); border-radius: var(--fs-r-md); }
+.fs-fleet-guide { margin: 0 0 var(--fs-sp-4); padding: var(--fs-sp-3) var(--fs-sp-4); border: 1px solid var(--fs-border); border-radius: var(--fs-r-md); }
 /* Settings > Controller: the connection points table needs more room than the other settings. */
 .fs-fleet-settings:has(.fs-fleet-points) { max-width: 54rem; }
 .fs-fleet-points { margin: 0; padding: 0; border: 0; }
