@@ -79,6 +79,9 @@ do {
 		/* Load samples for the fleet charts, every 5 minutes per firewall. */
 		fleet_samples_tick(time());
 		fleet_samples_rollup(time());
+		/* Internet connectivity (an option): every firewall's gateways. */
+		fleet_inet_tick(time());
+		fleet_inet_rollup(time());
 		if (fleet_ctl_settings()['enable']) {
 			fleet_standby_endpoints_tick();
 			fleet_standby_outbox_tick(time());

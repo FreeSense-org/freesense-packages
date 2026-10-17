@@ -434,10 +434,20 @@ if ($savemsg) {
 			<td class="small"><?=htmlspecialchars(sprintf(($w['kind'] === 'approval') ? gettext('joined %s') : gettext('invited %s'), $ago($w['time'])))?></td><td class="small fs-muted">-</td>
 			<td class="text-end small"><a href="<?=htmlspecialchars($w['url'])?>"><?=($w['kind'] === 'approval') ? gettext('Approve...') : gettext('Open')?></a></td></tr>
 <?php endforeach; endif; ?>
-<?php foreach ($rows as $b): list($bs, $bl) = $sbadge[$b['state']]; ?>
+<?php
+	/* Internet connectivity (an option): state and quality over 24 hours under the firewall's state. */
+	$inet_rows = fleet_inet_now();
+	$inet_q = empty($inet_rows) ? array() : fleet_inet_stats(86400, time());
+	$inet_badge = array('degraded' => 'warn', 'down' => 'block');
+	foreach ($rows as $b): list($bs, $bl) = $sbadge[$b['state']]; ?>
 		<tr><td><a href="/fleet/fleet_box.php?id=<?=urlencode($b['id'])?>"><strong><?=htmlspecialchars($b['label'])?></strong></a>
 				<div class="fs-muted small fs-mono"><?=htmlspecialchars($b['host'] . ' ' . $b['overlay'])?></div></td>
-			<td><?=fs_badge($bs, $bl)?><?=($b['problem'] !== '') ? '<div class="fs-muted small">' . htmlspecialchars(mb_strimwidth($b['problem'], 0, 60, '...')) . '</div>' : ''?></td>
+			<td><?=fs_badge($bs, $bl)?><?=($b['problem'] !== '') ? '<div class="fs-muted small">' . htmlspecialchars(mb_strimwidth($b['problem'], 0, 60, '...')) . '</div>' : ''?>
+<?php if (isset($inet_rows[$b['id']])): $ir = $inet_rows[$b['id']]; $iq = $inet_q[$b['id']]['score'] ?? null; ?>
+				<div class="small fs-fleet-inet-cell"><a href="/fleet/fleet_box.php?id=<?=urlencode($b['id'])?>&amp;view=stats#internet" title="<?=gettext('Internet: quality over 24 hours, then loss and latency now')?>"><i class="fa-solid fa-globe" aria-hidden="true"></i></a>
+					<?=isset($inet_badge[$ir['state']]) ? fs_badge($inet_badge[$ir['state']], gettext(FLEET_INET_STATES[$ir['state']])) : ''?> <?=fleet_inet_score_badge($iq)?>
+					<span class="fs-muted"><?=htmlspecialchars(fleet_inet_text($ir))?></span></div>
+<?php endif; ?></td>
 			<td class="small"><?=htmlspecialchars(($b['version'] !== '') ? $b['version'] : '-')?><?=($b['update'] !== null) ? '<div>' . fs_badge($b['update'][0], gettext($b['update'][1])) . '</div>' : ''?></td>
 			<td><?php foreach ($b['groups'] as $g1): ?><a class="fs-fleet-chip" href="<?=htmlspecialchars(fleet_list_url($fbase, $f, array('group' => (string)$g1['id'])))?>"><?=htmlspecialchars($g1['name'])?></a> <?php endforeach; ?><?=empty($b['groups']) ? '<span class="fs-muted">-</span>' : ''?></td>
 			<td class="small"><?=htmlspecialchars($ago($b['seen']))?></td>
@@ -963,7 +973,7 @@ if ($savemsg) {
 	if ($sec !== $set_view) {
 		continue;
 	}
-	$units = array('min' => gettext('minutes'), 's' => gettext('seconds'), 'h' => gettext('hours'), 'count' => '');
+	$units = array('min' => gettext('minutes'), 's' => gettext('seconds'), 'h' => gettext('hours'), 'count' => '', 'ms' => gettext('ms'), 'pct' => '%');
 	$value = $s[$key];
 ?>
 <?php if ($unit === 'bool'): ?>
@@ -988,7 +998,7 @@ if ($savemsg) {
 					<span class="input-group-text"><?=htmlspecialchars($units[$unit])?></span>
 <?php endif; ?>
 				</div>
-				<div id="<?=$key?>-help" class="fs-fleet-hint"><?=htmlspecialchars(gettext($help))?> <?=sprintf(gettext('%1$d to %2$d, default %3$d.'), $min, $max, $default)?></div></div>
+				<div id="<?=$key?>-help" class="fs-fleet-hint"><?=($help !== '') ? htmlspecialchars(gettext($help)) : ''?> <?=sprintf(gettext('%1$d to %2$d, default %3$d.'), $min, $max, $default)?></div></div>
 <?php endif; ?>
 <?php endforeach; ?>
 		</div>

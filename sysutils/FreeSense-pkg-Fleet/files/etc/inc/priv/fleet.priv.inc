@@ -12,5 +12,5 @@ $priv_list['page-system-fleet-controller'] = [
 $priv_list['page-status-fleet-dashboard'] = [
 	'name' => 'WebCfg - Status: FreeSense Fleet',
 	'descr' => 'View the state of every firewall in the fleet (read only)',
-	'match' => ['fleet/fleet_dashboard.php*', 'fleet/fleet_activity.php*', 'fleet/fleet_updates.php*', 'fleet/fleet_schedules.php*', 'fleet/fleet_backups.php*', 'fleet/fleet_policies.php*', 'fleet/fleet_templates.php*', 'fleet/fleet_users.php*', 'fleet/fleet_factory.php*', 'fleet/fleet_alerts.php*', 'fleet/fleet_kiosks.php*', 'fleet/noc.php*', 'fleet/noc_data.php*', 'fleet/fleet_connections.php*', 'fleet/fleet_nav.php*', 'fleet/fleet_data.php*', 'fleet/fleet_box.php*', 'fleet/fleet_box_metrics.php*', 'fleet/assets/*', 'widgets/widgets/fleet.widget.php*'],
+	'match' => ['fleet/fleet_dashboard.php*', 'fleet/fleet_activity.php*', 'fleet/fleet_updates.php*', 'fleet/fleet_schedules.php*', 'fleet/fleet_backups.php*', 'fleet/fleet_policies.php*', 'fleet/fleet_templates.php*', 'fleet/fleet_users.php*', 'fleet/fleet_factory.php*', 'fleet/fleet_alerts.php*', 'fleet/fleet_kiosks.php*', 'fleet/noc.php*', 'fleet/noc_data.php*', 'fleet/fleet_connections.php*', 'fleet/fleet_internet.php*', 'fleet/fleet_nav.php*', 'fleet/fleet_data.php*', 'fleet/fleet_box.php*', 'fleet/fleet_box_metrics.php*', 'fleet/assets/*', 'widgets/widgets/fleet.widget.php*'],
 ];

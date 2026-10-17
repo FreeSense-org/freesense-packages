@@ -32,6 +32,7 @@
 	var lastOk = 0;
 	var known = {};
 	var haWas = 0;
+	var inetKnown = {};
 	var first = true;
 	var sound = false;
 	var soundSet = false;
@@ -50,7 +51,7 @@
 		state: ['State', 6, .7, 99], name: ['Firewall', 8, 1.8, 99], host: ['Hostname', 8, 1.2, 1],
 		groups: ['Groups', 6, 1, 4], version: ['Version', 5.5, .7, 3], seen: ['Seen', 4.5, .5, 2],
 		cpu: ['CPU', 6, .8, 7], mem: ['Memory', 6, .8, 6], states: ['States', 4.5, .5, 2],
-		traffic: ['Traffic', 10, 1.1, 5], uptime: ['Up 24 h', 4.5, .5, 5], ha: ['HA', 5, .5, 8], flags: ['Notes', 6, 1, 9]
+		traffic: ['Traffic', 10, 1.1, 5], uptime: ['Up 24 h', 4.5, .5, 5], inet: ['Internet', 9, 1, 8], ha: ['HA', 5, .5, 8], flags: ['Notes', 6, 1, 9]
 	};
 	var cols = [];
 
@@ -166,11 +167,21 @@
 		var cs = [['online', 'Online'], ['degraded', 'Late'], ['offline', 'Offline']];
 		if (d.counts.policy) { cs.push(['policy', 'Policy fails']); }
 		if (d.ha_problems) { cs.push(['ha', 'HA problems']); }
+		/* Internet: the share of the firewalls with a working internet connection. */
+		var inetN = null, inetBad = 0;
+		if (d.inet_on) {
+			inetN = 0;
+			d.boxes.forEach(function (b) {
+				if (b.inet && b.inet.state !== 'down' && b.inet.state !== 'unknown') { inetN++; }
+				if (b.inet && b.inet.state === 'down') { inetBad++; }
+			});
+			cs.push(['inet', 'Internet']);
+		}
 		var total = Math.max(1, d.total || 0);
 		var NS = 'http://www.w3.org/2000/svg';
 		cs.forEach(function (c) {
-			var n = c[0] === 'ha' ? d.ha_problems : (d.counts[c[0]] || 0);
-			var li = el('li', 'k-c-' + c[0] + (n ? '' : ' k-zero'));
+			var n = c[0] === 'ha' ? d.ha_problems : (c[0] === 'inet' ? inetN : (d.counts[c[0]] || 0));
+			var li = el('li', 'k-c-' + c[0] + (n ? '' : ' k-zero') + (c[0] === 'inet' && inetBad ? ' k-inet-bad' : ''));
 			/* A ring filled to this state's share of the fleet, the number inside. */
 			var svg = document.createElementNS(NS, 'svg');
 			svg.setAttribute('viewBox', '0 0 36 36');
@@ -294,6 +305,17 @@
 			if (b.up !== null && b.up < 99) { c.classList.add(b.up < 95 ? 'k-t-bad' : 'k-t-warn'); }
 			break;
 		case 'ha': if (b.ha) { c.appendChild(el('span', 'k-role k-role-' + b.ha.toLowerCase(), b.ha)); } break;
+		case 'inet':
+			if (!b.inet) { c.textContent = '-'; break; }
+			c.appendChild(el('span', 'k-dot k-inet-' + b.inet.state, ''));
+			if (b.inet.score !== null && b.inet.score !== undefined) {
+				c.appendChild(el('span', 'k-score k-score-' + scoreTone(b.inet.score), 'Q ' + b.inet.score));
+			}
+			/* Compact for the list: "0.6 ms · 0%". */
+			c.appendChild(el('span', 'k-inet-text', (b.inet.text || INET[b.inet.state]).replace(' % loss', '%')));
+			c.title = INET[b.inet.state] + (b.inet.gw ? ' · ' + b.inet.gw : '');
+			if (b.inet.state === 'down') { c.classList.add('k-t-bad'); } else if (b.inet.state === 'degraded') { c.classList.add('k-t-warn'); }
+			break;
 		case 'flags': c.appendChild(flags(b)); break;
 		}
 		return c;
@@ -469,6 +491,10 @@
 		return top.map(function (r, i) { return { name: r.label, data: r.data, color: i + 1 }; });
 	}
 
+	function scoreTone(s) { return s >= 90 ? 'ok' : (s >= 75 ? 'info' : (s >= 50 ? 'warn' : 'bad')); }
+	function scoreWord(s) { return s >= 90 ? 'excellent' : (s >= 75 ? 'good' : (s >= 50 ? 'unstable' : 'bad')); }
+	var INET = { up: 'Internet up', degraded: 'Internet poor', down: 'No internet', unknown: 'Internet unknown' };
+
 	var PANELS = {
 		health: function (p, b) {
 			var c = data.counts;
@@ -612,17 +638,87 @@
 		},
 		outages: function (p, b) {
 			return chartBox(b, { type: 'bars', labels: p.days.map(day), series: [{ name: 'Outages', data: p.day, tone: 'block' }] });
+		},
+		inet: function (p, b) {
+			var s = el('div', 'k-stats k-stats-col');
+			s.appendChild(stat('with internet now', p.total ? (p.up + p.degraded) + ' / ' + p.total : '-', p.down ? 'bad' : (p.degraded ? 'warn' : 'ok')));
+			s.appendChild(stat('internet up over 24 h', pct(p.avail), p.avail !== null && p.avail < 99 ? 'warn' : ''));
+			s.appendChild(stat('on a backup WAN', String(p.backup), p.backup ? 'warn' : ''));
+			b.appendChild(s);
+			var d = el('div', 'k-chart k-donut');
+			b.appendChild(d);
+			return function () {
+				if (charts) {
+					charts.draw(d, { type: 'donut', label: 'Internet by state', center: String(p.down ? p.down : p.up), parts: [
+						{ name: 'Up', value: p.up, tone: 'pass' }, { name: 'Poor', value: p.degraded, tone: 'warn' },
+						{ name: 'Down', value: p.down, tone: 'block' }, { name: 'Unknown', value: p.unknown, tone: 'neutral' }] });
+				}
+			};
+		},
+		inet_quality: function (p, b) {
+			var s = el('div', 'k-stats');
+			var last = function (a) { for (var i = a.length - 1; i >= 0; i--) { if (a[i] !== null) { return a[i]; } } return null; };
+			var dl = last(p.delay), ll = last(p.loss);
+			s.appendChild(stat('median latency', dl === null ? '-' : dl + ' ms'));
+			s.appendChild(stat('median loss', ll === null ? '-' : ll + '%', ll ? 'warn' : ''));
+			b.appendChild(s);
+			/* Latency and packet loss in their own charts: milliseconds and percent do not share an axis. */
+			var two = el('div', 'k-charts-2');
+			b.appendChild(two);
+			var d1 = chartBox(two, { type: 'line', t: p.t, unit: ' ms', empty: 'No internet checks yet.', series: [
+				{ name: 'Latency', data: p.delay, color: 1 }, { name: 'Latency 90%', data: p.delay_p90, color: 1, dash: true }] });
+			var d2 = chartBox(two, { type: 'line', t: p.t, unit: '%', empty: 'No loss measured.', series: [
+				{ name: 'Loss', data: p.loss, color: 5, fill: true }, { name: 'Loss 90%', data: p.loss_p90, color: 5, dash: true }] });
+			return function () { d1(); d2(); };
+		},
+		inet_worst: function (p, b) {
+			b.appendChild(hbars(p.top.map(function (r) {
+				return { label: r.label, value: r.value, text: r.text, tone: r.state === 'down' ? 'block' : (r.state === 'degraded' ? 'warn' : 'info') };
+			}), ''));
+			return null;
+		},
+		inet_score: function (p, b) {
+			var f = p.fleet || {};
+			var s = el('div', 'k-stats');
+			s.appendChild(stat('fleet quality', f.score === null || f.score === undefined ? '-' : String(f.score), f.score < 75 ? 'warn' : 'ok'));
+			s.appendChild(stat('average loss', f.loss === null || f.loss === undefined ? '-' : Math.round(f.loss * 10) / 10 + '%', f.loss ? 'warn' : ''));
+			s.appendChild(stat('flaps', String(f.flaps || 0), f.flaps ? 'warn' : ''));
+			s.appendChild(stat('minutes with loss', String(f.loss_min || 0), f.loss_min ? 'warn' : ''));
+			b.appendChild(s);
+			b.appendChild(hbars((p.top || []).map(function (r) {
+				return { label: r.label, value: 100 - r.score, text: 'Q ' + r.score + ' · ' + (r.loss === null ? '-' : Math.round(r.loss * 10) / 10 + '%') + ' loss · ' + r.flaps + ' flaps',
+				    tone: scoreTone(r.score) === 'ok' ? 'pass' : (scoreTone(r.score) === 'bad' ? 'block' : scoreTone(r.score)) };
+			}), ''));
+			return null;
+		},
+		inet_pulse: function (p, b) {
+			return chartBox(b, { type: 'pulse', rows: p.rows || [], t: p.t || [], nowLabel: 'now', empty: 'No internet checks yet.',
+			    states: { online: 'internet up', degraded: 'internet poor', offline: 'no internet', 'new': 'not checked', none: 'not checked' } });
+		},
+		inet_events: function (p, b) {
+			var ul = el('ul', 'k-feed');
+			p.latest.forEach(function (a) {
+				var li = el('li', 'k-sev-' + a.severity);
+				li.appendChild(el('time', '', ago(a.time)));
+				li.appendChild(el('span', '', a.title + (a.box ? ': ' + a.box : '')));
+				ul.appendChild(li);
+			});
+			if (!p.latest.length) { ul.appendChild(el('li', 'k-quiet', 'No failovers or internet outages.')); }
+			b.appendChild(ul);
+			return null;
 		}
 	};
 	var TITLES = {
 		health: 'Fleet health', ha: 'HA pairs', controller: 'Fleet server', pulse: 'Availability, last 24 hours', load: 'CPU and memory', traffic: 'Traffic, whole fleet',
 		states: 'State tables, fullest', temp: 'Temperature, warmest', alerts: 'Alerts', ops: 'Operations', backups: 'Backups', compliance: 'Policy compliance',
-		versions: 'Versions', busiest: 'Busiest firewalls', outages: 'Outages per day'
+		versions: 'Versions', busiest: 'Busiest firewalls', outages: 'Outages per day',
+		inet: 'Internet now', inet_quality: 'Internet quality', inet_worst: 'Worst internet connections', inet_score: 'Connection quality (lowest first)', inet_pulse: 'Internet, last 24 hours',
+		inet_events: 'Failovers and internet outages'
 	};
-	var SIZES = { ha: 2, controller: 2, pulse: 2, alerts: 2 };
+	var SIZES = { ha: 2, controller: 2, pulse: 2, alerts: 2, inet_quality: 2 };
 	function size(id) {
 		if (id === 'ha') { return (data.panels.ha && data.panels.ha.pairs.length > 1) ? 2 : 1; }
-		if (id === 'pulse') { return ((data.panels.pulse || {}).rows || []).length > 8 ? 2 : 1; }
+		if (id === 'pulse' || id === 'inet_pulse') { return ((data.panels[id] || {}).rows || []).length > 8 ? 2 : 1; }
 		return SIZES[id] || 1;
 	}
 
@@ -654,7 +750,7 @@
 		/* A panel with nothing to show (no temperature sensors, no samples yet) gives its place to the next. */
 		var empty = function (id) {
 			var p = data.panels[id];
-			return ((id === 'temp' || id === 'states') && !(p.top || []).length) || (id === 'busiest' && !(p.busiest || []).length);
+			return ((id === 'temp' || id === 'states' || id === 'inet_worst' || id === 'inet_score') && !(p.top || []).length) || (id === 'busiest' && !(p.busiest || []).length);
 		};
 		var ids = cfg.panels.filter(function (id) { return data.panels && data.panels[id] && PANELS[id] && !empty(id); });
 		var pages = panelPages(ids);
@@ -756,6 +852,13 @@
 			});
 			if (!first && cfg.beep.indexOf('ha') >= 0 && (d.ha_problems || 0) > haWas) { beepNow = true; }
 			haWas = d.ha_problems || 0;
+			var inetNow = {};
+			d.boxes.forEach(function (b) {
+				if (!b.inet) { return; }
+				inetNow[b.name] = b.inet.state;
+				if (!first && cfg.beep.indexOf('inet') >= 0 && b.inet.state === 'down' && inetKnown[b.name] !== 'down') { beepNow = true; }
+			});
+			inetKnown = inetNow;
 			known = now;
 			first = false;
 			data = d;

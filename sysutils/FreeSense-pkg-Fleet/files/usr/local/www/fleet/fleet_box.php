@@ -569,6 +569,73 @@ if ($savemsg) {
 		<section class="fs-fleet-cp"><?=$sh('fa-table-list', 'c7', gettext('State table'), 'states')?><div class="fs-fleet-cp-body" data-chart="states"></div></section>
 		<section class="fs-fleet-cp"><?=$sh('fa-temperature-half', 'c8', gettext('Temperature'), 'temp')?><div class="fs-fleet-cp-body" data-chart="temp"></div></section>
 	</div>
+<?php
+	/* Internet connectivity (an option): the firewall's gateways at the last check, availability and the internet alerts. */
+	$inet = fleet_inet_enabled() ? (fleet_inet_now()[$box['node_id']] ?? null) : null;
+	if (fleet_inet_enabled()):
+		$inet_av = array();
+		$inet_st = array();
+		foreach (array('24h' => 86400, '7d' => 604800, '30d' => 2592000) as $rk => $secs) {
+			$inet_av[$rk] = fleet_inet_availability($secs, time())[$box['node_id']] ?? null;
+			$inet_st[$rk] = fleet_inet_stats($secs, time())[$box['node_id']] ?? null;
+		}
+		$inet_badge = array('up' => 'pass', 'degraded' => 'warn', 'down' => 'block', 'unknown' => 'neutral');
+		$inet_ev = fleet_db()->prepare("SELECT time, event, text FROM alerts WHERE node_id = ? AND event LIKE 'inet_%' ORDER BY id DESC LIMIT 5");
+		$inet_ev->execute(array($box['node_id']));
+		$inet_ev = $inet_ev->fetchAll();
+?>
+	<h2 class="fs-fleet-section" id="internet"><i class="fa-solid fa-globe" aria-hidden="true"></i><?=gettext('Internet')?>
+		<?php if ($inet !== null): ?><?=fs_badge($inet_badge[$inet['state']] ?? 'neutral', gettext(FLEET_INET_STATES[$inet['state']] ?? $inet['state']))?><?php endif; ?></h2>
+	<div class="panel panel-default">
+<?php if ($inet === null): ?>
+		<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint mb-0"><?=gettext('Not checked yet. The controller reads the gateways with the load samples, every few minutes while the firewall is online.')?></p></div>
+<?php else: ?>
+		<div class="panel-body fs-fleet-pad">
+			<dl class="fs-fleet-facts fs-fleet-facts--inline">
+				<dt><?=gettext('Since')?></dt><dd><?=htmlspecialchars(fleet_inet_ago((int)$inet['since'], time()))?></dd>
+				<dt><?=gettext('Quality, 24 hours')?></dt><dd><?=fleet_inet_score_badge($inet_st['24h']['score'] ?? null)?> <?=htmlspecialchars(gettext(fleet_inet_score_word($inet_st['24h']['score'] ?? null)))?></dd>
+				<dt><?=gettext('Checked')?></dt><dd><?=htmlspecialchars(fleet_inet_ago((int)$inet['checked'], time()))?></dd>
+			</dl>
+<?php if ($inet['reason'] !== ''): ?>
+			<p class="<?=($inet['state'] === 'down') ? 'fs-fleet-problem' : 'fs-fleet-warn-text'?> mb-0"><?=htmlspecialchars($inet['reason'])?></p>
+<?php endif; ?>
+		</div>
+		<div class="panel-body table-responsive"><table class="table fs-table caption-top">
+			<caption class="fs-muted small px-3"><?=gettext('Connection quality of the default gateway')?></caption>
+			<thead><tr><th><?=gettext('Range')?></th><th class="text-end"><?=gettext('Quality')?></th><th class="text-end"><?=gettext('Loss')?></th><th class="text-end"><?=gettext('Latency')?></th>
+				<th class="text-end"><?=gettext('Jitter')?></th><th class="text-end"><?=gettext('Flaps')?></th><th class="text-end"><?=gettext('Minutes with loss')?></th><th class="text-end"><?=gettext('Up')?></th></tr></thead>
+			<tbody>
+<?php foreach ($inet_st as $rk => $st): $n2 = function ($v, $u) { return ($v === null) ? '-' : htmlspecialchars(fleet_inet_num((float)$v) . $u); }; ?>
+			<tr><td><?=htmlspecialchars(array('24h' => gettext('Last 24 hours'), '7d' => gettext('Last 7 days'), '30d' => gettext('Last 30 days'))[$rk])?></td>
+				<td class="text-end"><?=fleet_inet_score_badge($st['score'] ?? null)?></td>
+				<td class="text-end fs-mono"><?=$n2($st['loss'] ?? null, ' %')?></td><td class="text-end fs-mono"><?=$n2($st['latency'] ?? null, ' ms')?></td>
+				<td class="text-end fs-mono"><?=$n2($st['jitter'] ?? null, ' ms')?></td><td class="text-end fs-mono"><?=($st === null) ? '-' : (int)$st['flaps']?></td>
+				<td class="text-end fs-mono"><?=($st === null) ? '-' : (int)$st['loss_min']?></td><td class="text-end fs-mono"><?=$n2($inet_av[$rk], ' %')?></td></tr>
+<?php endforeach; ?>
+			</tbody></table></div>
+		<div class="panel-body table-responsive"><table class="table fs-table">
+			<thead><tr><th><?=gettext('Gateway')?></th><th><?=gettext('State')?></th><th class="text-end"><?=gettext('Latency')?></th><th class="text-end"><?=gettext('Jitter')?></th><th class="text-end"><?=gettext('Loss')?></th></tr></thead>
+			<tbody>
+<?php foreach ($inet['gateways'] as $gw): ?>
+			<tr><td><span class="fs-mono"><?=htmlspecialchars($gw['name'])?></span><?=!empty($gw['default']) ? ' ' . fs_badge('neutral', gettext('default')) : ''?>
+				<div class="small fs-muted"><?=htmlspecialchars(trim($gw['iface'] . (($gw['descr'] !== '') ? ' · ' . $gw['descr'] : '')))?></div></td>
+				<td><?=fs_badge($inet_badge[$gw['state']] ?? 'neutral', gettext(FLEET_INET_STATES[$gw['state']] ?? $gw['state']))?><?php if ($gw['reason'] !== ''): ?> <span class="small fs-muted"><?=htmlspecialchars($gw['reason'])?></span><?php endif; ?></td>
+				<td class="text-end fs-mono"><?=($gw['delay_ms'] === null) ? '-' : htmlspecialchars(fleet_inet_num((float)$gw['delay_ms']) . ' ms')?></td>
+				<td class="text-end fs-mono"><?=($gw['stddev_ms'] === null) ? '-' : htmlspecialchars(fleet_inet_num((float)$gw['stddev_ms']) . ' ms')?></td>
+				<td class="text-end fs-mono"><?=($gw['loss_pct'] === null) ? '-' : htmlspecialchars(fleet_inet_num((float)$gw['loss_pct']) . ' %')?></td></tr>
+<?php endforeach; ?>
+			</tbody></table></div>
+<?php if (!empty($inet_ev)): ?>
+		<div class="panel-body fs-fleet-pad pt-0"><h3 class="fs-fleet-subhead"><?=gettext('Failovers and outages')?></h3><ul class="list-unstyled mb-0">
+<?php foreach ($inet_ev as $e): ?>
+			<li><span class="fs-muted small"><?=htmlspecialchars(date('Y-m-d H:i', (int)$e['time']))?></span> <?=htmlspecialchars(gettext(FLEET_ALERT_EVENTS[$e['event']][0] ?? $e['event']))?></li>
+<?php endforeach; ?>
+		</ul></div>
+<?php endif; ?>
+<?php endif; ?>
+		<div class="panel-footer small fs-muted"><?=gettext('The gateway quality chart below shows the firewall\'s own history (from its RRD files).')?> <a href="/fleet/fleet_internet.php"><?=gettext('All gateways in the fleet')?></a></div>
+	</div>
+<?php endif; ?>
 	<h2 class="fs-fleet-section"><i class="fa-solid fa-network-wired" aria-hidden="true"></i><?=gettext('Network')?></h2>
 	<div class="fs-fleet-charts">
 		<section class="fs-fleet-cp is-wide"><?=$sh('fa-right-left', 'c6', gettext('Traffic'), 'traffic')?>
