@@ -286,7 +286,7 @@ $target = fleet_rollout_target();
 	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint"><?=gettext('No windows yet. A window is a weekly time when a group may be updated, for example weeknights 01:00 for 3 hours.')?></p></div>
 <?php else: ?>
 	<div class="panel-body fs-fleet-pad">
-		<form method="get" class="fs-fleet-filterbar" role="search">
+		<form method="get" class="fs-fleet-filterbar" role="search" data-fleet-filters><script src="/fleet/assets/fleet-list.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-list.js')?>" defer></script>
 			<input type="hidden" name="view" value="windows"/>
 			<input class="form-control form-control-sm" type="search" name="q" value="<?=htmlspecialchars($wq)?>" placeholder="<?=gettext('Search name, days or group')?>" aria-label="<?=gettext('Search windows')?>"/>
 			<button class="btn btn-sm btn-outline-secondary" type="submit"><?=gettext('Search')?></button>

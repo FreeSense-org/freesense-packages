@@ -520,7 +520,7 @@ if ($savemsg) {
 	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint"><?=gettext('No groups yet. Group firewalls by place, customer or role, for example Denmark, Retail or Canary. Policies, backups and updates can then target a group.')?></p></div>
 <?php else: ?>
 	<div class="panel-body fs-fleet-pad">
-		<form method="get" class="fs-fleet-filterbar" role="search">
+		<form method="get" class="fs-fleet-filterbar" role="search" data-fleet-filters><script src="/fleet/assets/fleet-list.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-list.js')?>" defer></script>
 			<input type="hidden" name="view" value="groups"/>
 			<input class="form-control form-control-sm" type="search" name="q" value="<?=htmlspecialchars($gq)?>" placeholder="<?=gettext('Search name or description')?>" aria-label="<?=gettext('Search groups')?>"/>
 			<button class="btn btn-sm btn-outline-secondary" type="submit"><?=gettext('Search')?></button>

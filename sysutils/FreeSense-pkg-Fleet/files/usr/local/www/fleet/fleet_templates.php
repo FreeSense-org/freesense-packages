@@ -169,7 +169,7 @@ $is_list = function (array $t): bool {
 	</div>
 <?php else: ?>
 	<div class="panel-body fs-fleet-pad">
-		<form method="get" class="fs-fleet-filterbar" role="search">
+		<form method="get" class="fs-fleet-filterbar" role="search" data-fleet-filters><script src="/fleet/assets/fleet-list.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-list.js')?>" defer></script>
 			<input class="form-control form-control-sm" type="search" name="q" value="<?=htmlspecialchars($q)?>" placeholder="<?=gettext('Search name, alias, group or firewall')?>" aria-label="<?=gettext('Search templates')?>"/>
 			<button class="btn btn-sm btn-outline-secondary" type="submit"><?=gettext('Search')?></button>
 <?php if ($q !== ''): ?>
