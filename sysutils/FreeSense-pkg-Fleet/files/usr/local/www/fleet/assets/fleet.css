@@ -726,6 +726,8 @@ a.fs-fleet-tile-link { color: inherit; text-decoration: none; }
 a.fs-fleet-tile-link:hover, a.fs-fleet-tile-link:focus-visible { border-color: var(--fs-coral, var(--fs-info)); }
 
 .fs-fleet-warn-text { color: var(--fs-warn); }
+.fs-fleet-inet-cell { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; margin-top: .25rem; }
+.fs-fleet-inet-cell .fs-badge { font-size: .75rem; }
 .fs-fleet-backup-what .fs-badge { align-self: flex-start; width: auto; }
 
 /* the recovery key, shown once */

@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 28);
+define('FLEET_DB_SCHEMA', 30);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -467,6 +467,35 @@ SQL);
 		$db->exec(<<<'SQL'
 ALTER TABLE kiosk_keys ADD COLUMN config TEXT NOT NULL DEFAULT '{}';
 PRAGMA user_version = 28;
+SQL);
+	}
+	if ($version < 29) {
+		/* Internet connectivity (fleet_inet.inc): gateway rows, hourly rows, each firewall's internet now and its changes. */
+		$db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS gw_samples (
+	node_id TEXT NOT NULL, time INTEGER NOT NULL, gw TEXT NOT NULL, iface TEXT NOT NULL DEFAULT '', descr TEXT NOT NULL DEFAULT '',
+	is_default INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT '', state TEXT NOT NULL, delay_ms REAL, stddev_ms REAL, loss_pct REAL);
+CREATE INDEX IF NOT EXISTS gw_samples_node ON gw_samples (node_id, time);
+CREATE INDEX IF NOT EXISTS gw_samples_time ON gw_samples (time);
+CREATE TABLE IF NOT EXISTS gw_hourly (
+	node_id TEXT NOT NULL, time INTEGER NOT NULL, gw TEXT NOT NULL, is_default INTEGER NOT NULL DEFAULT 0, n INTEGER NOT NULL,
+	delay_ms REAL, delay_max REAL, stddev_ms REAL, loss_pct REAL, loss_max REAL, down_n INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS gw_hourly_node ON gw_hourly (node_id, time);
+CREATE TABLE IF NOT EXISTS inet_state (
+	node_id TEXT PRIMARY KEY, state TEXT NOT NULL, since INTEGER NOT NULL, bad_count INTEGER NOT NULL DEFAULT 0, alerted TEXT NOT NULL DEFAULT '',
+	default_gw TEXT NOT NULL DEFAULT '', gw TEXT NOT NULL DEFAULT '', iface TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '',
+	delay_ms REAL, stddev_ms REAL, loss_pct REAL, gateways TEXT NOT NULL DEFAULT '[]', checked INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS inet_log (node_id TEXT NOT NULL, time INTEGER NOT NULL, state TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS inet_log_node ON inet_log (node_id, time);
+PRAGMA user_version = 29;
+SQL);
+	}
+	if ($version < 30) {
+		/* Connection stability: flaps and checks with loss kept in the hourly rows. */
+		$db->exec(<<<'SQL'
+ALTER TABLE gw_hourly ADD COLUMN flaps INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE gw_hourly ADD COLUMN loss_n INTEGER NOT NULL DEFAULT 0;
+PRAGMA user_version = 30;
 SQL);
 	}
 	$db->exec('COMMIT');

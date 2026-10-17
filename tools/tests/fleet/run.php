@@ -1222,7 +1222,7 @@ $nocv = fleet_kiosk_view(array('boxes' => array(array('node_id' => 'n1', 'state'
     'update' => null, 'op' => null, 'label' => 'A', 'host' => 'a', 'problem' => '')), 'headline' => '', 'total' => 1, 'counts' => array(), 'checked' => 0, 'now' => 0), array(), true, 'T', array('control', 'dark'));
 check(!isset($nocv['boxes'][0]['id']) && ($nocv['style'] === 'control') && ($nocv['theme'] === 'dark'), 'a screen that hides names gets no firewall ids, and every screen gets its saved look');
 $kc = fleet_kiosk_config_parse(array());
-check(($kc === fleet_kiosk_config_defaults()) && (count(FLEET_KIOSK_PANELS) === 15) && in_array('ha', $kc['panels'], true) && in_array('controller', $kc['panels'], true),
+check(($kc === fleet_kiosk_config_defaults()) && (count(FLEET_KIOSK_PANELS) === 21) && in_array('inet', $kc['panels'], true) && in_array('inet', $kc['columns'], true) && in_array('ha', $kc['panels'], true) && in_array('controller', $kc['panels'], true),
     'a screen without settings gets the defaults: split view, every panel, list fitted to the screen');
 $kc = fleet_kiosk_config_parse(array('layout' => 'panels', 'left' => '93', 'side' => 'right', 'view' => 'tiles', 'columns' => array('cpu', 'bogus', 'ha'), 'sort' => 'up',
     'groups' => array('3', '0', 'x', '3'), 'rows' => '1', 'flip' => '2', 'panel_flip' => '9999', 'range' => '1y', 'panels' => array('alerts', 'ha', 'nope', 'health'),
@@ -1548,8 +1548,11 @@ check((count($shr) === 3) && ($shr[0]['node_id'] === 'a') && ($shr[0]['time'] ==
 $sdb = fleet_db();
 check(((int)$sdb->query('PRAGMA user_version')->fetchColumn() >= 27) && ($sdb->query("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('samples', 'samples_hourly')")->fetchColumn() == 2),
     'schema 27 has the sample tables');
-check(((int)$sdb->query('PRAGMA user_version')->fetchColumn() === 28) && (strpos((string)$sdb->query("SELECT sql FROM sqlite_master WHERE name = 'kiosk_keys'")->fetchColumn(), 'config') !== false),
+check((strpos((string)$sdb->query("SELECT sql FROM sqlite_master WHERE name = 'kiosk_keys'")->fetchColumn(), 'config') !== false),
     'schema 28: every NOC screen has its own layout');
+check(((int)$sdb->query('PRAGMA user_version')->fetchColumn() === 30) && (strpos((string)$sdb->query("SELECT sql FROM sqlite_master WHERE name = 'gw_hourly'")->fetchColumn(), 'flaps') !== false) &&
+    ((int)$sdb->query("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('gw_samples', 'gw_hourly', 'inet_state', 'inet_log')")->fetchColumn() === 4),
+    'schema 29 has the internet tables');
 $sdb->exec("INSERT INTO samples (node_id, time, cpu) VALUES ('sx', 100, 5), ('sy', 100, 9)");
 $sdb->exec("INSERT INTO samples_hourly (node_id, time, n, cpu, cpu_max) VALUES ('sx', 50, 12, 4, 8)");
 check((count(fleet_samples_rows(null, 0, 200)) === 3) && (count(fleet_samples_rows(array('sx'), 0, 200)) === 2) && (fleet_samples_rows(array(), 0, 200) === array()) &&
@@ -1590,5 +1593,64 @@ check((fleet_kiosk_config_parse(array('heading' => "  ACME <b>NOC</b>
  ", 'subheading' => str_repeat('x', 300)))['heading'] === 'ACME b NOC /b') &&
     (mb_strlen(fleet_kiosk_config_parse(array('subheading' => str_repeat('x', 300)))['subheading']) === 100) && (fleet_kiosk_config_parse(array())['heading'] === ''),
     'live view header text: one plain line, limited in length, empty by default');
+
+/* Internet connectivity */
+$thr = array('loss_warn' => 5.0, 'loss_bad' => 20.0, 'latency_warn' => 150.0, 'jitter_warn' => 30.0);
+check((fleet_inet_classify(array('status' => 'online', 'delay_ms' => 12, 'stddev_ms' => 1, 'loss_pct' => 0), $thr) === array('up', '')) &&
+    (fleet_inet_classify(array('status' => 'online', 'delay_ms' => 12, 'stddev_ms' => 1, 'loss_pct' => 8), $thr)[0] === 'degraded') &&
+    (fleet_inet_classify(array('status' => 'online', 'delay_ms' => 220, 'stddev_ms' => 1, 'loss_pct' => 0), $thr) === array('degraded', '220 ms latency')) &&
+    (fleet_inet_classify(array('status' => 'online', 'delay_ms' => 20, 'stddev_ms' => 45, 'loss_pct' => 0), $thr)[0] === 'degraded') &&
+    (fleet_inet_classify(array('status' => 'down', 'delay_ms' => 0, 'loss_pct' => 100), $thr) === array('down', '100% loss')) &&
+    (fleet_inet_classify(array('status' => 'online', 'delay_ms' => 20, 'loss_pct' => 25), $thr)[0] === 'down') &&
+    (fleet_inet_classify(array('status' => 'none'), $thr)[0] === 'unknown'),
+    'internet: a gateway is up, poor (loss, latency, jitter), down (dpinger down or heavy loss) or not monitored');
+$g = function ($name, $state, $def, $d = 10.0) { return array('name' => $name, 'iface' => strtolower($name), 'default' => $def, 'state' => $state, 'reason' => ($state === 'up') ? '' : 'x', 'delay_ms' => $d, 'stddev_ms' => 1.0, 'loss_pct' => 0.0); };
+$bs = fleet_inet_box_state(array($g('WAN', 'down', true), $g('WAN2', 'up', false)));
+check(($bs['state'] === 'degraded') && ($bs['gw'] === 'WAN2') && (strpos($bs['reason'], 'default gateway WAN down') === 0) &&
+    (fleet_inet_box_state(array($g('WAN', 'up', true), $g('WAN2', 'down', false)))['state'] === 'up') &&
+    (fleet_inet_box_state(array($g('WAN', 'down', true)))['state'] === 'down') && (fleet_inet_box_state(array())['state'] === 'unknown') &&
+    (fleet_inet_box_state(array($g('A', 'degraded', false), $g('B', 'up', false)))['gw'] === 'B'),
+    'internet: the default gateway decides; with it down and another up, the firewall is on its backup WAN (poor)');
+$down = array('state' => 'down', 'reason' => '100% loss', 'default_gw' => 'WAN');
+list($s1, $e1) = fleet_inet_step(array(), $down, 2);
+list($s2, $e2) = fleet_inet_step($s1, $down, 2);
+list($s3, $e3) = fleet_inet_step($s2, $down, 2);
+list($s4, $e4) = fleet_inet_step($s3, array('state' => 'up', 'reason' => '', 'default_gw' => 'WAN'), 2);
+list(, $e5) = fleet_inet_step(array(), array('state' => 'up', 'reason' => '', 'default_gw' => 'WAN'), 2);
+list(, $e6) = fleet_inet_step(array('state' => 'up', 'bad_count' => 0, 'alerted' => '', 'default_gw' => 'WAN'), array('state' => 'up', 'reason' => '', 'default_gw' => 'WAN2'), 2);
+list($s7, $e7) = fleet_inet_step($s2, array('state' => 'unknown', 'reason' => '', 'default_gw' => ''), 2);
+check(empty($e1) && ($e2 === array(array('inet_down', '100% loss'))) && empty($e3) && ($e4 === array(array('inet_up', 'internet works again'))) && ($s4['bad_count'] === 0) &&
+    empty($e5) && ($e6[0][0] === 'inet_failover') && empty($e7) && ($s7['state'] === 'down'),
+    'internet: alerts after the grace checks, once; back only after a told problem; a new default gateway is a failover; unknown keeps the state');
+check(fleet_inet_wide(array('a' => 'down', 'b' => 'down', 'c' => 'down', 'd' => 'up'), 30) && !fleet_inet_wide(array('a' => 'down', 'b' => 'down', 'c' => 'up'), 30) &&
+    !fleet_inet_wide(array_fill_keys(range(1, 3), 'down') + array_fill_keys(range(4, 20), 'up'), 30) && !fleet_inet_wide(array('a' => 'unknown'), 30),
+    'internet: many firewalls down at once (at least three and the share) is one upstream outage');
+check((fleet_inet_text(array('state' => 'up', 'delay_ms' => 12.34, 'loss_pct' => 0.0, 'reason' => '')) === '12 ms · 0 % loss') &&
+    (fleet_inet_text(array('state' => 'down', 'delay_ms' => null, 'loss_pct' => null, 'reason' => 'gateway down')) === 'gateway down') &&
+    (fleet_inet_med_p90(array(1, 2, 3, null, 10)) === array(3.0, 10.0)) && (fleet_inet_med_p90(array()) === array(null, null)),
+    'internet: list text and the median/90th percentile');
+$thq = array('latency_warn' => 150.0, 'jitter_warn' => 30.0);
+check((fleet_inet_score(0.0, 10.0, 1.0, 0, $thq) === 100) && (fleet_inet_score(null, null, null, 0, $thq) === null) &&
+    (fleet_inet_score(5.0, 10.0, 1.0, 0, $thq) === 80) && (fleet_inet_score(0.0, 10.0, 1.0, 3, $thq) === 85) &&
+    (fleet_inet_score(100.0, 10.0, 1.0, 10, $thq) === 20) && (fleet_inet_score(0.0, 330.0, 60.0, 0, $thq) === 75) &&
+    (fleet_inet_score(2.0, 50.0, 5.0, 1, $thq) < fleet_inet_score(0.0, 50.0, 5.0, 0, $thq)) &&
+    (fleet_inet_score_word(95) === 'Excellent') && (fleet_inet_score_word(80) === 'Good') && (fleet_inet_score_word(60) === 'Unstable') && (fleet_inet_score_word(10) === 'Bad'),
+    'internet quality score: 100 for a clean line; loss weighs most, then flaps, latency and jitter');
+check((fleet_inet_flaps(array('up', 'up', 'down', 'down', 'up', 'degraded', 'up')) === 4) && (fleet_inet_flaps(array('up', 'unknown', 'up')) === 0) &&
+    (fleet_inet_flaps(array()) === 0) && (fleet_inet_flaps(array('down', null, 'up')) === 1) &&
+    fleet_inet_unstable(5, 4) && !fleet_inet_unstable(4, 4) && !fleet_inet_unstable(50, 0),
+    'internet flaps: every change between up, poor and down (unknown left out); unstable above the setting, never when it is 0');
+$ffs = fleet_inet_fleet_stats(array('a' => array('loss' => 1.0, 'latency' => 10.0, 'jitter' => 1.0, 'score' => 90, 'flaps' => 2, 'loss_min' => 10),
+    'b' => array('loss' => 3.0, 'latency' => 30.0, 'jitter' => null, 'score' => 70, 'flaps' => 1, 'loss_min' => 5)));
+check(($ffs['loss'] === 2.0) && ($ffs['latency'] === 20.0) && ($ffs['jitter'] === 1.0) && ($ffs['score'] === 80) && ($ffs['flaps'] === 3) && ($ffs['loss_min'] === 15) &&
+    (fleet_inet_fleet_stats(array())['score'] === null), 'internet: the fleet figures average the firewalls and add up flaps and minutes with loss');
+check((FLEET_DB_SCHEMA === 30) && isset(FLEET_ALERT_EVENTS['inet_down'], FLEET_ALERT_EVENTS['inet_wide'], FLEET_ALERT_EVENTS['inet_unstable'], FLEET_TUNABLES['inet_enable']) && (fleet_tunables_from(array())['inet_enable'] === false),
+    'internet: schema 30, alert kinds, and the option is off by default');
+
+$kb = array(array('id' => 'a', 'label' => 'Alpha', 'state' => 'online', 'groups' => array()), array('id' => 'b', 'label' => 'Beta', 'state' => 'online', 'groups' => array()),
+    array('id' => 'c', 'label' => 'Gamma', 'state' => 'degraded', 'groups' => array()));
+check(array_column(fleet_kiosk_boxes($kb, fleet_kiosk_config_defaults(), array('b' => 'down')), 'id') === array('c', 'b', 'a') &&
+    array_column(fleet_kiosk_boxes($kb, array('sort' => 'name') + fleet_kiosk_config_defaults(), array('a' => 'degraded')), 'id') === array('c', 'a', 'b'),
+    'live view list: late firewalls, then no internet, then poor internet come first');
 
 echo "Fleet controller tests: OK\n";

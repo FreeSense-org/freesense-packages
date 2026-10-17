@@ -1,5 +1,5 @@
 PORTNAME=	FreeSense-pkg-Fleet
-PORTVERSION=	0.3.0
+PORTVERSION=	0.4.0
 CATEGORIES=	sysutils
 MASTER_SITES=	# empty
 DISTFILES=	# empty

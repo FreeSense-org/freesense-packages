@@ -12,6 +12,7 @@ pkg/fleet/fleet_standby.inc
 pkg/fleet/fleet_access.inc
 pkg/fleet/fleet_widget.inc
 pkg/fleet/fleet_samples.inc
+pkg/fleet/fleet_inet.inc
 pkg/fleet/fleet_trends.inc
 pkg/fleet/fleet_stats.inc
 pkg/fleet/fleet_list.inc
@@ -67,6 +68,7 @@ www/fleet/fleet_factory.php
 www/fleet/fleet_alerts.php
 www/fleet/fleet_kiosks.php
 www/fleet/fleet_connections.php
+www/fleet/fleet_internet.php
 www/fleet/kiosk.php
 www/fleet/kiosk_data.php
 www/fleet/noc.php

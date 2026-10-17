@@ -324,7 +324,7 @@ function fleet_ops_follow(array $box, ?array $status, int $now): void {
  * count), firewalls offline (red), degraded (yellow), actions running
  * (spinner and count), else a green icon. Opens a short summary panel.
  */
-function fleet_nav_item(int $running, int $failed, int $offline = 0, int $degraded = 0, int $policy = 0): array {
+function fleet_nav_item(int $running, int $failed, int $offline = 0, int $degraded = 0, int $policy = 0, int $no_inet = 0): array {
 	$item = array('id' => 'activity', 'icon' => 'fa-tower-broadcast', 'href' => '/fleet/fleet_dashboard.php', 'poll' => '/fleet/fleet_nav.php',
 	    'panel' => '/fleet/fleet_nav.php?panel=1', 'busy' => $running > 0, 'hidden' => false);
 	$n = function (int $c, string $one, string $many) { return ($c === 1) ? $one : sprintf($many, $c); };
@@ -333,6 +333,9 @@ function fleet_nav_item(int $running, int $failed, int $offline = 0, int $degrad
 	}
 	if ($offline > 0) {
 		return $item + array('badge' => $offline, 'kind' => 'block', 'label' => 'FreeSense Fleet: ' . $n($offline, '1 firewall offline', '%d firewalls offline'));
+	}
+	if ($no_inet > 0) {
+		return $item + array('badge' => $no_inet, 'kind' => 'block', 'label' => 'FreeSense Fleet: ' . $n($no_inet, '1 firewall has no internet', '%d firewalls have no internet'));
 	}
 	if ($degraded > 0) {
 		return $item + array('badge' => $degraded, 'kind' => 'warn', 'label' => 'FreeSense Fleet: ' . $n($degraded, '1 firewall degraded', '%d firewalls degraded'));
@@ -353,7 +356,8 @@ function fleet_nav_now(int $now): array {
 	$q->execute(array($now - 60 * fleet_opt('nav_failed')));
 	$st = array_column(fleet_db()->query('SELECT state, COUNT(*) AS n FROM boxes GROUP BY state')->fetchAll(), 'n', 'state');
 	$policy = (int)fleet_db()->query("SELECT COUNT(DISTINCT node_id) FROM compliance WHERE state = 'fail'")->fetchColumn();
-	return fleet_nav_item($running, (int)$q->fetchColumn(), (int)($st['offline'] ?? 0), (int)($st['degraded'] ?? 0), $policy);
+	$no_inet = fleet_inet_counts(fleet_inet_now())['down'];
+	return fleet_nav_item($running, (int)$q->fetchColumn(), (int)($st['offline'] ?? 0), (int)($st['degraded'] ?? 0), $policy, $no_inet);
 }
 
 /*

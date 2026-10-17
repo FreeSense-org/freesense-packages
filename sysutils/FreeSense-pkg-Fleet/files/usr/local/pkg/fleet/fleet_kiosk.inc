@@ -122,22 +122,29 @@ define('FLEET_KIOSK_PANELS', array(
 	'versions' => array('Versions', 1),
 	'busiest' => array('Busiest firewalls', 1),
 	'outages' => array('Outages', 1),
+	/* Internet connectivity (shown while the option is on). */
+	'inet' => array('Internet now', 1),
+	'inet_quality' => array('Internet quality', 2),
+	'inet_worst' => array('Worst internet connections', 1),
+	'inet_score' => array('Connection quality', 1),
+	'inet_pulse' => array('Internet availability', 2),
+	'inet_events' => array('Failovers and internet outages', 1),
 ));
 /* The firewall list's columns: key => heading. */
 define('FLEET_KIOSK_COLUMNS', array(
 	'state' => 'State', 'name' => 'Firewall', 'host' => 'Hostname', 'groups' => 'Groups', 'version' => 'Version', 'seen' => 'Last seen',
-	'cpu' => 'CPU', 'mem' => 'Memory', 'states' => 'States', 'traffic' => 'Traffic', 'uptime' => 'Up (24 h)', 'ha' => 'HA', 'flags' => 'Notes',
+	'cpu' => 'CPU', 'mem' => 'Memory', 'states' => 'States', 'traffic' => 'Traffic', 'uptime' => 'Up (24 h)', 'inet' => 'Internet', 'ha' => 'HA', 'flags' => 'Notes',
 ));
 define('FLEET_KIOSK_SORTS', array('problems' => 'Problems first', 'name' => 'Name', 'group' => 'Group'));
 define('FLEET_KIOSK_LAYOUTS', array('split' => 'Panels and firewall list', 'list' => 'Firewall list only', 'panels' => 'Panels only'));
 define('FLEET_KIOSK_RANGES', array('24h' => 'Last 24 hours', '7d' => 'Last 7 days', '30d' => 'Last 30 days'));
-define('FLEET_KIOSK_BEEPS', array('offline' => 'A firewall goes offline', 'degraded' => 'A firewall answers late', 'ha' => 'An HA pair has a problem'));
+define('FLEET_KIOSK_BEEPS', array('offline' => 'A firewall goes offline', 'degraded' => 'A firewall answers late', 'ha' => 'An HA pair has a problem', 'inet' => 'A firewall loses its internet'));
 
 /* pure: a screen's settings with every value present and in range. */
 function fleet_kiosk_config_defaults(): array {
 	return array(
 		'layout' => 'split', 'left' => 40, 'side' => 'left', 'view' => 'list',
-		'columns' => array('state', 'name', 'groups', 'version', 'cpu', 'mem', 'traffic', 'uptime', 'ha', 'flags'),
+		'columns' => array('state', 'name', 'groups', 'version', 'cpu', 'mem', 'traffic', 'uptime', 'inet', 'ha', 'flags'),
 		'sort' => 'problems', 'groups' => array(), 'rows' => 0, 'flip' => 12, 'hold' => true,
 		'panels' => array_keys(FLEET_KIOSK_PANELS), 'panel_flip' => 20, 'range' => '24h',
 		'sound' => false, 'beep' => array('offline', 'ha'),
@@ -215,23 +222,34 @@ function fleet_kiosk_config_json(string $json): array {
 	return fleet_kiosk_config_parse(is_array($a) ? $a : array());
 }
 
-/* pure: the boxes a screen shows: its groups only, in its order. $boxes: fleet_dashboard_data() boxes (problems first). */
-function fleet_kiosk_boxes(array $boxes, array $cfg): array {
+/*
+ * pure: the boxes a screen shows: its groups only, in its order. $boxes:
+ * fleet_dashboard_data() boxes; $inet: node_id => internet state (down,
+ * degraded, ...). Offline, late, then no internet, then poor internet come
+ * first in every order.
+ */
+function fleet_kiosk_boxes(array $boxes, array $cfg, array $inet = array()): array {
 	if (!empty($cfg['groups'])) {
 		$boxes = array_values(array_filter($boxes, function ($b) use ($cfg) {
 			return !empty(array_intersect($cfg['groups'], array_map('intval', array_column($b['groups'], 'id'))));
 		}));
 	}
-	if ($cfg['sort'] !== 'problems') {
-		$rank = array('offline' => 0, 'degraded' => 1);
-		usort($boxes, function ($a, $b) use ($cfg, $rank) {
-			$ka = ($cfg['sort'] === 'group') ? strtolower((string)($a['groups'][0]['name'] ?? '~')) : '';
-			$kb = ($cfg['sort'] === 'group') ? strtolower((string)($b['groups'][0]['name'] ?? '~')) : '';
-			/* A problem is never hidden on page two, whatever the order. */
-			return array($rank[$a['state']] ?? 2, $ka, strtolower($a['label'])) <=> array($rank[$b['state']] ?? 2, $kb, strtolower($b['label']));
-		});
-	}
-	return $boxes;
+	$rank = function (array $b) use ($inet) {
+		$n = (string)($b['id'] ?? ($b['node_id'] ?? ''));
+		$i = array('down' => 2, 'degraded' => 3)[$inet[$n] ?? ''] ?? 4;
+		return array('offline' => 0, 'degraded' => 1)[$b['state']] ?? $i;
+	};
+	$pos = array_flip(array_keys($boxes));
+	$keys = array_keys($boxes);
+	usort($keys, function ($x, $y) use ($boxes, $cfg, $rank, $pos) {
+		$a = $boxes[$x];
+		$b = $boxes[$y];
+		$ka = ($cfg['sort'] === 'problems') ? $pos[$x] : (($cfg['sort'] === 'group') ? strtolower((string)($a['groups'][0]['name'] ?? '~')) . '|' . strtolower($a['label']) : strtolower($a['label']));
+		$kb = ($cfg['sort'] === 'problems') ? $pos[$y] : (($cfg['sort'] === 'group') ? strtolower((string)($b['groups'][0]['name'] ?? '~')) . '|' . strtolower($b['label']) : strtolower($b['label']));
+		/* A problem is never hidden on page two, whatever the order. */
+		return array($rank($a), $ka) <=> array($rank($b), $kb);
+	});
+	return array_map(function ($k) use ($boxes) { return $boxes[$k]; }, $keys);
 }
 
 /*
@@ -353,7 +371,7 @@ function fleet_kiosk_page(bool $live, string $style, string $theme, bool $fixed,
 function fleet_kiosk_view(array $data, array $running, bool $hide, string $title, array $look = array('freesense', 'auto'), ?array $cfg = null, array $extra = array(),
     array $panels = array()): array {
 	$cfg = $cfg ?? fleet_kiosk_config_defaults();
-	$shown = fleet_kiosk_boxes($data['boxes'], $cfg);
+	$shown = fleet_kiosk_boxes($data['boxes'], $cfg, array_map(function ($x) { return (string)($x['inet']['state'] ?? ''); }, $extra));
 	$boxes = array();
 	$anon = array();
 	foreach ($shown as $i => $b) {
@@ -363,7 +381,7 @@ function fleet_kiosk_view(array $data, array $running, bool $hide, string $title
 		    'policy' => $b['policy'], 'breakglass' => $b['breakglass'], 'update' => ($b['update'] !== null),
 		    'op' => (($b['op'] !== null) && in_array($b['op']['state'] ?? '', array('running', 'queued'), true)) ? array('text' => (string)($b['op']['text'] ?? ''), 'progress' => $b['op']['progress'] ?? null) : null,
 		    'cpu' => $x['cpu'] ?? null, 'mem' => $x['mem'] ?? null, 'states' => $x['states'] ?? null, 'states_max' => $x['states_max'] ?? null,
-		    'rx' => $x['rx'] ?? null, 'tx' => $x['tx'] ?? null, 'up' => $x['up'] ?? null, 'ha' => (string)($x['ha'] ?? ''));
+		    'rx' => $x['rx'] ?? null, 'tx' => $x['tx'] ?? null, 'up' => $x['up'] ?? null, 'ha' => (string)($x['ha'] ?? ''), 'inet' => $x['inet'] ?? null);
 		$anon[$node] = sprintf('Firewall %d', $i + 1);
 		if ($hide) {
 			$box['name'] = sprintf('Firewall %d', $i + 1);
@@ -372,6 +390,10 @@ function fleet_kiosk_view(array $data, array $running, bool $hide, string $title
 			$box['groups'] = array();
 			/* The state line says it; an error text could name a host or an address. */
 			$box['problem'] = '';
+			if ($box['inet'] !== null) {
+				$box['inet']['gw'] = '';
+				$box['inet']['text'] = ($box['inet']['state'] === 'down') ? 'down' : $box['inet']['numbers'];
+			}
 			if ($box['op'] !== null) {
 				$box['op']['text'] = 'Working';
 			}
@@ -553,6 +575,12 @@ function fleet_kiosk_extra(): array {
 				$out[$n]['ha'] = in_array($n, $p['masters'], true) ? 'MASTER' : 'BACKUP';
 			}
 		}
+		$q24 = fleet_inet_enabled() ? fleet_inet_stats(86400, time()) : array();
+		foreach (fleet_inet_now() as $n => $r) {
+			$out[$n]['inet'] = array('state' => $r['state'], 'text' => fleet_inet_text($r), 'gw' => $r['gw'],
+			    'numbers' => ($r['delay_ms'] === null) ? '' : fleet_inet_text(array('state' => 'up') + $r), 'since' => (int)$r['since'],
+			    'score' => $q24[$n]['score'] ?? null, 'loss24' => $q24[$n]['loss'] ?? null, 'flaps24' => $q24[$n]['flaps'] ?? null);
+		}
 		return $out;
 	});
 }
@@ -666,8 +694,57 @@ function fleet_kiosk_panels(array $cfg, int $now): array {
 		$p['outages'] = array('days' => $days, 'day' => $tr['outages_day']);
 		$p['ha'] = array('pairs' => fleet_kiosk_ha());
 		$p['controller'] = fleet_kiosk_controller();
+		if (fleet_inet_enabled()) {
+			$p += fleet_kiosk_inet_panels($cfg['range'], $group, $now);
+		}
 		return $p;
 	});
+}
+
+/* The internet panels for a range and (one) group: now, quality, worst connections, availability and the latest events. */
+function fleet_kiosk_inet_panels(string $range, int $group, int $now): array {
+	$boxes = fleet_trends_boxes($group);
+	$nodes = array_column($boxes, 'node_id');
+	$labels = array_column($boxes, 'label', 'node_id');
+	$cur = array_intersect_key(fleet_inet_now(), array_flip($nodes));
+	$counts = fleet_inet_counts($cur);
+	$backup = count(array_filter($cur, function ($r) { return strpos((string)$r['reason'], 'default gateway') === 0; }));
+	$avail = fleet_inet_availability(86400, $now);
+	$mine = array_intersect_key($avail, array_flip($nodes));
+	$worst = array();
+	foreach ($cur as $n => $r) {
+		$score = (($r['state'] === 'down') ? 1000 : 0) + (float)($r['loss_pct'] ?? 0) * 10 + (float)($r['delay_ms'] ?? 0) / 10;
+		$worst[] = array('label' => (string)($labels[$n] ?? $n), 'node' => $n, 'state' => $r['state'], 'value' => round($score, 1), 'text' => fleet_inet_text($r));
+	}
+	usort($worst, function ($a, $b) { return $b['value'] <=> $a['value']; });
+	$events = array();
+	foreach (fleet_inet_events(6) as $e) {
+		if (($e['node'] !== '') && !isset($labels[$e['node']]) && ($group > 0)) {
+			continue;
+		}
+		$events[] = array('time' => $e['time'], 'severity' => $e['severity'], 'title' => $e['title'], 'node' => $e['node'],
+		    'box' => (string)($labels[$e['node']] ?? ''), 'text' => '');
+	}
+	$span = FLEET_STATS_RANGES[$range] ?? 86400;
+	$qs = array_intersect_key(fleet_inet_stats($span, $now), array_flip($nodes));
+	$ranked = array();
+	foreach ($qs as $n => $s) {
+		if ($s['score'] !== null) {
+			$ranked[] = array('label' => (string)($labels[$n] ?? $n), 'node' => $n, 'score' => $s['score'], 'loss' => $s['loss'], 'flaps' => $s['flaps'], 'loss_min' => $s['loss_min']);
+		}
+	}
+	usort($ranked, function ($a, $b) { return array($a['score'], $a['label']) <=> array($b['score'], $b['label']); });
+	return array(
+		'inet' => $counts + array('backup' => $backup, 'total' => count($cur), 'avail' => empty($mine) ? null : round(array_sum($mine) / count($mine), 1)),
+		'inet_score' => array('fleet' => fleet_inet_fleet_stats($qs), 'top' => array_slice($ranked, 0, 6)),
+		'inet_quality' => fleet_inet_series($range, ($group > 0) ? $nodes : null, $now),
+		/* Only connections with a problem now: a clean fleet leaves the panel out. */
+		'inet_worst' => array('top' => array_slice(array_values(array_filter($worst, function ($w) use ($cur) {
+			return ($w['state'] !== 'up') || ((float)($cur[$w['node']]['loss_pct'] ?? 0) > 0);
+		})), 0, 5)),
+		'inet_pulse' => fleet_inet_pulse($boxes, $now),
+		'inet_events' => array('latest' => $events),
+	);
 }
 
 /*
@@ -682,5 +759,6 @@ function fleet_kiosk_payload(bool $hide, string $title, array $look, array $cfg)
 	$panels = (($cfg['layout'] === 'list') || empty($cfg['panels'])) ? array() : fleet_kiosk_panels($cfg, $now);
 	$view = fleet_kiosk_view($data, fleet_ops_groups_running(), $hide, $title, $look, $cfg, fleet_kiosk_extra(), $panels);
 	$view['ha_problems'] = count(array_filter($panels['ha']['pairs'] ?? fleet_kiosk_ha(), function ($p) { return $p['problem'] !== ''; }));
+	$view['inet_on'] = fleet_inet_enabled();
 	return $view;
 }

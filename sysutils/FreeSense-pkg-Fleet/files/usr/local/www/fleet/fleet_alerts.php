@@ -72,7 +72,7 @@ if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 }
 if ($ready && $manage && ($view === 'channels')) {
 	fs_page_action(gettext('Add channel'), '#', 'fa-plus', 'primary', array('data-fs-modal' => '#chan-modal', 'data-fs-modal-title' => gettext('Add an alert channel'),
-	    'data-fs-fill' => json_encode(array('id' => '', 'type' => 'email', 'events[]' => array('offline', 'op_failed', 'backup_failed', 'breakglass', 'policy', 'policy_fail', 'copies', 'ha_problem', 'join_refused'),
+	    'data-fs-fill' => json_encode(array('id' => '', 'type' => 'email', 'events[]' => array('offline', 'op_failed', 'backup_failed', 'breakglass', 'policy', 'policy_fail', 'copies', 'ha_problem', 'join_refused', 'inet_down', 'inet_wide', 'inet_failover'),
 	    'min_severity' => 'info', 'enabled' => true, 'report_hour' => ''))));
 }
 

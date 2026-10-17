@@ -360,6 +360,7 @@ function fleet_firewalls_nav(string $current, int $pending = 0): string {
 		'factory' => array(gettext('Deployment Factory'), '/fleet/fleet_factory.php'),
 		'connections' => array(gettext('Connections'), '/fleet/fleet_connections.php'),
 		'ha' => array(gettext('HA pairs'), '/fleet/fleet_ha.php'),
+		'internet' => array(gettext('Internet'), '/fleet/fleet_internet.php'),
 		'groups' => array(gettext('Groups'), '/fleet/fleet.php?view=groups'),
 	);
 	$h = '<nav class="fs-viewswitch" aria-label="' . htmlspecialchars(gettext('Firewalls')) . '">';

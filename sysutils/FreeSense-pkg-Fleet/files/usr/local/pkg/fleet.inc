@@ -65,6 +65,7 @@ require_once('fleet/fleet_standby.inc');
 require_once('fleet/fleet_access.inc');
 require_once('fleet/fleet_widget.inc');
 require_once('fleet/fleet_samples.inc');
+require_once('fleet/fleet_inet.inc');
 require_once('fleet/fleet_trends.inc');
 require_once('fleet/fleet_stats.inc');
 
@@ -93,6 +94,26 @@ define('FLEET_TUNABLES', array(
 	    'A firewall that does not answer for this long is marked degraded (at least three checks).'),
 	'silent_offline' => array('monitoring', 'min', 5, 2, 60, 'Offline after',
 	    'A firewall that does not answer for this long is marked offline (at least ten checks).'),
+	'inet_enable' => array('monitoring', 'bool', false, null, null, 'Watch the internet connection of each firewall',
+	    'Reads the gateway quality every firewall measures (latency, jitter, loss), keeps its history, and tells you when a firewall loses its internet, has a poor connection, or moves to another WAN. It shows on the dashboard, the firewall pages, Firewalls > Internet and the NOC live view.'),
+	'inet_interval' => array('monitoring', 'min', 5, 1, 15, 'Check the internet every',
+	    'How often the gateways are read. Each firewall still measures its gateways all the time; this is how often the controller keeps a value.'),
+	'inet_grace' => array('monitoring', 'count', 2, 1, 10, 'Tell me after this many bad checks in a row',
+	    'A short spike does not raise an alert.'),
+	'inet_loss_warn' => array('monitoring', 'pct', 5, 1, 50, 'Poor connection at packet loss of',
+	    'Packet loss to the monitor address of the gateway.'),
+	'inet_loss_bad' => array('monitoring', 'pct', 20, 2, 100, 'No internet at packet loss of',
+	    'Also when the firewall itself marks the gateway down.'),
+	'inet_latency_warn' => array('monitoring', 'ms', 150, 10, 5000, 'Poor connection at latency of',
+	    'Round-trip time to the monitor address of the gateway.'),
+	'inet_jitter_warn' => array('monitoring', 'ms', 30, 1, 2000, 'Poor connection at jitter of',
+	    'How much the round-trip time varies.'),
+	'inet_flaps_warn' => array('monitoring', 'count', 4, 0, 60, 'Unstable connection at more changes an hour than',
+	    'How often the default gateway may change between up, poor and down in an hour before Fleet tells you. 0: never.'),
+	'inet_wide_pct' => array('monitoring', 'pct', 30, 5, 100, 'One upstream outage alert when this share loses its internet',
+	    'At least three firewalls at the same time: one alert instead of one per firewall.'),
+	'inet_all' => array('monitoring', 'bool', false, null, null, 'Keep the history of every gateway, not only the default one',
+	    'For firewalls with several WANs. More rows in the database.'),
 	'toast_done' => array('actions', 'bool', true, null, null, 'Tell me when an action is done',
 	    'A short notice on any WebUI page when a reboot, backup or restore finishes.'),
 	'toast_failed' => array('actions', 'bool', true, null, null, 'Tell me when an action fails',

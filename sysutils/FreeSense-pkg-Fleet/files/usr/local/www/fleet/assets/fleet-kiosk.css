@@ -230,14 +230,15 @@ button[aria-pressed="true"] { color: var(--k-text); border-color: var(--k-info);
 .k-p-foot { margin: auto 0 0; }
 .k-chart { flex: 1; min-height: 0; position: relative; }
 .k-donut { display: flex; align-items: center; }
-.k-p-health .k-p-body { flex-direction: row; align-items: center; gap: 1rem; }
-.k-p-health .k-donut { flex: 1; min-width: 0; }
+.k-p-health .k-p-body, .k-p-inet .k-p-body { flex-direction: row; align-items: center; gap: 1rem; }
+.k-p-health .k-donut, .k-p-inet .k-donut { flex: 1; min-width: 0; }
 .k-stats-col { flex-direction: column; flex-wrap: nowrap; gap: .5rem; flex: none; }
-.k-p-health .fs-fc-donut { flex-wrap: nowrap; gap: .8rem; }
-.k-p-health .fs-fc-donut svg { width: min(120px, 45%); height: auto; flex: none; }
+.k-p-health .fs-fc-donut, .k-p-inet .fs-fc-donut { flex-wrap: nowrap; gap: .8rem; }
+.k-p-health .fs-fc-donut svg, .k-p-inet .fs-fc-donut svg { width: min(120px, 45%); height: auto; flex: none; }
 /* The availability chart: names in a compact face, three time marks (start, middle, now). */
-.k-p-pulse .fs-fc-pulse-label { font-family: system-ui, sans-serif; font-size: 11px; }
-.k-p-pulse svg > text.fs-fleet-chart-axis:nth-of-type(2), .k-p-pulse svg > text.fs-fleet-chart-axis:nth-of-type(4) { display: none; }
+.k-p-pulse .fs-fc-pulse-label, .k-p-inet_pulse .fs-fc-pulse-label { font-family: system-ui, sans-serif; font-size: 11px; }
+.k-p-pulse svg > text.fs-fleet-chart-axis:nth-of-type(2), .k-p-pulse svg > text.fs-fleet-chart-axis:nth-of-type(4),
+.k-p-inet_pulse svg > text.fs-fleet-chart-axis:nth-of-type(2), .k-p-inet_pulse svg > text.fs-fleet-chart-axis:nth-of-type(4) { display: none; }
 .k-quiet { margin: 0; color: var(--k-muted); }
 .k-sub { color: var(--k-muted); font-size: .8em; }
 
@@ -437,3 +438,22 @@ a.k-tile:hover { border-color: var(--k-info); opacity: 1; }
 	.k-lrow { grid-template-columns: minmax(6rem, .8fr) minmax(8rem, 2fr) minmax(5rem, 1fr); }
 	.k-lrow > .k-cell:nth-child(n+4) { display: none; }
 }
+
+/* Internet connectivity: the ring turns red while a firewall has no internet; a dot per firewall in the list. */
+.k-c-inet.k-inet-bad .k-ring-arc { stroke: var(--k-bad); }
+.k-c-inet.k-inet-bad .k-ring { animation: k-ring-pulse 2s ease-in-out infinite; }
+.k-col-inet { display: flex; align-items: center; gap: .45em; min-width: 0; }
+.k-inet-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.k-dot { flex: none; width: .6em; height: .6em; border-radius: 50%; background: var(--k-muted); }
+.k-dot.k-inet-up { background: var(--k-ok); }
+.k-dot.k-inet-degraded { background: var(--k-warn); }
+.k-dot.k-inet-down { background: var(--k-bad); box-shadow: 0 0 .5em var(--k-bad); }
+@media (prefers-reduced-motion: reduce) { .k-c-inet.k-inet-bad .k-ring { animation: none; } }
+/* Connection quality: "Q 94" chips; latency and loss as two small charts. */
+.k-score { flex: none; font-family: var(--k-num-font); font-size: .78em; font-weight: 700; padding: .05em .45em; border-radius: 99px; border: 1px solid currentColor; }
+.k-score-ok { color: var(--k-ok); }
+.k-score-info { color: var(--k-info); }
+.k-score-warn { color: var(--k-warn); }
+.k-score-bad { color: var(--k-bad); }
+.k-charts-2 { display: grid; grid-template-rows: 1fr 1fr; gap: .25rem; flex: 1; min-height: 0; }
+.k-charts-2 .k-chart { min-height: 0; }
