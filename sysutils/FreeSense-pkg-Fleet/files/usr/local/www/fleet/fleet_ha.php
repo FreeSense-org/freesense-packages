@@ -45,8 +45,23 @@ $form_in = function () use ($in) {
 	foreach ((array)($_POST['vip_on'] ?? array()) as $if => $on) {
 		$vips[] = array('iface' => (string)$if, 'address' => (string)($_POST['vip_addr'][$if] ?? ''), 'vhid' => (int)($_POST['vip_vhid'][$if] ?? 0));
 	}
-	return $in + array('vips' => $vips, 'sync_iface' => (string)($_POST['sync_iface'] ?? ''), 'sections' => array_keys((array)($_POST['sections'] ?? array())));
+	return $in + array('vips' => $vips, 'sync_iface' => (string)($_POST['sync_iface'] ?? ''), 'sections' => array_keys((array)($_POST['sections'] ?? array())),
+	    'sync_mode' => (($_POST['sync_mode'] ?? '') === 'tunnel') ? 'tunnel' : 'interface',
+	    'link_host_p' => (string)($_POST['link_host_p'] ?? ''), 'link_port_p' => (string)($_POST['link_port_p'] ?? FLEET_HA_LINK_PORT),
+	    'link_host_s' => (string)($_POST['link_host_s'] ?? ''), 'link_port_s' => (string)($_POST['link_port_s'] ?? FLEET_HA_LINK_PORT));
 };
+
+/* Remove a pair: the shared addresses, sync settings, rules and encrypted link Fleet made, on both firewalls. */
+if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST') && isset($_POST['remove_pair'])) {
+	list($rpairs) = fleet_ha_now();
+	$rp = fleet_ha_pair_of($rpairs, (string)($_POST['pair'] ?? ''));
+	if ($rp === null) {
+		$input_errors[] = gettext('That pair is gone.');
+	} else {
+		header('Location: /fleet/fleet_activity.php?op=' . fleet_ha_remove_launch($rp, $who));
+		exit;
+	}
+}
 
 if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['review']) || isset($_POST['setup']))) {
 	$pb = fleet_box_get($in['primary']);
@@ -126,20 +141,30 @@ list($pairs, $boxes) = fleet_ha_now();
 </section>
 <div class="panel panel-default">
 	<div class="panel-body table-responsive"><table class="table fs-table">
-		<thead><tr><th><?=gettext('Pair')?></th><th><?=gettext('State')?></th><th><?=gettext('Shared addresses')?></th><th><?=gettext('Configuration sync')?></th></tr></thead>
+		<thead><tr><th><?=gettext('Pair')?></th><th><?=gettext('State')?></th><th><?=gettext('Shared addresses')?></th><th><?=gettext('Configuration sync')?></th><?=$manage ? '<th class="text-end"><span class="visually-hidden">' . gettext('Actions') . '</span></th>' : ''?></tr></thead>
 		<tbody>
 <?php if (empty($pairs)): ?>
-		<tr><td colspan="4" class="fs-muted"><?=gettext('No HA pairs yet.')?><?=$manage ? ' <a href="?view=setup">' . gettext('Set up a pair') . '</a>' : ''?></td></tr>
+		<tr><td colspan="<?=$manage ? 5 : 4?>" class="fs-muted"><?=gettext('No HA pairs yet.')?><?=$manage ? ' <a href="?view=setup">' . gettext('Set up a pair') . '</a>' : ''?></td></tr>
 <?php endif; ?>
 <?php foreach ($pairs as $hp): ?>
 		<tr><td><?php foreach ($hp['nodes'] as $hn): ?><div><a href="/fleet/fleet_box.php?id=<?=urlencode($hn)?>"><?=htmlspecialchars($boxes[$hn]['label'])?></a>
 				<?=in_array($hn, $hp['masters'], true) ? fs_badge('info', 'MASTER') : fs_badge('neutral', 'BACKUP')?><?=($boxes[$hn]['state'] !== 'online') ? ' ' . fs_badge('warn', ucfirst($boxes[$hn]['state'])) : ''?></div><?php endforeach; ?></td>
 			<td><?=($hp['problem'] === null) ? fs_badge('pass', gettext('Healthy')) : fs_badge('down', gettext(fleet_ha_problem_badge($hp['problem'])))?></td>
 			<td class="small"><?=implode('<br>', array_map(function ($k) { return htmlspecialchars(fleet_ha_vip_text($k)); }, array_keys($hp['vips'])))?></td>
-			<td class="small"><?=($hp['primary'] !== null) ? htmlspecialchars(sprintf(gettext('From %s'), $boxes[$hp['primary']]['label'])) : '<span class="fs-muted">' . gettext('None') . '</span>'?></td></tr>
+			<td class="small"><?=($hp['primary'] !== null) ? htmlspecialchars(sprintf(gettext('From %s'), $boxes[$hp['primary']]['label'])) : '<span class="fs-muted">' . gettext('None') . '</span>'?></td>
+<?php if ($manage): ?>
+			<td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger" data-fs-modal="#ha-remove-modal" data-fs-fill="<?=htmlspecialchars(json_encode(array('pair' => $hp['nodes'][0])))?>"
+			    data-fs-modal-title="<?=htmlspecialchars(sprintf(gettext('Remove the pair %s'), implode(' + ', array_map(function ($n) use ($boxes) { return $boxes[$n]['label']; }, $hp['nodes']))))?>"><i class="fa-solid fa-trash icon-embed-btn" aria-hidden="true"></i><?=gettext('Remove')?></button></td>
+<?php endif; ?></tr>
 <?php endforeach; ?>
 		</tbody></table></div>
 </div>
+<?php if ($manage && !empty($pairs)): ?>
+<?php fs_modal_form_begin('ha-remove-modal', gettext('Remove the pair'), '?view=pairs', array('remove_pair' => '1', 'pair' => '')); ?>
+	<p><?=gettext('Fleet removes what it set up for the pair, on both firewalls, the BACKUP first: the shared addresses, the state and configuration sync, the rules it made and the encrypted link. The two firewalls keep their own addresses and settings; the shared addresses stop answering.')?></p>
+	<p class="mb-0"><?=gettext('A pair that was not set up by Fleet only loses what Fleet recognises as its own. It runs as an operation in Activity.')?></p>
+<?php fs_modal_form_end(gettext('Remove the pair'), '', '', 'fa-trash'); ?>
+<?php endif; ?>
 
 <?php elseif ($view === 'group'):
 	$gid = (int)($_REQUEST['group'] ?? 0);
@@ -233,6 +258,11 @@ list($pairs, $boxes) = fleet_ha_now();
 	$on = ($posted === null) ? array() : array_column($posted['vips'], null, 'iface');
 	$sync_sel = ($posted === null) ? '' : $posted['sync_iface'];
 	$sec_sel = ($posted === null) ? array('rules', 'aliases', 'nat') : $posted['sections'];
+	/* The encrypted link: each firewall's address as the controller last saw it, to start from. */
+	$seen_ips = $chosen ? fleet_access_json('access_seen') : array();
+	$mode_sel = (($posted['sync_mode'] ?? 'interface') === 'tunnel') ? 'tunnel' : 'interface';
+	$link_vals = array('p' => array((string)($posted['link_host_p'] ?? ($seen_ips[$in['primary']] ?? '')), (string)($posted['link_port_p'] ?? FLEET_HA_LINK_PORT)),
+	    's' => array((string)($posted['link_host_s'] ?? ($seen_ips[$in['secondary']] ?? '')), (string)($posted['link_port_s'] ?? FLEET_HA_LINK_PORT)));
 ?>
 <section class="fs-fleet-area">
 	<header class="fs-fleet-area-head"><span class="fs-fleet-area-icon"><i class="fa-solid fa-clone" aria-hidden="true"></i></span>
@@ -250,6 +280,9 @@ list($pairs, $boxes) = fleet_ha_now();
 			    '<input type="hidden" name="vip_vhid[' . $k . ']" value="' . (int)($v['vhid'] ?? 0) . '"/>';
 		}
 		$h .= '<input type="hidden" name="sync_iface" value="' . htmlspecialchars($p['sync_iface']) . '"/>';
+		foreach (array('sync_mode', 'link_host_p', 'link_port_p', 'link_host_s', 'link_port_s') as $lk) {
+			$h .= '<input type="hidden" name="' . $lk . '" value="' . htmlspecialchars((string)($p[$lk] ?? '')) . '"/>';
+		}
 		foreach ($p['sections'] as $sec) {
 			$h .= '<input type="hidden" name="sections[' . htmlspecialchars($sec) . ']" value="1"/>';
 		}
@@ -307,8 +340,15 @@ list($pairs, $boxes) = fleet_ha_now();
 			</tbody></table></div>
 <?php endif; ?>
 <?php fs_step_end(); ?>
-<?php fs_step_begin('sync', gettext('The primary sends its connection states and the configuration you choose to the secondary over this interface.')); ?>
+<?php fs_step_begin('sync', gettext('The primary sends its connection states and the configuration you choose to the secondary. Choose how they reach each other.')); ?>
 <?php if (!empty($common)): ?>
+		<fieldset class="fs-fleet-ways mb-3"><legend class="visually-hidden"><?=gettext('How the two firewalls reach each other')?></legend>
+			<label class="fs-fleet-way"><input class="form-check-input" type="radio" name="sync_mode" value="interface"<?=($mode_sel === 'interface') ? ' checked' : ''?>/>
+				<span><strong><?=gettext('A network between them')?></strong><span class="fs-fleet-hint d-block"><?=gettext('A direct cable on an interface of its own is best. State sync is not encrypted, so keep that network to the two firewalls.')?></span></span></label>
+			<label class="fs-fleet-way"><input class="form-check-input" type="radio" name="sync_mode" value="tunnel"<?=($mode_sel === 'tunnel') ? ' checked' : ''?>/>
+				<span><strong><?=gettext('An encrypted link (WireGuard)')?></strong> <?=fs_badge('pass', gettext('Encrypted'))?><span class="fs-fleet-hint d-block"><?=gettext('Fleet makes a WireGuard tunnel straight between the two firewalls and syncs over it. It does not use the Fleet controller, so failover works without it, and it needs no direct cable. Both firewalls need System with REST API level 15, and the WireGuard package (Fleet installs it).')?></span></span></label>
+		</fieldset>
+		<div data-ha-mode="interface"<?=($mode_sel === 'interface') ? '' : ' hidden'?>>
 		<div class="mb-3"><label class="form-label" for="ha-sync"><?=gettext('Sync interface')?></label>
 			<select class="form-select fs-field-md" id="ha-sync" name="sync_iface">
 <?php foreach ($common as $k => $i): ?>
@@ -316,8 +356,30 @@ list($pairs, $boxes) = fleet_ha_now();
 <?php endforeach; ?>
 			</select>
 			<div class="form-text"><?=gettext('A dedicated link between the two is best.')?></div>
-			<div class="mt-2" data-ha-wan-warning<?=((($sync_sel !== '') ? $sync_sel : (string)array_key_first($common)) === 'wan') ? '' : ' hidden'?>><?php print_callout(htmlspecialchars(gettext('State sync is not encrypted and would cross the internet. Give both firewalls a direct link (or at least an internal network) for sync.')), 'warning', gettext('This is the WAN')); ?></div>
+			<div class="mt-2" data-ha-wan-warning<?=((($sync_sel !== '') ? $sync_sel : (string)array_key_first($common)) === 'wan') ? '' : ' hidden'?>><?php print_callout(htmlspecialchars(gettext('State sync is not encrypted and would cross the internet. Give both firewalls a direct link (or at least an internal network) for sync, or choose the encrypted link.')), 'warning', gettext('This is the WAN')); ?></div>
 			<script>document.getElementById('ha-sync').addEventListener('change', function () { document.querySelector('[data-ha-wan-warning]').hidden = (this.value !== 'wan'); });</script></div>
+		</div>
+		<div data-ha-mode="tunnel"<?=($mode_sel === 'tunnel') ? '' : ' hidden'?>>
+			<p class="fs-fleet-hint"><?=gettext('Where can each firewall be reached from the other, on UDP? Leave one address empty if that firewall has none (behind NAT): it then connects out to the other one. At least one address is needed. Fleet opens the port on WAN for a firewall that has an address. The addresses start from where the controller last saw each firewall.')?></p>
+			<div class="table-responsive"><table class="table fs-table">
+				<thead><tr><th><?=gettext('Firewall')?></th><th><?=gettext('Address the other uses')?></th><th><?=gettext('UDP port')?></th></tr></thead>
+				<tbody>
+<?php foreach (array('p' => $pf, 's' => $sf) as $lk => $lf): ?>
+				<tr><td><?=htmlspecialchars($lf['label'])?></td>
+					<td><input class="form-control form-control-sm fs-mono" name="link_host_<?=$lk?>" value="<?=htmlspecialchars($link_vals[$lk][0])?>" placeholder="<?=gettext('none: connects out')?>" aria-label="<?=gettext('Address the other uses')?>"/></td>
+					<td><input class="form-control form-control-sm fs-mono" name="link_port_<?=$lk?>" value="<?=htmlspecialchars($link_vals[$lk][1])?>" inputmode="numeric" style="max-width:7rem" aria-label="<?=gettext('UDP port')?>"/></td></tr>
+<?php endforeach; ?>
+				</tbody></table></div>
+		</div>
+		<script>(function () {
+			var form = document.getElementById('ha-sync').closest('form');
+			var show = function () {
+				var m = form.querySelector('[name="sync_mode"]:checked').value;
+				form.querySelectorAll('[data-ha-mode]').forEach(function (el) { el.hidden = (el.getAttribute('data-ha-mode') !== m); });
+			};
+			form.querySelectorAll('[name="sync_mode"]').forEach(function (r) { r.addEventListener('change', show); });
+			show();
+		}());</script>
 		<fieldset><legend class="form-label"><?=gettext('The primary pushes to the secondary')?></legend>
 <?php foreach (FLEET_HA_SECTIONS as $sec => $sl): ?>
 			<label class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="sections[<?=$sec?>]" value="1"<?=in_array($sec, $sec_sel, true) ? ' checked' : ''?>/> <span class="form-check-label"><?=gettext($sl)?></span></label>
@@ -340,14 +402,28 @@ list($pairs, $boxes) = fleet_ha_now();
 <?php foreach ($plan['vips'] as $v): ?>
 			<li><?=htmlspecialchars(sprintf(gettext('%1$s on %2$s, VHID %3$d: %4$s MASTER (skew 0), %5$s BACKUP (skew 100)'), $v['address'] . '/' . $v['bits'], $v['name'], $v['vhid'], $pf['label'], $sf['label']))?></li>
 <?php endforeach; ?>
+<?php if ($plan['sync_mode'] === 'tunnel'): $lk = $plan['link']; ?>
+			<li><?=htmlspecialchars(sprintf(gettext('An encrypted WireGuard link between %1$s (%2$s) and %3$s (%4$s), private network %5$s/30'), $pf['label'], $lk['primary_ip'], $sf['label'], $lk['secondary_ip'], $lk['net']))?></li>
+			<li><?=htmlspecialchars(sprintf(gettext('%1$s: %2$s; %3$s: %4$s'), $pf['label'], ($lk['endpoint_p'] !== '') ? sprintf(gettext('reached at %s (UDP, opened on WAN)'), $lk['endpoint_p']) : gettext('connects out'),
+			    $sf['label'], ($lk['endpoint_s'] !== '') ? sprintf(gettext('reached at %s (UDP, opened on WAN)'), $lk['endpoint_s']) : gettext('connects out')))?></li>
+			<li><?=gettext('State sync (pfsync) runs over that link. Fleet installs the WireGuard package on a firewall that lacks it, which can take a few minutes.')?></li>
+<?php else: ?>
 			<li><?=htmlspecialchars(sprintf(gettext('State sync (pfsync) on %1$s between %2$s and %3$s'), $common[$plan['sync_iface']]['name'], $plan['primary_sync_ip'], $plan['secondary_sync_ip']))?></li>
+<?php endif; ?>
 			<li><?=htmlspecialchars(empty($plan['sections']) ? sprintf(gettext('%s pushes no configuration'), $pf['label']) :
 			    sprintf(gettext('%1$s pushes %2$s to %3$s, logging in as fleet-hasync (a new user on %3$s with only the HA sync privilege)'), $pf['label'],
 			    implode(', ', array_map(function ($s1) { return gettext(FLEET_HA_SECTIONS[$s1]); }, $plan['sections'])), $sf['label']))?></li>
 			<li><?=gettext('New random CARP and sync passwords; Fleet does not keep them.')?></li>
 		</ol>
-<?php if ($plan['sync_iface'] === 'wan'): ?>
+<?php $sync_risk = fleet_ha_sync_risk($plan); ?>
+<?php if ($sync_risk === 'wan'): ?>
 		<?php print_callout(htmlspecialchars(gettext('State sync is not encrypted and would cross the internet.')), 'warning', gettext('Sync over the WAN')); ?>
+<?php elseif ($sync_risk === 'shared'): ?>
+		<?php print_callout(htmlspecialchars(gettext('State sync is not encrypted, and this network also carries a shared address, so other devices on it can read it. Go back and choose a direct cable between the two firewalls on an interface of its own.')), 'warning', gettext('Sync on a shared network')); ?>
+<?php elseif ($plan['sync_mode'] === 'tunnel'): ?>
+		<p class="fs-fleet-hint"><?=gettext('State sync is encrypted: it runs over the WireGuard link between the two firewalls.')?></p>
+<?php else: ?>
+		<p class="fs-fleet-hint"><?=gettext('State sync is not encrypted: keep this network to the two firewalls (ideally a direct cable).')?></p>
 <?php endif; ?>
 	</div>
 	<div class="panel-footer fs-step-nav">

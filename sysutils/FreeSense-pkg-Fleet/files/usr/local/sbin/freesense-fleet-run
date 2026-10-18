@@ -50,7 +50,7 @@ require_once('fleet.inc');
 
 $cmd = $argv[1] ?? '';
 $op_id = (int)($argv[2] ?? 0);
-if (!in_array($cmd, array('reboot-group', 'update-group', 'restore', 'template', 'users', 'connections', 'ha-setup'), true) || ($op_id <= 0)) {
+if (!in_array($cmd, array('reboot-group', 'update-group', 'restore', 'template', 'users', 'connections', 'ha-setup', 'ha-remove'), true) || ($op_id <= 0)) {
 	echo "usage: freesense-fleet-run reboot-group|update-group <op id> | restore <op id> <backup id> | template <op id> <template id>\n";
 	exit(64);
 }
@@ -64,6 +64,15 @@ if ($cmd === 'ha-setup') {
 		fleet_ha_setup_run($op_id);
 	} catch (Throwable $e) {
 		fleet_op_set($op_id, 'failed', 'The setup stopped: ' . $e->getMessage() . ' Check both firewalls under HA pairs; undo by hand if needed.');
+	}
+	exit(0);
+}
+
+if ($cmd === 'ha-remove') {
+	try {
+		fleet_ha_remove_run($op_id);
+	} catch (Throwable $e) {
+		fleet_op_set($op_id, 'failed', 'The removal stopped: ' . $e->getMessage() . ' Check both firewalls under HA pairs.');
 	}
 	exit(0);
 }
