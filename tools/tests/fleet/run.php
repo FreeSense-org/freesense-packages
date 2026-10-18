@@ -1472,6 +1472,9 @@ check((count($herr) === 1) && (strpos($herr[0], 'WebGUI certificate') !== false)
 check((fleet_ha_sync_risk($hplan) === null) && (fleet_ha_sync_risk(array('sync_iface' => 'wan') + $hplan) === 'wan') && (fleet_ha_sync_risk(array('sync_iface' => 'lan') + $hplan) === 'shared'),
     'the sync risk: a network of its own is quiet, the WAN and a network that carries a shared address are warned about');
 
+list($hb_err) = fleet_ha_setup_plan($hin, array('busy' => 'reboots') + $hfa, $hfb);
+check((count($hb_err) === 1) && (strpos($hb_err[0], 'busy with another operation (reboots)') !== false) && empty(fleet_ha_setup_plan($hin, array('busy' => '') + $hfa, $hfb)[0]),
+    'HA setup waits for a firewall that is busy with another operation (a reboot in the middle of a setup undoes it)');
 /* ---- HA pair: the encrypted link ---- */
 $hn = fleet_ha_link_net(array(array('10.254.0.1', 24), array('10.1.0.2', 24)));
 check(($hn === array('10.254.1.0', '10.254.1.1', '10.254.1.2')) && (fleet_ha_link_net(array(array('10.254.0.0', 15))) === null) && (fleet_ha_link_net(array())[0] === '10.254.0.0') &&
@@ -1495,17 +1498,22 @@ $hl_s = fleet_ha_link_body($hl_plan, false, 'KEY');
 check(($hl_p['address'] === '10.254.0.1') && ($hl_p['peer_address'] === '10.254.0.2') && ($hl_p['peer_endpoint'] === '') && ($hl_p['keepalive'] === 0) &&
     ($hl_s['address'] === '10.254.0.2') && ($hl_s['peer_endpoint'] === '203.0.113.5:51831') && ($hl_s['keepalive'] === 25) && ($hl_s['bits'] === 30),
     'the end that has no address waits; the other connects to it and keeps the link open');
-$hl_r = fleet_ha_link_rule_body($hl_plan, true);
-check(($hl_r['proto'] === 'udp') && ($hl_r['interface'] === 'wan') && ($hl_r['dstbeginport'] === '51831') && (strpos($hl_r['descr'], FLEET_HA_MARK) === 0) && (fleet_ha_link_rule_body($hl_plan, false) === null),
-    'only a firewall that others connect to gets the WAN rule for the link, marked as Fleet\'s');
+$hl_r = fleet_ha_link_rule_bodies($hl_plan, true);
+check((count($hl_r) === 2) && ($hl_r[0]['interface'] === 'wan') && ($hl_r[0]['dstbeginport'] === '51831') && ($hl_r[0]['statetype'] === 'none') && (strpos($hl_r[0]['descr'], FLEET_HA_MARK) === 0) &&
+    ($hl_r[1]['direction'] === 'out') && !empty($hl_r[1]['floating']) && ($hl_r[1]['srcbeginport'] === '51831') && ($hl_r[1]['statetype'] === 'none') && ($hl_r[1]['interface'] === array('wan')) &&
+    (count(fleet_ha_link_rule_bodies($hl_plan, false)) === 2),
+    'the packets of the link get stateless rules on the WAN, in and out, on both firewalls (also the one that connects out), marked as Fleet rules');
 check((fleet_ha_sync_risk($hl_plan) === null) && (fleet_ha_sync_risk(array('sync_mode' => 'interface', 'sync_iface' => 'wan') + $hl_plan) === 'wan'), 'state sync over the encrypted link is not a risk');
 check((fleet_halink_endpoint_of('fw.example.net', 51831) === 'fw.example.net:51831') && (fleet_halink_endpoint_of('203.0.113.5', 1) === '203.0.113.5:1') && (fleet_halink_endpoint_of('a b', 1) === null),
     'a link address is an IPv4 address or a DNS name');
 
 $hrb = fleet_ha_rule_bodies($hplan, 8443);
-check((count($hrb) === 2) && ($hrb[0]['proto'] === 'pfsync') && ($hrb[0]['src'] === '10.9.0.0') && ($hrb[0]['srcmask'] === '30') && ($hrb[1]['src'] === '10.9.0.1') &&
-    ($hrb[1]['dsttype'] === 'opt1ip') && ($hrb[1]['dstbeginport'] === '8443') && (strpos($hrb[1]['descr'], FLEET_HA_MARK) === 0),
+check((count($hrb) === 3) && ($hrb[1]['proto'] === 'pfsync') && ($hrb[1]['src'] === '10.9.0.0') && ($hrb[1]['srcmask'] === '30') && ($hrb[2]['src'] === '10.9.0.1') &&
+    ($hrb[2]['dsttype'] === 'opt1ip') && ($hrb[2]['dstbeginport'] === '8443') && (strpos($hrb[2]['descr'], FLEET_HA_MARK) === 0),
     'the sync interface rules are the same on both and right on either (HA sync copies them): pfsync from the sync network, configuration sync from the primary');
+check(($hrb[0]['direction'] === 'out') && !empty($hrb[0]['floating']) && !empty($hrb[0]['quick']) && ($hrb[0]['interface'] === array('opt1')) && ($hrb[0]['proto'] === 'pfsync') &&
+    ($hrb[0]['statetype'] === 'none') && ($hrb[1]['statetype'] === 'none') && !empty($hrb[0]['allowopts']) && !empty($hrb[1]['allowopts']) && !empty($hrb[2]['nopfsync']),
+    'the pfsync rules are stateless and allow IP options, in and out (an outgoing floating rule too), or pfsync syncs the states of its own packets again and again');
 
 $hsg = fleet_ha_suggest($hfa['ifaces'], $hfb['ifaces']);
 check(($hsg['sync_iface'] === 'opt1') && ($hsg['vips'] === array(array('iface' => 'lan', 'address' => '10.1.0.1'))) && empty(fleet_ha_setup_plan(array('primary' => 'a', 'secondary' => 'b') + $hsg, $hfa, $hfb)[0]) &&
