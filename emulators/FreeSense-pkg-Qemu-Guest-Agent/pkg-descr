@@ -1,0 +1,6 @@
+The QEMU guest agent lets the host of a virtual machine (Proxmox, KVM, libvirt,
+QEMU) talk to the firewall: clean shutdown and reboot, IP addresses, file
+system freeze for snapshots and backups. For standard FreeSense installs; the
+cloud image already includes it.
+
+WWW: https://docs.freesense.org/packages/

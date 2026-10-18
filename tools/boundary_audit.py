@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SYSTEM_ORIGINS = {
     "devel/FreeSense-composer-deps",
     "devel/php-FreeSense-module",
+    "emulators/open-vm-tools",
     "net/filterdns",
     "security/FreeSense",
     "security/FreeSense-system",
