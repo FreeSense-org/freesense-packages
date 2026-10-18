@@ -27,7 +27,7 @@
 				address: addr ? (addr.value.trim() || addr.placeholder) : ''
 			});
 		});
-		var ts = form.querySelector('#ts_point');
+		var ts = form.querySelector('#ts_point, #ts_setup');
 		if (ts && ts.checked) {
 			out.push({name: 'Tailscale', port: '8443', address: ''});
 		}
@@ -64,8 +64,8 @@
 		set('wg_port', wg());
 		var r = form.querySelector('[name="rules_manual"]:checked');
 		set('rules', r ? r.getAttribute('data-review-text') : '');
-		var ts = form.querySelector('#ts_point');
-		set('tailscale', ts && ts.checked ? 'Yes, also over Tailscale' : 'No');
+		var ts = form.querySelector('#ts_point, #ts_setup');
+		set('tailscale', ts && ts.checked ? (ts.id === 'ts_setup' ? 'Yes: set up on this controller, also over Tailscale' : 'Yes, also over Tailscale') : 'No');
 		if (list) {
 			list.classList.toggle('fs-muted', manual());
 		}

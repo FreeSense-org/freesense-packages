@@ -118,7 +118,7 @@ if (isset($_POST['save_section']) && array_key_exists((string)$_POST['save_secti
 	    'enable' => !empty($_POST['enable']) ? 'on' : '', 'points' => json_encode(array_values($points)), 'wg_port' => (string)($_POST['wg_port'] ?? ''),
 	    'rules_manual' => !empty($_POST['rules_manual']) ? 'on' : ''));
 	$check = fleet_ctl_settings_from($post);
-	$setup_first = !$s['enable'] && !empty($_POST['setup_guide']);
+	$setup_first = !empty($_POST['setup_guide']);
 	if ($check['enable'] && empty($points)) {
 		$input_errors[] = gettext('Add at least one connection point: where firewalls reach this controller.');
 	}
@@ -133,6 +133,24 @@ if (isset($_POST['save_section']) && array_key_exists((string)$_POST['save_secti
 		if (empty($problems)) {
 			$savemsg = $s['enable'] ? gettext('Saved. FreeSense Fleet is running.') : gettext('Saved. FreeSense Fleet is stopped.');
 			$setup_done = $setup_first && $s['enable'];
+			/* The guide's "set up Tailscale here": install, log in, then add the tailnet as a connection point. */
+			if ($s['enable'] && !empty($_POST['ts_setup'])) {
+				try {
+					$ts_addr = fleet_ts_controller_setup((string)($_POST['ts_api_token'] ?? ''), $who);
+					if (!isset($points['tailscale'])) {
+						$points['tailscale'] = array('iface' => 'tailscale', 'port' => 8443, 'address' => '');
+						$post['points'] = json_encode(array_values($points));
+						config_set_path('installedpackages/fleet/config/0', $post);
+						write_config(gettext('FreeSense Fleet: Tailscale added as a connection point.'));
+					}
+					$problems = fleet_sync_config();
+					$s = fleet_ctl_settings();
+					$savemsg .= ' ' . sprintf(gettext('This controller is in the tailnet at %s.'), $ts_addr);
+					$input_errors = array_merge($input_errors, $problems);
+				} catch (RuntimeException $e) {
+					$input_errors[] = gettext('Fleet runs, but Tailscale was not set up: ') . $e->getMessage();
+				}
+			}
 		} else {
 			$input_errors = array_merge($input_errors, $problems);
 		}
@@ -681,11 +699,11 @@ endif;
 	$ts_ok = ($ts_point !== null) && empty($ts_join_problems);
 	$inv_rec = fleet_invite_recommend($ts_ok, $net_point && ($s['public_host'] !== ''), !empty($inv_ifaces));
 	$inv_ways = array(
-		'tunnel' => array(gettext('Fleet tunnel (WireGuard)'), $net_point ? sprintf(gettext('Over the internet: the firewall reaches this controller at %s.'), fleet_hostport($s['public_host'], $s['enroll_port'])) :
+		'tunnel' => array(gettext('Fleet tunnel (WireGuard)'), $net_point ? sprintf(gettext('Over the internet, through the WAN connection point: the firewall reaches this controller at %s, then keeps a WireGuard tunnel to it.'), fleet_hostport($s['public_host'], $s['enroll_port'])) :
 		    gettext('Add a connection point firewalls reach over the internet (Settings > Controller).'), $net_point),
 		'tailscale' => array(gettext('Tailscale'), ($ts_point === null) ? gettext('Add a Tailscale connection point (Settings > Controller).') : (empty($ts_join_problems) ?
 		    sprintf(gettext('No public port: the firewall installs Tailscale and joins this controller at %s in the tailnet.'), $ts_join_address) : implode(' ', array_map('gettext', $ts_join_problems))), $ts_ok),
-		'direct' => array(gettext('Direct'), empty($inv_ifaces) ? gettext('Add a connection point on an internal network, such as LAN (Settings > Controller).') :
+		'direct' => array(gettext('Direct'), empty($inv_ifaces) ? gettext('Only for a network shared with the firewall (LAN, MPLS, VPN), not for WAN: a WAN connection point is the Fleet tunnel above. Add an internal connection point in Settings > Controller.') :
 		    gettext('The firewall and this controller share an internal network (LAN, MPLS, VPN): it joins there, no internet port needed.'), !empty($inv_ifaces)),
 	);
 	if (!$inv_ways[$inv_rec][2]) {
@@ -1231,11 +1249,12 @@ endif;
 		</fieldset>
 <?php
 	};
-	/* ?setup=preview shows the guide on a running controller, read-only (for checking it). */
-	$setup_preview = $s['enable'] && (($_GET['setup'] ?? '') === 'preview');
+	/* ?setup=guide runs the guide again on a running controller, filled in with its current settings. */
+	$setup_again = $s['enable'] && (($_GET['setup'] ?? '') === 'guide');
 ?>
-<?php if ($first_run || $setup_preview || $setup_done) { include('/usr/local/pkg/fleet/fleet_setup_view.inc'); } else { ?>
+<?php if ($first_run || $setup_again || $setup_done) { include('/usr/local/pkg/fleet/fleet_setup_view.inc'); } else { ?>
 	<div class="fs-fleet-settings">
+		<p class="fs-fleet-hint mt-0"><?=gettext('Prefer to be taken through it?')?> <a href="?tab=settings&amp;view=controller&amp;setup=guide"><?=gettext('Run the setup guide')?></a> <?=gettext('(it starts from the settings below).')?></p>
 		<div class="form-check form-switch">
 			<input class="form-check-input" type="checkbox" role="switch" id="enable" name="enable" <?=$s['enable'] ? 'checked' : ''?>/>
 			<label class="form-check-label" for="enable"><?=gettext('Run this firewall as a FreeSense Fleet controller')?></label>
@@ -1267,7 +1286,7 @@ endif;
 	</div>
 <?php } ?>
 	</div>
-<?php if (!($first_run || $setup_preview || $setup_done)): ?>
+<?php if (!($first_run || $setup_again || $setup_done)): ?>
 	<div class="panel-footer">
 		<button class="btn btn-primary" type="submit" name="save_settings" value="1"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save')?></button>
 	</div>
