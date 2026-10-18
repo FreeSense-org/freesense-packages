@@ -134,6 +134,9 @@ function fleet_ha_setup_plan(array $in, array $p, array $s): array {
 		if (($b['state'] ?? '') !== 'online') {
 			$e[] = "{$name} is not online.";
 		}
+		if (($b['busy'] ?? '') !== '') {
+			$e[] = "{$name} is busy with another operation ({$b['busy']}): wait until it is done.";
+		}
 		if ((int)($b['api_level'] ?? 0) < 12) {
 			$e[] = "{$name} needs FreeSense with REST API level 12 (update it first).";
 		}
@@ -292,14 +295,20 @@ function fleet_ha_link_port(array $plan, bool $primary): int {
 	return (int)($primary ? $plan['link']['port_p'] : $plan['link']['port_s']);
 }
 
-/* pure: the rule that lets the other firewall connect to this one, or null when this one connects out only. */
-function fleet_ha_link_rule_body(array $plan, bool $primary): ?array {
-	if (($primary ? $plan['link']['endpoint_p'] : $plan['link']['endpoint_s']) === '') {
-		return null;
-	}
+/*
+ * pure: the rules for the link's own packets on the WAN, in (to this firewall's link port) and out (from it: WireGuard sends from its
+ * listen port), both without state. With state, pfsync would sync the link's packets as states and every pfsync packet that crosses the
+ * link would update one again: a storm of millions of packets after setup. A firewall that connects out needs the incoming rule too,
+ * because nothing keeps a state for the answers.
+ */
+function fleet_ha_link_rule_bodies(array $plan, bool $primary): array {
 	$port = (string)fleet_ha_link_port($plan, $primary);
-	return array('type' => 'pass', 'interface' => 'wan', 'ipprotocol' => 'inet', 'log' => false, 'proto' => 'udp', 'srctype' => 'any', 'src' => '', 'srcmask' => '',
-	    'dsttype' => 'wanip', 'dst' => '', 'dstmask' => '', 'dstbeginport' => $port, 'dstendport' => $port, 'descr' => FLEET_HA_MARK . ' Encrypted HA link (WireGuard)');
+	$base = array('type' => 'pass', 'ipprotocol' => 'inet', 'log' => false, 'quick' => true, 'proto' => 'udp', 'statetype' => 'none', 'srctype' => 'any', 'src' => '', 'srcmask' => '',
+	    'dsttype' => 'any', 'dst' => '', 'dstmask' => '');
+	return array(
+		array('interface' => 'wan', 'dsttype' => 'wanip', 'dstbeginport' => $port, 'dstendport' => $port, 'descr' => FLEET_HA_MARK . ' Encrypted HA link in (WireGuard)') + $base,
+		array('interface' => array('wan'), 'floating' => true, 'direction' => 'out', 'srcbeginport' => $port, 'srcendport' => $port, 'descr' => FLEET_HA_MARK . ' Encrypted HA link out (WireGuard)') + $base,
+	);
 }
 
 /* pure: the network of an address, as "a.b.c.d/bits". */
@@ -449,9 +458,19 @@ function fleet_ha_sync_body(array $plan, bool $primary, string $password = ''): 
  * on the secondary's WebGUI port ($gui_port).
  */
 function fleet_ha_rule_bodies(array $plan, int $gui_port): array {
-	$base = array('type' => 'pass', 'interface' => $plan['sync_iface'], 'ipprotocol' => 'inet', 'log' => false);
+	/* The states of the sync traffic itself must not be synced: pfsync would send updates about its own packets, again and again. */
+	$base = array('type' => 'pass', 'interface' => $plan['sync_iface'], 'ipprotocol' => 'inet', 'log' => false, 'nopfsync' => true);
+	/*
+	 * pfsync packets carry IP options (router alert), so a rule needs allow-opts to match them. They get no state: with one, pfsync would sync
+	 * the state of its own packets, and every pfsync packet would update it again (a storm of millions of packets after setup). Outgoing is a
+	 * floating rule on the sync interface.
+	 */
+	$out = array('type' => 'pass', 'interface' => array($plan['sync_iface']), 'floating' => true, 'direction' => 'out', 'quick' => true, 'ipprotocol' => 'inet', 'log' => false,
+	    'statetype' => 'none', 'allowopts' => true, 'proto' => 'pfsync', 'srctype' => 'any', 'src' => '', 'srcmask' => '', 'dsttype' => 'any', 'dst' => '', 'dstmask' => '',
+	    'dstbeginport' => '', 'dstendport' => '', 'descr' => FLEET_HA_MARK . ' State sync (pfsync) out');
 	return array(
-		$base + array('proto' => 'pfsync', 'srctype' => 'network', 'src' => $plan['sync_net'], 'srcmask' => (string)$plan['sync_bits'],
+		$out,
+		$base + array('allowopts' => true, 'statetype' => 'none', 'quick' => true, 'proto' => 'pfsync', 'srctype' => 'network', 'src' => $plan['sync_net'], 'srcmask' => (string)$plan['sync_bits'],
 		    'dsttype' => 'any', 'dst' => '', 'dstmask' => '', 'dstbeginport' => '', 'dstendport' => '',
 		    'descr' => FLEET_HA_MARK . ' State sync (pfsync) on the sync network'),
 		$base + array('proto' => 'tcp', 'srctype' => 'single', 'src' => $plan['primary_sync_ip'], 'srcmask' => '',
@@ -483,13 +502,21 @@ function fleet_ha_has_rule(array $box, string $descr): bool {
 	return false;
 }
 
+/* The operation (reboot, update...) that is queued or running on a firewall, as words, or ''. A reboot in the middle of a setup undoes it. */
+function fleet_ha_busy(string $node): string {
+	$st = fleet_db()->prepare("SELECT kind FROM ops WHERE node_id = ? AND state IN ('queued', 'running') ORDER BY id DESC LIMIT 1");
+	$st->execute(array($node));
+	$kind = (string)$st->fetchColumn();
+	return ($kind === '') ? '' : (defined('FLEET_OPS_KINDS') && isset(FLEET_OPS_KINDS[$kind]) ? strtolower(FLEET_OPS_KINDS[$kind]) : str_replace('_', ' ', $kind));
+}
+
 /* What setup needs to know about a firewall now (reads its interfaces and virtual IPs live). */
 function fleet_ha_setup_facts(array $box): array {
 	$st = json_decode((string)$box['status'], true) ?: array();
 	list($pairs) = fleet_ha_now();
 	$f = array('label' => $box['label'], 'role' => $box['role'], 'state' => $box['state'], 'api_level' => (int)($st['api_level'] ?? 0),
 	    'in_pair' => fleet_ha_pair_of($pairs, $box['node_id']) !== null, 'hasync_peer' => (string)($st['hasync']['peer'] ?? ''),
-	    'gui_cert' => (string)($st['webgui_cert_sha256'] ?? ''),
+	    'gui_cert' => (string)($st['webgui_cert_sha256'] ?? ''), 'busy' => fleet_ha_busy($box['node_id']),
 	    'ifaces' => array(), 'vhids' => array());
 	if ($box['state'] !== 'online') {
 		return $f;
@@ -698,12 +725,11 @@ function fleet_ha_link_up(array $p, array $s, array $plan, string $who, callable
 	$label = FLEET_HA_LABEL . ' (link)';
 	foreach (array(array($p, $s, true), array($s, $p, false)) as list($box, $other, $primary)) {
 		$bodies = array();
-		$rule = fleet_ha_link_rule_body($plan, $primary);
-		if ($rule !== null) {
+		foreach (fleet_ha_link_rule_bodies($plan, $primary) as $rule) {
 			$bodies[] = array('POST', '/api/v1/firewall/rules', $rule + array('after' => -1), 'Rule: ' . substr($rule['descr'], strlen(FLEET_HA_MARK) + 1),
 			    function (array $b) use ($rule) { return fleet_ha_has_rule($b, $rule['descr']); });
-			$bodies[] = array('POST', '/api/v1/firewall/apply', null, 'Reloading the filter', function (array $b) { return true; });
 		}
+		$bodies[] = array('POST', '/api/v1/firewall/apply', null, 'Reloading the filter', function (array $b) { return true; });
 		$bodies[] = array('PUT', '/api/v1/management/ha-link', fleet_ha_link_body($plan, $primary, $keys[$other['node_id']]), 'Encrypted link',
 		    function (array $b) {
 			list($code, $json) = fleet_box_call($b, 'GET', '/api/v1/management/ha-link');
@@ -789,6 +815,8 @@ function fleet_ha_setup_run(int $op): void {
 			$out[] = array('POST', '/api/v1/firewall/rules', $rb + array('after' => -1), 'Rule: ' . substr($rb['descr'], strlen(FLEET_HA_MARK) + 1),
 			    function (array $box) use ($rb) { return fleet_ha_has_rule($box, $rb['descr']); });
 		}
+		/* The rules must be loaded before pfsync starts: a pfsync packet sent under the default rules makes a state that is synced, and the two firewalls then keep refreshing it for each other. */
+		$out[] = array('POST', '/api/v1/firewall/apply', null, 'Loading the sync rules', function (array $box) { return true; });
 		foreach ($plan['vips'] as $v) {
 			$out[] = array('POST', '/api/v1/firewall/virtual-ips?apply=true', fleet_ha_vip_body($v, $primary ? 0 : 100, $carp_pass), "Shared address {$v['address']} on {$v['name']}",
 			    function (array $box) use ($v) {

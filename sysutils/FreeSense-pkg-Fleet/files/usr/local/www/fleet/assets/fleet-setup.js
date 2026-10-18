@@ -14,10 +14,12 @@
 
 	function points() {
 		var out = [];
+		var tailnet = false;
 		form.querySelectorAll('select[name^="points["]').forEach(function (sel) {
 			if (sel.value === '') {
 				return;
 			}
+			tailnet = tailnet || (sel.value === 'tailscale');
 			var row = sel.closest('tr');
 			var port = row.querySelector('input[name$="[port]"]');
 			var addr = row.querySelector('input[name$="[address]"]');
@@ -28,7 +30,8 @@
 			});
 		});
 		var ts = form.querySelector('#ts_point, #ts_setup');
-		if (ts && ts.checked) {
+		/* A tailnet row in the table is the same connection point: list it once. */
+		if (ts && ts.checked && !tailnet) {
 			out.push({name: 'Tailscale', port: '8443', address: ''});
 		}
 		return out;

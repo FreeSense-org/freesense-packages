@@ -310,10 +310,10 @@ function fleet_ts_controller_setup(string $token, string $who): string {
 	}
 	/* Installing the package and waiting for the tailnet can take a few minutes. */
 	set_time_limit(300);
-	require_once('fleet_seed.inc');
+	require_once('fleet_join.inc');
 	$key = fleet_ts_authkey_mint('controller', 3600, $who);
 	try {
-		$address = fleet_seed_tailscale_up($key, function (string $step) {
+		$address = fleet_tailscale_up($key, function (string $step) {
 		});
 	} catch (FleetJoinError $e) {
 		throw new RuntimeException($e->getMessage());
