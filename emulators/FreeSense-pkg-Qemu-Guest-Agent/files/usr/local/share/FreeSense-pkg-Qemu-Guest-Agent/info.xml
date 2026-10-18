@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<freesensepkgs>
+	<package>
+		<name>Qemu-Guest-Agent</name>
+		<descr><![CDATA[The QEMU guest agent lets the virtual machine host (Proxmox, KVM, libvirt, QEMU) shut down and reboot the firewall cleanly, read its addresses and freeze its file systems for snapshots.]]></descr>
+		<website>https://www.qemu.org/docs/master/interop/qemu-ga.html</website>
+		<version>%%PKGVERSION%%</version>
+		<pkginfolink>https://docs.freesense.org/en/latest/packages/qemu-guest-agent.html</pkginfolink>
+		<configurationfile>qemu-guest-agent.xml</configurationfile>
+	</package>
+</freesensepkgs>

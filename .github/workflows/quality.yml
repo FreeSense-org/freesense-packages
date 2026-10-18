@@ -60,6 +60,8 @@ jobs:
             ! -path './freesense-src/*' -print0 | xargs -0 -r -n1 php -l
           find . -type f \( -name 'pkg-install.in' -o -name 'pkg-deinstall.in' -o -path '*/files/usr/local/etc/rc.d/*' \) \
             ! -path './freesense-src/*' -print0 | xargs -0 -r -n1 sh -n
+      - name: Guest tools packages are refused on the cloud image
+        run: sh tools/tests/guest-tools/run.sh
       - name: Threat Shield unit tests
         run: php tools/tests/threatshield/run.php
       - name: FreeSense Fleet controller tests (joins with the System's client from freesense-src)

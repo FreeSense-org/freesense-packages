@@ -1,0 +1,15 @@
+#!/bin/sh
+# The cloud image already carries the QEMU guest agent and the VMware tools, so
+# this optional package is for standard installs. It is refused on the cloud
+# image with a plain reason. A copy that is already installed may still be
+# updated or reinstalled.
+if [ "$2" = "PRE-INSTALL" ]; then
+	if [ -x "${PKG_ROOTDIR}/usr/local/sbin/freesense-cloud-init" ] && [ ! -f "${PKG_ROOTDIR}/usr/local/pkg/qemu-guest-agent.xml" ]; then
+		echo "This is the FreeSense cloud image: it already includes the QEMU guest agent." >&2
+		echo "This package is for standard installs; nothing was installed." >&2
+		exit 1
+	fi
+	exit 0
+fi
+[ "$2" = "POST-INSTALL" ] || exit 0
+${PKG_ROOTDIR}/usr/local/bin/php -f ${PKG_ROOTDIR}/etc/rc.packages %%PORTNAME%% ${2}
