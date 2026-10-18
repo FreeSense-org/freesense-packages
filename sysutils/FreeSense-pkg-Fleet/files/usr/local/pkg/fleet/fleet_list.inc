@@ -32,7 +32,7 @@ require_once('fleet/fleet_store.inc');
 
 /* What the Activity filters offer: value => label. */
 define('FLEET_OPS_STATES', array('running' => 'Running', 'done' => 'Done', 'failed' => 'Failed'));
-define('FLEET_OPS_KINDS', array('backup_all' => 'Group backups', 'reboot_group' => 'Group reboots', 'update_group' => 'Group updates', 'rollout' => 'Rollouts', 'update' => 'Updates', 'backup' => 'Backups', 'reboot' => 'Reboots', 'restore' => 'Restores', 'template' => 'Templates', 'users' => 'User syncs', 'connections' => 'Connection changes', 'ha_setup' => 'HA pair setups', 'replica' => 'Backup copies', 'replica_sync' => 'Backup copy syncs'));
+define('FLEET_OPS_KINDS', array('backup_all' => 'Group backups', 'reboot_group' => 'Group reboots', 'update_group' => 'Group updates', 'rollout' => 'Rollouts', 'update' => 'Updates', 'backup' => 'Backups', 'reboot' => 'Reboots', 'restore' => 'Restores', 'template' => 'Templates', 'users' => 'User syncs', 'connections' => 'Connection changes', 'ha_setup' => 'HA pair setups', 'ha_remove' => 'HA pair removals', 'replica' => 'Backup copies', 'replica_sync' => 'Backup copy syncs'));
 define('FLEET_OPS_SINCE', array('1' => 'Last 24 hours', '7' => 'Last 7 days', '30' => 'Last 30 days'));
 
 /* A firewall's events by type: value => array(label, audit actions). */

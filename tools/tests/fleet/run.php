@@ -1469,6 +1469,39 @@ list($herr) = fleet_ha_setup_plan($hin, $hfa, array('gui_cert' => '') + $hfb);
 check((count($herr) === 1) && (strpos($herr[0], 'WebGUI certificate') !== false) && empty(fleet_ha_setup_plan(array('sections' => array()) + $hin, $hfa, array('gui_cert' => '') + $hfb)[0]),
     'configuration sync needs the secondary certificate to pin; without sync sections it is not needed');
 
+check((fleet_ha_sync_risk($hplan) === null) && (fleet_ha_sync_risk(array('sync_iface' => 'wan') + $hplan) === 'wan') && (fleet_ha_sync_risk(array('sync_iface' => 'lan') + $hplan) === 'shared'),
+    'the sync risk: a network of its own is quiet, the WAN and a network that carries a shared address are warned about');
+
+/* ---- HA pair: the encrypted link ---- */
+$hn = fleet_ha_link_net(array(array('10.254.0.1', 24), array('10.1.0.2', 24)));
+check(($hn === array('10.254.1.0', '10.254.1.1', '10.254.1.2')) && (fleet_ha_link_net(array(array('10.254.0.0', 15))) === null) && (fleet_ha_link_net(array())[0] === '10.254.0.0') &&
+    (fleet_ha_link_net(array(array('10.254.0.2', 32)))[0] === '10.254.0.4'),
+    'the encrypted link takes the first free /30 of 10.254.0.0/16, skipping every network either firewall uses');
+$hl_a = array('api_level' => 15) + $hfa;
+$hl_b = array('api_level' => 15) + $hfb;
+$hl_in = array('sync_mode' => 'tunnel', 'sync_iface' => '', 'link_host_p' => '203.0.113.5', 'link_port_p' => '51831', 'link_host_s' => '', 'link_port_s' => '51831') + $hin;
+list($hl_err, $hl_plan) = fleet_ha_setup_plan($hl_in, $hl_a, $hl_b);
+check(empty($hl_err) && ($hl_plan['sync_mode'] === 'tunnel') && ($hl_plan['link']['endpoint_p'] === '203.0.113.5:51831') && ($hl_plan['link']['endpoint_s'] === '') &&
+    ($hl_plan['primary_sync_ip'] === '10.254.0.1') && ($hl_plan['secondary_sync_ip'] === '10.254.0.2') && ($hl_plan['sync_iface'] === '') && ($hl_plan['sync_bits'] === 30),
+    'a tunnel plan: the link network and both addresses, no sync interface yet (the firewalls make it)');
+list($hl_err) = fleet_ha_setup_plan($hl_in, $hfa, $hl_b);
+check((count($hl_err) === 1) && (strpos($hl_err[0], 'REST API level 15') !== false), 'the encrypted link needs REST API level 15 on both firewalls');
+list($hl_err) = fleet_ha_setup_plan(array('link_host_p' => '') + $hl_in, $hl_a, $hl_b);
+check((count($hl_err) === 1) && (strpos($hl_err[0], 'At least one firewall') !== false), 'the encrypted link needs one firewall the other can reach');
+list($hl_err) = fleet_ha_setup_plan(array('link_host_s' => 'a b', 'link_port_p' => '70000') + $hl_in, $hl_a, $hl_b);
+check((count($hl_err) === 2), 'the encrypted link refuses a bad host and a bad port');
+$hl_p = fleet_ha_link_body($hl_plan, true, 'KEY');
+$hl_s = fleet_ha_link_body($hl_plan, false, 'KEY');
+check(($hl_p['address'] === '10.254.0.1') && ($hl_p['peer_address'] === '10.254.0.2') && ($hl_p['peer_endpoint'] === '') && ($hl_p['keepalive'] === 0) &&
+    ($hl_s['address'] === '10.254.0.2') && ($hl_s['peer_endpoint'] === '203.0.113.5:51831') && ($hl_s['keepalive'] === 25) && ($hl_s['bits'] === 30),
+    'the end that has no address waits; the other connects to it and keeps the link open');
+$hl_r = fleet_ha_link_rule_body($hl_plan, true);
+check(($hl_r['proto'] === 'udp') && ($hl_r['interface'] === 'wan') && ($hl_r['dstbeginport'] === '51831') && (strpos($hl_r['descr'], FLEET_HA_MARK) === 0) && (fleet_ha_link_rule_body($hl_plan, false) === null),
+    'only a firewall that others connect to gets the WAN rule for the link, marked as Fleet\'s');
+check((fleet_ha_sync_risk($hl_plan) === null) && (fleet_ha_sync_risk(array('sync_mode' => 'interface', 'sync_iface' => 'wan') + $hl_plan) === 'wan'), 'state sync over the encrypted link is not a risk');
+check((fleet_halink_endpoint_of('fw.example.net', 51831) === 'fw.example.net:51831') && (fleet_halink_endpoint_of('203.0.113.5', 1) === '203.0.113.5:1') && (fleet_halink_endpoint_of('a b', 1) === null),
+    'a link address is an IPv4 address or a DNS name');
+
 $hrb = fleet_ha_rule_bodies($hplan, 8443);
 check((count($hrb) === 2) && ($hrb[0]['proto'] === 'pfsync') && ($hrb[0]['src'] === '10.9.0.0') && ($hrb[0]['srcmask'] === '30') && ($hrb[1]['src'] === '10.9.0.1') &&
     ($hrb[1]['dsttype'] === 'opt1ip') && ($hrb[1]['dstbeginport'] === '8443') && (strpos($hrb[1]['descr'], FLEET_HA_MARK) === 0),
