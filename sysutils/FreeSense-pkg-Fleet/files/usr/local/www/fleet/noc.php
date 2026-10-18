@@ -26,6 +26,8 @@
  * (noc_data.php). ?style= and ?theme= choose the look.
  */
 
+/* A read-only GET page with a strict script CSP: no inline CSRF script. */
+$nocsrf = true;
 require_once('guiconfig.inc');
 require_once('fleet.inc');
 

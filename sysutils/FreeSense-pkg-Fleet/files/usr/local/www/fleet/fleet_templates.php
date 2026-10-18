@@ -521,9 +521,10 @@ $is_list = function (array $t): bool {
 	$svc = function (string $k) use ($sv) {
 		return !empty($sv['set_' . $k]) ? ' checked' : '';
 	};
-	$cards = $t['raw'] ?? array_map(function ($i) {
+	/* Only an alias template has cards; the items of a rules or port forward template are rule rows. */
+	$cards = ($edit_kind !== 'aliases') ? array() : ($t['raw'] ?? array_map(function ($i) {
 		return array('name' => $i['name'], 'type' => $i['type'], 'description' => $i['description'], 'entries' => fleet_template_entries_text($i['entries']));
-	}, $t['items']);
+	}, $t['items']));
 	if (empty($cards)) {
 		$cards[] = array('name' => '', 'type' => 'host', 'description' => '', 'entries' => '');
 	}

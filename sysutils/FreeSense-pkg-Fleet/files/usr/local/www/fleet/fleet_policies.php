@@ -510,7 +510,7 @@ $state_badge = function (string $state) {
 <?php if ($lockable): $mname = 'rule[' . htmlspecialchars($rid) . '][mode]'; $mid = 'm-' . preg_replace('/[^A-Za-z0-9-]/', '-', $rid); ?>
 							<div class="fs-fleet-mode-wrap"><div class="form-label small" id="<?=$mid?>-l"><?=gettext('When it is broken')?></div>
 							<fieldset class="fs-fleet-mode" aria-labelledby="<?=$mid?>-l">
-								<label><input type="radio" name="<?=$mname?>" value="audit"<?=($mode_now !== 'lock') ? ' checked' : ''?> data-rule-mode/>
+								<label><input type="radio" name="<?=$mname?>" value="audit"<?=(($mode_now !== 'lock') && !($fixable && ($mode_now === 'remediate'))) ? ' checked' : ''?> data-rule-mode/>
 									<span title="<?=gettext('Fleet reports it; nothing changes on the firewall')?>"><i class="fa-solid fa-eye" aria-hidden="true"></i> <?=gettext('Report')?></span></label>
 <?php if ($fixable): ?>
 								<label><input type="radio" name="<?=$mname?>" value="remediate"<?=($mode_now === 'remediate') ? ' checked' : ''?> data-rule-mode/>

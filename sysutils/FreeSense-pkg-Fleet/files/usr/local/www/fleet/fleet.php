@@ -511,6 +511,17 @@ if ($savemsg) {
 	    'group_name' => (string)($_POST['group_name'] ?? ''), 'group_description' => (string)($_POST['group_description'] ?? ''),
 	    'group_window' => (string)($_POST['group_window'] ?? '0'), 'group_color' => (string)($_POST['group_color'] ?? '1'),
 	    'naming_pattern' => (string)($_POST['naming_pattern'] ?? ''), 'naming_domain' => (string)($_POST['naming_domain'] ?? '')) : null;
+	/* "Change the group" in the dashboard menu links here with ?edit=<id>: open that group's modal. */
+	if (($reopen === null) && isset($_GET['edit'])) {
+		foreach ($groups as $grp) {
+			if ((int)$grp['id'] === (int)$_GET['edit']) {
+				$reopen = array('group_id' => (string)$grp['id'], 'group_name' => $grp['name'], 'group_description' => $grp['description'],
+				    'group_window' => (string)(int)$grp['window_id'], 'group_color' => fleet_group_color((string)$grp['color']),
+				    'naming_pattern' => (string)($grp['naming_pattern'] ?? ''), 'naming_domain' => (string)($grp['naming_domain'] ?? ''));
+				break;
+			}
+		}
+	}
 	$new_fill = array('group_window' => '0', 'group_color' => fleet_group_color((string)((count($groups) % 8) + 1)));
 ?>
 <div class="panel panel-default">
@@ -534,7 +545,7 @@ if ($savemsg) {
 		<thead><tr><th><?=gettext('Name')?></th><th><?=gettext('Description')?></th><th><?=gettext('Window')?></th><th><?=gettext('Naming')?></th><th><?=gettext('Firewalls')?></th><th class="text-end"><span class="visually-hidden"><?=gettext('Actions')?></span></th></tr></thead>
 		<tbody>
 <?php if (empty($shown)): ?>
-		<tr><td colspan="5" class="fs-muted"><?=gettext('No group matches.')?> <a href="?view=groups"><?=gettext('Clear the search')?></a></td></tr>
+		<tr><td colspan="6" class="fs-muted"><?=gettext('No group matches.')?> <a href="?view=groups"><?=gettext('Clear the search')?></a></td></tr>
 <?php endif; ?>
 <?php foreach ($shown as $grp): ?>
 		<tr><td><span class="fs-fleet-group fs-fleet-group-name" style="--fs-fleet-group: var(--fs-series-<?=htmlspecialchars(fleet_group_color((string)$grp['color']))?>)"><?=htmlspecialchars($grp['name'])?></span></td>
@@ -918,7 +929,7 @@ endif;
 <?php else: ?>
 <div class="panel panel-default">
 	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Allowed list')?> <span class="fs-count"><?=count($allowed)?></span></h2>
-		<form method="get" class="ms-auto d-flex gap-2"><input type="hidden" name="tab" value="settings"/><input type="hidden" name="view" value="access"/><input type="hidden" name="section" value="allowed"/>
+		<form method="get" class="ms-auto d-flex gap-2" data-fleet-filters><script src="/fleet/assets/fleet-list.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-list.js')?>" defer></script><input type="hidden" name="tab" value="settings"/><input type="hidden" name="view" value="access"/><input type="hidden" name="section" value="allowed"/>
 			<input class="form-control form-control-sm" type="search" name="aq" value="<?=htmlspecialchars($aq)?>" placeholder="<?=gettext('Search address or reason')?>" aria-label="<?=gettext('Search the allowed list')?>"/></form></div>
 	<div class="panel-body table-responsive"><table class="table fs-table">
 		<thead><tr><th><?=gettext('Address or network')?></th><th><?=gettext('Why')?></th><th class="text-end"></th></tr></thead>
