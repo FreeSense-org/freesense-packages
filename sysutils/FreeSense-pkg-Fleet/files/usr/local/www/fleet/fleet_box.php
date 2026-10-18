@@ -643,7 +643,7 @@ if ($savemsg) {
 		</ul></div>
 <?php endif; ?>
 <?php endif; ?>
-		<div class="panel-footer small fs-muted"><?=gettext('The gateway quality chart below shows the firewall\'s own history (from its RRD files).')?> <a href="/fleet/fleet_internet.php"><?=gettext('All gateways in the fleet')?></a></div>
+		<div class="panel-footer small fs-muted"><?=gettext('The gateway quality chart under Network shows the firewall\'s own history (from its RRD files).')?> <a href="/fleet/fleet_internet.php"><?=gettext('All gateways in the fleet')?></a></div>
 	</div>
 <?php endif; ?>
 <?php if ($ssec === 'network'): ?>

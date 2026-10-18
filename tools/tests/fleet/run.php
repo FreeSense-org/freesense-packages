@@ -320,6 +320,7 @@ if (is_executable('/usr/bin/diff')) {
 /* ---- packaging: every file in files/ is installed by the Makefile ---- */
 $port = dirname(__DIR__, 3) . '/sysutils/FreeSense-pkg-Fleet';
 $make = str_replace('${PORTNAME}', 'FreeSense-pkg-Fleet', (string)file_get_contents("{$port}/Makefile"));
+$plist = str_replace("\r", "", (string)file_get_contents("{$port}/pkg-plist"));
 $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator("{$port}/files", FilesystemIterator::SKIP_DOTS));
 foreach ($it as $f) {
 	$rel = substr(str_replace('\\', '/', $f->getPathname()), strlen("{$port}/files"));
@@ -330,6 +331,8 @@ foreach ($it as $f) {
 	$ext = pathinfo($made, PATHINFO_EXTENSION);
 	check(strpos($make, '${FILESDIR}' . $made . ' ') !== false || strpos($make, '${FILESDIR}' . dirname($made) . '/*.' . $ext . ' ') !== false ||
 	    strpos($make, '${FILESDIR}' . dirname($made) . '/* ') !== false, "the Makefile installs {$rel}");
+	/* ... and the package list names it, or the built package leaves it out. */
+	check(preg_match('#^' . preg_quote((strpos($rel, '/usr/local/') === 0) ? substr($rel, strlen('/usr/local/')) : $rel, '#') . '$#m', $plist) === 1, "pkg-plist lists {$rel}");
 }
 
 check(fleet_box_error(422, array('error' => array('message' => 'The request failed validation.', 'details' => array('fields' => array('config' => 'The configuration is from a newer FreeSense.'))))) === 'The configuration is from a newer FreeSense.' &&

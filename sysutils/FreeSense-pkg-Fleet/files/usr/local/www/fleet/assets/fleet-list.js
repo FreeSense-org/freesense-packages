@@ -29,10 +29,10 @@
 		window.addEventListener('pageshow', function () {
 			Array.prototype.forEach.call(form.elements, function (el) { el.disabled = false; });
 		});
-		Array.prototype.forEach.call(form.querySelectorAll('select'), function (s) {
+		Array.prototype.forEach.call(form.querySelectorAll('select, input[type="checkbox"]'), function (s) {
 			s.addEventListener('change', go);
 		});
-		var q = form.querySelector('input[name="q"]');
+		var q = form.querySelector('input[name="q"], input[name="aq"]');
 		var timer = null;
 		if (q) {
 			q.addEventListener('input', function () {

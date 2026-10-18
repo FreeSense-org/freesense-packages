@@ -246,7 +246,7 @@ $targets_select = function (string $id, array $chosen = array()) use ($fgroups, 
 	<header class="fs-fleet-area-head"><span class="fs-fleet-area-icon"><i class="fa-solid fa-users" aria-hidden="true"></i></span>
 		<div><h2><?=gettext('User groups')?></h2><p><?=gettext('A group holds privileges (which pages and actions its members get) and says which firewalls it is for. A user reaches a firewall through a group that is for it.')?></p></div></header>
 <?php if (!empty($ugroups)): ?>
-	<form method="get" class="fs-fleet-filterbar mb-3" role="search">
+	<form method="get" class="fs-fleet-filterbar mb-3" role="search" data-fleet-filters><script src="/fleet/assets/fleet-list.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-list.js')?>" defer></script>
 		<input type="hidden" name="view" value="groups"/>
 		<input class="form-control form-control-sm" type="search" name="q" value="<?=htmlspecialchars($q)?>" placeholder="<?=gettext('Search group, firewall or privilege')?>" aria-label="<?=gettext('Search groups')?>"/>
 		<button class="btn btn-sm btn-outline-secondary" type="submit"><?=gettext('Search')?></button>
