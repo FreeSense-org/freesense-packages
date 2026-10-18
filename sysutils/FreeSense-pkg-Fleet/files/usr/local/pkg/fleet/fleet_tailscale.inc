@@ -285,3 +285,39 @@ function fleet_ts_key_expiry_off(string $node, string $who): string {
 	fleet_audit($who, 'connections', "{$box['label']}: Tailscale key expiry turned off for device {$d['name']}");
 	return "Key expiry is off for {$box['label']} ({$d['name']}).";
 }
+
+/*
+ * Put this controller in the tailnet: save the API token when one is given,
+ * install the Tailscale package and log in with a one-time key Fleet makes
+ * (the same steps a joining firewall takes). Returns the controller's tailnet
+ * address; throws RuntimeException with something the admin can act on.
+ */
+function fleet_ts_controller_setup(string $token, string $who): string {
+	$token = trim($token);
+	if ($token !== '') {
+		try {
+			fleet_ts_token_set($token, $who);
+		} catch (InvalidArgumentException $e) {
+			throw new RuntimeException($e->getMessage());
+		}
+	}
+	$address = fleet_ts_controller_address();
+	if ($address !== null) {
+		return $address;
+	}
+	if (fleet_ts_token() === null) {
+		throw new RuntimeException('Add a Tailscale API token (tskey-api-...): Fleet needs it to make the one-time key this controller logs in with.');
+	}
+	/* Installing the package and waiting for the tailnet can take a few minutes. */
+	set_time_limit(300);
+	require_once('fleet_seed.inc');
+	$key = fleet_ts_authkey_mint('controller', 3600, $who);
+	try {
+		$address = fleet_seed_tailscale_up($key, function (string $step) {
+		});
+	} catch (FleetJoinError $e) {
+		throw new RuntimeException($e->getMessage());
+	}
+	fleet_audit($who, 'connections', "Tailscale set up on this controller ({$address})");
+	return $address;
+}
