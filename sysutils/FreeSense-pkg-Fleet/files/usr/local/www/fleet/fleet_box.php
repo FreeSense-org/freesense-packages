@@ -273,7 +273,7 @@ if ($savemsg) {
 <div class="row g-3 fs-fleet-panels">
 	<div class="col-lg-6">
 		<div class="panel panel-default h-100">
-			<div class="panel-heading"><h2 class="panel-title"><?=gettext('This firewall')?></h2></div>
+			<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-server icon-embed-btn" aria-hidden="true"></i><?=gettext('This firewall')?></h2></div>
 			<div class="panel-body fs-fleet-pad">
 				<dl class="fs-fleet-facts fs-fleet-facts--wide">
 					<dt><?=gettext('Version')?></dt><dd><?=htmlspecialchars((string)($st['version'] ?? '-'))?></dd>
@@ -294,7 +294,7 @@ if ($savemsg) {
 	</div>
 	<div class="col-lg-6">
 		<div class="panel panel-default h-100">
-			<div class="panel-heading"><h2 class="panel-title"><?=gettext('In the fleet')?></h2></div>
+			<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-network-wired icon-embed-btn" aria-hidden="true"></i><?=gettext('In the fleet')?></h2></div>
 			<div class="panel-body fs-fleet-pad">
 				<dl class="fs-fleet-facts fs-fleet-facts--wide">
 					<dt><?=gettext('Access')?></dt><dd><?=($box['role'] === 'managed') ? gettext('Managed') : gettext('Monitor only')?></dd>
@@ -392,7 +392,7 @@ if ($savemsg) {
 		}
 ?>
 <div class="panel panel-default fs-fleet-review" role="region" aria-labelledby="review-title">
-	<div class="panel-heading"><h2 id="review-title" class="panel-title"><?=sprintf(gettext('Restore the backup from %s?'), htmlspecialchars(date('Y-m-d H:i', (int)$review['time'])))?></h2></div>
+	<div class="panel-heading"><h2 id="review-title" class="panel-title"><i class="fa-solid fa-rotate-left icon-embed-btn" aria-hidden="true"></i><?=sprintf(gettext('Restore the backup from %s?'), htmlspecialchars(date('Y-m-d H:i', (int)$review['time'])))?></h2></div>
 	<div class="panel-body fs-fleet-pad">
 		<p class="fs-fleet-lead"><?=sprintf(gettext('The firewall gets this configuration back. Its current configuration is backed up first, and it keeps its place in the fleet. If it does not answer within %d minutes afterwards, it goes back by itself. Rules and aliases apply at once; some interface and service settings need a reboot.'), fleet_opt('restore_confirm'))?></p>
 <?php if ($fetch_error !== null): ?>
@@ -418,7 +418,7 @@ if ($savemsg) {
 
 <div class="panel panel-default">
 	<div class="panel-heading fs-fleet-panel-head">
-		<h2 class="panel-title"><?=gettext('Backups')?> <span class="fs-count"><?=count($backups)?></span></h2>
+		<h2 class="panel-title"><i class="fa-solid fa-box-archive icon-embed-btn" aria-hidden="true"></i><?=gettext('Backups')?> <span class="fs-count"><?=count($backups)?></span></h2>
 		<span class="fs-muted small"><?=empty($box_sets) ? sprintf(gettext('Keeps the default: %s'), htmlspecialchars(fleet_keep_rule_text(fleet_backup_default_rule()))) : sprintf(gettext('Kept by %s'), htmlspecialchars(implode(', ', $box_sets)))?>
 			(<a href="/fleet/fleet_backups.php?view=sets"><?=gettext('sets')?></a>)</span>
 		<a class="btn btn-sm btn-link" href="/fleet/fleet_schedules.php?node=<?=urlencode($box['node_id'])?>"><?=gettext('Schedule...')?></a>
@@ -484,17 +484,17 @@ if ($savemsg) {
 	<div class="fs-tiles fs-fleet-tiles-row" data-m="live" aria-live="polite"><p class="fs-muted mb-0"><?=gettext('Reading the firewall...')?></p></div>
 	<div class="fs-fleet-two">
 		<div class="panel panel-default">
-			<div class="panel-heading"><h2 class="panel-title"><?=gettext('Hardware')?></h2></div>
+			<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-microchip icon-embed-btn" aria-hidden="true"></i><?=gettext('Hardware')?></h2></div>
 			<div class="panel-body fs-fleet-pad"><dl class="fs-fleet-facts fs-fleet-facts--wide mb-1" data-m="hw"></dl><div class="fs-muted small" data-m="checked"></div></div>
 		</div>
 		<div class="panel panel-default">
-			<div class="panel-heading"><h2 class="panel-title"><?=gettext('Disks')?></h2></div>
+			<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-hard-drive icon-embed-btn" aria-hidden="true"></i><?=gettext('Disks')?></h2></div>
 			<div class="panel-body table-responsive"><table class="table fs-table"><thead><tr><th><?=gettext('Mounted on')?></th><th><?=gettext('Type')?></th><th><?=gettext('Used')?></th><th class="text-end"><?=gettext('Size')?></th></tr></thead>
 				<tbody data-m="disks"></tbody></table></div>
 		</div>
 	</div>
 	<div class="panel panel-default">
-		<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('CPU and memory')?></h2>
+		<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><i class="fa-solid fa-chart-line icon-embed-btn" aria-hidden="true"></i><?=gettext('CPU and memory')?></h2>
 			<div class="btn-group btn-group-sm" role="group" aria-label="<?=gettext('Range')?>">
 <?php foreach (array('1h' => gettext('1 hour'), '24h' => gettext('24 hours'), '7d' => gettext('7 days'), '30d' => gettext('30 days')) as $rk => $rl): ?>
 				<button type="button" class="btn btn-outline-secondary" data-range="<?=$rk?>" aria-pressed="<?=($rk === '24h') ? 'true' : 'false'?>"><?=$rl?></button>
@@ -503,7 +503,7 @@ if ($savemsg) {
 		<div class="panel-body fs-fleet-pad" data-m="history"></div>
 	</div>
 	<div class="panel panel-default">
-		<div class="panel-heading"><h2 class="panel-title"><?=gettext('Interfaces')?></h2></div>
+		<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-network-wired icon-embed-btn" aria-hidden="true"></i><?=gettext('Interfaces')?></h2></div>
 		<div class="panel-body table-responsive"><table class="table fs-table"><thead><tr><th><?=gettext('Interface')?></th><th><?=gettext('Link')?></th><th><?=gettext('Address')?></th><th><?=gettext('MAC')?></th><th class="text-end"><?=gettext('Errors')?></th></tr></thead>
 			<tbody data-m="ifs"></tbody></table></div>
 	</div>
@@ -689,7 +689,7 @@ if ($savemsg) {
 ?>
 <?php if ($ureview): ?>
 <div class="panel panel-default fs-fleet-review" role="region" aria-labelledby="review-title">
-	<div class="panel-heading"><h2 id="review-title" class="panel-title"><?=sprintf(htmlspecialchars(gettext('Update %1$s to %2$s?')), htmlspecialchars($box['label']), htmlspecialchars(fleet_version_number($uinfo['latest'])))?></h2></div>
+	<div class="panel-heading"><h2 id="review-title" class="panel-title"><i class="fa-solid fa-circle-up icon-embed-btn" aria-hidden="true"></i><?=sprintf(htmlspecialchars(gettext('Update %1$s to %2$s?')), htmlspecialchars($box['label']), htmlspecialchars(fleet_version_number($uinfo['latest'])))?></h2></div>
 	<div class="panel-body fs-fleet-pad">
 <?php if ($protected === false): ?>
 		<p class="fs-fleet-lead"><?=fs_badge('warn', gettext('No rollback'))?> <?=gettext('This firewall runs on UFS: the update runs in place and cannot roll back. If it fails, the firewall must be reinstalled and its configuration restored from Fleet. A backup is taken first.')?></p>
@@ -710,7 +710,7 @@ if ($savemsg) {
 	</div>
 	<div class="panel-footer">
 		<form method="post" action="<?=$here('updates')?>" class="fs-fleet-review-actions">
-			<button class="btn btn-primary" type="submit" name="update_start" value="1"<?=$blocked ? ' disabled' : ''?>><i class="fa-solid fa-download icon-embed-btn" aria-hidden="true"></i><?=sprintf(gettext('Update to %s now'), htmlspecialchars(fleet_version_number($uinfo['latest'])))?></button>
+			<button class="btn btn-primary" type="submit" name="update_start" value="1"<?=fleet_confirm(gettext('Update this firewall now?'), gettext('The firewall is backed up and then updated. It restarts, so it stops forwarding for a few minutes. The dashboard shows when it is back.'), gettext('Update now'), 'warning', 'cloud-arrow-down')?><?=$blocked ? ' disabled' : ''?>><i class="fa-solid fa-download icon-embed-btn" aria-hidden="true"></i><?=sprintf(gettext('Update to %s now'), htmlspecialchars(fleet_version_number($uinfo['latest'])))?></button>
 			<a class="btn btn-outline-secondary" href="<?=$here('updates')?>"><?=gettext('Cancel')?></a>
 <?php if ($blocked): ?>
 			<span class="fs-muted small"><?=gettext('A check blocks the update. Fix it on the firewall, then check again.')?></span>
@@ -720,7 +720,7 @@ if ($savemsg) {
 </div>
 <?php endif; ?>
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('System version')?></h2></div>
+	<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-code-branch icon-embed-btn" aria-hidden="true"></i><?=gettext('System version')?></h2></div>
 	<div class="panel-body fs-fleet-pad">
 		<dl class="fs-fleet-facts">
 			<dt><?=gettext('Running')?></dt><dd><?=htmlspecialchars((string)($st['version'] ?? '-'))?></dd>
@@ -764,9 +764,9 @@ if ($savemsg) {
 	    'excepted' => fs_badge('info', gettext('Exception')));
 ?>
 <div class="panel panel-default">
-	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Policy rules for this firewall')?> <span class="fs-count"><?=count($peff)?></span></h2>
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><i class="fa-solid fa-shield-halved icon-embed-btn" aria-hidden="true"></i><?=gettext('Policy rules for this firewall')?> <span class="fs-count"><?=count($peff)?></span></h2>
 		<span><?php if ($manage && ($pfixable > 0) && fleet_manage_allowed($box)): ?>
-			<form method="post" action="?id=<?=urlencode($box['node_id'])?>&amp;view=policies" class="d-inline"><button class="btn btn-sm btn-primary" name="policy_fix" value="1"><i class="fa-solid fa-wrench icon-embed-btn" aria-hidden="true"></i><?=sprintf(ngettext('Fix %d rule now', 'Fix %d rules now', $pfixable), $pfixable)?></button></form>
+			<form method="post" action="?id=<?=urlencode($box['node_id'])?>&amp;view=policies" class="d-inline"><button class="btn btn-sm btn-primary" name="policy_fix" value="1"<?=fleet_confirm(gettext('Fix these rules now?'), gettext('Fleet changes the settings of this firewall to what the policy asks. The firewall gets a safety backup first.'), gettext('Fix now'), 'warning', 'wrench')?>><i class="fa-solid fa-wrench icon-embed-btn" aria-hidden="true"></i><?=sprintf(ngettext('Fix %d rule now', 'Fix %d rules now', $pfixable), $pfixable)?></button></form>
 <?php endif; ?>
 		<a class="btn btn-sm btn-link" href="/fleet/fleet_policies.php?view=policies"><?=gettext('Policies...')?></a></span></div>
 <?php if (empty($peff)): ?>
@@ -806,7 +806,7 @@ if ($savemsg) {
 ?>
 <?php if (!fleet_manage_allowed($box)): ?>
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Manage')?></h2></div>
+	<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-screwdriver-wrench icon-embed-btn" aria-hidden="true"></i><?=gettext('Manage')?></h2></div>
 	<div class="panel-body fs-fleet-pad">
 		<p class="fs-fleet-lead"><?=gettext('This firewall joined as Monitor only: the controller reads its status and backups but may not change it. To manage it from here, let it leave the fleet and invite it again with Managed access.')?></p>
 	</div>
@@ -814,7 +814,7 @@ if ($savemsg) {
 <?php else: ?>
 <?php if (in_array($review, array('reboot', 'states'), true)): ?>
 <div class="panel panel-default fs-fleet-review" role="region" aria-labelledby="review-title">
-	<div class="panel-heading"><h2 id="review-title" class="panel-title"><?=($review === 'reboot') ? sprintf(gettext('Reboot %s?'), htmlspecialchars($box['label'])) : sprintf(gettext('Reset the state table on %s?'), htmlspecialchars($box['label']))?></h2></div>
+	<div class="panel-heading"><h2 id="review-title" class="panel-title"><i class="fa-solid <?=($review === 'reboot') ? 'fa-power-off' : 'fa-arrow-rotate-right'?> icon-embed-btn" aria-hidden="true"></i><?=($review === 'reboot') ? sprintf(gettext('Reboot %s?'), htmlspecialchars($box['label'])) : sprintf(gettext('Reset the state table on %s?'), htmlspecialchars($box['label']))?></h2></div>
 	<div class="panel-body fs-fleet-pad">
 <?php if ($review === 'reboot'): ?>
 		<p class="fs-fleet-lead"><?=gettext('The firewall stops forwarding while it restarts, usually for one to three minutes. A CARP backup takes over where there is one. It comes back by itself; the dashboard shows when it is online again.')?></p>
@@ -834,7 +834,7 @@ if ($savemsg) {
 <div class="row g-3 fs-fleet-panels">
 	<div class="col-lg-6">
 		<div class="panel panel-default h-100">
-			<div class="panel-heading"><h2 class="panel-title"><?=gettext('Power')?></h2></div>
+			<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-power-off icon-embed-btn" aria-hidden="true"></i><?=gettext('Power')?></h2></div>
 			<div class="panel-body fs-fleet-pad">
 				<p class="fs-fleet-lead"><?=gettext('Restart the firewall. You see what happens before anything is done.')?></p>
 				<a class="btn btn-outline-secondary<?=$offline ? ' disabled' : ''?>" href="<?=$here('manage', array('review' => 'reboot'))?>"><i class="fa-solid fa-power-off icon-embed-btn" aria-hidden="true"></i><?=gettext('Reboot')?>&hellip;</a>
@@ -844,7 +844,7 @@ if ($savemsg) {
 	</div>
 	<div class="col-lg-6">
 		<div class="panel panel-default h-100">
-			<div class="panel-heading"><h2 class="panel-title"><?=gettext('State table')?></h2></div>
+			<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-arrow-rotate-right icon-embed-btn" aria-hidden="true"></i><?=gettext('State table')?></h2></div>
 			<div class="panel-body fs-fleet-pad">
 				<p class="fs-fleet-lead"><?=gettext('Drop every connection through the firewall, for example after changing rules that existing connections still bypass.')?></p>
 				<a class="btn btn-outline-secondary<?=$offline ? ' disabled' : ''?>" href="<?=$here('manage', array('review' => 'states'))?>"><i class="fa-solid fa-arrow-rotate-right icon-embed-btn" aria-hidden="true"></i><?=gettext('Reset the state table')?>&hellip;</a>
@@ -854,7 +854,7 @@ if ($savemsg) {
 </div>
 
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Services')?></h2></div>
+	<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-gears icon-embed-btn" aria-hidden="true"></i><?=gettext('Services')?></h2></div>
 <?php
 	try {
 		/* Right after a reboot the box is going down: asking it for its services would only wait for a timeout. */
@@ -882,8 +882,8 @@ if ($savemsg) {
 					<input type="hidden" name="vpnid" value="<?=htmlspecialchars((string)($svc['vpnid'] ?? ''))?>"/>
 					<input type="hidden" name="zone" value="<?=htmlspecialchars((string)($svc['zone'] ?? ''))?>"/>
 <?php if ($svc['running']): ?>
-					<button class="btn btn-sm btn-link" name="manage_action" value="restart"><i class="fa-solid fa-arrow-rotate-right icon-embed-btn" aria-hidden="true"></i><?=gettext('Restart')?></button>
-					<button class="btn btn-sm btn-link" name="manage_action" value="stop"><i class="fa-solid fa-stop icon-embed-btn" aria-hidden="true"></i><?=gettext('Stop')?></button>
+					<button class="btn btn-sm btn-link" name="manage_action" value="restart"<?=fleet_confirm(sprintf(gettext('Restart %s?'), $svc['name']), gettext('The service stops and starts again on this firewall. What depends on it is interrupted for a moment.'), gettext('Restart'), 'warning', 'arrow-rotate-right')?>><i class="fa-solid fa-arrow-rotate-right icon-embed-btn" aria-hidden="true"></i><?=gettext('Restart')?></button>
+					<button class="btn btn-sm btn-link" name="manage_action" value="stop"<?=fleet_confirm(sprintf(gettext('Stop %s?'), $svc['name']), gettext('The service stops on this firewall and stays off until you start it again. What depends on it stops working.'), gettext('Stop'), 'danger', 'stop')?>><i class="fa-solid fa-stop icon-embed-btn" aria-hidden="true"></i><?=gettext('Stop')?></button>
 <?php else: ?>
 					<button class="btn btn-sm btn-link" name="manage_action" value="start"><i class="fa-solid fa-play icon-embed-btn" aria-hidden="true"></i><?=gettext('Start')?></button>
 <?php endif; ?>
@@ -900,7 +900,7 @@ if ($savemsg) {
 <?=fleet_list_filterbar(array('id' => $box['node_id'], 'view' => 'events'), $ev_filters,
     array('type' => array(gettext('Any event'), $ev_types), 'since' => array(gettext('Any time'), FLEET_OPS_SINCE)), gettext('Search events'), gettext('Search events'))?>
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Events')?> <span class="fs-count"><?=(int)$ev_page['total']?></span></h2></div>
+	<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-clock-rotate-left icon-embed-btn" aria-hidden="true"></i><?=gettext('Events')?> <span class="fs-count"><?=(int)$ev_page['total']?></span></h2></div>
 	<div class="panel-body fs-fleet-pad">
 <?php if (empty($events)): ?>
 		<p class="fs-fleet-hint"><?=!empty($ev_filters) ? gettext('No event matches these filters.') : gettext('Nothing has happened to this firewall yet.')?></p>
@@ -919,4 +919,5 @@ if ($savemsg) {
 </div>
 <?php endif; ?>
 <script src="/fleet/assets/fleet-list.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-list.js')?>"></script>
+<?=fleet_confirm_script()?>
 <?php include('foot.inc');

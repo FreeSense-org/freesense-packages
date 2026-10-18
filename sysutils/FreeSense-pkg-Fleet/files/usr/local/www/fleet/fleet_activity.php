@@ -138,7 +138,7 @@ if ($manage) {
 ?>
 	<p><a class="fs-fleet-back" href="/fleet/fleet_activity.php<?=htmlspecialchars(fleet_activity_from((string)($_GET['from'] ?? '')))?>"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i><?=gettext('All activity')?></a></p>
 	<div class="panel panel-default">
-		<div class="panel-heading"><h2 class="panel-title"><?=htmlspecialchars($what($op))?> <?=$state_badge((string)$op['state'])?></h2></div>
+		<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-clock-rotate-left icon-embed-btn" aria-hidden="true"></i><?=htmlspecialchars($what($op))?> <?=$state_badge((string)$op['state'])?></h2></div>
 		<div class="panel-body fs-fleet-pad">
 <?php
 	/* A group operation's own text is written when a task finishes; until then show the tasks' progress, not "Starting". */
@@ -162,7 +162,7 @@ if ($manage) {
 	</div>
 <?php if (!empty($tasks)): ?>
 	<div class="panel panel-default">
-		<div class="panel-heading"><h2 class="panel-title"><?=gettext('Firewalls')?> <span class="fs-badge fs-badge--neutral"><?=count($tasks)?></span></h2></div>
+		<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-server icon-embed-btn" aria-hidden="true"></i><?=gettext('Firewalls')?> <span class="fs-badge fs-badge--neutral"><?=count($tasks)?></span></h2></div>
 <?php if (empty($shown)): ?>
 		<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint"><?=gettext('No firewall matches these filters.')?></p></div>
 <?php else: ?>
@@ -184,7 +184,7 @@ if ($manage) {
 	list($history, $pg) = fleet_ops_find($f, $page, $now);
 ?>
 	<div class="panel panel-default">
-		<div class="panel-heading"><h2 class="panel-title"><?=gettext('Activity')?> <span class="fs-badge fs-badge--neutral"><?=(int)$pg['total']?></span></h2></div>
+		<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-list-check icon-embed-btn" aria-hidden="true"></i><?=gettext('Activity')?> <span class="fs-badge fs-badge--neutral"><?=(int)$pg['total']?></span></h2></div>
 <?php if (empty($history)): ?>
 		<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint"><?=!empty($f) ? gettext('Nothing matches these filters.') : gettext('Nothing has run yet. Reboots, backups and other actions on firewalls appear here with their progress.')?></p></div>
 <?php else: ?>

@@ -352,6 +352,33 @@ function fleet_boottime_seconds(): int {
 	return preg_match('/sec = (\d+)/', (string)@shell_exec('/sbin/sysctl -n kern.boottime'), $m) ? (int)$m[1] : 0;
 }
 
+/*
+ * A button that asks first (assets/fleet-confirm.js): the attributes that make a submit button or link open a confirmation
+ * dialog. $tone: 'danger' (deletes, cannot be undone), 'warning' (changes firewalls, stops a service, ends access) or 'info'.
+ * $icon: a Font Awesome name without "fa-". $items: what will happen, one line each. $type: text the admin has to type first,
+ * for the most serious actions. The text must already be translated. Returns an attribute string for the tag.
+ */
+function fleet_confirm(string $title, string $text, string $action, string $tone = 'danger', string $icon = '', array $items = array(), string $type = ''): string {
+	$cfg = array('title' => $title, 'text' => $text, 'action' => $action, 'tone' => $tone, 'cancel' => gettext('Cancel'));
+	if ($icon !== '') {
+		$cfg['icon'] = $icon;
+	}
+	if (!empty($items)) {
+		$cfg['items'] = array_values($items);
+	}
+	if ($type !== '') {
+		$cfg['type'] = $type;
+		$cfg['typeLabel'] = sprintf(gettext('To confirm, type: %s'), $type);
+	}
+	return ' data-fleet-confirm="' . htmlspecialchars(json_encode($cfg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ENT_QUOTES) . '"';
+}
+
+/* The script tag of the confirmation dialog, for the foot of a page with buttons that ask first. */
+function fleet_confirm_script(): string {
+	return '<script src="/fleet/assets/fleet-confirm.js?v=' . (int)@filemtime('/usr/local/www/fleet/assets/fleet-confirm.js') . '"></script>' . "
+";
+}
+
 /* The views of the Firewalls tab, as the WebUI's segmented control. */
 function fleet_firewalls_nav(string $current, int $pending = 0): string {
 	$views = array(

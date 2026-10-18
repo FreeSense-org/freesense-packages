@@ -176,7 +176,7 @@ if ($view === 'recover'):
 	$has_boxes = is_file(FLEET_DATA . '/fleet.db') && ((int)fleet_db()->query('SELECT COUNT(*) FROM boxes')->fetchColumn() > 0);
 ?>
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Recover fleet')?></h2></div>
+	<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-rotate-left icon-embed-btn" aria-hidden="true"></i><?=gettext('Recover fleet')?></h2></div>
 	<div class="panel-body fs-fleet-pad">
 		<p class="fs-fleet-lead"><?=gettext('Bring a lost controller back on this firewall: its firewalls, groups, settings, keys and every backup. You need the fleet\'s recovery key and a copy of the backups: download it from any firewall that keeps copies (System > Central Management on that firewall) or use an archive exported by the controller.')?></p>
 <?php if ($recover_preview === null): ?>
@@ -213,7 +213,7 @@ if ($view === 'recover'):
 <?php if ($has_boxes): ?>
 				<label class="form-check"><input class="form-check-input" type="checkbox" name="replace" value="1" required/> <span class="form-check-label"><?=gettext('This controller already has firewalls. Replace them all with the copy.')?></span></label>
 <?php endif; ?>
-				<button class="btn btn-primary" type="submit" name="recover_apply" value="1"><i class="fa-solid fa-life-ring icon-embed-btn" aria-hidden="true"></i><?=gettext('Recover the fleet')?></button>
+				<button class="btn btn-primary" type="submit" name="recover_apply" value="1"<?=fleet_confirm(gettext('Recover the fleet from this copy?'), gettext('The controller\'s firewalls, keys, settings and backups are replaced by the copy. This cannot be undone.'), gettext('Recover the fleet'), 'danger', 'life-ring')?>><i class="fa-solid fa-life-ring icon-embed-btn" aria-hidden="true"></i><?=gettext('Recover the fleet')?></button>
 				<a class="btn btn-outline-secondary" href="?view=recover"><?=gettext('Cancel')?></a>
 			</form>
 		</div>
@@ -273,10 +273,10 @@ $now = time();
 	<div class="fs-tile"><span class="fs-tile-label"><?=gettext('Space used')?></span><span class="fs-tile-value"><?=htmlspecialchars(format_bytes((int)$total_bytes))?></span></div>
 </div>
 <div class="panel panel-default">
-	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Backups by firewall')?></h2>
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><i class="fa-solid fa-box-archive icon-embed-btn" aria-hidden="true"></i><?=gettext('Backups by firewall')?></h2>
 <?php if ($manage): ?>
 		<form method="post" class="d-flex gap-2">
-			<button class="btn btn-sm btn-outline-secondary" name="prune" value="1" title="<?=gettext('Runs by itself after every nightly backup')?>"><i class="fa-solid fa-broom icon-embed-btn" aria-hidden="true"></i><?=gettext('Remove old backups now')?></button>
+			<button class="btn btn-sm btn-outline-secondary" name="prune" value="1"<?=fleet_confirm(gettext('Remove old backups now?'), gettext('Backups that no keep rule holds any more are deleted and cannot be brought back. This also runs by itself after every nightly backup.'), gettext('Remove old backups'), 'warning', 'broom')?> title="<?=gettext('Runs by itself after every nightly backup')?>"><i class="fa-solid fa-broom icon-embed-btn" aria-hidden="true"></i><?=gettext('Remove old backups now')?></button>
 		</form>
 <?php endif; ?>
 	</div>
@@ -337,7 +337,7 @@ $now = time();
 ?>
 <?php if ($new_key !== null): ?>
 <div class="panel panel-default fs-fleet-review" role="region" aria-labelledby="rk-title">
-	<div class="panel-heading"><h2 id="rk-title" class="panel-title"><?=gettext('Your recovery key')?></h2></div>
+	<div class="panel-heading"><h2 id="rk-title" class="panel-title"><i class="fa-solid fa-key icon-embed-btn" aria-hidden="true"></i><?=gettext('Your recovery key')?></h2></div>
 	<div class="panel-body fs-fleet-pad">
 		<p class="fs-fleet-lead"><?=gettext('Write it down or store it in a password manager now. It is shown only this once and is not kept on the controller. With it and any copy of the backups, a new controller gets the whole fleet back. Anyone with both can read every firewall\'s configuration.')?></p>
 		<p class="fs-fleet-key"><code id="recovery-key"><?=htmlspecialchars($new_key)?></code>
@@ -347,7 +347,7 @@ $now = time();
 </div>
 <?php endif; ?>
 <div class="panel panel-default">
-	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Recovery key')?></h2>
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><i class="fa-solid fa-key icon-embed-btn" aria-hidden="true"></i><?=gettext('Recovery key')?></h2>
 <?php if ($manage): ?>
 		<form method="post" action="?view=copies"><button class="btn btn-sm <?=fleet_recovery_ready() ? 'btn-outline-secondary' : 'btn-primary'?>" name="recovery_create" value="1"><i class="fa-solid fa-key icon-embed-btn" aria-hidden="true"></i><?=fleet_recovery_ready() ? gettext('Make a new recovery key') : gettext('Make the recovery key')?></button></form>
 <?php endif; ?>
@@ -362,7 +362,7 @@ $now = time();
 </div>
 
 <div class="panel panel-default">
-	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Copies on other firewalls')?></h2>
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><i class="fa-solid fa-clone icon-embed-btn" aria-hidden="true"></i><?=gettext('Copies on other firewalls')?></h2>
 <?php if ($manage && (!empty($peers) || !empty(fleet_offsite_ids()))): ?>
 		<form method="post" action="?view=copies"><button class="btn btn-sm btn-outline-secondary" name="sync" value="1"><i class="fa-solid fa-rotate icon-embed-btn" aria-hidden="true"></i><?=gettext('Sync now')?></button></form>
 <?php endif; ?>
@@ -413,7 +413,7 @@ $now = time();
 </div>
 
 <div class="panel panel-default">
-	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Off-site copies')?></h2>
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><i class="fa-solid fa-cloud-arrow-up icon-embed-btn" aria-hidden="true"></i><?=gettext('Off-site copies')?></h2>
 		<a class="btn btn-sm btn-link" href="/diag_backup_remote.php"><?=gettext('Storage targets...')?></a></div>
 	<div class="panel-body fs-fleet-pad">
 <?php $remote = fleet_offsite_available() ? remote_backup_targets() : array(); $off_ids = fleet_offsite_ids(); $off_status = fleet_offsite_status(); ?>
@@ -442,7 +442,7 @@ $now = time();
 </div>
 
 <div class="panel panel-default">
-	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Test restores')?></h2>
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><i class="fa-solid fa-vial-circle-check icon-embed-btn" aria-hidden="true"></i><?=gettext('Test restores')?></h2>
 <?php if ($manage): ?>
 		<form method="post" action="?view=copies"><button class="btn btn-sm btn-outline-secondary" name="verify" value="1"><i class="fa-solid fa-vial icon-embed-btn" aria-hidden="true"></i><?=gettext('Test now')?></button></form>
 <?php endif; ?>
@@ -461,7 +461,7 @@ $now = time();
 </div>
 
 <div class="panel panel-default">
-	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Export')?></h2>
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><i class="fa-solid fa-file-export icon-embed-btn" aria-hidden="true"></i><?=gettext('Export')?></h2>
 <?php if ($manage): ?>
 		<form method="post" action="?view=copies"><button class="btn btn-sm btn-outline-secondary" name="export" value="1"><i class="fa-solid fa-file-export icon-embed-btn" aria-hidden="true"></i><?=gettext('Download all backups (.fsfa)')?></button></form>
 <?php endif; ?>
@@ -485,7 +485,7 @@ $now = time();
 	$boxes = fleet_db()->query('SELECT node_id, label FROM boxes ORDER BY label COLLATE NOCASE')->fetchAll(PDO::FETCH_KEY_PAIR);
 ?>
 <div class="panel panel-default">
-	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Backup sets')?> <span class="fs-count"><?=count($sets)?></span></h2>
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><i class="fa-solid fa-folder-tree icon-embed-btn" aria-hidden="true"></i><?=gettext('Backup sets')?> <span class="fs-count"><?=count($sets)?></span></h2>
 <?php if ($manage): ?>
 		<button type="button" class="btn btn-sm btn-primary" data-fs-modal="#set-modal" data-fs-modal-title="<?=gettext('Add a backup set')?>" data-fs-fill="<?=htmlspecialchars($sfill(null))?>"><i class="fa-solid fa-plus icon-embed-btn" aria-hidden="true"></i><?=gettext('Add set')?></button>
 <?php endif; ?>
@@ -518,7 +518,7 @@ $now = time();
 			<td class="text-end text-nowrap">
 <?php if ($manage): ?>
 				<button type="button" class="btn btn-sm btn-link" data-fs-modal="#set-modal" data-fs-modal-title="<?=htmlspecialchars(sprintf(gettext('Change %s'), $set['name']))?>" data-fs-fill="<?=htmlspecialchars($sfill($set))?>"><?=gettext('Change')?></button>
-				<form method="post" action="?view=sets" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="set_delete" value="<?=(int)$set['id']?>"><?=gettext('Delete')?></button></form>
+				<form method="post" action="?view=sets" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="set_delete" value="<?=(int)$set['id']?>"<?=fleet_confirm(sprintf(gettext('Delete the backup set "%s"?'), $set['name']), gettext('Fleet no longer keeps backups for it by its rule. Backups that no other rule keeps are removed with the next clean-up.'), gettext('Delete set'), 'danger', 'trash')?>><?=gettext('Delete')?></button></form>
 <?php endif; ?>
 			</td></tr>
 <?php endforeach; ?>
@@ -560,4 +560,5 @@ $now = time();
 	fs_modal_form_end(gettext('Save set'), 'set_save', '1', 'fa-floppy-disk');
 endif; ?>
 <?php endif; ?>
+<?=fleet_confirm_script()?>
 <?php include('foot.inc');

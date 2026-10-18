@@ -128,7 +128,7 @@ if (($kconf !== null) && $manage):
 <form method="post" action="?config=<?=$h($kconf)?>&amp;section=<?=$h($ksec)?>" class="fs-fleet-kcfg" data-fleet-tabs>
 	<input type="hidden" name="save_config" value="1"/>
 	<div class="panel panel-default"<?=$tab('layout')?>>
-		<div class="panel-heading"><h2 class="panel-title"><?=gettext('Layout')?></h2></div>
+		<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-table-cells-large icon-embed-btn" aria-hidden="true"></i><?=gettext('Layout')?></h2></div>
 		<div class="panel-body fs-fleet-pad">
 			<div class="row g-3 mb-3">
 				<div class="col-sm-5"><label class="form-label" for="kheading"><?=gettext('Header text')?></label>
@@ -164,7 +164,7 @@ if (($kconf !== null) && $manage):
 	</div>
 
 	<div class="panel panel-default"<?=$tab('list')?>>
-		<div class="panel-heading"><h2 class="panel-title"><?=gettext('Firewall list')?></h2></div>
+		<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-server icon-embed-btn" aria-hidden="true"></i><?=gettext('Firewall list')?></h2></div>
 		<div class="panel-body fs-fleet-pad">
 			<fieldset class="mb-3"><legend class="form-label"><?=gettext('Columns')?></legend>
 				<div class="fs-fleet-checkgrid">
@@ -211,7 +211,7 @@ if (($kconf !== null) && $manage):
 	</div>
 
 	<div class="panel panel-default"<?=$tab('panels')?>>
-		<div class="panel-heading"><h2 class="panel-title"><?=gettext('Panels')?></h2></div>
+		<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-chart-line icon-embed-btn" aria-hidden="true"></i><?=gettext('Panels')?></h2></div>
 		<div class="panel-body fs-fleet-pad">
 			<p class="fs-fleet-hint"><?=gettext('Tick the panels to show and put them in order: drag a row, or use the arrows. Panels that do not fit go on the next page.')?></p>
 			<ol class="fs-fleet-order-list" data-fleet-order>
@@ -248,7 +248,7 @@ if (($kconf !== null) && $manage):
 	</div>
 
 	<div class="panel panel-default"<?=$tab('sound')?>>
-		<div class="panel-heading"><h2 class="panel-title"><?=gettext('Sound')?></h2></div>
+		<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-volume-high icon-embed-btn" aria-hidden="true"></i><?=gettext('Sound')?></h2></div>
 		<div class="panel-body fs-fleet-pad">
 			<label class="form-check mb-2"><input class="form-check-input" type="checkbox" name="sound" value="1"<?=$chk($kcfg['sound'])?>/>
 				<span class="form-check-label"><?=gettext('Sound on when the screen opens')?></span></label>
@@ -277,7 +277,7 @@ endif;
 
 <?php if ($new_link !== null): ?>
 <div class="panel panel-default fs-fleet-newkey">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('The link for this screen')?></h2></div>
+	<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-link icon-embed-btn" aria-hidden="true"></i><?=gettext('The link for this screen')?></h2></div>
 	<div class="panel-body fs-fleet-pad">
 		<p><?=gettext('Open it on the screen. It is shown only now: copy it before you leave this page. Anyone with the link can watch the fleet from the allowed networks, so treat it like a password.')?></p>
 		<div class="fs-fleet-keyline"><code class="fs-mono" id="kiosk-link"><?=htmlspecialchars($new_link)?></code>
@@ -307,7 +307,7 @@ endif;
 				<button type="button" class="btn btn-sm btn-link" data-fs-modal="#kiosk-modal" data-fs-modal-title="<?=htmlspecialchars(sprintf(gettext('Change %s'), $k['name']))?>"
 				    data-fs-fill="<?=htmlspecialchars(json_encode(array('id' => (string)$k['id'], 'name' => $k['name'], 'networks' => implode("\n", $k['networks']), 'hide' => !empty($k['hide']), 'style' => (string)($k['style'] ?? 'freesense'), 'theme' => (string)($k['theme'] ?? 'auto'))))?>"><?=gettext('Change')?></button>
 				<a class="btn btn-sm btn-link" href="?config=<?=(int)$k['id']?>"><?=gettext('Layout')?></a>
-				<form method="post" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="revoke" value="<?=(int)$k['id']?>"><?=gettext('Revoke')?></button></form>
+				<form method="post" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="revoke" value="<?=(int)$k['id']?>"<?=fleet_confirm(sprintf(gettext('Revoke the link "%s"?'), $k['name']), gettext('The screen that uses it shows "not connected" within 10 seconds. Make a new link to show it again.'), gettext('Revoke link'), 'danger', 'ban')?>><?=gettext('Revoke')?></button></form>
 <?php endif; ?>
 			</td></tr>
 <?php endforeach; ?>
@@ -344,4 +344,5 @@ endif;
 <?php
 	fs_modal_form_end(gettext('Save screen'), 'save', '1', 'fa-floppy-disk');
 endif; ?>
+<?=fleet_confirm_script()?>
 <?php include('foot.inc');

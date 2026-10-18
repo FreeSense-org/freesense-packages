@@ -144,7 +144,7 @@ $target = fleet_rollout_target();
 	<div class="col-md-4"><div class="fs-tile"><span class="fs-tile-label"><?=gettext('Could not check')?></span><span class="fs-tile-value"><?=(int)$failed?></span></div></div>
 </div>
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Versions in the fleet')?></h2></div>
+	<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-code-branch icon-embed-btn" aria-hidden="true"></i><?=gettext('Versions in the fleet')?></h2></div>
 	<div class="panel-body table-responsive"><table class="table fs-table">
 		<thead><tr><th><?=gettext('Version')?></th><th><?=gettext('Firewalls')?></th><th><?=gettext('Which')?></th></tr></thead>
 		<tbody>
@@ -177,7 +177,7 @@ $target = fleet_rollout_target();
 	$n = array_sum(array_map(function ($r) { return count($r[3]); }, $plan['rings']));
 ?>
 <div class="panel panel-default fs-fleet-review" role="region" aria-labelledby="review-title">
-	<div class="panel-heading"><h2 id="review-title" class="panel-title"><?=sprintf(htmlspecialchars(gettext('Update %1$d firewalls to %2$s in %3$d rings?')), $n, htmlspecialchars($target), count($plan['rings']))?></h2></div>
+	<div class="panel-heading"><h2 id="review-title" class="panel-title"><i class="fa-solid fa-circle-up icon-embed-btn" aria-hidden="true"></i><?=sprintf(htmlspecialchars(gettext('Update %1$d firewalls to %2$s in %3$d rings?')), $n, htmlspecialchars($target), count($plan['rings']))?></h2></div>
 	<div class="panel-body table-responsive"><table class="table fs-table">
 		<thead><tr><th><?=gettext('Ring')?></th><th><?=gettext('Window')?></th><th><?=gettext('Firewalls, in order')?></th></tr></thead>
 		<tbody>
@@ -199,7 +199,7 @@ $target = fleet_rollout_target();
 			<input type="hidden" name="plan" value="<?=$hash?>"/>
 			<label class="fs-muted small" for="gap"><?=gettext('Wait between rings')?></label>
 			<div class="input-group input-group-sm fs-fleet-gap"><input class="form-control" type="number" id="gap" name="gap" min="0" max="168" value="<?=(int)fleet_opt('rollout_gap_hours')?>"/><span class="input-group-text"><?=gettext('hours')?></span></div>
-			<button class="btn btn-primary" type="submit" name="rollout_start" value="1"<?=($n === 0) ? ' disabled' : ''?>><i class="fa-solid fa-layer-group icon-embed-btn" aria-hidden="true"></i><?=($n === 0) ? gettext('Nothing to update') : sprintf(gettext('Start the rollout to %s'), htmlspecialchars($target))?></button>
+			<button class="btn btn-primary" type="submit" name="rollout_start" value="1"<?=fleet_confirm(gettext('Start the rollout?'), gettext('The firewalls are updated ring by ring. Each one is backed up first and restarts for the update, so it stops forwarding for a few minutes. A ring that fails stops the rollout.'), gettext('Start the rollout'), 'warning', 'layer-group')?><?=($n === 0) ? ' disabled' : ''?>><i class="fa-solid fa-layer-group icon-embed-btn" aria-hidden="true"></i><?=($n === 0) ? gettext('Nothing to update') : sprintf(gettext('Start the rollout to %s'), htmlspecialchars($target))?></button>
 			<button type="button" class="btn btn-outline-secondary" data-fs-modal="#rings-modal" data-fs-fill="<?=htmlspecialchars(json_encode(array_combine(array_map(function ($i) { return 'ring[' . $i . ']'; }, array_keys($picked)), array_map('strval', $picked))))?>"><?=gettext('Change rings')?></button>
 			<a class="btn btn-link" href="?view=rollouts"><?=gettext('Cancel')?></a>
 		</form>
@@ -208,7 +208,7 @@ $target = fleet_rollout_target();
 <?php endif; ?>
 
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Rollouts')?></h2></div>
+	<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-arrows-spin icon-embed-btn" aria-hidden="true"></i><?=gettext('Rollouts')?></h2></div>
 <?php $rollouts = fleet_rollouts_all(20); ?>
 <?php if (empty($rollouts)): ?>
 	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint"><?=($target === null) ? gettext('No firewall has an update available.') : sprintf(gettext('No rollouts yet. %s is available.'), htmlspecialchars($target))?>
@@ -223,7 +223,7 @@ $target = fleet_rollout_target();
 ?>
 		<article class="fs-fleet-rollout" data-state="<?=htmlspecialchars($ro['state'])?>">
 			<header class="fs-fleet-rollout-head">
-				<h3><a href="/fleet/fleet_activity.php?op=<?=(int)$ro['op_id']?>"><?=sprintf(htmlspecialchars(gettext('Roll out %s')), htmlspecialchars($ro['target']))?></a></h3>
+				<h3><a href="/fleet/fleet_activity.php?op=<?=(int)$ro['op_id']?>"><i class="fa-solid fa-arrows-spin icon-embed-btn" aria-hidden="true"></i><?=sprintf(htmlspecialchars(gettext('Roll out %s')), htmlspecialchars($ro['target']))?></a></h3>
 				<?=fs_badge($badge[0], $badge[1])?>
 				<span class="fs-muted small"><?=htmlspecialchars(date('Y-m-d H:i', (int)$ro['created']))?>, <?=htmlspecialchars($ro['who'])?></span>
 <?php if ($manage && $live): ?>
@@ -231,7 +231,7 @@ $target = fleet_rollout_target();
 <?php if ($ro['state'] === 'paused'): ?>
 					<button class="btn btn-sm btn-primary" name="rollout_resume" value="<?=(int)$ro['id']?>"><i class="fa-solid fa-play icon-embed-btn" aria-hidden="true"></i><?=gettext('Resume')?></button>
 <?php endif; ?>
-					<button class="btn btn-sm btn-outline-secondary" name="rollout_cancel" value="<?=(int)$ro['id']?>"><?=gettext('Cancel the rest')?></button>
+					<button class="btn btn-sm btn-outline-secondary" name="rollout_cancel" value="<?=(int)$ro['id']?>"<?=fleet_confirm(gettext('Cancel the rest of this rollout?'), gettext('Firewalls that are already updated stay updated. The ones that are still waiting are not updated by this rollout.'), gettext('Cancel the rest'), 'warning', 'ban')?>><?=gettext('Cancel the rest')?></button>
 				</form>
 <?php endif; ?>
 			</header>
@@ -277,7 +277,7 @@ $target = fleet_rollout_target();
 	};
 ?>
 <div class="panel panel-default">
-	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Maintenance windows')?> <span class="fs-count"><?=count($windows)?></span></h2>
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><i class="fa-solid fa-clock icon-embed-btn" aria-hidden="true"></i><?=gettext('Maintenance windows')?> <span class="fs-count"><?=count($windows)?></span></h2>
 <?php if ($manage): ?>
 		<button type="button" class="btn btn-sm btn-primary" data-fs-modal="#window-modal" data-fs-modal-title="<?=gettext('Add a window')?>" data-fs-fill="<?=htmlspecialchars($wfill(null))?>"><i class="fa-solid fa-plus icon-embed-btn" aria-hidden="true"></i><?=gettext('Add window')?></button>
 <?php endif; ?>
@@ -309,7 +309,7 @@ $target = fleet_rollout_target();
 			<td class="text-end text-nowrap">
 <?php if ($manage): ?>
 				<button type="button" class="btn btn-sm btn-link" data-fs-modal="#window-modal" data-fs-modal-title="<?=htmlspecialchars(sprintf(gettext('Change %s'), $w['name']))?>" data-fs-fill="<?=htmlspecialchars($wfill($w))?>"><?=gettext('Change')?></button>
-				<form method="post" action="?view=windows" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="window_delete" value="<?=(int)$w['id']?>"><?=gettext('Delete')?></button></form>
+				<form method="post" action="?view=windows" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="window_delete" value="<?=(int)$w['id']?>"<?=fleet_confirm(sprintf(gettext('Delete the window "%s"?'), $w['name']), gettext('Groups that use it have no update window afterwards. Nothing is changed on the firewalls.'), gettext('Delete window'), 'danger', 'trash')?>><?=gettext('Delete')?></button></form>
 <?php endif; ?>
 			</td></tr>
 <?php endforeach; ?>
@@ -358,4 +358,5 @@ endif; ?>
 <?php
 	fs_modal_form_end(gettext('Review'), 'rollout_rings', '1', 'fa-list-check');
 endif; ?>
+<?=fleet_confirm_script()?>
 <?php include('foot.inc');

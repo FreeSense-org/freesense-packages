@@ -173,13 +173,13 @@ $mode_icons = array('attended' => 'fa-keyboard', 'pin' => 'fa-hashtag', 'unatten
 ?>
 <p><a class="fs-fleet-back" href="?"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> <?=gettext('All batches')?></a></p>
 <div class="panel panel-default">
-	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=htmlspecialchars($b['name'])?></h2>
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><i class="fa-solid fa-industry icon-embed-btn" aria-hidden="true"></i><?=htmlspecialchars($b['name'])?></h2>
 		<span>
 <?php if ($bundle !== null && $manage): ?>
 			<a class="btn btn-sm btn-primary" href="?download=<?=(int)$b['id']?>"><i class="fa-solid fa-download icon-embed-btn" aria-hidden="true"></i><?=gettext('Download bundle')?></a>
 <?php endif; ?>
 <?php if ($manage && ($waiting > 0)): ?>
-			<form method="post" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="revoke" value="<?=(int)$b['id']?>"><?=sprintf(ngettext('Revoke %d waiting', 'Revoke %d waiting', $waiting), $waiting)?></button></form>
+			<form method="post" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="revoke" value="<?=(int)$b['id']?>"<?=fleet_confirm(sprintf(gettext('Revoke the waiting invitations of "%s"?'), $b['name']), gettext('The invitations that have not been used yet stop working. Firewalls that already joined are not affected.'), gettext('Revoke'), 'danger', 'ban')?>><?=sprintf(ngettext('Revoke %d waiting', 'Revoke %d waiting', $waiting), $waiting)?></button></form>
 <?php endif; ?>
 		</span></div>
 	<div class="panel-body fs-fleet-pad">
@@ -207,7 +207,7 @@ $mode_icons = array('attended' => 'fa-keyboard', 'pin' => 'fa-hashtag', 'unatten
 			<td class="fs-mono small"><?=htmlspecialchars(trim($r['hostname'] . (($r['hostname'] !== '' && $r['domain'] !== '') ? '.' . $r['domain'] : ''))) ?: '<span class="fs-muted">-</span>'?></td>
 			<td class="small"><?=htmlspecialchars(trim(($r['serial'] !== '' ? $r['serial'] : '') . ($r['instance_id'] !== '' ? ' ' . $r['instance_id'] : ''))) ?: '<span class="fs-muted">-</span>'?></td>
 			<td><?=$state_badge($st)?></td>
-			<td class="text-end"><?php if ($manage && ($st === 'waiting')): ?><form method="post" class="d-inline"><input type="hidden" name="token" value="<?=htmlspecialchars($r['token_id'])?>"/><button class="btn btn-sm btn-link fs-fleet-danger-link" name="revoke" value="<?=(int)$b['id']?>"><?=gettext('Revoke')?></button></form><?php endif; ?></td></tr>
+			<td class="text-end"><?php if ($manage && ($st === 'waiting')): ?><form method="post" class="d-inline"><input type="hidden" name="token" value="<?=htmlspecialchars($r['token_id'])?>"/><button class="btn btn-sm btn-link fs-fleet-danger-link" name="revoke" value="<?=(int)$b['id']?>"<?=fleet_confirm(gettext('Revoke this invitation?'), gettext('It stops working. A firewall that has not joined with it yet cannot join.'), gettext('Revoke'), 'danger', 'ban')?>><?=gettext('Revoke')?></button></form><?php endif; ?></td></tr>
 <?php endforeach; ?>
 		</tbody></table></div>
 </div>
@@ -219,7 +219,7 @@ $mode_icons = array('attended' => 'fa-keyboard', 'pin' => 'fa-hashtag', 'unatten
 <p><a class="fs-fleet-back" href="?"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> <?=gettext('All batches')?></a></p>
 <form method="post" action="?view=new" autocomplete="off">
 	<div class="panel panel-default">
-		<div class="panel-heading"><h2 class="panel-title"><?=gettext('New batch')?></h2></div>
+		<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-plus icon-embed-btn" aria-hidden="true"></i><?=gettext('New batch')?></h2></div>
 		<div class="panel-body fs-fleet-pad">
 			<div class="row g-3">
 				<div class="col-md-4"><label class="form-label" for="bname"><?=gettext('Name')?></label>
@@ -260,7 +260,7 @@ $mode_icons = array('attended' => 'fa-keyboard', 'pin' => 'fa-hashtag', 'unatten
 		</div>
 	</div>
 	<div class="panel panel-default">
-		<div class="panel-heading"><h2 class="panel-title"><?=gettext('Firewalls')?></h2></div>
+		<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-server icon-embed-btn" aria-hidden="true"></i><?=gettext('Firewalls')?></h2></div>
 		<div class="panel-body fs-fleet-pad">
 			<label class="form-label" for="brows"><?=gettext('One row per firewall: site, label, serial, instance id, hostname')?></label>
 			<textarea class="form-control fs-mono" id="brows" name="rows" rows="8" placeholder="site,label,serial,instance_id,hostname&#10;cph,Copenhagen shop 1,PT-1234,,&#10;aar,Aarhus shop,PT-1240,,&#10;osl,Oslo pop-up,,,osl-popup"><?=htmlspecialchars($form['rows'])?></textarea>
@@ -296,4 +296,5 @@ $mode_icons = array('attended' => 'fa-keyboard', 'pin' => 'fa-hashtag', 'unatten
 	</div>
 </form>
 <?php endif; ?>
+<?=fleet_confirm_script()?>
 <?php include('foot.inc');
