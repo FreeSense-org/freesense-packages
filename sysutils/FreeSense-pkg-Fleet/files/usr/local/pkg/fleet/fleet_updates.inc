@@ -53,6 +53,25 @@ function fleet_version_same(string $a, string $b): bool {
 	return (fleet_version_number($a) !== '') && (fleet_version_number($a) === fleet_version_number($b));
 }
 
+/* pure: the same build, whatever the spelling. Development builds share the number and differ in the stamp after it
+   ("1.2.0.a.20261017.2210_1792276951" and "1.2.0.a.20261017.2210.1792276951" are one build). */
+function fleet_build_same(string $a, string $b): bool {
+	$n = function (string $v): string {
+		return strtolower(str_replace('_', '.', trim($v)));
+	};
+	return ($n($a) !== '') && ($n($a) === $n($b));
+}
+
+/* pure: the number that names the version, plus the build when $other has the same number (a Development update:
+   "1.2.0 build 20261017.1403"), so "from 1.2.0 to 1.2.0" never appears. */
+function fleet_version_show(string $v, string $other): string {
+	$number = fleet_version_number($v);
+	if (fleet_version_same($v, $other) && !fleet_build_same($v, $other) && preg_match('/\.a\.(\d{8}\.\d{4})/', $v, $m)) {
+		return $number . ' build ' . $m[1];
+	}
+	return $number;
+}
+
 /* pure: what the box said about updates (GET /v1/system/version), kept on the box row. */
 function fleet_update_info_from(int $code, array $json, int $now): array {
 	if ($code === 200) {
@@ -83,10 +102,12 @@ function fleet_update_verdict(?array $info): ?array {
 
 /*
  * pure: where an update stands after a status check. $op has started and
- * data {from, to, reached}; $status is the box's answer (null: none).
+ * data {from, to, reached}; $status is the box's answer (null: none). $installed is the box's installed build
+ * (GET /v1/system/version), asked for only after a reboot of a Development update: its version number never changes,
+ * so the number says nothing and the build stamp, seen after a reboot, is the proof.
  * Returns null (no change) or array(state, text, progress, data).
  */
-function fleet_op_update_step(array $op, ?array $status, int $now, int $healthy, int $timeout): ?array {
+function fleet_op_update_step(array $op, ?array $status, int $now, int $healthy, int $timeout, ?string $installed = null): ?array {
 	$d = json_decode((string)($op['data'] ?? ''), true) ?: array();
 	$from = (string)($d['from'] ?? '');
 	$to = (string)($d['to'] ?? '');
@@ -98,13 +119,26 @@ function fleet_op_update_step(array $op, ?array $status, int $now, int $healthy,
 	if ($status !== null) {
 		$version = (string)($status['version'] ?? '');
 		$rebooted = (int)($status['boot_time'] ?? 0) > $started;
-		if (fleet_version_same($version, $to)) {
+		$stamped = fleet_version_same($from, $to) && !fleet_build_same($from, $to);
+		if ($stamped && $rebooted) {
+			if ($installed === null) {
+				return $set('running', 'Checking the new version', 80);
+			}
+			if (fleet_build_same($installed, $to)) {
+				$version = $to;
+			} elseif (fleet_build_same($installed, $from)) {
+				return array('failed', sprintf('Rolled back to %s: the new version did not pass the firewall\'s own health check', fleet_version_show($from, $to)), 100, $d);
+			}
+		} elseif ($stamped) {
+			$version = $from;
+		}
+		if (fleet_version_same($version, $to) && (!$stamped || fleet_build_same($version, $to))) {
 			if (!isset($d['reached'])) {
 				$d['reached'] = $now;
 				return array('running', 'Checking that it stays healthy', 85, $d);
 			}
 			if (($now - (int)$d['reached']) >= $healthy) {
-				return array('done', sprintf('Updated to %s in %s', fleet_version_number($to), fleet_op_duration($now - $started)), 100, $d);
+				return array('done', sprintf('Updated to %s in %s', fleet_version_show($to, $from), fleet_op_duration($now - $started)), 100, $d);
 			}
 			return $set('running', 'Checking that it stays healthy', 85 + (int)floor(14 * ($now - (int)$d['reached']) / max(1, $healthy)));
 		}
@@ -144,6 +178,17 @@ function fleet_update_check(array $box, bool $refresh = false): array {
 	return $info;
 }
 
+/* The build the box has installed now (null when it does not answer). */
+function fleet_update_installed(array $box): ?string {
+	try {
+		list($code, $json) = fleet_box_call($box, 'GET', '/api/v1/system/version');
+	} catch (RuntimeException $e) {
+		return null;
+	}
+	$v = (string)($json['data']['installed_version'] ?? '');
+	return (($code === 200) && ($v !== '')) ? $v : null;
+}
+
 /* Checks before updating, as the box runs them (update available, disk space, boot environment, repository...). */
 function fleet_update_preflight(array $box): array {
 	list($code, $json) = fleet_box_call($box, 'GET', '/api/v1/system/update/preflight');
@@ -179,7 +224,7 @@ function fleet_box_update(array $box, string $who, ?int $task = null): string {
 	fleet_db()->prepare("UPDATE ops SET state = 'running', text = 'Downloading and installing', started = ?, updated = ?, progress = 10, data = ? WHERE id = ?")
 	    ->execute(array(time(), time(), $data, $task));
 	fleet_audit($who, 'update', "{$box['node_id']} ({$box['label']}): from {$from} to {$to}");
-	return sprintf('Updating from %s to %s. It reboots on the way; this page follows it.', fleet_version_number($from), fleet_version_number($to));
+	return sprintf('Updating from %s to %s. It reboots on the way; this page follows it.', fleet_version_show($from, $to), fleet_version_show($to, $from));
 }
 
 /* Called by the status poll for every firewall: moves its running update along. */
@@ -188,7 +233,12 @@ function fleet_update_follow(array $box, ?array $status, int $now): void {
 	if (($op === null) || ($op['kind'] !== 'update') || ($op['state'] !== 'running') || empty($op['data'])) {
 		return;
 	}
-	$step = fleet_op_update_step($op, $status, $now, 60 * fleet_opt('update_healthy'), 60 * fleet_opt('update_timeout'));
+	$d = json_decode((string)$op['data'], true) ?: array();
+	$installed = null;
+	if (($status !== null) && fleet_version_same((string)($d['from'] ?? ''), (string)($d['to'] ?? '')) && ((int)($status['boot_time'] ?? 0) > (int)$op['started'])) {
+		$installed = fleet_update_installed($box);
+	}
+	$step = fleet_op_update_step($op, $status, $now, 60 * fleet_opt('update_healthy'), 60 * fleet_opt('update_timeout'), $installed);
 	if ($step === null) {
 		return;
 	}

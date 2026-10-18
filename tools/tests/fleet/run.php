@@ -556,6 +556,26 @@ check(fleet_op_update_step($uop2, array('version' => '1.1.6-RELEASE', 'boot_time
 check(strpos(fleet_op_update_step($uop2, array('version' => '1.1.5-RELEASE', 'boot_time' => 1700), 1750, 360, 3600)[1], 'Rolled back to 1.1.5') === 0,
     'back on the old version after a reboot: rolled back');
 check(fleet_op_update_step($uop, $old, 1000 + 3601, 360, 3600)[0] === 'failed' && fleet_op_update_step($uop, null, 1000 + 3601, 360, 3600)[0] === 'failed', 'no result in time: failed');
+/* Development builds: the same number, only the build stamp differs. */
+$dfrom = '1.2.0.a.20261017.1403_1792249307';
+$dto = '1.2.0.a.20261017.2210_1792276951';
+check(fleet_build_same('1.2.0.a.20261017.2210_1792276951', '1.2.0.a.20261017.2210.1792276951') && !fleet_build_same($dfrom, $dto) && !fleet_build_same('', ''),
+    'one build, whatever the separator');
+check(fleet_version_show($dfrom, $dto) === '1.2.0 build 20261017.1403' && fleet_version_show($dto, $dfrom) === '1.2.0 build 20261017.2210' &&
+    fleet_version_show('1.1.5', '1.1.6') === '1.1.5', 'a Development update names the builds; a release names the version');
+$dop = array('started' => 1000, 'text' => 'Downloading and installing', 'data' => json_encode(array('from' => $dfrom, 'to' => $dto)));
+$dold = array('version' => '1.2.0-DEVELOPMENT', 'boot_time' => 900);
+$dnew = array('version' => '1.2.0-DEVELOPMENT', 'boot_time' => 1400);
+$d0 = fleet_op_update_step($dop, $dold, 1020, 360, 3600);
+check($d0 === null || ($d0[0] === 'running' && !isset($d0[3]['reached'])), 'dev update: same number before the reboot is not "reached"');
+check(fleet_op_update_step($dop, $dnew, 1500, 360, 3600)[1] === 'Checking the new version', 'dev update: rebooted but the build is not known yet');
+$d1 = fleet_op_update_step($dop, $dnew, 1500, 360, 3600, '1.2.0.a.20261017.2210.1792276951');
+check($d1[0] === 'running' && $d1[1] === 'Checking that it stays healthy' && $d1[3]['reached'] === 1500, 'dev update: rebooted onto the new build: waiting out the window');
+$dop2 = array('started' => 1000, 'text' => 'Checking that it stays healthy', 'data' => json_encode($d1[3]));
+check(fleet_op_update_step($dop2, $dnew, 1860, 360, 3600, '1.2.0.a.20261017.2210.1792276951')[1] === 'Updated to 1.2.0 build 20261017.2210 in 14 min 20 s',
+    'dev update: done, naming the build');
+check(strpos(fleet_op_update_step($dop, $dnew, 1500, 360, 3600, '1.2.0.a.20261017.1403.1792249307')[1], 'Rolled back to 1.2.0 build 20261017.1403') === 0 &&
+    fleet_op_update_step($dop, $dnew, 1500, 360, 3600, '1.2.0.a.20261017.1403.1792249307')[0] === 'failed', 'dev update: back on the old build after a reboot: rolled back');
 $gp = fleet_group_update_plan(array(
     array('node_id' => 'u1', 'label' => 'A', 'role' => 'managed', 'state' => 'online', 'status' => json_encode(array('rollback_protection' => true))),
     array('node_id' => 'u2', 'label' => 'B', 'role' => 'managed', 'state' => 'online', 'status' => json_encode(array('rollback_protection' => false))),
