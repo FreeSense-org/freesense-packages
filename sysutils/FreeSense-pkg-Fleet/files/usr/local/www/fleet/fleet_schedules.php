@@ -163,7 +163,7 @@ $target_options = function (string $selected = '') use ($groups, $boxes) {
 </div>
 <?php endif; ?>
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Schedules')?></h2></div>
+	<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-calendar-days icon-embed-btn" aria-hidden="true"></i><?=gettext('Schedules')?></h2></div>
 <?php if (empty($all)): ?>
 	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint"><?=gettext('No schedules yet. A schedule backs up, reboots or updates firewalls at a set time, for example the Retail shops every night at 02:30.')?></p></div>
 <?php else: ?>
@@ -230,7 +230,7 @@ $target_options = function (string $selected = '') use ($groups, $boxes) {
 				<button type="button" class="btn btn-sm btn-link" data-fs-modal="#sched-modal" data-fs-modal-title="<?=htmlspecialchars(sprintf(gettext('Change %s'), $s['name']))?>"
 				    data-fs-fill="<?=htmlspecialchars(json_encode(array('id' => (string)$s['id'], 'name' => $s['name'], 'kind' => $s['kind'], 'targets[]' => $s['targets'],
 				    'days[]' => array_map('strval', $s['days']), 'time' => sprintf('%02d:%02d', intdiv($s['time'], 60), $s['time'] % 60), 'enabled' => $s['enabled'])))?>"><?=gettext('Change')?></button>
-				<form method="post" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="delete" value="<?=(int)$s['id']?>"><?=gettext('Delete')?></button></form>
+				<form method="post" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="delete" value="<?=(int)$s['id']?>"<?=fleet_confirm(sprintf(gettext('Delete the schedule "%s"?'), $s['name']), gettext('It no longer runs. The firewalls are not changed.'), gettext('Delete schedule'), 'danger', 'trash')?>><?=gettext('Delete')?></button></form>
 <?php endif; ?>
 			</td></tr>
 <?php endforeach; ?>
@@ -271,4 +271,5 @@ $target_options = function (string $selected = '') use ($groups, $boxes) {
 <?php
 	fs_modal_form_end(gettext('Save schedule'), 'save', '1', 'fa-floppy-disk');
 endif; ?>
+<?=fleet_confirm_script()?>
 <?php include('foot.inc');

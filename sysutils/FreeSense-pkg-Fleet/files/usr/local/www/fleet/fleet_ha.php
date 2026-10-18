@@ -213,7 +213,7 @@ list($pairs, $boxes) = fleet_ha_now();
 		</tbody></table></div>
 <?php if (!empty($cands)): ?>
 	<div class="panel-footer"><p class="fs-fleet-hint mb-2"><?=gettext('Check first that nothing on those networks already uses the suggested shared addresses.')?></p>
-		<button class="btn btn-primary" name="setup_group" value="1"><i class="fa-solid fa-clone icon-embed-btn" aria-hidden="true"></i><?=htmlspecialchars(sprintf((count($cands) === 1) ? gettext('Set up %d pair') : gettext('Set up %d pairs'), count($cands)))?></button></div>
+		<button class="btn btn-primary" name="setup_group" value="1"<?=fleet_confirm(gettext('Set up these pairs?'), gettext('Each pair gets its shared addresses, state sync and configuration sync. Each firewall is changed under commit-confirm; if anything fails, Fleet undoes that pair.'), gettext('Set up the pairs'), 'warning', 'clone')?>><i class="fa-solid fa-clone icon-embed-btn" aria-hidden="true"></i><?=htmlspecialchars(sprintf((count($cands) === 1) ? gettext('Set up %d pair') : gettext('Set up %d pairs'), count($cands)))?></button></div>
 <?php endif; ?>
 </form>
 <?php endif; ?>
@@ -434,4 +434,5 @@ list($pairs, $boxes) = fleet_ha_now();
 </form>
 <?php endif; ?>
 <?php endif; ?>
+<?=fleet_confirm_script()?>
 <?php include('foot.inc');

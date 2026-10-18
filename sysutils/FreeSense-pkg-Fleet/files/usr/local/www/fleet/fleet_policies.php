@@ -210,7 +210,7 @@ $state_badge = function (string $state) {
 	<a class="fs-tile fs-fleet-tile-link" href="<?=$link(array('state' => 'ok', 'page' => ''))?>"><span class="fs-tile-label"><?=gettext('Compliant')?></span><span class="fs-tile-value"><?=$nstate['ok']?></span></a>
 </div>
 <div class="panel panel-default">
-	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Rules across the fleet')?></h2>
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><i class="fa-solid fa-shield-halved icon-embed-btn" aria-hidden="true"></i><?=gettext('Rules across the fleet')?></h2>
 		<span class="fs-muted small"><?=sprintf(gettext('Checked %s'), htmlspecialchars(date('H:i', (int)fleet_setting('compliance_checked', '0'))))?>
 <?php if ($manage): ?>
 			<form method="post" class="d-inline"><button class="btn btn-sm btn-link" name="recheck" value="1"><?=gettext('Check now')?></button></form>
@@ -226,7 +226,7 @@ $state_badge = function (string $state) {
 		</tbody></table></div>
 </div>
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Firewalls')?></h2></div>
+	<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-server icon-embed-btn" aria-hidden="true"></i><?=gettext('Firewalls')?></h2></div>
 	<div class="panel-body fs-fleet-pad">
 		<form method="get" class="fs-fleet-filterbar" role="search" data-fleet-filters><script src="/fleet/assets/fleet-list.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-list.js')?>" defer></script>
 			<input type="hidden" name="view" value="compliance"/>
@@ -292,7 +292,7 @@ $state_badge = function (string $state) {
 	}
 ?>
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Policies')?> <span class="fs-count"><?=count($policies)?></span></h2></div>
+	<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-list-check icon-embed-btn" aria-hidden="true"></i><?=gettext('Policies')?> <span class="fs-count"><?=count($policies)?></span></h2></div>
 <?php if (empty($policies)): ?>
 	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint"><?=gettext('No policies yet. Add one for all firewalls first (a baseline), then policies for groups or single firewalls that need something else: the most specific one wins for each rule.')?></p></div>
 <?php else: ?>
@@ -322,7 +322,7 @@ $state_badge = function (string $state) {
 			<td class="text-end text-nowrap">
 <?php if ($manage): ?>
 				<a class="btn btn-sm btn-link" href="?view=edit&amp;id=<?=(int)$p['id']?>"><?=gettext('Change')?></a>
-				<form method="post" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="policy_delete" value="<?=(int)$p['id']?>"><?=gettext('Delete')?></button></form>
+				<form method="post" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="policy_delete" value="<?=(int)$p['id']?>"<?=fleet_confirm(sprintf(gettext('Delete the policy "%s"?'), $p['name']), gettext('Its rules are no longer checked. Its firewalls are checked against the remaining policies.'), gettext('Delete policy'), 'danger', 'trash')?>><?=gettext('Delete')?></button></form>
 <?php endif; ?>
 			</td></tr>
 <?php endforeach; ?>
@@ -342,7 +342,7 @@ $state_badge = function (string $state) {
 	}));
 ?>
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Exceptions')?></h2></div>
+	<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-triangle-exclamation icon-embed-btn" aria-hidden="true"></i><?=gettext('Exceptions')?></h2></div>
 	<div class="panel-body fs-fleet-pad">
 		<form method="get" class="fs-fleet-filterbar" role="search" data-fleet-filters><script src="/fleet/assets/fleet-list.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-list.js')?>" defer></script>
 			<input type="hidden" name="view" value="exceptions"/>
@@ -361,7 +361,7 @@ $state_badge = function (string $state) {
 		<tr><td><?=htmlspecialchars($labels[$e['node_id']] ?? $e['node_id'])?></td><td><?=htmlspecialchars($rule_titles[$e['rule_id']] ?? $e['rule_id'])?></td>
 			<td><?=htmlspecialchars($e['reason'])?> <span class="fs-muted small">(<?=htmlspecialchars($e['who'])?>)</span></td>
 			<td><?=htmlspecialchars(date('Y-m-d', (int)$e['expires'] - 1))?> <?=$ended ? fs_badge('neutral', gettext('Ended')) : ((((int)$e['expires'] - $now) < 7 * 86400) ? fs_badge('warn', gettext('Ends soon')) : '')?></td>
-			<td class="text-end"><?php if ($manage && !$ended): ?><form method="post" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="exception_delete" value="<?=(int)$e['id']?>"><?=gettext('End now')?></button></form><?php endif; ?></td></tr>
+			<td class="text-end"><?php if ($manage && !$ended): ?><form method="post" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="exception_delete" value="<?=(int)$e['id']?>"<?=fleet_confirm(gettext('End this exception now?'), gettext('The rule counts again for this firewall: it shows as failing if it still does not follow it.'), gettext('End exception'), 'warning', 'hourglass-end')?>><?=gettext('End now')?></button></form><?php endif; ?></td></tr>
 <?php endforeach; ?>
 		</tbody></table></div>
 	<div class="panel-footer small fs-muted"><?=gettext('When an exception ends, the rule counts again: the firewall shows as failing if it still does.')?></div>
@@ -412,7 +412,7 @@ $state_badge = function (string $state) {
 <form method="post" action="?view=edit<?=$pol['id'] ? '&amp;id=' . (int)$pol['id'] : ''?>" class="fs-fleet-policy-form">
 	<input type="hidden" name="policy_id" value="<?=(int)$pol['id']?>"/>
 	<div class="panel panel-default">
-		<div class="panel-heading"><h2 class="panel-title"><?=$pol['id'] ? sprintf(htmlspecialchars(gettext('Change %s')), htmlspecialchars($pol['name'])) : gettext('Add a policy')?></h2></div>
+		<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-shield-halved icon-embed-btn" aria-hidden="true"></i><?=$pol['id'] ? sprintf(htmlspecialchars(gettext('Change %s')), htmlspecialchars($pol['name'])) : gettext('Add a policy')?></h2></div>
 		<div class="panel-body fs-fleet-pad">
 			<div class="row g-3">
 				<div class="col-md-4"><label class="form-label" for="pname"><?=gettext('Name')?></label>
@@ -563,4 +563,5 @@ endif; ?>
 <?php if ($view === 'edit'): ?>
 <script src="/fleet/assets/fleet-policy.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-policy.js')?>"></script>
 <?php endif; ?>
+<?=fleet_confirm_script()?>
 <?php include('foot.inc');

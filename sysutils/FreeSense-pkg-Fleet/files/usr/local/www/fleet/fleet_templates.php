@@ -159,7 +159,7 @@ $is_list = function (array $t): bool {
 	}));
 ?>
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Templates')?> <span class="fs-count"><?=count($all)?></span></h2></div>
+	<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-clone icon-embed-btn" aria-hidden="true"></i><?=gettext('Templates')?> <span class="fs-count"><?=count($all)?></span></h2></div>
 <?php if (empty($all)): ?>
 	<div class="panel-body fs-fleet-pad">
 		<p class="fs-fleet-lead"><?=gettext('A template pushes the same configuration to many firewalls: aliases (lists of servers, networks or ports), or settings such as time and NTP, DNS servers, SNMP and remote logging. Fleet shows what would change on each firewall before anything is applied, and only ever changes aliases it pushed itself.')?></p>
@@ -219,7 +219,7 @@ $is_list = function (array $t): bool {
 				<a class="btn btn-sm btn-link" href="?view=preview&amp;id=<?=(int)$t['id']?>"><?=gettext('Preview')?></a>
 <?php if ($manage): ?>
 				<a class="btn btn-sm btn-link" href="?view=edit&amp;id=<?=(int)$t['id']?>"><?=gettext('Change')?></a>
-				<form method="post" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="template_delete" value="<?=(int)$t['id']?>"><?=gettext('Delete')?></button></form>
+				<form method="post" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="template_delete" value="<?=(int)$t['id']?>"<?=fleet_confirm(sprintf(gettext('Delete the template "%s"?'), $t['name']), gettext('The firewalls keep their settings and the aliases or rules it pushed; Fleet no longer manages them.'), gettext('Delete template'), 'danger', 'trash')?>><?=gettext('Delete')?></button></form>
 <?php endif; ?>
 			</td></tr>
 <?php endforeach; ?>
@@ -330,7 +330,7 @@ $is_list = function (array $t): bool {
 ?>
 <p><a class="fs-fleet-back" href="?"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> <?=gettext('All templates')?></a></p>
 <div class="panel panel-default">
-	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=htmlspecialchars($t['name'])?></h2>
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><i class="fa-solid fa-clone icon-embed-btn" aria-hidden="true"></i><?=htmlspecialchars($t['name'])?></h2>
 <?php if ($manage): ?>
 		<a class="btn btn-sm btn-link" href="?view=edit&amp;id=<?=(int)$t['id']?>"><?=gettext('Change')?></a>
 <?php endif; ?>
@@ -384,7 +384,7 @@ $is_list = function (array $t): bool {
 <?php endif; ?>
 </div>
 <div class="panel panel-default">
-	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('What applying changes')?></h2>
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><i class="fa-solid fa-circle-info icon-embed-btn" aria-hidden="true"></i><?=gettext('What applying changes')?></h2>
 		<span class="small fs-muted"><?=$live ? gettext('Read from the firewalls just now.') : gettext('From each firewall\'s newest backup.')?>
 <?php if ($manage && !$live): ?>
 			<a class="btn btn-sm btn-link" href="?view=preview&amp;id=<?=(int)$t['id']?>&amp;live=1"><?=gettext('Read the firewalls now')?></a>
@@ -426,10 +426,10 @@ $is_list = function (array $t): bool {
 				<form method="post" class="d-inline"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><button class="btn btn-sm btn-link" name="template_unignore" value="<?=(int)$t['id']?>"><?=gettext('Stop ignoring')?></button></form>
 <?php elseif ($manage): ?>
 <?php if ($online): ?>
-				<form method="post" class="d-inline"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><button class="btn btn-sm btn-link" name="template_apply" value="<?=(int)$t['id']?>"
+				<form method="post" class="d-inline"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><button class="btn btn-sm btn-link" name="template_apply" value="<?=(int)$t['id']?>"<?=fleet_confirm(sprintf(gettext('Put "%s" on this firewall?'), $t['name']), gettext('The firewall gets a safety backup first, then the template\'s values in one change. Values it has changed itself are overwritten.'), gettext('Apply'), 'warning', 'paper-plane')?>
 				    title="<?=$drift ? gettext('Put the template\'s values back on this firewall') : ''?>"><?=$drift ? gettext('Revert') : gettext('Apply here')?></button></form>
 <?php if ($drift): ?>
-				<form method="post" class="d-inline"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><button class="btn btn-sm btn-link" name="template_adopt" value="<?=(int)$t['id']?>"
+				<form method="post" class="d-inline"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><button class="btn btn-sm btn-link" name="template_adopt" value="<?=(int)$t['id']?>"<?=fleet_confirm(sprintf(gettext('Take this firewall\'s values into "%s"?'), $t['name']), gettext('The template changes to what this firewall has. Every other firewall that follows the template will differ from it afterwards.'), gettext('Adopt'), 'warning', 'file-import')?>
 				    title="<?=gettext('Take this firewall\'s values into the template')?>"><?=gettext('Adopt')?></button></form>
 <?php endif; ?>
 <?php endif; ?>
@@ -444,7 +444,7 @@ $is_list = function (array $t): bool {
 <?php if ($manage && !empty($rows)): ?>
 	<div class="panel-footer fs-fleet-review-actions fs-fleet-policy-actions">
 <?php $n_apply = count($rows) - count(array_intersect_key($ignored, array_flip($nodes))); ?>
-		<form method="post"><button class="btn btn-primary" name="template_apply" value="<?=(int)$t['id']?>"<?=($n_apply === 0) ? ' disabled' : ''?>><i class="fa-solid fa-paper-plane icon-embed-btn" aria-hidden="true"></i><?=sprintf(ngettext('Apply to %d firewall', 'Apply to %d firewalls', $n_apply), $n_apply)?></button></form>
+		<form method="post"><button class="btn btn-primary" name="template_apply" value="<?=(int)$t['id']?>"<?=fleet_confirm(sprintf(gettext('Apply "%s" to all its firewalls?'), $t['name']), gettext('Each firewall gets a safety backup first, then the template\'s settings in one change, applied at once. A firewall that already matches is left alone.'), gettext('Apply to all'), 'warning', 'paper-plane')?><?=($n_apply === 0) ? ' disabled' : ''?>><i class="fa-solid fa-paper-plane icon-embed-btn" aria-hidden="true"></i><?=sprintf(ngettext('Apply to %d firewall', 'Apply to %d firewalls', $n_apply), $n_apply)?></button></form>
 		<p class="fs-fleet-policy-note"><?=isset(FLEET_TLIST_KINDS[$t['kind']]) ? gettext('Each firewall gets a safety backup and a commit-confirm window first, then the changes and one filter reload. Fleet then checks it still reaches the firewall and only then confirms; if it cannot, the firewall puts its previous rules back by itself within 5 minutes (FLEET-E310). Fleet never changes an entry it did not push, and a template\'s rules come first on their interface.') : (($t['kind'] === 'aliases') ? gettext('Each firewall gets a safety backup first, then the changes and one filter reload. Conflicts are skipped: Fleet never changes an alias it did not push. The firewalls are read again when the apply starts, so a change made since the backup is not lost.') :
 		    gettext('Each firewall gets a safety backup first, then the template\'s settings in one change, applied at once. The firewalls are read again when the apply starts; one that already matches is left alone.'))?></p>
 	</div>
@@ -561,7 +561,7 @@ $is_list = function (array $t): bool {
 	<input type="hidden" name="template_id" value="<?=(int)$t['id']?>"/>
 	<input type="hidden" name="kind" value="<?=htmlspecialchars($edit_kind)?>"/>
 	<div class="panel panel-default">
-		<div class="panel-heading"><h2 class="panel-title"><?=$t['id'] ? sprintf(htmlspecialchars(gettext('Change %s')), htmlspecialchars($t['name'])) :
+		<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-clone icon-embed-btn" aria-hidden="true"></i><?=$t['id'] ? sprintf(htmlspecialchars(gettext('Change %s')), htmlspecialchars($t['name'])) :
 		    htmlspecialchars(sprintf(gettext('Add a template: %s'), ($edit_kind === 'aliases') ? gettext('Aliases') : gettext((FLEET_TSET_KINDS[$edit_kind] ?? FLEET_TLIST_KINDS[$edit_kind])[0])))?></h2></div>
 		<div class="panel-body fs-fleet-pad">
 			<div class="row g-3">
@@ -673,4 +673,5 @@ $is_list = function (array $t): bool {
 <script src="/fleet/assets/fleet-template.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-template.js')?>"></script>
 <script src="/fleet/assets/fleet-tlist.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-tlist.js')?>"></script>
 <?php endif; ?>
+<?=fleet_confirm_script()?>
 <?php include('foot.inc');

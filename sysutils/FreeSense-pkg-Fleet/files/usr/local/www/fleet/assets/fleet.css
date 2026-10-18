@@ -719,9 +719,9 @@ fieldset.fs-fleet-field legend { float: none; width: auto; font-size: inherit; }
 .fs-fleet-rollout[data-state="running"] { border-left-color: var(--fs-info); }
 .fs-fleet-rollout[data-state="paused"] { border-left-color: var(--fs-warn); }
 .fs-fleet-rollout[data-state="done"] { border-left-color: var(--fs-pass); }
-.fs-fleet-rollout-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--fs-sp-2); }
+.fs-fleet-rollout-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--fs-sp-2); padding-bottom: var(--fs-sp-2); margin-bottom: var(--fs-sp-2); border-bottom: 1px solid var(--fs-border); }
 .fs-fleet-rollout-head h3 { margin: 0; font-size: var(--fs-fs-md); font-weight: 600; }
-.fs-fleet-rollout-now { margin: var(--fs-sp-2) 0 0; color: var(--fs-text-muted); }
+.fs-fleet-rollout-now { margin: 0; color: var(--fs-text-muted); }
 .fs-fleet-ringlist { display: grid; gap: var(--fs-sp-2); margin: var(--fs-sp-3) 0 0; padding: 0; list-style: none; }
 .fs-fleet-ringlist li { display: grid; grid-template-columns: minmax(8rem, 12rem) minmax(8rem, 14rem) 1fr auto; align-items: center; gap: var(--fs-sp-3); }
 .fs-fleet-ringname { font-weight: 600; }
@@ -778,14 +778,14 @@ a.fs-fleet-tile-link:hover, a.fs-fleet-tile-link:focus-visible { border-color: v
 .fs-fleet-picker-nav a:hover, .fs-fleet-picker-nav a:focus-visible { background: var(--bs-tertiary-bg); }
 .fs-fleet-picker-nav a.is-empty { opacity: .45; }
 .fs-fleet-area { scroll-margin-top: 4.5rem; margin-bottom: var(--fs-sp-4, 1.5rem); }
-.fs-fleet-area-head { display: flex; gap: var(--fs-sp-3); align-items: flex-start; margin-bottom: var(--fs-sp-2); }
+.fs-fleet-area-head { display: flex; gap: var(--fs-sp-3); align-items: flex-start; padding-bottom: var(--fs-sp-2); margin-bottom: var(--fs-sp-3); border-bottom: 1px solid var(--fs-border); }
 .fs-fleet-area-head h2 { margin: 0; font-size: 1rem; font-weight: 600; }
 .fs-fleet-area-head p { margin: 2px 0 0; color: var(--fs-text-muted); font-size: .8125rem; max-width: 60ch; }
 .fs-fleet-area-icon { display: grid; place-items: center; width: 2.25rem; height: 2.25rem; flex: none; border-radius: var(--fs-r-md); background: var(--bs-tertiary-bg); color: var(--fs-info); }
 .fs-fleet-rule-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr)); gap: var(--fs-sp-2); align-items: start; }
 .fs-fleet-rcard { display: flex; flex-direction: column; gap: var(--fs-sp-2); padding: var(--fs-sp-3); border: 1px solid var(--fs-border); border-radius: var(--fs-r-md); background: var(--bs-body-bg); }
 .fs-fleet-rcard.is-on { border-color: var(--fs-info); background: var(--bs-tertiary-bg); }
-.fs-fleet-rcard-head { display: flex; gap: var(--fs-sp-2); align-items: flex-start; }
+.fs-fleet-rcard-head { display: flex; gap: var(--fs-sp-2); align-items: flex-start; padding-bottom: var(--fs-sp-2); border-bottom: 1px solid var(--fs-border); }
 .fs-fleet-rcard-title { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 .fs-fleet-rcard-title label { font-weight: 600; cursor: pointer; }
 .fs-fleet-rcard-icon { display: grid; place-items: center; width: 2rem; height: 2rem; flex: none; border-radius: 50%; background: var(--bs-secondary-bg); color: var(--fs-text-muted); }
@@ -1071,13 +1071,13 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 .fs-fleet-strip--quiet { margin-bottom: var(--fs-sp-3); }
 
 .fs-fleet-cp { background: var(--fs-surface); border: 1px solid var(--fs-border); border-radius: var(--fs-r-md); padding: var(--fs-sp-3); min-width: 0; }
-.fs-fleet-cp-head { display: flex; align-items: center; gap: var(--fs-sp-2); margin-bottom: var(--fs-sp-3); }
+.fs-fleet-cp-head { display: flex; align-items: center; gap: var(--fs-sp-2); padding-bottom: var(--fs-sp-2); margin-bottom: var(--fs-sp-3); border-bottom: 1px solid var(--fs-border); }
 .fs-fleet-cp-head h3 { margin: 0; font-size: var(--fs-fs-md); font-weight: 600; color: var(--fs-text-strong); }
 .fs-fleet-cp-sum { margin-left: auto; font-size: var(--fs-fs-sm); color: var(--fs-text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .fs-fleet-cp-icon { display: grid; place-items: center; width: 2rem; height: 2rem; flex: none; border-radius: var(--fs-r-sm);
 	color: var(--fc, var(--fs-info)); background: color-mix(in srgb, var(--fc, var(--fs-info)) 14%, transparent); }
 .fs-fleet-cp-body { min-height: 2rem; }
-.fs-fleet-cp .fs-fleet-lead { margin-top: calc(-1 * var(--fs-sp-2)); }
+.fs-fleet-cp .fs-fleet-lead { margin-top: 0; margin-bottom: var(--fs-sp-3); }
 
 /* The fleet pulse: more room than the rest, nothing else competes with it. */
 .fs-fleet-pulse { padding: var(--fs-sp-4); margin-bottom: var(--fs-sp-4); }
@@ -1218,3 +1218,20 @@ legend.form-label { font-size: inherit; font-weight: 500; margin-bottom: .5rem; 
 .fs-fleet-order-move .btn { padding: .1rem .4rem; color: var(--fs-text-muted); }
 .fs-fleet-order-move .btn:disabled { visibility: hidden; }
 [data-fleet-tabs-switch] { margin-bottom: var(--fs-sp-3); }
+
+/* Confirmation dialog (assets/fleet-confirm.js): an icon, what will happen, Cancel first and the action last. */
+.fleet-confirm { --fc: var(--fs-block, #e5534b); }
+.fleet-confirm[data-tone="warning"] { --fc: var(--fs-warn, #d9a441); }
+.fleet-confirm[data-tone="info"] { --fc: var(--fs-info, #4aa3df); }
+.fleet-confirm .modal-content { border: 1px solid color-mix(in srgb, var(--fc) 35%, var(--fs-border-color, transparent)); border-top: 3px solid var(--fc); }
+.fleet-confirm-head { align-items: center; gap: var(--fs-sp-3); border-bottom: 0; padding-bottom: 0; }
+.fleet-confirm-head .modal-title { flex: 1 1 auto; font-size: var(--fs-fs-lg); }
+.fleet-confirm-icon { display: inline-grid; place-items: center; flex: none; width: 2.6rem; height: 2.6rem; border-radius: 50%; font-size: 1.05rem;
+	background: color-mix(in srgb, var(--fc) 16%, transparent); color: var(--fc); }
+.fleet-confirm .modal-body { padding-top: var(--fs-sp-2); }
+.fleet-confirm-text { margin: 0 0 var(--fs-sp-2); color: var(--fs-text); line-height: 1.5; }
+.fleet-confirm-items { margin: 0 0 var(--fs-sp-2); padding-left: 1.2rem; color: var(--fs-text-muted); }
+.fleet-confirm-items li { margin: .2rem 0; }
+.fleet-confirm-type { margin-top: var(--fs-sp-3); }
+.fleet-confirm .modal-footer { border-top: 0; justify-content: flex-end; flex-wrap: nowrap; }
+.fleet-confirm .btn-warning { color: #1b1305; }

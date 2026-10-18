@@ -163,7 +163,7 @@ $fallbacks = count(array_filter($overview, function ($r) { return ($r['state'] !
 	<div class="flex-grow-1"><strong><?=htmlspecialchars(sprintf(ngettext('%d connection change is waiting', '%d connection changes are waiting', count($pending)), count($pending)))?></strong>
 		<div class="small fs-muted"><?=gettext('Applying sets up each path and keeps it only when the controller reaches the firewall over it; otherwise the firewall stays on the tunnel.')?></div></div>
 <?php if ($manage): ?>
-	<form method="post"><button class="btn btn-sm btn-primary text-nowrap" name="apply" value="1"><i class="fa-solid fa-paper-plane icon-embed-btn" aria-hidden="true"></i><?=sprintf(ngettext('Apply %d change', 'Apply %d changes', count($pending)), count($pending))?></button></form>
+	<form method="post"><button class="btn btn-sm btn-primary text-nowrap" name="apply" value="1"<?=fleet_confirm(gettext('Apply the connection changes?'), gettext('Fleet makes each path over the tunnel and proves it by calling the firewall over it before it keeps it. The tunnel stays as the fallback.'), gettext('Apply'), 'warning', 'route')?>><i class="fa-solid fa-paper-plane icon-embed-btn" aria-hidden="true"></i><?=sprintf(ngettext('Apply %d change', 'Apply %d changes', count($pending)), count($pending))?></button></form>
 <?php endif; ?>
 </div>
 <?php endif; ?>
@@ -172,7 +172,7 @@ $fallbacks = count(array_filter($overview, function ($r) { return ($r['state'] !
 	<a href="?view=firewalls&amp;show=fallback"><?=gettext('Show them')?></a></p>
 <?php endif; ?>
 <div class="panel panel-default">
-	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Firewalls')?> <span class="fs-count"><?=count($overview)?></span></h2>
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><i class="fa-solid fa-server icon-embed-btn" aria-hidden="true"></i><?=gettext('Firewalls')?> <span class="fs-count"><?=count($overview)?></span></h2>
 	</div>
 	<div class="panel-body"><?=fleet_list_filterbar($keep, $f, array('show' => array(gettext('All firewalls'), array('pending' => 'Changes to apply', 'fallback' => 'Using the tunnel as fallback', 'paths' => 'On a direct or Tailscale path'))),
 	    gettext('Search firewalls'), gettext('Firewall name'))?></div>
@@ -201,7 +201,7 @@ $fallbacks = count(array_filter($overview, function ($r) { return ($r['state'] !
 <?php foreach ((isset($ts[$node]) ? $ts[$node]['problems'] : array()) as list($pcode, $psev, $ptext)): ?>
 				<div class="small <?=($psev === 'error') ? 'fs-fleet-problem' : 'fs-muted'?>"><?=htmlspecialchars(ltrim($pcode . ': ' . $ptext, ': '))?>
 <?php if ($manage && ($pcode === 'FLEET-E136')): ?>
-					<form method="post" class="d-inline"><input type="hidden" name="view" value="firewalls"/><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><button class="btn btn-sm btn-link p-0" name="ts_expiry_off" value="1"><?=gettext('Turn key expiry off')?></button></form>
+					<form method="post" class="d-inline"><input type="hidden" name="view" value="firewalls"/><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><button class="btn btn-sm btn-link p-0" name="ts_expiry_off" value="1"<?=fleet_confirm(gettext('Turn key expiry off?'), gettext('The Tailscale key of these devices no longer expires, so their path does not drop on the expiry date. This changes the devices in your tailnet.'), gettext('Turn key expiry off'), 'warning', 'key')?>><?=gettext('Turn key expiry off')?></button></form>
 <?php endif; ?></div>
 <?php endforeach; ?>
 				<?=$todo ? '<div>' . fs_badge('info', gettext('Change to apply')) . '</div>' : ''?></td>
@@ -219,7 +219,7 @@ $fallbacks = count(array_filter($overview, function ($r) { return ($r['state'] !
 
 <?php elseif ($view === 'groups'): ?>
 <div class="panel panel-default">
-	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Fleet default and groups')?></h2>
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><i class="fa-solid fa-layer-group icon-embed-btn" aria-hidden="true"></i><?=gettext('Fleet default and groups')?></h2>
 <?php if ($manage): ?>
 		<button type="button" class="btn btn-sm btn-link" data-fs-modal="#conn-modal" data-fs-modal-title="<?=gettext('Fleet default')?>"
 		    data-fs-fill="<?=htmlspecialchars(json_encode(array('kind' => 'fleet', 'target' => '', 'conn_method' => $fleet_cfg['method'], 'conn_iface' => $fleet_cfg['iface'])))?>"><?=gettext('Change the fleet default')?></button>
@@ -292,7 +292,7 @@ $fallbacks = count(array_filter($overview, function ($r) { return ($r['state'] !
 		<div>
 			<button type="button" class="btn btn-sm btn-link" data-fs-modal="#ts-modal"><?=($ts === null) ? gettext('Add a token') : gettext('Replace the token')?></button>
 <?php if ($ts !== null): ?>
-			<form method="post" class="d-inline"><input type="hidden" name="view" value="methods"/><button class="btn btn-sm btn-link" name="remove_ts_token" value="1"><?=gettext('Remove')?></button></form>
+			<form method="post" class="d-inline"><input type="hidden" name="view" value="methods"/><button class="btn btn-sm btn-link" name="remove_ts_token" value="1"<?=fleet_confirm(gettext('Remove the Tailscale API token?'), gettext('Fleet can no longer make one-time keys for new firewalls or check and change their keys. Firewalls that already joined over Tailscale keep working.'), gettext('Remove token'), 'warning', 'trash')?>><?=gettext('Remove')?></button></form>
 <?php endif; ?>
 		</div>
 <?php endif; ?>
@@ -335,4 +335,5 @@ $fallbacks = count(array_filter($overview, function ($r) { return ($r['state'] !
 	fs_modal_form_end(gettext('Save'), 'save_ts_token', '1', 'fa-floppy-disk');
 endif; ?>
 <script src="/fleet/assets/fleet-connections.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-connections.js')?>"></script>
+<?=fleet_confirm_script()?>
 <?php include('foot.inc');

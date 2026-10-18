@@ -176,7 +176,7 @@ $event_labels = array_map(function ($e) { return $e[0]; }, $events);
 				    data-fs-fill="<?=htmlspecialchars(json_encode(array('id' => (string)$ch['id'], 'name' => $ch['name'], 'type' => $ch['type'], 'events[]' => $ch['events'],
 				    'min_severity' => $ch['min_severity'], 'enabled' => !empty($ch['enabled']), 'report_hour' => ($ch['report_hour'] === null) ? '' : (string)$ch['report_hour'],
 				    'cfg_telegram_chat' => (string)($ch['config']['chat'] ?? ''), 'cfg_' . $ch['type'] . '_pin' => (string)($ch['config']['pin'] ?? ''))))?>"><?=gettext('Change')?></button>
-				<form method="post" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="delete" value="<?=(int)$ch['id']?>"><?=gettext('Delete')?></button></form>
+				<form method="post" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="delete" value="<?=(int)$ch['id']?>"<?=fleet_confirm(sprintf(gettext('Delete the channel "%s"?'), $ch['name']), gettext('Fleet stops sending alerts and daily reports to it. Nothing is changed on the firewalls.'), gettext('Delete channel'), 'danger', 'trash')?>><?=gettext('Delete')?></button></form>
 			</div>
 <?php endif; ?>
 		</div>
@@ -247,4 +247,5 @@ $event_labels = array_map(function ($e) { return $e[0]; }, $events);
 endif; ?>
 <script src="/fleet/assets/fleet-alerts.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-alerts.js')?>"></script>
 <?php endif; ?>
+<?=fleet_confirm_script()?>
 <?php include('foot.inc');

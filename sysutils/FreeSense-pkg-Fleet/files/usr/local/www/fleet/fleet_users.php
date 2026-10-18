@@ -171,7 +171,7 @@ $targets_select = function (string $id, array $chosen = array()) use ($fgroups, 
 	});
 ?>
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Users')?> <span class="fs-count"><?=count($users)?></span></h2></div>
+	<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-users icon-embed-btn" aria-hidden="true"></i><?=gettext('Users')?> <span class="fs-count"><?=count($users)?></span></h2></div>
 <?php if (empty($users)): ?>
 	<div class="panel-body fs-fleet-pad">
 		<p class="fs-fleet-lead"><?=gettext('Users you add here get an account on the firewalls their groups are for, with the same password and SSH keys everywhere. Local accounts on the firewalls (admin and any made there) are never changed.')?></p>
@@ -222,7 +222,7 @@ $targets_select = function (string $id, array $chosen = array()) use ($fgroups, 
 				<button type="button" class="btn btn-sm btn-link" data-fs-modal="#user-modal" data-fs-modal-title="<?=htmlspecialchars(sprintf(gettext('Change %s'), $u['name']))?>"
 				    data-fs-fill="<?=htmlspecialchars(json_encode(array('id' => (string)$uid, 'name' => $u['name'], 'fullname' => $u['fullname'], 'groups[]' => array_map('strval', $u['groups']),
 				    'ssh_keys' => $u['ssh_keys'], 'expires' => $u['expires'], 'disabled' => (bool)$u['disabled'], 'password' => '', 'password_again' => '')))?>"><?=gettext('Change')?></button>
-				<form method="post" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="user_delete" value="<?=$uid?>"><?=gettext('Delete')?></button></form>
+				<form method="post" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="user_delete" value="<?=$uid?>"<?=fleet_confirm(sprintf(gettext('Delete the user "%s"?'), $u['name']), gettext('The next sync removes the account from the firewalls. Fleet only removes accounts it made.'), gettext('Delete user'), 'danger', 'user-xmark')?>><?=gettext('Delete')?></button></form>
 <?php endif; ?>
 			</td></tr>
 <?php endforeach; ?>
@@ -288,7 +288,7 @@ $targets_select = function (string $id, array $chosen = array()) use ($fgroups, 
 			<div class="small fs-fleet-problem"><?=htmlspecialchars(sprintf(ngettext('%1$d privilege is not on %2$s firewalls (left out there).', '%1$d privileges are not on %2$s firewalls (left out there).', $n), $n, $ver))?></div>
 <?php endforeach; ?>
 <?php if ($manage): ?>
-			<form method="post" class="text-end"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="group_delete" value="<?=$gid?>"><?=gettext('Delete')?></button></form>
+			<form method="post" class="text-end"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="group_delete" value="<?=$gid?>"<?=fleet_confirm(sprintf(gettext('Delete the group "%s"?'), $ugr['name']), gettext('Its users lose its privileges. The next sync removes the group from the firewalls.'), gettext('Delete group'), 'danger', 'trash')?>><?=gettext('Delete')?></button></form>
 <?php endif; ?>
 		</article>
 <?php endforeach; ?>
@@ -302,7 +302,7 @@ $targets_select = function (string $id, array $chosen = array()) use ($fgroups, 
 	$live = isset($_GET['check']) && $manage;
 ?>
 <div class="panel panel-default">
-	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Sync to the firewalls')?></h2>
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><i class="fa-solid fa-arrows-rotate icon-embed-btn" aria-hidden="true"></i><?=gettext('Sync to the firewalls')?></h2>
 <?php if ($manage && !$live && !empty($nodes)): ?>
 		<a class="btn btn-sm btn-link" href="?view=sync&amp;check=1"><?=gettext('Check what would change')?></a>
 <?php endif; ?></div>
@@ -377,7 +377,7 @@ elseif ($st !== null): ?>
 		</tbody></table></div>
 <?php if ($manage && !empty($nodes)): ?>
 	<div class="panel-footer fs-fleet-review-actions fs-fleet-policy-actions">
-		<form method="post"><button class="btn btn-primary" name="sync" value="1"><i class="fa-solid fa-rotate icon-embed-btn" aria-hidden="true"></i><?=sprintf(ngettext('Sync %d firewall', 'Sync %d firewalls', count($nodes)), count($nodes))?></button></form>
+		<form method="post"><button class="btn btn-primary" name="sync" value="1"<?=fleet_confirm(gettext('Sync the users to the firewalls?'), gettext('Each firewall gets a safety backup first. Accounts that Fleet made are created, changed or removed there; other accounts are not touched.'), gettext('Sync'), 'warning', 'rotate')?>><i class="fa-solid fa-rotate icon-embed-btn" aria-hidden="true"></i><?=sprintf(ngettext('Sync %d firewall', 'Sync %d firewalls', count($nodes)), count($nodes))?></button></form>
 		<p class="fs-fleet-policy-note"><?=gettext('Each firewall gets a safety backup first. Only accounts Fleet made are changed or removed.')?></p>
 	</div>
 <?php endif; ?>
@@ -435,4 +435,5 @@ if ($manage && ($view === 'groups')):
 <?php
 	fs_modal_form_end(gettext('Save group'), 'group_save', '1', 'fa-floppy-disk');
 endif; ?>
+<?=fleet_confirm_script()?>
 <?php include('foot.inc');

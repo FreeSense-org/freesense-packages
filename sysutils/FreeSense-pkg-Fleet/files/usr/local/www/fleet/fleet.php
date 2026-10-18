@@ -543,7 +543,7 @@ if ($savemsg) {
 	$new_fill = array('group_window' => '0', 'group_color' => fleet_group_color((string)((count($groups) % 8) + 1)));
 ?>
 <div class="panel panel-default">
-	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Groups')?> <span class="fs-count"><?=count($groups)?></span></h2>
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><i class="fa-solid fa-layer-group icon-embed-btn" aria-hidden="true"></i><?=gettext('Groups')?> <span class="fs-count"><?=count($groups)?></span></h2>
 		<button type="button" class="btn btn-sm btn-primary" data-fs-modal="#group-modal" data-fs-modal-title="<?=gettext('Add a group')?>" data-fs-fill="<?=htmlspecialchars(json_encode($new_fill))?>"><i class="fa-solid fa-plus icon-embed-btn" aria-hidden="true"></i><?=gettext('Add group')?></button></div>
 <?php if (empty($groups)): ?>
 	<div class="panel-body fs-fleet-pad"><p class="fs-fleet-hint"><?=gettext('No groups yet. Group firewalls by place, customer or role, for example Denmark, Retail or Canary. Policies, backups and updates can then target a group.')?></p></div>
@@ -577,7 +577,7 @@ if ($savemsg) {
 				    data-fs-fill="<?=htmlspecialchars(json_encode(array('group_id' => (string)$grp['id'], 'group_name' => $grp['name'], 'group_description' => $grp['description'],
 				    'group_window' => (string)(int)$grp['window_id'], 'group_color' => fleet_group_color((string)$grp['color']),
 				    'naming_pattern' => (string)($grp['naming_pattern'] ?? ''), 'naming_domain' => (string)($grp['naming_domain'] ?? ''))))?>"><?=gettext('Change')?></button>
-				<form method="post" action="?view=groups" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="group_delete" value="<?=(int)$grp['id']?>" title="<?=gettext('Its firewalls stay in the fleet')?>"><?=gettext('Delete')?></button></form>
+				<form method="post" action="?view=groups" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="group_delete" value="<?=(int)$grp['id']?>"<?=fleet_confirm(sprintf(gettext('Delete the group "%s"?'), $grp['name']), gettext('The group is removed. Its firewalls stay in the fleet and are not changed; they only lose the group, its update window and its naming pattern.'), gettext('Delete group'), 'danger', 'trash')?> title="<?=gettext('Its firewalls stay in the fleet')?>"><?=gettext('Delete')?></button></form>
 			</td></tr>
 <?php endforeach; ?>
 		</tbody></table></div>
@@ -672,7 +672,7 @@ endif;
 			<form method="post" class="fs-fleet-approval-actions">
 				<input type="hidden" name="enrollment" value="<?=htmlspecialchars($e['id'])?>"/>
 				<button class="btn btn-primary" name="decide" value="approve"><i class="fa-solid fa-check icon-embed-btn" aria-hidden="true"></i><?=gettext('Approve')?></button>
-				<button class="btn btn-outline-secondary" name="decide" value="reject"><?=gettext('Reject')?></button>
+				<button class="btn btn-outline-secondary" name="decide" value="reject"<?=fleet_confirm(gettext('Reject this firewall?'), gettext('The firewall is not added to the fleet and its invitation is used up. To add it again you need a new invitation.'), gettext('Reject'), 'danger', 'user-xmark')?>><?=gettext('Reject')?></button>
 			</form>
 		</li>
 <?php endforeach; ?>
@@ -814,9 +814,9 @@ endif;
 		<tr><td><?=htmlspecialchars($i['label'])?><?=' ' . fs_badge('neutral', array('tunnel' => gettext('Fleet tunnel'), 'tailscale' => gettext('Tailscale'), 'direct' => gettext('Direct'))[$i['via'] ?? 'tunnel'] ?? gettext('Fleet tunnel'))?></td><td><?=htmlspecialchars($role_name($i['role']))?></td>
 			<td><?=htmlspecialchars(date('Y-m-d H:i', (int)$i['expires']))?></td>
 			<td><?=((int)$i['failures'] > 0) ? fs_badge('warn', (int)$i['failures'] . ' / ' . fleet_opt('invite_failures')) : '<span class="fs-muted">0</span>'?></td>
-			<td class="text-end text-nowrap"><form method="post" class="d-inline"><button class="btn btn-sm btn-link" name="reissue" value="<?=htmlspecialchars($i['token_id'])?>"
+			<td class="text-end text-nowrap"><form method="post" class="d-inline"><button class="btn btn-sm btn-link" name="reissue" value="<?=htmlspecialchars($i['token_id'])?>"<?=fleet_confirm(sprintf(gettext('Make a new key for "%s"?'), $i['label']), gettext('The old link and key stop working at once and a new pair is made with the same settings. Anyone who has the old one cannot use it any more.'), gettext('Make a new key'), 'warning', 'key')?>
 			    title="<?=gettext('Revoke this invitation and make a new link and key with the same settings')?>"><?=gettext('New key')?></button>
-			    <button class="btn btn-sm btn-outline-secondary" name="revoke" value="<?=htmlspecialchars($i['token_id'])?>"><?=gettext('Revoke')?></button></form></td></tr>
+			    <button class="btn btn-sm btn-outline-secondary" name="revoke" value="<?=htmlspecialchars($i['token_id'])?>"<?=fleet_confirm(sprintf(gettext('Revoke the invitation "%s"?'), $i['label']), gettext('Its link and key stop working at once. A firewall that has not joined yet cannot join with it.'), gettext('Revoke invitation'), 'danger', 'ban')?>><?=gettext('Revoke')?></button></form></td></tr>
 <?php endforeach; ?>
 		</tbody></table></div>
 </section>
@@ -861,7 +861,7 @@ endif;
 ?>
 <?php if ($acc_sec === 'exposure'): ?>
 <div class="panel panel-default">
-	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Can firewalls reach this controller?')?></h2>
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><i class="fa-solid fa-satellite-dish icon-embed-btn" aria-hidden="true"></i><?=gettext('Can firewalls reach this controller?')?></h2>
 		<form method="post" action="?tab=settings&amp;view=access&amp;section=exposure" class="ms-auto"><button class="btn btn-sm btn-outline-secondary" type="submit" name="access_action" value="check"><i class="fa-solid fa-satellite-dish icon-embed-btn" aria-hidden="true"></i><?=gettext('Check now')?></button></form></div>
 	<div class="panel-body fs-fleet-pad">
 		<p class="fs-fleet-lead"><?=htmlspecialchars($set_leads['access'])?></p>
@@ -933,7 +933,7 @@ endif;
 	<div class="panel-footer d-flex gap-2 flex-wrap align-items-center">
 <?php if ($open_left > 0): ?>
 		<span><?=fs_badge('warn', sprintf(gettext('Open for joining: %d min left'), ceil($open_left / 60)))?></span>
-		<button class="btn btn-outline-secondary" type="submit" name="access_action" value="close"><?=gettext('Close now')?></button>
+		<button class="btn btn-outline-secondary" type="submit" name="access_action" value="close"<?=fleet_confirm(gettext('Close joining now?'), gettext('Firewalls that are not on the allowed list can no longer reach the joining port. Firewalls that are already in the fleet are not affected.'), gettext('Close now'), 'warning', 'door-closed')?>><?=gettext('Close now')?></button>
 <?php elseif ($acc['enroll'] === 'list'): ?>
 		<span class="fs-muted small"><?=gettext('A firewall whose address you do not know:')?></span>
 		<select class="form-select form-select-sm w-auto" name="open_minutes" aria-label="<?=gettext('How long')?>"><?php foreach (FLEET_ACCESS_OPEN_MINUTES as $m): ?><option value="<?=$m?>"<?=($m === 60) ? ' selected' : ''?>><?=htmlspecialchars(($m < 60) ? sprintf(gettext('%d minutes'), $m) : sprintf(gettext('%d hours'), $m / 60))?></option><?php endforeach; ?></select>
@@ -946,7 +946,7 @@ endif;
 
 <?php else: ?>
 <div class="panel panel-default">
-	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><?=gettext('Allowed list')?> <span class="fs-count"><?=count($allowed)?></span></h2>
+	<div class="panel-heading fs-fleet-heading-actions"><h2 class="panel-title"><i class="fa-solid fa-shield-halved icon-embed-btn" aria-hidden="true"></i><?=gettext('Allowed list')?> <span class="fs-count"><?=count($allowed)?></span></h2>
 		<form method="get" class="ms-auto d-flex gap-2" data-fleet-filters><script src="/fleet/assets/fleet-list.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-list.js')?>" defer></script><input type="hidden" name="tab" value="settings"/><input type="hidden" name="view" value="access"/><input type="hidden" name="section" value="allowed"/>
 			<input class="form-control form-control-sm" type="search" name="aq" value="<?=htmlspecialchars($aq)?>" placeholder="<?=gettext('Search address or reason')?>" aria-label="<?=gettext('Search the allowed list')?>"/></form></div>
 	<div class="panel-body table-responsive"><table class="table fs-table">
@@ -954,7 +954,7 @@ endif;
 		<tbody>
 <?php foreach (array_slice($shown_allowed, 0, 200, true) as $c => $why): ?>
 		<tr><td class="fs-mono"><?=htmlspecialchars((string)$c)?></td><td class="small"><?=htmlspecialchars($why)?></td>
-			<td class="text-end"><?php if (in_array((string)$c, $manual, true)): ?><form method="post" action="?tab=settings&amp;view=access&amp;section=allowed"><input type="hidden" name="cidr" value="<?=htmlspecialchars((string)$c)?>"/><button class="btn btn-sm btn-link text-danger" type="submit" name="access_action" value="remove"><?=gettext('Remove')?></button></form><?php else: ?><span class="fs-muted small"><?=gettext('automatic')?></span><?php endif; ?></td></tr>
+			<td class="text-end"><?php if (in_array((string)$c, $manual, true)): ?><form method="post" action="?tab=settings&amp;view=access&amp;section=allowed"><input type="hidden" name="cidr" value="<?=htmlspecialchars((string)$c)?>"/><button class="btn btn-sm btn-link text-danger" type="submit" name="access_action" value="remove"<?=fleet_confirm(sprintf(gettext('Remove %s from the allowed list?'), (string)$c), gettext('That address can no longer reach the joining port of this controller.'), gettext('Remove address'), 'warning', 'trash')?>><?=gettext('Remove')?></button></form><?php else: ?><span class="fs-muted small"><?=gettext('automatic')?></span><?php endif; ?></td></tr>
 <?php endforeach; ?>
 <?php if (empty($shown_allowed)): ?>
 		<tr><td colspan="3" class="fs-muted"><?=($aq !== '') ? gettext('Nothing matches.') : gettext('Nothing is allowed yet. With "Only the allowed list", nobody can reach that port.')?></td></tr>
@@ -969,13 +969,13 @@ endif;
 
 <?php if (!empty($blocked)): ?>
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Blocked after wrong keys')?> <span class="fs-count"><?=count($blocked)?></span></h2></div>
+	<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-ban icon-embed-btn" aria-hidden="true"></i><?=gettext('Blocked after wrong keys')?> <span class="fs-count"><?=count($blocked)?></span></h2></div>
 	<div class="panel-body table-responsive"><table class="table fs-table">
 		<thead><tr><th><?=gettext('Address')?></th><th><?=gettext('Until')?></th><th class="text-end"></th></tr></thead>
 		<tbody>
 <?php foreach ($blocked as $ip => $until): ?>
 		<tr><td class="fs-mono"><?=htmlspecialchars((string)$ip)?></td><td class="small"><?=htmlspecialchars(date('Y-m-d H:i', (int)$until))?></td>
-			<td class="text-end"><form method="post" action="?tab=settings&amp;view=access&amp;section=allowed"><input type="hidden" name="ip" value="<?=htmlspecialchars((string)$ip)?>"/><button class="btn btn-sm btn-outline-secondary" type="submit" name="access_action" value="unblock"><?=gettext('Unblock')?></button></form></td></tr>
+			<td class="text-end"><form method="post" action="?tab=settings&amp;view=access&amp;section=allowed"><input type="hidden" name="ip" value="<?=htmlspecialchars((string)$ip)?>"/><button class="btn btn-sm btn-outline-secondary" type="submit" name="access_action" value="unblock"<?=fleet_confirm(gettext('Unblock this address?'), gettext('It was blocked after too many wrong join keys. It can try to join again.'), gettext('Unblock'), 'warning', 'unlock')?>><?=gettext('Unblock')?></button></form></td></tr>
 <?php endforeach; ?>
 		</tbody></table></div>
 </div>
@@ -1033,8 +1033,8 @@ endif;
 	<div class="panel-footer d-flex gap-2 flex-wrap">
 <?php if ($ov['role'] === 'primary'): ?>
 		<button class="btn btn-primary" type="submit" name="standby_action" value="save"><i class="fa-solid fa-floppy-disk icon-embed-btn" aria-hidden="true"></i><?=gettext('Save')?></button>
-		<button class="btn btn-outline-secondary" type="submit" name="standby_action" value="pair"><i class="fa-solid fa-key icon-embed-btn" aria-hidden="true"></i><?=gettext('New pairing code')?></button>
-		<button class="btn btn-outline-danger ms-auto" type="submit" name="standby_action" value="remove"><i class="fa-solid fa-link-slash icon-embed-btn" aria-hidden="true"></i><?=gettext('Remove the standby')?></button>
+		<button class="btn btn-outline-secondary" type="submit" name="standby_action" value="pair"<?=fleet_confirm(gettext('Make a new pairing code?'), gettext('The old code stops working. A standby that has not used it yet has to use the new one.'), gettext('New pairing code'), 'warning', 'key')?>><i class="fa-solid fa-key icon-embed-btn" aria-hidden="true"></i><?=gettext('New pairing code')?></button>
+		<button class="btn btn-outline-danger ms-auto" type="submit" name="standby_action" value="remove"<?=fleet_confirm(gettext('Remove the standby?'), gettext('Fleet stops sending copies to the standby and firewalls stop getting its address. If this controller stops, nothing takes over until you set up a standby again.'), gettext('Remove the standby'), 'danger', 'trash')?>><i class="fa-solid fa-link-slash icon-embed-btn" aria-hidden="true"></i><?=gettext('Remove the standby')?></button>
 <?php else: ?>
 		<button class="btn btn-primary" type="submit" name="standby_action" value="pair"><i class="fa-solid fa-key icon-embed-btn" aria-hidden="true"></i><?=gettext('Turn on and make a pairing code')?></button>
 <?php endif; ?>
@@ -1056,19 +1056,19 @@ endif;
 		</dl>
 		<form method="post" action="?tab=settings&amp;view=standby" class="d-flex gap-2 flex-wrap">
 			<button class="btn btn-outline-secondary" type="submit" name="standby_action" value="pull"><i class="fa-solid fa-rotate icon-embed-btn" aria-hidden="true"></i><?=gettext('Fetch now')?></button>
-			<button class="btn btn-outline-secondary" type="submit" name="standby_action" value="leave"><i class="fa-solid fa-link-slash icon-embed-btn" aria-hidden="true"></i><?=gettext('Stop being the standby')?></button>
+			<button class="btn btn-outline-secondary" type="submit" name="standby_action" value="leave"<?=fleet_confirm(gettext('Stop being the standby?'), gettext('This server stops fetching copies from the primary controller and can no longer take over. The copy it holds is kept.'), gettext('Stop being the standby'), 'warning', 'link-slash')?>><i class="fa-solid fa-link-slash icon-embed-btn" aria-hidden="true"></i><?=gettext('Stop being the standby')?></button>
 		</form>
 	</div>
 </div>
 <?php if (!empty($snap)): ?>
 <form method="post" action="?tab=settings&amp;view=standby">
 <div class="panel panel-default">
-	<div class="panel-heading"><h2 class="panel-title"><?=gettext('Promote to controller')?></h2></div>
+	<div class="panel-heading"><h2 class="panel-title"><i class="fa-solid fa-crown icon-embed-btn" aria-hidden="true"></i><?=gettext('Promote to controller')?></h2></div>
 	<div class="panel-body fs-fleet-pad">
 		<p class="fs-fleet-lead"><?=gettext('This server becomes the Fleet controller from the copy: same keys and tunnel, its own address. Firewalls move here by themselves within a few minutes. If the old primary comes back, it sees it was replaced and becomes the standby.')?></p>
 		<label class="form-check"><input class="form-check-input" type="checkbox" name="confirm_down" value="1" required/> <span class="form-check-label"><?=gettext('The primary controller is down or switched off.')?></span></label>
 	</div>
-	<div class="panel-footer"><button class="btn btn-danger" type="submit" name="standby_action" value="promote"><i class="fa-solid fa-crown icon-embed-btn" aria-hidden="true"></i><?=gettext('Promote to controller')?></button></div>
+	<div class="panel-footer"><button class="btn btn-danger" type="submit" name="standby_action" value="promote"<?=fleet_confirm(gettext('Promote this server to controller?'), gettext('This server becomes the Fleet controller from the copy, and firewalls move here within a few minutes. Only do this when the primary controller is down. If both run, the firewalls can end up split between them.'), gettext('Promote to controller'), 'danger', 'crown', array(), 'PROMOTE')?>><i class="fa-solid fa-crown icon-embed-btn" aria-hidden="true"></i><?=gettext('Promote to controller')?></button></div>
 </div>
 </form>
 <?php endif; ?>
@@ -1243,7 +1243,7 @@ endif;
 <?php if (($rp['iface'] === 'wan') && ($rdetect !== '') && is_private_ip($rdetect)): ?>
 						<div class="fs-fleet-hint"><?=gettext('A private address: firewalls on the internet need the public address or DNS name of the port forward to this firewall.')?></div>
 <?php endif; ?></td>
-					<td class="text-end"><?php if (!$rnew && (count($rows) > 2)): ?><button class="btn btn-sm btn-link fs-fleet-danger-link" type="submit" name="point_remove" value="<?=$ri?>"><?=gettext('Remove')?></button><?php endif; ?></td></tr>
+					<td class="text-end"><?php if (!$rnew && (count($rows) > 2)): ?><button class="btn btn-sm btn-link fs-fleet-danger-link" type="submit" name="point_remove" value="<?=$ri?>"<?=fleet_confirm(sprintf(gettext('Remove the connection point on %s?'), $ctl_ifaces[$rp['iface']] ?? $rp['iface']), gettext('Firewalls that reach this controller on that interface can no longer join or reconnect through it. Fleet closes its ports there. It is saved at once.'), gettext('Remove connection point'), 'danger', 'trash')?>><?=gettext('Remove')?></button><?php endif; ?></td></tr>
 <?php endforeach; ?>
 				</tbody></table></div>
 		</fieldset>
@@ -1299,4 +1299,5 @@ endif;
 <script src="/fleet/assets/fleet-naming.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-naming.js')?>"></script>
 <script src="/fleet/assets/fleet-invite.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-invite.js')?>"></script>
 <script src="/fleet/assets/fleet-setup.js?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet-setup.js')?>"></script>
+<?=fleet_confirm_script()?>
 <?php include('foot.inc');

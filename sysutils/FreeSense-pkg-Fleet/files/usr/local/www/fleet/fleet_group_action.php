@@ -80,7 +80,7 @@ $n = count($plan['go']);
 <link rel="stylesheet" href="/fleet/assets/fleet.css?v=<?=(int)@filemtime('/usr/local/www/fleet/assets/fleet.css')?>">
 <p><a class="fs-fleet-back" href="/fleet/fleet_dashboard.php?group=<?=(int)$group['id']?>"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i><?=htmlspecialchars($group['name'])?></a></p>
 <div class="panel panel-default fs-fleet-review" role="region" aria-labelledby="review-title">
-	<div class="panel-heading"><h2 id="review-title" class="panel-title"><?=sprintf(htmlspecialchars(($action === 'update') ? gettext('Update the %s group?') : gettext('Reboot the %s group?')), htmlspecialchars($group['name']))?></h2></div>
+	<div class="panel-heading"><h2 id="review-title" class="panel-title"><i class="fa-solid <?=($action === 'update') ? 'fa-circle-up' : 'fa-rotate'?> icon-embed-btn" aria-hidden="true"></i><?=sprintf(htmlspecialchars(($action === 'update') ? gettext('Update the %s group?') : gettext('Reboot the %s group?')), htmlspecialchars($group['name']))?></h2></div>
 	<div class="panel-body fs-fleet-pad">
 <?php if ($n === 0): ?>
 		<p class="fs-fleet-lead"><?=gettext('No firewall in this group can be changed now. The list below says why.')?></p>
