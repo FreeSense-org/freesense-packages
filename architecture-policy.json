@@ -17,6 +17,18 @@
           "reason": "Dependency security/clamav still requires a Rust source build under qemu-user emulation.",
           "issue": "https://github.com/FreeSense-org/freesense/issues/53",
           "review_date": "2026-09-11"
+        },
+        {
+          "origin": "security/FreeSense-pkg-Tailscale",
+          "reason": "Its Go dependency (tailscale 1.104.1 / node_exporter 1.12.1 from the 2026-10-12 ports pin) fails go mod download with SIGILL under qemu-user emulation, so the port stops at Failed: fetch.",
+          "issue": "https://github.com/FreeSense-org/freesense-os-base/actions/runs/39293239481",
+          "review_date": "2026-10-19"
+        },
+        {
+          "origin": "sysutils/FreeSense-pkg-node_exporter",
+          "reason": "Its Go dependency (tailscale 1.104.1 / node_exporter 1.12.1 from the 2026-10-12 ports pin) fails go mod download with SIGILL under qemu-user emulation, so the port stops at Failed: fetch.",
+          "issue": "https://github.com/FreeSense-org/freesense-os-base/actions/runs/39293239481",
+          "review_date": "2026-10-19"
         }
       ]
     }
