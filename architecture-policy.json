@@ -29,6 +29,18 @@
           "reason": "Its Go dependency (tailscale 1.104.1 / node_exporter 1.12.1 from the 2026-10-12 ports pin) fails go mod download with SIGILL under qemu-user emulation, so the port stops at Failed: fetch.",
           "issue": "https://github.com/FreeSense-org/freesense-os-base/actions/runs/39293239481",
           "review_date": "2026-10-19"
+        },
+        {
+          "origin": "security/tailscale",
+          "reason": "Its go mod download dies with SIGILL under qemu-user emulation, so the port stops at Failed: fetch; the FreeSense package that wraps it is excluded as well.",
+          "issue": "https://github.com/FreeSense-org/freesense-os-base/actions/runs/39321605066",
+          "review_date": "2026-10-20"
+        },
+        {
+          "origin": "sysutils/node_exporter",
+          "reason": "Its go mod download dies with SIGILL under qemu-user emulation, so the port stops at Failed: fetch; the FreeSense package that wraps it is excluded as well.",
+          "issue": "https://github.com/FreeSense-org/freesense-os-base/actions/runs/39321605066",
+          "review_date": "2026-10-20"
         }
       ]
     }
