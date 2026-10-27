@@ -45,14 +45,14 @@ if ($_GET['a'] == "download") {
 	} else {
 		// Download a single file from FILES_DIR
 		// Only allow to download files under the FILES_DIR
-		$filename = htmlspecialchars($_GET['filename']);
 		$error_msg = "Attempt to download files outside of TFTP server directory rejected!";
-		if (!tftp_filesdir_bounds_check($filename, $error_msg)) {
+		$path = tftp_filesdir_bounds_check($_GET['filename'] ?? null, $error_msg);
+		if ($path === false) {
 			header("Location: tftp_files.php");
 			return;
 		} else {
-			$desc = $filename;
-			$filename = basename($filename);
+			$desc = $path;
+			$filename = str_replace(['"', "\r", "\n"], '', basename($path));
 		}
 	}
 
@@ -70,8 +70,8 @@ if ($_GET['a'] == "download") {
 	exit;
 }
 
-/* Restore TFTP server backup */
-if ($_GET['a'] == "other" && $_GET['t'] == "restore") {
+/* Restore TFTP server backup; it changes files, so it takes a CSRF-checked POST only. */
+if ($_POST['a'] == "other" && $_POST['t'] == "restore") {
 	tftp_restore_backup();
 	exit;
 }
@@ -96,16 +96,17 @@ if ($_POST['upload'] == "Upload" && $_FILES["tftpd_fileup"]["error"] == UPLOAD_E
 	}
 }
 
-/* Delete a file from TFTP server */
-if ($_GET['act'] == "del") {
-	if ($_GET['type'] == 'tftp') {
-		$filename = htmlspecialchars($_GET['filename']);
+/* Delete a file from TFTP server; it takes a CSRF-checked POST only. */
+if ($_POST['act'] == "del") {
+	if ($_POST['type'] == 'tftp') {
 		$error_msg = "Attempt to delete files outside of TFTP server directory rejected!";
-		if (!tftp_filesdir_bounds_check($filename, $error_msg)) {
+		$path = tftp_filesdir_bounds_check($_POST['filename'] ?? null, $error_msg);
+		if ($path === false) {
 			header("Location: tftp_files.php");
 			return;
 		} else {
-			unlink_if_exists("{$filename}");
+			/* unlink(), not unlink_if_exists(): a file name is not a glob pattern. */
+			@unlink($path);
 			header("Location: tftp_files.php");
 			exit;
 		}
@@ -147,11 +148,11 @@ display_top_tabs($tab_array);
 					<td><?=format_bytes(filesize("{$file}")); ?> </td>
 						<td>
 						<a name="tftpd_deleteX[]" id="tftpd_deleteX[]" type="button" title="<?=gettext('Delete this file');?>"
-							href='?type=tftp&amp;act=del&amp;filename=<?=htmlspecialchars($file);?>' style="cursor: pointer;" text="delete this">
+							href='tftp_files.php?type=tftp&amp;act=del&amp;filename=<?=htmlspecialchars(rawurlencode($file));?>' usepost style="cursor: pointer;" text="delete this">
 							<i class="fa-solid fa-trash-can" title="<?=gettext('Delete this file');?>"></i>
 						</a>
 						<a name="tftpd_dnloadX[]" id="tftpd_dnloadX[]" type="button" title="<?=gettext('Download this file');?>"
-							href='tftp_files.php?a=download&amp;filename=<?=htmlspecialchars($file);?>' style="cursor: pointer;">
+							href='tftp_files.php?a=download&amp;filename=<?=htmlspecialchars(rawurlencode($file));?>' style="cursor: pointer;">
 							<i class="fa-solid fa-download" title="<?=gettext('Download this file');?>"></i>
 						</a>
 					</td>
@@ -205,7 +206,7 @@ display_top_tabs($tab_array);
 		</a>
 		<?php if (file_exists(BACKUP_PATH)): ?>
 		<a name="tftpd_restore" id="tftpd_restore" type="button" class="btn btn-danger btn-sm" title="<?=sprintf(gettext('Restore all files from %s'), BACKUP_PATH);?>"
-			href="tftp_files.php?a=other&amp;t=restore" text="restore backup">
+			href="tftp_files.php?a=other&amp;t=restore" usepost text="restore backup">
 			<i class="fa-solid fa-undo icon-embed-btn"></i>
 			<?=gettext('Restore');?>
 		</a>

@@ -65,13 +65,17 @@ function syslogng_validate_general($post, &$input_errors) {
 		$post['interfaces'] = implode(",", $post['interfaces']);
 	}
 
-	if (!is_port($post['default_port'])) {
+	if (!in_array($post['default_protocol'], ['udp', 'tcp', 'tls'], true)) {
+		$input_errors[] = 'You must select a valid protocol in the \'Default Protocol\' field';
+	} elseif (!is_port($post['default_port'])) {
 		$input_errors[] = 'You must enter a valid port number in the \'Default Port\' field';
-	}
-
-	$sockstat = trim(shell_exec("/usr/bin/sockstat -l -P " . $post['default_protocol'] . " -p " . $post['default_port'] . " | /usr/bin/grep -v ^USER | /usr/bin/grep -v syslog-ng"));
-	if (!empty($sockstat)) {
-		$input_errors[] = 'The port specified in the \'Default Port\' field is already in use';
+	} else {
+		/* Both values were checked above; they are escaped anyway because this runs as root. */
+		$sockstat_proto = ($post['default_protocol'] === 'udp') ? 'udp' : 'tcp';
+		$sockstat = trim(shell_exec("/usr/bin/sockstat -l -P " . escapeshellarg($sockstat_proto) . " -p " . escapeshellarg($post['default_port']) . " | /usr/bin/grep -v ^USER | /usr/bin/grep -v syslog-ng"));
+		if (!empty($sockstat)) {
+			$input_errors[] = 'The port specified in the \'Default Port\' field is already in use';
+		}
 	}
 
 	if (!preg_match("/^\\/[^?*:;{}\\\\]+[^\\/]$/", $post['default_logdir'])) {

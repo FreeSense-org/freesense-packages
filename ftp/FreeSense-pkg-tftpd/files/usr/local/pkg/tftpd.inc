@@ -57,16 +57,21 @@ function tftp_restore_backup() {
 	}
 }
 
-/* Only allow to download files under the FILES_DIR */
+/*
+ * The resolved path of $filename when it is a file inside FILES_DIR, else
+ * false. A string prefix check is not enough: "/tftpboot/../conf/config.xml"
+ * and "/tftpbootX/..." both start with "/tftpboot".
+ */
 function tftp_filesdir_bounds_check($filename, $error_msg) {
-	$basedirlength = strlen(FILES_DIR);
-	if (substr($filename, 0, $basedirlength) !== FILES_DIR) {
+	$path = is_string($filename) ? realpath($filename) : false;
+	$base = realpath(FILES_DIR);
+	if (($path === false) || ($base === false) || !is_file($path) ||
+	    (strncmp($path, $base . '/', strlen($base) + 1) !== 0)) {
 		logger(LOG_ERR, $error_msg, LOG_PREFIX_PKG_TFTPD);
 		file_notice("tftpd", "{$error_msg}", "Packages");
 		return false;
-	} else {
-		return true;
 	}
+	return $path;
 }
 
 function install_package_tftpd() {
