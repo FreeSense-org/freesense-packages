@@ -49,8 +49,12 @@ function tailscale_clean_restart()
 function tailscale_auth_validation_hook(&$post, &$input_errors)
 {
 	$loginserver = $post['loginserver'];
-	if (!empty($loginserver) && !is_URL($loginserver))
-		$input_errors[] = sprintf(gettext('Login Server (%s) is not a valid URL.'), $loginserver);
+	/* Both values go into an rc.conf.d file that rc(8) sources as root. */
+	if (!empty($loginserver) && (!is_URL($loginserver, true) || preg_match('/["\\\\$`\s]/', $loginserver)))
+		$input_errors[] = sprintf(gettext('Login Server (%s) is not a valid URL.'), htmlspecialchars($loginserver));
+	$preauthkey = (string)($post['preauthkey'] ?? '');
+	if (($preauthkey !== '') && !preg_match('/^[A-Za-z0-9_-]+$/D', $preauthkey))
+		$input_errors[] = gettext('The pre-authentication key may contain only letters, digits, "-" and "_".');
 }
 
 /* 
