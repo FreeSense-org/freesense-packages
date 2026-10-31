@@ -3,10 +3,13 @@ require_once('config.inc');
 require_once('freesense-utils.inc');
 require_once('filter.inc');
 require_once('services.inc');
+require_once('service-utils.inc');
 
 define('FREESENSE_CROWDSEC_ALIAS', 'CrowdSecBlocklist');
 define('FREESENSE_CROWDSEC_FILE', '/var/db/crowdsec/freesense-blocks.txt');
 define('FREESENSE_CROWDSEC_RULE', 'FreeSense CrowdSec decisions');
+/* The generated start script the system runs at boot (rc.start_packages starts every *.sh in rc.d). */
+define('FREESENSE_CROWDSEC_RCFILE', 'crowdsec.sh');
 
 /* cscli waits for the local API without a timeout, so only call it while
  * CrowdSec runs and never for longer than 10 seconds. */
@@ -52,14 +55,27 @@ function crowdsec_sync_config() {
 	$command = '/usr/local/pkg/crowdsec/crowdsec_sync.php';
 	install_cron_job($command, $enabled, '*', '*', '*', '*', '*', 'root');
 	if ($enabled) {
+		write_rcfile(array(
+			'file' => FREESENSE_CROWDSEC_RCFILE,
+			'start' => '/usr/sbin/service crowdsec onestart',
+			'stop' => '/usr/sbin/service crowdsec onestop',
+			'executable' => 'crowdsec'
+		));
 		crowdsec_ensure_alias_and_rule();
 		filter_configure();
 		mwexec('/usr/sbin/service crowdsec onestart', true);
+	} else {
+		/* Disabled: no start at the next boot, and not left running until then. */
+		unlink_if_exists(RCFILEPREFIX . FREESENSE_CROWDSEC_RCFILE);
+		if (is_process_running('crowdsec')) {
+			mwexec('/usr/sbin/service crowdsec onestop', true);
+		}
 	}
 }
 
 function crowdsec_remove_config() {
 	install_cron_job('/usr/local/pkg/crowdsec/crowdsec_sync.php', false);
+	unlink_if_exists(RCFILEPREFIX . FREESENSE_CROWDSEC_RCFILE);
 	$rules=array_values(array_filter(get_filter_rules_list(), fn($r)=>($r['descr']??'')!==FREESENSE_CROWDSEC_RULE));
 	set_filter_rules_list($rules);
 	filter_configure();
