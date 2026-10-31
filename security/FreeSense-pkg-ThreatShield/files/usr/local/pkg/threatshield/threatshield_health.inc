@@ -357,6 +357,16 @@ function threatshield_reconcile(bool $after_start = false): void {
 		logger(LOG_WARNING, 'Threat Shield: the DNSBL service was not running; starting it.');
 		threatshield_service_control('start', 'threatshield_dnsbl');
 	}
+	/* A host or domain override added to the DNS Resolver after the last apply: its zone must reach Unbound. */
+	if ((($cfg['dns_coordination_mode'] ?? 'primary') === 'primary') && threatshield_is_running() && is_file(THREATSHIELD_CONFIG_FILE)) {
+		$expected = threatshield_local_zones((string)config_get_path('system/domain', 'localdomain'));
+		if (threatshield_yaml_local_zones((string)file_get_contents(THREATSHIELD_CONFIG_FILE)) !== $expected) {
+			logger(LOG_INFO, 'Threat Shield: the local DNS zones changed; updating the DNS filter configuration.');
+			if (threatshield_write_yaml(threatshield_generate_yaml($cfg))) {
+				threatshield_service_control('restart');
+			}
+		}
+	}
 	$reload = false;
 	if (($cfg['catch_rogue_dns'] ?? 'off') === 'on' && !empty(threatshield_normalize_list($cfg['dns_intercept_interfaces'] ?? []))) {
 		$healthy = threatshield_listener_healthy($cfg);

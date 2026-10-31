@@ -1,7 +1,7 @@
 <?php
 /*
  * threatshield_ajax.php
- * FreeSense Threat Shield - fragments loaded after the page (health checks)
+ * FreeSense Threat Shield - fragments loaded after the page (health checks, list download progress)
  *
  * Copyright (c) 2025-2026 The FreeSense Project.
  * Licensed under the Apache License, Version 2.0.
@@ -32,6 +32,10 @@ switch ($_GET['what'] ?? '') {
 		}
 		header('Content-Type: text/html; charset=utf-8');
 		echo threatshield_health_html($checks);
+		break;
+	case 'progress':
+		header('Content-Type: application/json');
+		echo json_encode(threatshield_progress_view(threatshield_progress_state()));
 		break;
 	default:
 		http_response_code(404);

@@ -21,6 +21,7 @@ define('THREATSHIELD_MAP_DB', $GLOBALS['ts_test_tmp'] . '/map.sqlite');
 define('THREATSHIELD_MAP_STATE', $GLOBALS['ts_test_tmp'] . '/map_state.json');
 define('THREATSHIELD_GEO_DIR', $GLOBALS['ts_test_tmp'] . '/geodb');
 define('THREATSHIELD_MAP_SECRET', $GLOBALS['ts_test_tmp'] . '/map_secret');
+define('THREATSHIELD_PROGRESS_FILE', $GLOBALS['ts_test_tmp'] . '/update_progress.json');
 register_shutdown_function(function () {
 	foreach ((array)glob($GLOBALS['ts_test_tmp'] . '/{,*/}*', GLOB_BRACE) as $f) if (is_file($f)) @unlink($f);
 	foreach ((array)glob($GLOBALS['ts_test_tmp'] . '/*', GLOB_ONLYDIR) as $d) @rmdir($d);
