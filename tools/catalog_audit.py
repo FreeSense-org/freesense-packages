@@ -143,6 +143,18 @@ def main() -> int:
                 in_port = any(root.glob(f"*/*/files/usr/local/www/{web_path}"))
                 if not in_core and not in_port:
                     fail(errors, f"{origin}: {field} target does not exist: {path}")
+                # pkg_edit.php and pkg.php exist in the firewall whatever the xml says; the xml itself must
+                # exist in this package and have a form (an unknown xml shows "No valid package defined",
+                # one without fields an empty page).
+                for xml_name in re.findall(r"(?:^|&)xml=([^&]+)", path.partition("?")[2]):
+                    xml_file = root / origin / "files/usr/local/pkg" / xml_name
+                    if not xml_file.is_file():
+                        # a wrapper may point at an xml shipped by a sibling package (zabbix-agent7 uses zabbix-agent's)
+                        xml_file = next(iter(root.glob(f"*/*/files/usr/local/pkg/{xml_name}")), xml_file)
+                    if not xml_file.is_file():
+                        fail(errors, f"{origin}: {field} names {xml_name}, which no package ships: {path}")
+                    elif not re.search(r"<(?:fieldname|adddeleteeditpagefields)>", xml_file.read_text(encoding="utf-8", errors="replace")):
+                        fail(errors, f"{origin}: {field} opens {xml_name}, which has no form fields (an empty page): {path}")
 
     extra_metadata = set(product_packages) - published_names
     for shortname in sorted(extra_metadata):
