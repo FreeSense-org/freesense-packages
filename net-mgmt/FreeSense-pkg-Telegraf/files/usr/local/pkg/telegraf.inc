@@ -78,7 +78,7 @@ function telegraf_resync_config() {
 [[inputs.cpu]]
 	percpu = true
 	totalcpu = true
-	fielddrop = ["time_*"]
+	fieldexclude = ["time_*"]
 
 [[inputs.disk]]
 	ignore_fs = ["tmpfs", "devtmpfs", "devfs"]
@@ -158,7 +158,7 @@ EOD;
 			$cfg .= "\tinsecure_skip_verify = true\n";
 		}
 		if (count($a_ca)) {
-			$cfg .= "\tssl_ca = \"" . $ca_pem_file . "\"\n";
+			$cfg .= "\ttls_ca = \"" . $ca_pem_file . "\"\n";
 		}
 	} else if ((is_array($telegraf_conf['telegraf_output']) && in_array("elasticsearch", $telegraf_conf['telegraf_output'])) || $telegraf_conf['telegraf_output'] == "elasticsearch") {
 		$cfg .= "[[outputs.elasticsearch]]\n";
