@@ -185,7 +185,36 @@ switch ($mode) {
 		exit(($r['verdict'] === 'fail') ? 1 : 0);
 }
 
-if (($mode === 'all' || $mode === 'feeds') && ($force || threatshield_interval_due('feeds', (string)($cfg['feed_update_interval'] ?? 'daily')))) {
+/* What this run downloads, counted first so the WebUI can show a progress bar. */
+$run_feeds = ($mode === 'all' || $mode === 'feeds') && ($force || threatshield_interval_due('feeds', (string)($cfg['feed_update_interval'] ?? 'daily')));
+$run_ipfeeds = ($mode === 'all' || $mode === 'ipfeeds') && ($force || threatshield_interval_due('ipfeeds', (string)($cfg['ipbl_update_interval'] ?? 'daily')));
+$run_geoip = ($mode === 'all' || $mode === 'geoip') && ($force || threatshield_interval_due('geoip', (string)($cfg['geoip_update_interval'] ?? 'weekly')));
+$geoip_countries = [];
+if ($run_geoip && ($cfg['geoip_enable'] ?? 'off') === 'on' && !empty($cfg['geoip_policies'])) {
+	foreach (threatshield_normalize_list($cfg['geoip_policies']) as $policy) {
+		foreach (threatshield_normalize_list(is_array($policy) ? ($policy['countries'] ?? []) : []) as $cc) {
+			$cc = strtolower(preg_replace('/[^a-zA-Z]/', '', (string)$cc));
+			if ($cc !== '') $geoip_countries[$cc] = true;
+		}
+	}
+	$geoip_countries = array_keys($geoip_countries);
+}
+$total = 0;
+if ($run_feeds) {
+	foreach (threatshield_normalize_list($cfg['feeds'] ?? []) as $feed) {
+		if (is_array($feed) && ($feed['enabled'] ?? '') === 'on' && !empty($feed['url'])) $total++;
+	}
+}
+if ($run_ipfeeds) $total += count(threatshield_active_ipfeeds($cfg));
+if ($run_geoip) $total += count($geoip_countries) * ((($cfg['geoip_ipv6'] ?? 'off') === 'on') ? 2 : 1);
+threatshield_progress_begin($total);
+if ($total > 0) {
+	/* the save that started this run has just restarted DNS; downloading before it answers fails every list */
+	threatshield_progress_step('starting', gettext('Waiting for the DNS service to answer'));
+	threatshield_wait_for_dns(40);
+}
+
+if ($run_feeds) {
 	echo "[ThreatShield] Updating DNS lists...\n";
 	$changed = ['block' => false, 'allow' => false];
 	$failures = 0;
@@ -193,7 +222,9 @@ if (($mode === 'all' || $mode === 'feeds') && ($force || threatshield_interval_d
 		if (!is_array($feed) || ($feed['enabled'] ?? '') !== 'on' || empty($feed['url'])) continue;
 		$url = (string)$feed['url'];
 		$dest = threatshield_feed_path($url);
+		threatshield_progress_step('feeds', (string)($feed['name'] ?? $url));
 		$error = threatshield_fetch((string)($feed['name'] ?? $url), $url, $dest);
+		threatshield_progress_item($error === null);
 		threatshield_record_status($url, $error, $dest);
 		if ($error === null) $changed[(($feed['kind'] ?? 'block') === 'allow') ? 'allow' : 'block'] = true;
 		else $failures++;
@@ -202,6 +233,7 @@ if (($mode === 'all' || $mode === 'feeds') && ($force || threatshield_interval_d
 	if (threatshield_is_running()) {
 		foreach ($changed as $kind => $did) {
 			if (!$did) continue;
+			threatshield_progress_step('loading');
 			echo "[ThreatShield] Loading the {$kind} lists into AdGuard Home...\n";
 			$refresh = threatshield_api_request('filtering/refresh', 'POST', ['whitelist' => ($kind === 'allow')]);
 			if (!is_array($refresh) || !isset($refresh['updated'])) {
@@ -214,48 +246,53 @@ if (($mode === 'all' || $mode === 'feeds') && ($force || threatshield_interval_d
 	@unlink(THREATSHIELD_CACHE_DIR . '/api_' . md5('filtering/status') . '.json');
 }
 
-if (($mode === 'all' || $mode === 'ipfeeds') && ($force || threatshield_interval_due('ipfeeds', (string)($cfg['ipbl_update_interval'] ?? 'daily')))) {
+if ($run_ipfeeds) {
 	echo "[ThreatShield] Updating IP lists...\n";
 	$any = false;
 	foreach (threatshield_active_ipfeeds($cfg) as $feed) {
 		$url = (string)$feed['url'];
 		$dest = threatshield_ipfeed_raw_path($feed);
 		/* keep the last good copy until the new one proves to hold addresses */
+		threatshield_progress_step('ipfeeds', (string)($feed['name'] ?? $url));
 		$error = threatshield_fetch((string)($feed['name'] ?? $url), $url, $dest . '.new');
 		$entries = ($error === null) ? count(threatshield_parse_ip_list((string)file_get_contents($dest . '.new'))) : -1;
 		if ($entries === 0) $error = 'no IP addresses in the list';
 		if ($error === null && !@rename($dest . '.new', $dest)) $error = 'cannot replace the cached copy';
 		@unlink($dest . '.new');
+		threatshield_progress_item($error === null);
 		threatshield_record_status($url, $error, $dest, $entries);
 		$any = $any || $error === null;
 	}
+	threatshield_progress_step('tables');
 	echo "[ThreatShield] Rebuilding pf IP tables...\n";
 	threatshield_update_ip_tables($cfg);
 	if ($any || empty(threatshield_active_ipfeeds($cfg))) threatshield_mark_updated('ipfeeds');
 }
 
-if (($mode === 'all' || $mode === 'geoip') && ($force || threatshield_interval_due('geoip', (string)($cfg['geoip_update_interval'] ?? 'weekly')))) {
+if ($run_geoip) {
 	echo "[ThreatShield] Updating GeoIP country lists...\n";
-	if (($cfg['geoip_enable'] ?? 'off') === 'on' && !empty($cfg['geoip_policies'])) {
-		$countries = [];
-		foreach (threatshield_normalize_list($cfg['geoip_policies']) as $policy) {
-			$countries = array_merge($countries, threatshield_normalize_list(is_array($policy) ? ($policy['countries'] ?? []) : []));
-		}
+	if (!empty($geoip_countries)) {
 		$v6 = ($cfg['geoip_ipv6'] ?? 'off') === 'on';
 		$ok = true;
-		foreach (array_unique($countries) as $cc) {
-			$cc = strtolower(preg_replace('/[^a-zA-Z]/', '', (string)$cc));
-			if ($cc === '') continue;
+		foreach ($geoip_countries as $cc) {
 			$CC = strtoupper($cc);
-			$ok = (threatshield_fetch("{$CC} IPv4", "https://www.ipdeny.com/ipblocks/data/countries/{$cc}.zone", THREATSHIELD_GEOIP_DIR . "/{$CC}.zone") === null) && $ok;
+			threatshield_progress_step('geoip', "{$CC} IPv4");
+			$error = threatshield_fetch("{$CC} IPv4", "https://www.ipdeny.com/ipblocks/data/countries/{$cc}.zone", THREATSHIELD_GEOIP_DIR . "/{$CC}.zone");
+			threatshield_progress_item($error === null);
+			$ok = ($error === null) && $ok;
 			if ($v6) {
-				$ok = (threatshield_fetch("{$CC} IPv6", "https://www.ipdeny.com/ipv6/ipaddresses/aggregated/{$cc}-aggregated.zone", THREATSHIELD_GEOIP_DIR . "/{$CC}.zone6") === null) && $ok;
+				threatshield_progress_step('geoip', "{$CC} IPv6");
+				$error = threatshield_fetch("{$CC} IPv6", "https://www.ipdeny.com/ipv6/ipaddresses/aggregated/{$cc}-aggregated.zone", THREATSHIELD_GEOIP_DIR . "/{$CC}.zone6");
+				threatshield_progress_item($error === null);
+				$ok = ($error === null) && $ok;
 			}
 		}
+		threatshield_progress_step('tables');
 		echo "[ThreatShield] Rebuilding pf GeoIP tables...\n";
 		threatshield_update_geoip($cfg);
 		if ($ok) threatshield_mark_updated('geoip');
 	}
 }
 
+threatshield_progress_finish();
 echo "[ThreatShield] Update complete.\n";
