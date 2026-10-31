@@ -35,6 +35,7 @@ function threatshield_redirect(string $url): void {
 
 /* Prints the flashed and the current messages. */
 function threatshield_print_messages(array $errors = [], ?string $saved = null, array $warnings = []): void {
+	threatshield_print_progress_banner();
 	$flash = $GLOBALS['threatshield_flash_messages'] ?? [];
 	$errors = array_merge($flash['error'] ?? [], $errors);
 	$warnings = array_merge($flash['warn'] ?? [], $warnings);
@@ -185,4 +186,88 @@ function threatshield_ui_styles(): void {
 @media (max-width: 575px) { .ts-health li { flex-wrap: wrap; } .ts-health .fs-badge { flex-basis: auto; } }
 </style>
 <?php
+}
+
+/*
+ * The progress banner's content for a state from threatshield_progress_state():
+ * a kind (hidden, running, waiting, done, warn, interrupted), a title and a
+ * detail line, all translated here so the page only shows them.
+ */
+function threatshield_progress_view(array $s): array {
+	$view = ['kind' => 'hidden', 'title' => '', 'detail' => '', 'done' => 0, 'total' => 0, 'percent' => 0];
+	if (empty($s['active']) && empty($s['finished'])) {
+		return $view;
+	}
+	$view['done'] = (int)($s['done'] ?? 0);
+	$view['total'] = (int)($s['total'] ?? 0);
+	$view['percent'] = (int)($s['percent'] ?? 0);
+	$what = [
+		'feeds' => gettext('Downloading DNS blocklists'),
+		'ipfeeds' => gettext('Downloading IP threat lists'),
+		'geoip' => gettext('Downloading country lists'),
+		'loading' => gettext('Loading the lists into Threat Shield'),
+		'tables' => gettext('Updating the firewall tables'),
+		'starting' => gettext('Starting the list update'),
+	];
+	if (!empty($s['active'])) {
+		$view['title'] = $what[$s['phase'] ?? ''] ?? gettext('Updating the lists');
+		$label = trim((string)($s['label'] ?? ''));
+		$phase = (string)($s['phase'] ?? '');
+		if ($label !== '') {
+			$view['detail'] = $label;
+		} elseif ($phase === 'loading' || $phase === 'tables') {
+			$view['detail'] = gettext('Almost done: the downloaded lists are being put to use.');
+		} else {
+			$view['detail'] = gettext('Threat Shield keeps working while the lists download; blocking from them starts as each list arrives.');
+		}
+		$view['kind'] = 'running';
+		if (!empty($s['stalled']) && in_array($s['phase'] ?? '', ['feeds', 'ipfeeds', 'geoip'], true)) {
+			$view['kind'] = 'waiting';
+			$view['detail'] = sprintf(gettext('Still waiting for %1$s (no answer for %2$d seconds). A download is given up after 60 seconds and tried again later; the other lists carry on.'),
+			    ($label !== '') ? $label : gettext('the server'), (int)$s['idle']);
+		}
+		return $view;
+	}
+	if (!empty($s['interrupted'])) {
+		$view['kind'] = 'interrupted';
+		$view['title'] = gettext('The list update was interrupted');
+		$view['detail'] = gettext('The lists already downloaded stay in use. The next scheduled update tries again, or use Update now on the Blocklists page.');
+		return $view;
+	}
+	$failed = (int)($s['failed'] ?? 0);
+	$view['percent'] = 100;
+	if ($failed > 0) {
+		$view['kind'] = 'warn';
+		$view['title'] = sprintf(gettext('Lists updated: %1$d of %2$d could not be downloaded'), $failed, $view['total']);
+		$view['detail'] = gettext('The previous copy of those lists stays in use and the update is tried again. The Blocklists page shows the reason for each.');
+	} else {
+		$view['kind'] = 'done';
+		$view['title'] = sprintf(gettext('Lists updated (%d downloaded)'), $view['total']);
+	}
+	return $view;
+}
+
+/* The banner and the script that keeps it current (placed under the page title). */
+function threatshield_print_progress_banner(): void {
+	$url = '/threatshield/threatshield_ajax.php?what=progress';
+	echo '<div id="ts-progress" class="alert alert-info d-none" role="status" aria-live="polite">' .
+	    '<div class="d-flex justify-content-between gap-3"><strong id="ts-progress-title"></strong><span id="ts-progress-count" class="text-nowrap"></span></div>' .
+	    '<div class="progress mt-2" style="height:.45rem" aria-hidden="true"><div id="ts-progress-bar" class="progress-bar" style="width:0"></div></div>' .
+	    '<div id="ts-progress-detail" class="small mt-2"></div></div>';
+	echo '<script>events.push(function () {' .
+	    'var box = $("#ts-progress"), kinds = {running: "alert-info", waiting: "alert-warning", done: "alert-success", warn: "alert-warning", interrupted: "alert-warning"}, timer = null;' .
+	    'function show(v) {' .
+	    '  if (v.kind === "hidden") { box.addClass("d-none"); return; }' .
+	    '  box.removeClass("d-none alert-info alert-warning alert-success").addClass(kinds[v.kind] || "alert-info");' .
+	    '  $("#ts-progress-title").text(v.title); $("#ts-progress-detail").text(v.detail);' .
+	    '  $("#ts-progress-count").text(v.total > 0 && (v.kind === "running" || v.kind === "waiting") ? v.done + " / " + v.total : "");' .
+	    '  $("#ts-progress-bar").css("width", v.percent + "%");' .
+	    '  $("#ts-progress").find(".progress").toggleClass("d-none", v.kind === "interrupted");' .
+	    '}' .
+	    'function poll() {' .
+	    '  $.getJSON(' . json_encode($url) . ').done(function (v) { show(v); timer = setTimeout(poll, (v.kind === "running" || v.kind === "waiting") ? 2000 : 8000); })' .
+	    '   .fail(function () { timer = setTimeout(poll, 15000); });' .
+	    '}' .
+	    'poll();' .
+	    '});</script>';
 }

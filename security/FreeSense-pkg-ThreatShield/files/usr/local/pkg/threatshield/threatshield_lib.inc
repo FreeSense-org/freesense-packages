@@ -491,3 +491,133 @@ function threatshield_pf_ports(string $value): string {
 function threatshield_valid_rate(string $value): bool {
 	return (bool)preg_match('/^[1-9]\d{0,5}\/[1-9]\d{0,4}$/', trim($value));
 }
+
+/* ------------------------------------------------------- update progress */
+
+/*
+ * Downloading the lists takes a while. The updater (threatshield_update.php)
+ * records where it is in one small file; the WebUI reads it to show a progress
+ * bar, so a save never looks like it has stalled. One updater writes it at a
+ * time; the last one to start wins.
+ */
+if (!defined('THREATSHIELD_PROGRESS_FILE')) {
+	define('THREATSHIELD_PROGRESS_FILE', '/var/db/threatshield/cache/update_progress.json');
+}
+/* No answer from a server for this long: the page says it is still waiting. */
+const THREATSHIELD_PROGRESS_STALL_SECONDS = 45;
+/* How long a finished run stays visible as a one-line result. */
+const THREATSHIELD_PROGRESS_RESULT_SECONDS = 60;
+
+function threatshield_progress_save(array $state): void {
+	$state['updated'] = time();
+	$GLOBALS['threatshield_progress'] = $state;
+	$tmp = THREATSHIELD_PROGRESS_FILE . '.tmp.' . getmypid();
+	if (@file_put_contents($tmp, json_encode($state), LOCK_EX) !== false) {
+		@rename($tmp, THREATSHIELD_PROGRESS_FILE);
+	}
+}
+
+/* An updater run that has $total downloads to do (0: nothing to show). */
+function threatshield_progress_begin(int $total): void {
+	if ($total <= 0) {
+		return;
+	}
+	threatshield_progress_save(['running' => true, 'pid' => getmypid(), 'started' => time(), 'total' => $total,
+	    'done' => 0, 'failed' => 0, 'phase' => 'starting', 'label' => '']);
+}
+
+/* The updater starts $label of $phase (feeds, ipfeeds, geoip, loading, tables). */
+function threatshield_progress_step(string $phase, string $label = ''): void {
+	if (empty($GLOBALS['threatshield_progress']['running'])) {
+		return;
+	}
+	$state = $GLOBALS['threatshield_progress'];
+	$state['phase'] = $phase;
+	$state['label'] = $label;
+	threatshield_progress_save($state);
+}
+
+/* One download finished. */
+function threatshield_progress_item(bool $ok): void {
+	if (empty($GLOBALS['threatshield_progress']['running'])) {
+		return;
+	}
+	$state = $GLOBALS['threatshield_progress'];
+	$state['done'] = min((int)$state['total'], (int)$state['done'] + 1);
+	if (!$ok) {
+		$state['failed'] = (int)$state['failed'] + 1;
+	}
+	threatshield_progress_save($state);
+}
+
+function threatshield_progress_finish(): void {
+	if (empty($GLOBALS['threatshield_progress']['running'])) {
+		return;
+	}
+	$state = $GLOBALS['threatshield_progress'];
+	$state['running'] = false;
+	$state['ended'] = time();
+	$state['phase'] = 'done';
+	$state['label'] = '';
+	threatshield_progress_save($state);
+	$GLOBALS['threatshield_progress'] = $state;
+}
+
+/*
+ * What the page shows: active (a run is going), stalled (no sign of life for a
+ * while), finished with its counts, or interrupted (the updater died). $alive
+ * answers whether a process id still exists.
+ */
+function threatshield_progress_state(?int $now = null, ?callable $alive = null): array {
+	$now = $now ?? time();
+	$alive = $alive ?? static function (int $pid): bool {
+		return ($pid > 0) && function_exists('posix_kill') && @posix_kill($pid, 0);
+	};
+	$raw = is_file(THREATSHIELD_PROGRESS_FILE) ? json_decode((string)@file_get_contents(THREATSHIELD_PROGRESS_FILE), true) : null;
+	if (!is_array($raw) || !isset($raw['total'])) {
+		return ['active' => false, 'finished' => false];
+	}
+	$total = max(0, (int)$raw['total']);
+	$done = max(0, min($total, (int)($raw['done'] ?? 0)));
+	$updated = (int)($raw['updated'] ?? $now);
+	$running = !empty($raw['running']);
+	$interrupted = $running && !$alive((int)($raw['pid'] ?? 0));
+	$active = $running && !$interrupted;
+	$ended = (int)($raw['ended'] ?? ($interrupted ? $updated : 0));
+	return [
+		'active' => $active,
+		'finished' => !$active && (($ended > 0) && (($now - $ended) <= THREATSHIELD_PROGRESS_RESULT_SECONDS)),
+		'interrupted' => $interrupted,
+		'phase' => (string)($raw['phase'] ?? ''),
+		'label' => (string)($raw['label'] ?? ''),
+		'done' => $done,
+		'total' => $total,
+		'failed' => max(0, (int)($raw['failed'] ?? 0)),
+		'percent' => ($total > 0) ? (int)floor($done * 100 / $total) : 0,
+		'idle' => max(0, $now - $updated),
+		'stalled' => $active && (($now - $updated) > THREATSHIELD_PROGRESS_STALL_SECONDS),
+		'started' => (int)($raw['started'] ?? 0),
+		'ended' => $ended,
+	];
+}
+
+/*
+ * Waits until names resolve (up to $seconds). Saving the settings restarts the
+ * DNS service the firewall itself uses, so the download that follows must not
+ * start before it answers. Returns whether it did; $ready and $sleep exist for
+ * the unit test.
+ */
+function threatshield_wait_for_dns(int $seconds, ?callable $ready = null, ?callable $sleep = null, string $host = 'pkg.freesense.org'): bool {
+	$ready = $ready ?? static function () use ($host): bool {
+		return @gethostbyname($host) !== $host;
+	};
+	$sleep = $sleep ?? 'sleep';
+	$deadline = time() + $seconds;
+	do {
+		if ($ready()) {
+			return true;
+		}
+		$sleep(1);
+	} while (time() < $deadline);
+	return false;
+}

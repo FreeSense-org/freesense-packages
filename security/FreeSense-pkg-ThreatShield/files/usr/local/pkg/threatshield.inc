@@ -703,6 +703,11 @@ function threatshield_restore_unbound(): bool {
 function threatshield_manage_unbound(array $cfg): bool {
 	$mode = $cfg['dns_coordination_mode'] ?? 'primary';
 	if (($cfg['enable'] ?? 'off') !== 'on') return threatshield_restore_unbound() || true;
+	// Anything saved since this request began (a package, another page) would be
+	// lost by the write below, which saves the whole file: read it again first.
+	if (function_exists('config_read_file')) {
+		config_read_file(true, false);
+	}
 	$state = config_get_path(THREATSHIELD_CONFIG_PATH . '/_unbound_state', []);
 	if (!is_array($state) || ($state['managed'] ?? '') !== 'on') {
 		$state = [
@@ -823,6 +828,69 @@ function threatshield_filter_ids(array $feeds): array {
 	return $ids;
 }
 
+/*
+ * The zones the DNS Resolver (Unbound) must answer in primary mode: the system
+ * domain, the domains of its host overrides and their aliases, its domain
+ * overrides (Unbound forwards those to their own servers) and the domains the
+ * DHCP servers hand out. AdGuard Home sends only these, and the reverse zones,
+ * to Unbound; everything else goes to the public upstreams, so a local zone
+ * missing here silently stops resolving. Sorted and de-duplicated; names that
+ * are not valid DNS names are dropped, so nothing else can reach the YAML.
+ */
+function threatshield_local_zones(string $system_domain = ''): array {
+	$zones = [];
+	$label = '[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?';
+	$add = function ($name) use (&$zones, $label) {
+		$name = strtolower(trim((string)$name, " ."));
+		if ((strlen($name) <= 253) && preg_match("/^{$label}(\\.{$label})*\$/D", $name)) {
+			$zones[$name] = true;
+		}
+	};
+	$add($system_domain);
+	foreach (threatshield_normalize_list(config_get_path('unbound/hosts', [])) as $host) {
+		if (!is_array($host)) {
+			continue;
+		}
+		$add($host['domain'] ?? '');
+		$aliases = $host['aliases'] ?? [];
+		foreach (threatshield_normalize_list($aliases) as $alias) {
+			if (is_array($alias)) {
+				$add($alias['domain'] ?? '');
+			}
+		}
+	}
+	foreach (threatshield_normalize_list(config_get_path('unbound/domainoverrides', [])) as $override) {
+		if (is_array($override)) {
+			$add($override['domain'] ?? '');
+		}
+	}
+	foreach (['dhcpd', 'dhcpdv6'] as $section) {
+		foreach (config_get_path($section, []) as $server) {
+			if (is_array($server)) {
+				$add($server['domain'] ?? '');
+			}
+		}
+	}
+	$zones = array_keys($zones);
+	sort($zones, SORT_STRING);
+	return $zones;
+}
+
+/* The zones an AdGuard Home YAML sends to Unbound (the reverse zones left out). AdGuard Home rewrites
+ * the file with single quotes once it has run, so both quote styles are read. */
+function threatshield_yaml_local_zones(string $yaml): array {
+	$zones = [];
+	if (preg_match_all('#^    - ["\']\\[/([^/"\']+)/\\]127\\.0\\.0\\.1:5335["\']$#m', $yaml, $m)) {
+		foreach ($m[1] as $zone) {
+			if (($zone !== 'in-addr.arpa') && ($zone !== 'ip6.arpa')) {
+				$zones[] = $zone;
+			}
+		}
+	}
+	sort($zones, SORT_STRING);
+	return $zones;
+}
+
 function threatshield_generate_yaml(array $cfg, array $ctx = []): string {
 	$listen_port = ($cfg['dns_coordination_mode'] === 'proxy') ? 5354 : (int)($cfg['listen_port'] ?: 53);
 	$dns_binds = $ctx['bind_hosts'] ?? threatshield_dns_bind_hosts($cfg);
@@ -835,10 +903,12 @@ function threatshield_generate_yaml(array $cfg, array $ctx = []): string {
 		$upstreams = ['https://dns.quad9.net/dns-query', 'https://cloudflare-dns.com/dns-query'];
 	}
 
-	// If primary mode, add local Unbound on 5335 for local domain & reverse PTR
+	// If primary mode, send every local zone and the reverse zones to Unbound on 5335.
 	if ($cfg['dns_coordination_mode'] === 'primary') {
 		$domain = $ctx['domain'] ?? config_get_path('system/domain', 'localdomain');
-		$upstreams[] = "[/{$domain}/]127.0.0.1:5335";
+		foreach (threatshield_local_zones((string)$domain) as $zone) {
+			$upstreams[] = "[/{$zone}/]127.0.0.1:5335";
+		}
 		$upstreams[] = "[/in-addr.arpa/]127.0.0.1:5335";
 		$upstreams[] = "[/ip6.arpa/]127.0.0.1:5335";
 	}
@@ -1190,10 +1260,14 @@ function threatshield_sync_config_locked(): bool {
 		safe_mkdir($dir, 0750);
 	}
 
-	// Materialize filter subscriptions before AdGuard Home reads its generated
-	// configuration.  The YAML references these local, atomically-written files.
+	// The YAML references the local list files, so an empty file stands in for
+	// each one that has not been downloaded yet; the download itself runs in the
+	// background (threatshield_update_start_background below), with a progress
+	// bar in the WebUI, instead of holding up Save & Apply for minutes.
+	$background_update = false;
 	if ($enabled && !threatshield_feed_cache_complete($cfg)) {
-		mwexec(THREATSHIELD_UPDATER . ' feeds force');
+		threatshield_feed_placeholders($cfg);
+		$background_update = true;
 	}
 	if (!threatshield_write_yaml(threatshield_generate_yaml($cfg))) return false;
 	// Stop AdGuard Home before Unbound is moved: when Unbound goes back to
@@ -1202,13 +1276,13 @@ function threatshield_sync_config_locked(): bool {
 	if (threatshield_is_running() && !threatshield_service_control('stop')) return false;
 	if (!threatshield_manage_unbound($cfg)) return false;
 
-	// Bootstrap country and IP data on first application so an enabled policy
-	// never reports success with empty PF tables while waiting for cron.
+	// Country and IP data missing on first application are fetched in the
+	// background as well; the PF tables fill as the lists arrive.
 	if ($enabled && ($cfg['geoip_enable'] ?? 'off') === 'on' && !threatshield_geoip_cache_complete($cfg)) {
-		mwexec(THREATSHIELD_UPDATER . ' geoip force');
+		$background_update = true;
 	}
 	if ($enabled && !threatshield_ipfeed_cache_complete($cfg)) {
-		mwexec(THREATSHIELD_UPDATER . ' ipfeeds force');
+		$background_update = true;
 	}
 	threatshield_update_geoip();
 	threatshield_update_ip_tables();
@@ -1226,7 +1300,36 @@ function threatshield_sync_config_locked(): bool {
 	@unlink(THREATSHIELD_CACHE_DIR . '/health.json');
 
 	filter_configure();
+	if ($background_update) {
+		threatshield_update_start_background();
+	}
 	return true;
+}
+
+/*
+ * Starts the list download in the background unless one is already running.
+ * The updater writes its progress (threatshield_progress_*), which the pages
+ * show as a bar. Returns whether a new run was started.
+ */
+function threatshield_update_start_background(): bool {
+	if (!empty(threatshield_progress_state()['active'])) {
+		return false;
+	}
+	mwexec_bg(THREATSHIELD_UPDATER . ' all force');
+	return true;
+}
+
+/* An empty file for every enabled DNS list not downloaded yet, so AdGuard Home can start without waiting. */
+function threatshield_feed_placeholders(array $cfg): void {
+	foreach (threatshield_normalize_list($cfg['feeds'] ?? []) as $feed) {
+		if (!is_array($feed) || ($feed['enabled'] ?? 'on') !== 'on') continue;
+		$url = (string)($feed['url'] ?? '');
+		if ($url === '') continue;
+		$file = threatshield_feed_path($url);
+		if (!is_file($file) || filesize($file) === 0) {
+			@file_put_contents($file, '');
+		}
+	}
 }
 
 /* Starts, reloads or stops the DNSBL daemon to match the configuration. */
@@ -1268,7 +1371,7 @@ function threatshield_feed_cache_complete(array $cfg): bool {
 	foreach (threatshield_normalize_list($cfg['feeds'] ?? []) as $feed) {
 		if (!is_array($feed) || ($feed['enabled'] ?? 'on') !== 'on') continue;
 		$url = (string)($feed['url'] ?? '');
-		if ($url === '' || !is_file(threatshield_feed_path($url))) return false;
+		if ($url === '' || !is_file(threatshield_feed_path($url)) || filesize(threatshield_feed_path($url)) === 0) return false;
 	}
 	return true;
 }

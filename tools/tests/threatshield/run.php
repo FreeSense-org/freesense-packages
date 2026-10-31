@@ -5,6 +5,7 @@
  * expected output files after an intended change.
  */
 require __DIR__ . '/bootstrap.php';
+require_once dirname(__DIR__, 3) . '/security/FreeSense-pkg-ThreatShield/files/usr/local/pkg/threatshield/threatshield_ui.inc';
 
 $failures = 0;
 $count = 0;
@@ -228,6 +229,97 @@ $paused = threatshield_generate_yaml($cfg, ['bind_hosts' => ['127.0.0.1'], 'doma
 check('pause survives regeneration', strpos($paused, "protection_enabled: false\n  protection_disabled_until: \"2030-01-01T00:00:00Z\"") !== false);
 $ids = threatshield_filter_ids([['id' => 'a', 'url' => 'u1'], ['id' => 'b', 'url' => 'u2']]);
 same('filter ids are stable', $ids, threatshield_filter_ids([['id' => 'a', 'url' => 'u1'], ['id' => 'b', 'url' => 'u2']]));
+
+/* ------------------------------------------- local zones sent to Unbound */
+$ts_saved_unbound = $GLOBALS['ts_test_config']['unbound'] ?? null;
+$ts_saved_dhcpd = $GLOBALS['ts_test_config']['dhcpd'] ?? null;
+$GLOBALS['ts_test_config']['unbound'] = [
+	'hosts' => [
+		['host' => 'nas', 'domain' => 'Corp.Example.net.', 'ip' => '10.0.0.5', 'aliases' => ['item' => [['host' => 'files', 'domain' => 'alias.lab']]]],
+		['host' => 'single', 'domain' => 'solo.lab', 'ip' => '10.0.0.6', 'aliases' => ''],
+	],
+	'domainoverrides' => ['item' => [['domain' => 'ad.corp.local', 'ip' => '10.0.0.2']]],
+];
+$GLOBALS['ts_test_config']['dhcpd'] = ['lan' => ['domain' => 'lan.zone'], 'opt1' => ['domain' => 'bad domain!'], 'opt2' => ['domain' => 'x"] 1.1.1.1 ["']];
+$zones = threatshield_local_zones('Home.Arpa.');
+same('local zones: system, host, alias, override and DHCP domains, sorted, bad names dropped',
+    ['ad.corp.local', 'alias.lab', 'corp.example.net', 'home.arpa', 'lan.zone', 'solo.lab'], $zones);
+$zyaml = threatshield_generate_yaml($cfg, ['bind_hosts' => ['127.0.0.1'], 'domain' => 'home.arpa', 'pause' => ['active' => false, 'until' => 0]]);
+foreach ($zones as $zone) {
+	check("YAML sends {$zone} to Unbound", strpos($zyaml, "    - \"[/{$zone}/]127.0.0.1:5335\"") !== false);
+}
+check('YAML still sends the reverse zones to Unbound', strpos($zyaml, '"[/in-addr.arpa/]127.0.0.1:5335"') !== false && strpos($zyaml, '"[/ip6.arpa/]127.0.0.1:5335"') !== false);
+same('zones read back from the YAML match the config', $zones, threatshield_yaml_local_zones($zyaml));
+same('zones are also read from the single-quoted file AdGuard Home rewrites', $zones,
+    threatshield_yaml_local_zones(str_replace('"', "'", $zyaml)));
+check('a name with YAML or DNS metacharacters never reaches the YAML', strpos($zyaml, 'bad domain') === false && strpos($zyaml, '5335"') !== false && strpos($zyaml, 'x"]') === false && strpos($zyaml, 'x\\"]') === false);
+$GLOBALS['ts_test_config']['unbound'] = [];
+$GLOBALS['ts_test_config']['dhcpd'] = [];
+same('with no overrides only the system domain is sent', ['home.arpa'], threatshield_local_zones('home.arpa'));
+if ($ts_saved_unbound === null) unset($GLOBALS['ts_test_config']['unbound']); else $GLOBALS['ts_test_config']['unbound'] = $ts_saved_unbound;
+if ($ts_saved_dhcpd === null) unset($GLOBALS['ts_test_config']['dhcpd']); else $GLOBALS['ts_test_config']['dhcpd'] = $ts_saved_dhcpd;
+
+/* --------------------------------------------- list download progress */
+@unlink(THREATSHIELD_PROGRESS_FILE);
+unset($GLOBALS['threatshield_progress']);
+$alive = fn(int $pid): bool => true;
+$dead = fn(int $pid): bool => false;
+same('no progress file: nothing to show', ['active' => false, 'finished' => false], threatshield_progress_state());
+same('no progress file: the banner stays hidden', 'hidden', threatshield_progress_view(threatshield_progress_state())['kind']);
+threatshield_progress_begin(0);
+check('nothing to download: no progress file is written', !is_file(THREATSHIELD_PROGRESS_FILE));
+threatshield_progress_begin(4);
+threatshield_progress_step('feeds', 'Example list');
+$st = threatshield_progress_state(null, $alive);
+check('a run in progress is reported', $st['active'] && !$st['finished'] && $st['phase'] === 'feeds' && $st['label'] === 'Example list'
+    && $st['done'] === 0 && $st['total'] === 4 && $st['percent'] === 0 && !$st['stalled']);
+threatshield_progress_item(true);
+threatshield_progress_item(false);
+$st = threatshield_progress_state(null, $alive);
+check('finished downloads are counted, failures too', $st['done'] === 2 && $st['failed'] === 1 && $st['percent'] === 50);
+$view = threatshield_progress_view($st);
+check('the banner shows the phase and the current list', $view['kind'] === 'running' && $view['title'] === 'Downloading DNS blocklists'
+    && $view['detail'] === 'Example list' && $view['done'] === 2 && $view['total'] === 4 && $view['percent'] === 50);
+$late = threatshield_progress_state(time() + THREATSHIELD_PROGRESS_STALL_SECONDS + 15, $alive);
+check('no sign of life for a while is flagged as stalled', $late['stalled'] && $late['idle'] > THREATSHIELD_PROGRESS_STALL_SECONDS);
+$waiting = threatshield_progress_view($late);
+check('a stalled download says what it waits for', $waiting['kind'] === 'waiting' && strpos($waiting['detail'], 'Example list') !== false);
+threatshield_progress_step('loading');
+$late = threatshield_progress_state(time() + 120, $alive);
+same('a slow reload into AdGuard Home is not called a stalled download', 'running', threatshield_progress_view($late)['kind']);
+$gone = threatshield_progress_state(null, $dead);
+check('an updater that died is reported as interrupted', $gone['interrupted'] && !$gone['active'] && $gone['finished']);
+same('the interrupted run has its own banner', 'interrupted', threatshield_progress_view($gone)['kind']);
+
+$GLOBALS['ts_test_calls'] = [];
+check('a second download is not started while one runs', threatshield_update_start_background() === false && empty($GLOBALS['ts_test_calls']));
+threatshield_progress_item(true);
+threatshield_progress_item(true);
+threatshield_progress_item(true);
+check('the count never passes the total', threatshield_progress_state(null, $alive)['done'] === 4);
+threatshield_progress_finish();
+$st = threatshield_progress_state(null, $alive);
+check('a finished run is a result, not a run', !$st['active'] && $st['finished'] && $st['percent'] === 100 && $st['failed'] === 1);
+$view = threatshield_progress_view($st);
+check('a result with failures is a warning with the counts', $view['kind'] === 'warn' && strpos($view['title'], '1 of 4') !== false);
+threatshield_progress_begin(2);
+threatshield_progress_item(true);
+threatshield_progress_item(true);
+threatshield_progress_finish();
+$view = threatshield_progress_view(threatshield_progress_state(null, $alive));
+check('a clean result says how many lists were downloaded', $view['kind'] === 'done' && strpos($view['title'], '2') !== false);
+same('the result goes away after a minute', 'hidden',
+    threatshield_progress_view(threatshield_progress_state(time() + THREATSHIELD_PROGRESS_RESULT_SECONDS + 5, $alive))['kind']);
+$GLOBALS['ts_test_calls'] = [];
+check('a new download starts in the background once none runs', threatshield_update_start_background() === true
+    && $GLOBALS['ts_test_calls'] === [['mwexec_bg', THREATSHIELD_UPDATER . ' all force']]);
+@unlink(THREATSHIELD_PROGRESS_FILE);
+unset($GLOBALS['threatshield_progress']);
+
+$naps = 0;
+check('the updater waits for DNS and goes on once names resolve', threatshield_wait_for_dns(30, function () use (&$naps) { return $naps >= 2; }, function () use (&$naps) { $naps++; }) === true && $naps === 2);
+check('the updater does not wait for ever when DNS stays down', threatshield_wait_for_dns(0, fn() => false, fn() => null) === false);
+check('no waiting when DNS already answers', threatshield_wait_for_dns(30, fn() => true, function () { throw new RuntimeException('slept'); }) === true);
 
 /* ------------------------------------------------------------------ HA */
 $GLOBALS['ts_test_config']['installedpackages']['threatshield'] = threatshield_config_for_storage($cfg + ['ha_sync' => 'on']);
