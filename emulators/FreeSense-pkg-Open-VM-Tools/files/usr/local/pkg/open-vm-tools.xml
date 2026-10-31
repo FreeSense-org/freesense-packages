@@ -36,12 +36,9 @@
 		<custom_php_service_status_command>mwexec(&quot;/usr/local/etc/rc.d/vmware-guestd status&quot;) == 0;</custom_php_service_status_command>
 		<description>VMware Guest Daemon</description>
 	</service>
-	<service>
-		<name>vmware-kmod</name>
-		<rcfile>vmware-kmod.sh</rcfile>
-		<custom_php_service_status_command>mwexec(&quot;/usr/local/etc/rc.d/vmware-kmod status&quot;) == 0;</custom_php_service_status_command>
-		<description>VMware Kernel Modules</description>
-	</service>
+	<!-- No vmware-kmod service is listed: the vmmemctl, vmxnet and vmblock modules it checked are not part of
+	     the open-vm-tools build for this FreeBSD, so it always showed as stopped and logged a notice per check.
+	     The rc script stays and loads them at boot if a build ever ships them. -->
 	<custom_php_install_command>
 		open_vm_tools_install();
 	</custom_php_install_command>
