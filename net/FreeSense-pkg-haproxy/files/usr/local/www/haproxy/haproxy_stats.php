@@ -21,7 +21,8 @@
  * limitations under the License.
  */
 
-require_once("authgui.inc");
+/* The stats proxy below takes admin actions by POST, so the CSRF check comes first. */
+require_once("guiconfig.inc");
 require_once("config.inc");
 require_once("haproxy/haproxy_socketinfo.inc");
 
@@ -80,7 +81,6 @@ if (isset($_GET['haproxystats']) || isset($_GET['scope']) || (isset($_POST) && i
 	echo $response;
 	exit(0);
 }
-require_once("guiconfig.inc");
 if (isset($_GET['showsticktablecontent']) || isset($_GET['showstatresolvers'])) {
 	if (is_numeric($pconfig['localstats_sticktable_refreshtime'])) {
 		header("Refresh: {$pconfig['localstats_sticktable_refreshtime']}");
