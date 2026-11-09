@@ -22,6 +22,7 @@
  */
 
 
+require_once("guiconfig.inc");
 require_once("/usr/local/www/widgets/include/nut_status.inc");
 require_once("/usr/local/pkg/nut/nut.inc");
 
