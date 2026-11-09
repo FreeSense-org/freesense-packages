@@ -24,8 +24,6 @@
  * limitations under the License.
  */
 
-$nocsrf = true;
-
 require_once("guiconfig.inc");
 require_once("/usr/local/www/widgets/include/widget-suricata.inc");
 
@@ -68,8 +66,9 @@ function suricata_sksort(&$array, $subkey="id", $sort_ascending=false) {
 }
 
 /* check if suricata widget variable is set */
-$suri_nentries = config_get_path('widgets/widget_suricata_display_lines', '5');
-if (empty($suri_nentries) || $suri_nentries < 0) {
+/* It reaches a tail command: only a small whole number, whatever is stored. */
+$suri_nentries = (int)config_get_path('widgets/widget_suricata_display_lines', '5');
+if (($suri_nentries < 1) || ($suri_nentries > 100)) {
 	$suri_nentries = 5;
 }
 
@@ -92,7 +91,7 @@ if (isset($_GET['getNewAlerts'])) {
 }
 
 if(isset($_POST['widget_suricata_display_lines'])) {
-	config_set_path('widgets/widget_suricata_display_lines', $_POST['widget_suricata_display_lines']);
+	config_set_path('widgets/widget_suricata_display_lines', (string)(int)$_POST['widget_suricata_display_lines']);
 	write_config("Saved Suricata Alerts Widget Displayed Lines Parameter via Dashboard");
 	header("Location: ../../index.php");
 }

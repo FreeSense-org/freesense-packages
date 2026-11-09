@@ -2,7 +2,7 @@
 
 PORTNAME=	FreeSense-pkg-suricata
 PORTVERSION=	8.0.0
-PORTREVISION=	7
+PORTREVISION=	8
 CATEGORIES=	security
 MASTER_SITES=	# empty
 DISTFILES=	# empty
