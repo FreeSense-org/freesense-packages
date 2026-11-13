@@ -15,9 +15,9 @@ www/haproxy/haproxy_pools.php
 www/haproxy/haproxy_pool_edit.php
 www/haproxy/haproxy_stats.php
 www/haproxy/haproxy_templates.php
-www/widgets/widgets/haproxy.widget.php
+www/widgets/haproxy.js
+www/widgets/haproxy.widget.json
 www/shortcuts/pkg_haproxy.inc
-www/widgets/include/widget-haproxy.inc
 /etc/inc/priv/haproxy.priv.inc
 %%DATADIR%%/info.xml
 @dir /etc/inc/priv
