@@ -165,6 +165,8 @@ $defaults = $interfaces . 'time-period=' . $timePeriod . '&graph-type=' . $graph
 $pgtitle = array(gettext("Status"), gettext("Traffic Totals"));
 $shortcut_section = "vnstat";
 
+/* Charts: fs-chart (uPlot) from core, loaded after jQuery by foot.inc. */
+$fs_page_scripts = ['/js/fs-core.js', '/vendor/uplot/uPlot.iife.min.js', '/js/fs-chart.js'];
 include("head.inc");
 
 if ($input_errors) {
@@ -184,10 +186,8 @@ display_top_tabs($tab_array);
 
 ?>
 
-<script src="/vendor/d3/d3.min.js?v=<?=filemtime('/usr/local/www/vendor/d3/d3.min.js')?>"></script>
-<script src="/vendor/nvd3/nv.d3.min.js?v=<?=filemtime('/usr/local/www/vendor/nvd3/nv.d3.min.js')?>"></script>
-
-<link href="/vendor/nvd3/nv.d3.min.css" media="screen, projection" rel="stylesheet" type="text/css">
+<link rel="stylesheet" href="/vendor/uplot/uPlot.min.css?v=<?=filemtime('/usr/local/www/vendor/uplot/uPlot.min.css')?>">
+<link rel="stylesheet" href="/css/_freesense-dashboard.css?v=<?=filemtime('/usr/local/www/css/_freesense-dashboard.css')?>">
 
 <form class=" in auto-submit" method="post" action="/status_traffic_totals.php" id="traffic-totals-settings-form">
 	<div class="card mb-3" id="traffic-totals-settings-panel">
@@ -391,14 +391,7 @@ events.push(function() {
 
 	}
 
-	/***
-	**
-	** NVD3 graphing
-	** Website: http://nvd3.org/
-	** Source: https://github.com/novus/nvd3
-	** Documentation: https://nvd3-community.github.io/nvd3/examples/documentation.html
-	**
-	***/
+	/* The traffic totals chart (fs-chart, from vnstat's JSON). */
 
 	function draw_graph() {
 
@@ -778,180 +771,33 @@ events.push(function() {
 			$("#traffic-totals-chart").show();
 			$("#loading-msg").hide();
 
-			d3.select("#traffic-totals-svg").remove(); //delete previous svg so it can be drawn from scratch
-			d3.select("div[id^=nvtooltip-]").remove(); //delete previous tooltip in case it gets hung
-			d3.select('#traffic-totals-chart').append('svg').attr('id', 'traffic-totals-svg'); //re-add blank svg so it and be drawn on
-
+			/* fs-chart (uPlot, core): one series per interface and direction; rx below the axis when inverted. */
 			var data = json;
-			var offset = 0;
-
-			//skip top, because not a date format
-			if(timePeriod != "top") {
-				offset = tzOffset;
+			var offset = (timePeriod != "top") ? tzOffset : 0;
+			var xs = (data[0] && data[0].values) ? data[0].values.map(function(d) { return (timePeriod == "top") ? d[0] : (d[0] + offset) / 1000; }) : [];
+			var series = [], values = {};
+			data.forEach(function(s, i) {
+				var key = 's' + i;
+				series.push({key: key, label: s.key, color: '--fs-series-' + ((i % 8) + 1), mirror: (s.invert === true || s.invert === "true")});
+				values[key] = s.values.map(function(d) { return d[1]; });
+				/* calculate_summary() reads {x, y} points */
+				s.values = s.values.map(function(d) { return {x: d[0] + offset, y: (s.invert === true || s.invert === "true") ? 0 - d[1] : d[1]}; });
+			});
+			if (window.ttChart) {
+				window.ttChart.destroy();
 			}
-
-			data.map(function(series) {
-
-				series.values = series.values.map(function(d) {
-					if (series.invert === "true") {
-						return { x: (d[0] + offset), y: 0 - d[1] }
-					} else {
-						return { x: (d[0] + offset), y: d[1] }
-					}
-				});
-
-				return series;
-
+			$("#traffic-totals-chart").show().css('height', '380px');
+			var tlabels = (timePeriod == "top") ? xs.map(function(x) {
+				var t = localStorage.getItem(x);
+				return t ? new Date(parseInt(t)).toLocaleDateString() : String(x);
+			}) : null;
+			window.ttChart = FS.chart.timeseries(document.getElementById('traffic-totals-chart'), {
+				series: series, window: 0, format: FS.fmt.bytes, label: 'Traffic totals',
+				bars: (graphtype === "bar" || graphtype === "stacked"), fill: (graphtype === "line") ? 0.14 : 0.3,
+				time: (timePeriod != "top"), xlabels: tlabels,
+				tipTime: function(t) { return new Date(t * 1000).toLocaleString(); }
 			});
-
-			nv.addGraph(function() {
-
-				chart = nv.models.multiChart()
-					.color(d3.scale.category20().range())
-					.useInteractiveGuideline(true)
-					.margin({top: 160, right:100, left:100, bottom: 80});
-
-				var timePeriod = $( "li.active a:first" ).attr('href').substring(1);
-				var timeFormat = timeLookup[timePeriod];
-
-				if( timePeriod === "top" ) {
-					chart.xAxis.tickFormat(d3.format('r')).tickPadding(15);
-				} else {
-					chart.xAxis.tickFormat(function(d) {
-						return d3.time.format(timeFormat)(new Date(d));
-					}).tickPadding(15);
-				}
-
-				//TODO units changes based on period?
-				chart.yAxis1.tickFormat(function(d) {
-
-					var dUnit = 'B';
-
-					if(d >= 1000 || d <= -1000) {
-						d = d / 1024;
-						dUnit = 'K';
-					}
-
-					if(d >= 1000 || d <= -1000) {
-						d = d / 1024;
-						dUnit = 'M';
-					}
-
-					if(d >= 1000 || d <= -1000) {
-						d = d / 1024;
-						dUnit = 'G';
-					}
-
-					if(d >= 1000 || d <= -1000) {
-						d = d / 1024;
-						dUnit = 'T';
-					}
-
-					return parseFloat(d).toFixed(1) + dUnit;
-
-				}).axisLabel('Total Traffic (Bytes)').showMaxMin(false);
-
-				if(graphtype === "stacked") {
-					chart.bars1.stacked(true);
-					chart.bars2.stacked(true);
-				}
-
-				//add system name
-				var systemName = '<?=htmlspecialchars(config_get_path('system/hostname') . "." . config_get_path('system/domain')); ?>';
-				d3.select('#traffic-totals-chart svg')
-					.append("text")
-					.attr("x", 225)
-					.attr("y", 415)
-					.attr("id", "system-name")
-					.text(systemName);
-
-				//add time period
-				var timePeriod = $( "li.active" ).text();
-				d3.select('#traffic-totals-chart svg')
-					.append("text")
-					.attr("x", 480)
-					.attr("y", 415)
-					.attr("id", "time-period")
-					.text("Time Period: " + timePeriod);
-
-				//add current date
-				//TODO change to updated date
-				//console.log(raw_json.interfaces[0].updated);
-				var currentDate = d3.time.format('%b %d, %Y %H:%M')(new Date());
-				d3.select('#traffic-totals-chart svg')
-					.append("text")
-					.attr("x", 680)
-					.attr("y", 415)
-					.attr("id", "current-date")
-					.text(currentDate);
-
-				//custom tooltip contents
-				chart.interactiveLayer.tooltip.contentGenerator(function(data) {
-
-					//if Top 10 chart
-					if(data.value < 1000) {
-						var date = '-- --';
-						if(localStorage.getItem(data.value)) {
-							date = d3.time.format('%Y-%m-%d %H:%M:%S')(new Date(parseInt(localStorage.getItem(data.value))));
-						}
-					} else {
-						var date = d3.time.format('%Y-%m-%d %H:%M:%S')(new Date(data.value));
-					}
-
-					var content = '<h3>' + date + '</h3><table><tbody>';
-
-					for ( var v = 0; v < data.series.length; v++ ){
-
-						var unit = 'B';
-
-						if ( ($("#invert").val() === "true" && data.series[v].key.includes('(rx)')) &&  ($("#graph-type").val() != "area" && $("#graph-type").val() != "stacked")) {
-							var trueValue = 0 - data.series[v].value;
-						} else {
-							var trueValue = data.series[v].value;
-						}
-
-						if(trueValue >= 1000) {
-							trueValue = trueValue / 1024;
-							unit = 'KiB';
-						}
-
-						if(trueValue >= 1000) {
-							trueValue = trueValue / 1024;
-							unit = 'MiB';
-						}
-
-						if(trueValue >= 1000) {
-							trueValue = trueValue / 1024;
-							unit = 'GiB';
-						}
-
-						if(trueValue >= 1000) {
-							trueValue = trueValue / 1024;
-							unit = 'TiB';
-						}
-
-						content += '<tr><td class="legend-color-guide"><div style="background-color: ' + data.series[v].color + '"></div></td><td>' + data.series[v].key + '</td><td class="value"><strong>' + trueValue.toFixed(2) + ' ' + unit + '</strong></td></tr>';
-					}
-
-					content += '</tbody></table>';
-
-					return content;
-
-				});
-
-				d3.select('#traffic-totals-chart svg')
-				   .datum(data)
-				   .transition()
-				   .duration(500)
-				   .call(chart);
-
-				nv.utils.windowResize(function(){
-					chart.update();
-				});
-
-				return chart;
-
-			});
+			window.ttChart.seed((timePeriod == "top") ? xs.map(function(x, i) { return i; }) : xs, values);
 
 			calculate_summary(json, timePeriod);
 
