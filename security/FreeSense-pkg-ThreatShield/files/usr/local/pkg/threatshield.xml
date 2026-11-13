@@ -52,6 +52,7 @@
 		<item><type>plugin_xmlrpc_send</type></item>
 		<item><type>plugin_xmlrpc_recv</type></item>
 		<item><type>plugin_xmlrpc_recv_done</type></item>
+		<item><type>plugin_restapi</type></item>
 	</plugins>
 	<filter_rules_needed>threatshield_generate_rules</filter_rules_needed>
 	<custom_php_resync_config_command>threatshield_sync_config();</custom_php_resync_config_command>

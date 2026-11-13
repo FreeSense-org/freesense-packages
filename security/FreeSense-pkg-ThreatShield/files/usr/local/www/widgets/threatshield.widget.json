@@ -1,0 +1,16 @@
+{
+	"type": "threatshield",
+	"title": "Threat Shield",
+	"description": "Protection state, DNS blocks, GeoIP and reputation at a glance",
+	"icon": "fa-shield-halved",
+	"tone": "block",
+	"category": "Security",
+	"page": "threatshield/threatshield_status.php",
+	"link": "/threatshield/threatshield_status.php",
+	"order": 62,
+	"sizes": ["sm", "md", "lg"],
+	"size": "md",
+	"every": 30,
+	"strings": ["Off", "Stopped", "Paused", "Paused until %s", "Needs attention", "Check", "Protecting", "DNS queries (24 h)", "Blocked",
+		"GeoIP", "%s countries", "Reputation", "%s sources blocked", "Lookups failing", "Flood offenders", "Overview", "Query log"]
+}

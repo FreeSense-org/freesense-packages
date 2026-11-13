@@ -381,3 +381,9 @@ body.tsk {
 @media (prefers-reduced-motion: reduce) {
 	.tsm-alert, .tsk-live i, .tsp-live i { animation: none; }
 }
+
+/* dashboard widget (www/widgets/threatshield-map.js) */
+.tsw-foot { display: flex; flex-wrap: wrap; align-items: center; gap: .2rem .9rem; padding: .45rem .75rem; font-size: var(--fs-fs-sm); border-top: 1px solid var(--fs-border); }
+.tsw-foot b { color: var(--fs-text); font-variant-numeric: tabular-nums; }
+.tsw-open { margin-left: auto; }
+.tsw .tsm { border-radius: 0; }
