@@ -9,8 +9,6 @@ pkg/wireguard/includes/wg_install.inc
 pkg/wireguard/includes/wg_service.inc
 pkg/wireguard/includes/wg_validate.inc
 www/shortcuts/pkg_wireguard.inc
-www/widgets/include/wireguard.inc
-www/widgets/widgets/wireguard.widget.php
 www/wg/js/WireGuardHelpers.js
 www/wg/status_wireguard.php
 www/wg/vpn_wg_peers.php

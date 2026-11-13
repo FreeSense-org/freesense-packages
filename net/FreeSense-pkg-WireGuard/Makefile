@@ -1,6 +1,6 @@
 PORTNAME=	FreeSense-pkg-WireGuard
 PORTVERSION=	0.2.13
-PORTREVISION=	14
+PORTREVISION=	15
 CATEGORIES=	net
 MASTER_SITES=	# empty
 DISTFILES=	# empty
@@ -27,8 +27,6 @@ do-install:
 	${MKDIR} ${STAGEDIR}${PREFIX}/pkg/wireguard/includes
 
 	${MKDIR} ${STAGEDIR}${PREFIX}/www/shortcuts
-	${MKDIR} ${STAGEDIR}${PREFIX}/www/widgets/include
-	${MKDIR} ${STAGEDIR}${PREFIX}/www/widgets/widgets
 	${MKDIR} ${STAGEDIR}${PREFIX}/www/wg/js
 
 	${MKDIR} ${STAGEDIR}${DATADIR}
@@ -47,12 +45,6 @@ do-install:
 
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/shortcuts/*.inc \
 		${STAGEDIR}${PREFIX}/www/shortcuts
-
-	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/widgets/include/*.inc \
-		${STAGEDIR}${PREFIX}/www/widgets/include
-
-	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/widgets/widgets/*.widget.php \
-		${STAGEDIR}${PREFIX}/www/widgets/widgets
 
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/wg/*.php \
 		${STAGEDIR}${PREFIX}/www/wg
