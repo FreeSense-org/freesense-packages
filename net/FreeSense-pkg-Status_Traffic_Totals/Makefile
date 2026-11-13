@@ -2,7 +2,7 @@
 
 PORTNAME=	FreeSense-pkg-Status_Traffic_Totals
 PORTVERSION=	2.3.5
-PORTREVISION=	5
+PORTREVISION=	6
 CATEGORIES=	net
 MASTER_SITES=	# empty
 DISTFILES=	# empty
