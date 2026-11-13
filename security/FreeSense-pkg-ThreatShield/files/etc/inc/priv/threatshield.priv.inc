@@ -28,7 +28,6 @@ $priv_list['page-status-threatshield-map'] = [
 	'descr' => 'View the Threat Shield threat map and its dashboard widget (read only)',
 	'match' => [
 		'threatshield/threatshield_map.php*',
-		'threatshield/threatshield_map_data.php*',
-		'widgets/widgets/threatshield_map.widget.php*'
+		'threatshield/threatshield_map_data.php*'
 	],
 ];

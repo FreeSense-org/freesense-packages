@@ -33,7 +33,7 @@ www/threatshield/threatshield_querylog.php
 www/threatshield/threatshield_rewrites.php
 www/threatshield/threatshield_rules.php
 www/threatshield/threatshield_status.php
-www/widgets/include/threatshield.inc
-www/widgets/include/threatshield_map.inc
-www/widgets/widgets/threatshield.widget.php
-www/widgets/widgets/threatshield_map.widget.php
+www/widgets/threatshield-map.js
+www/widgets/threatshield-map.widget.json
+www/widgets/threatshield.js
+www/widgets/threatshield.widget.json

@@ -1,6 +1,6 @@
 PORTNAME=	FreeSense-pkg-ThreatShield
 PORTVERSION=	1.1.0
-PORTREVISION=	1
+PORTREVISION=	2
 CATEGORIES=	security
 MASTER_SITES=	# empty
 DISTFILES=	# empty
@@ -22,7 +22,7 @@ do-extract:
 
 do-install:
 	${MKDIR} ${STAGEDIR}${PREFIX}/pkg/threatshield ${STAGEDIR}${PREFIX}/www/threatshield ${STAGEDIR}${PREFIX}/www/threatshield/assets
-	${MKDIR} ${STAGEDIR}${PREFIX}/www/widgets/widgets ${STAGEDIR}${PREFIX}/www/widgets/include ${STAGEDIR}${PREFIX}/www/shortcuts
+	${MKDIR} ${STAGEDIR}${PREFIX}/www/widgets ${STAGEDIR}${PREFIX}/www/shortcuts
 	${MKDIR} ${STAGEDIR}${PREFIX}/share/${PORTNAME} ${STAGEDIR}/etc/inc/priv
 	${MKDIR} ${STAGEDIR}${PREFIX}/etc/rc.d ${STAGEDIR}${PREFIX}/sbin
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/pkg/threatshield.inc ${STAGEDIR}${PREFIX}/pkg/
@@ -35,10 +35,8 @@ do-install:
 	${INSTALL_SCRIPT} ${FILESDIR}${PREFIX}/etc/rc.d/threatshield_dnsbl ${STAGEDIR}${PREFIX}/etc/rc.d/
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/threatshield/*.php ${STAGEDIR}${PREFIX}/www/threatshield/
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/threatshield/assets/* ${STAGEDIR}${PREFIX}/www/threatshield/assets/
+	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/widgets/threatshield*.widget.json ${FILESDIR}${PREFIX}/www/widgets/threatshield*.js ${STAGEDIR}${PREFIX}/www/widgets/
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/shortcuts/pkg_threatshield.inc ${STAGEDIR}${PREFIX}/www/shortcuts/
-	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/widgets/widgets/threatshield.widget.php ${STAGEDIR}${PREFIX}/www/widgets/widgets/
-	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/widgets/widgets/threatshield_map.widget.php ${STAGEDIR}${PREFIX}/www/widgets/widgets/
-	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/widgets/include/threatshield*.inc ${STAGEDIR}${PREFIX}/www/widgets/include/
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/share/${PORTNAME}/info.xml ${STAGEDIR}${PREFIX}/share/${PORTNAME}/
 	@${REINPLACE_CMD} -i '' -e "s|%%PKGVERSION%%|${PKGVERSION}|" ${STAGEDIR}${PREFIX}/share/${PORTNAME}/info.xml
 	${INSTALL_DATA} ${FILESDIR}/etc/inc/priv/threatshield.priv.inc ${STAGEDIR}/etc/inc/priv/

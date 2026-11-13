@@ -1,0 +1,16 @@
+{
+	"type": "threatshield-map",
+	"title": "Threat map",
+	"description": "Live world map of blocked and allowed connections",
+	"icon": "fa-earth-europe",
+	"tone": "block",
+	"category": "Security",
+	"page": "threatshield/threatshield_map.php",
+	"link": "/threatshield/threatshield_map.php",
+	"order": 63,
+	"sizes": ["md", "lg", "xl", "full"],
+	"size": "lg",
+	"every": 0,
+	"strings": ["Threat Shield is off.", "Turn it on", "Blocked", "Allowed", "DNS", "Open map", "Turn on location data in the threat map settings.",
+		"Location data is downloading.", "%d connections"]
+}

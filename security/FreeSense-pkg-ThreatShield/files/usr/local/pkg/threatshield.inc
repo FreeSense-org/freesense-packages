@@ -1952,3 +1952,65 @@ function threatshield_display_tabs(string $active_tab): void {
 require_once(__DIR__ . '/threatshield/threatshield_health.inc');
 require_once(__DIR__ . '/threatshield/threatshield_dnsbl.inc');
 require_once(__DIR__ . '/threatshield/threatshield_map.inc');
+
+/* ---------------------------------------------- dashboard (REST API) */
+
+/* REST API routes for the dashboard widgets (core collects them through the plugin_restapi hook). */
+function threatshield_plugin_restapi($params) {
+	return [
+		restapi_route('GET', '/v1/packages/threatshield/status', 'threatshield_restapi_status', [
+			'page' => 'threatshield/threatshield_status.php', 'area' => 'packages',
+			'summary' => 'Threat Shield: state, health problems, DNS queries and blocks (24 h), GeoIP, reputation and flood offenders']),
+		restapi_route('GET', '/v1/packages/threatshield/map-config', 'threatshield_restapi_map_config', [
+			'page' => 'threatshield/threatshield_map.php', 'area' => 'packages',
+			'summary' => 'Threat Shield threat map: whether it is on and its style, animations and address masking']),
+	];
+}
+
+function threatshield_restapi_status($req) {
+	$cfg = threatshield_config();
+	$enabled = ($cfg['enable'] ?? 'off') === 'on';
+	$running = threatshield_is_running();
+	$pause = threatshield_pause_state();
+	$stats = threatshield_get_stats();
+	$checks = $enabled ? threatshield_health() : [];
+	$worst = threatshield_health_worst($checks);
+	$dnsbl = threatshield_dnsbl_status();
+	$total = (int)($stats['num_dns_queries'] ?? 0);
+	$blocked = (int)($stats['num_blocked_filtering'] ?? 0);
+	$countries = 0;
+	foreach (threatshield_normalize_list($cfg['geoip_policies'] ?? []) as $p) {
+		if (is_array($p) && (($p['enable'] ?? 'on') === 'on')) {
+			$countries += count(threatshield_normalize_list($p['countries'] ?? []));
+		}
+	}
+	$state = !$enabled ? 'off' : (!$running ? 'stopped' : (!empty($pause['active']) ? 'paused' : (($worst === 'fail') ? 'fail' : (($worst === 'warn') ? 'warn' : 'ok'))));
+	$problems = [];
+	foreach ($checks as $c) {
+		if (in_array($c['state'], ['fail', 'warn'], true)) {
+			$problems[] = ['state' => $c['state'], 'label' => (string)$c['label'], 'detail' => (string)$c['detail']];
+		}
+	}
+	return ['data' => [
+		'state' => $state,
+		'paused_until' => (!empty($pause['active']) && ($pause['until'] > 0)) ? (int)$pause['until'] : null,
+		'problems' => array_slice($problems, 0, 3),
+		'dns_queries' => $total,
+		'dns_blocked' => $blocked,
+		'dns_blocked_pct' => ($total > 0) ? round($blocked / $total * 100, 1) : 0,
+		'geoip_countries' => (($cfg['geoip_enable'] ?? 'off') === 'on') ? $countries : 0,
+		'reputation' => (($cfg['dnsbl_enable'] ?? 'off') === 'on') ?
+		    ['listed' => (int)($dnsbl['cached_listed'] ?? 0), 'failing' => (($dnsbl['breaker'] ?? 'closed') === 'open')] : null,
+		'flood' => (int)threatshield_pf_table_count(THREATSHIELD_T_FLOOD),
+	]];
+}
+
+function threatshield_restapi_map_config($req) {
+	$cfg = threatshield_config();
+	return ['data' => [
+		'enabled' => ($cfg['enable'] ?? 'off') === 'on',
+		'style' => ((string)($cfg['map_style'] ?? '') === 'hacker') ? 'hacker' : 'freesense',
+		'animations' => (string)($cfg['map_animations'] ?? ''),
+		'mask' => ($cfg['map_mask_ips'] ?? 'off') === 'on',
+	]];
+}
