@@ -55,6 +55,9 @@
 		<item>
 			<type>plugin_xmlrpc_recv</type>
 		</item>
+		<item>
+			<type>plugin_restapi</type>
+		</item>
 	</plugins>
 	<custom_php_install_command>
 		<![CDATA[

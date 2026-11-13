@@ -4393,3 +4393,63 @@ function suricata_listfiles($dir) {
 	}
 	return($files);
 }
+
+/* ---------------------------------------------- dashboard (REST API) */
+
+/* REST API routes for the dashboard widget (core collects them through the plugin_restapi hook). */
+function suricata_plugin_restapi($params) {
+	return array(
+		restapi_route('GET', '/v1/packages/suricata/alerts', 'suricata_restapi_alerts', array(
+			'page' => 'suricata/suricata_alerts.php', 'area' => 'packages',
+			'query' => array('limit' => 'How many of the newest alerts (1-100, default 10)'),
+			'summary' => 'Suricata: the newest alerts of every interface (time, interface, signature, class, priority, source, destination)')),
+	);
+}
+
+/*
+ * pure: one alerts.log line → {time (unix), gid, sid, msg, class, priority,
+ * proto, src, sport, dst, dport} or null. A decoder event has no addresses.
+ */
+function suricata_parse_alert_line($line) {
+	$line = trim((string)$line);
+	$stamp = substr($line, 0, (int)strpos($line, '  '));
+	$tm = date_create_from_format('m/d/Y-H:i:s.u', $stamp);
+	if (($tm === false) || !preg_match('/\[\*{2}\]\s\[(\d+):(\d+):(\d+)\]\s(.*)\[\*{2}\]\s\[Classification:\s(.*)\]\s\[Priority:\s(\d+)\]/', $line, $m)) {
+		return null;
+	}
+	$out = array('time' => date_timestamp_get($tm), 'gid' => (int)$m[1], 'sid' => (int)$m[2], 'msg' => trim($m[4]),
+	    'class' => ($m[5] === '(null)') ? '' : trim($m[5]), 'priority' => (int)$m[6], 'proto' => '', 'src' => '', 'sport' => '', 'dst' => '', 'dport' => '');
+	if (preg_match('/\{(.*?)\}\s(\S+)\s->\s(\S+)/', $line, $a)) {
+		$out['proto'] = $a[1];
+		foreach (array('src' => $a[2], 'dst' => $a[3]) as $k => $hp) {
+			$pos = strrpos($hp, ':');
+			$out[$k] = ($pos === false) ? $hp : substr($hp, 0, $pos);
+			$out[($k === 'src') ? 'sport' : 'dport'] = ($pos === false) ? '' : substr($hp, $pos + 1);
+		}
+	}
+	return $out;
+}
+
+function suricata_restapi_alerts($req) {
+	$limit = (int)($req['query']['limit'] ?? 10);
+	$limit = (($limit < 1) || ($limit > 100)) ? 10 : $limit;
+	$out = array();
+	foreach (config_get_path('installedpackages/suricata/rule', []) as $instance) {
+		$real = get_real_interface($instance['interface']);
+		$log = SURICATALOGDIR . "suricata_{$real}{$instance['uuid']}/alerts.log";
+		if (!is_file($log)) {
+			continue;
+		}
+		$lines = array();
+		exec('/usr/bin/tail -n ' . (int)$limit . ' ' . escapeshellarg($log), $lines);
+		foreach ($lines as $line) {
+			$a = suricata_parse_alert_line($line);
+			if ($a !== null) {
+				$out[] = array('interface' => (string)$instance['interface'],
+				    'interface_descr' => (string)convert_friendly_interface_to_friendly_descr($instance['interface'])) + $a;
+			}
+		}
+	}
+	usort($out, function ($x, $y) { return $y['time'] <=> $x['time']; });
+	return array('data' => array_slice($out, 0, $limit));
+}

@@ -98,27 +98,6 @@ foreach (config_get_path('installedpackages/suricata/rule', []) as $suricatacfg)
 	unlink_if_exists($g['varrun_path'] . "/suricata-ctrl-socket-" . $suricatacfg['uuid']);
 }
 
-/* Remove our associated Dashboard widget config and files. */
-/* If "save settings" is enabled, then save old widget      */
-/* container settings so we can restore them later.         */
-$widgets = config_get_path('widgets/sequence');
-if (!empty($widgets)) {
-	$widgetlist = explode(",", $widgets);
-	foreach ($widgetlist as $key => $widget) {
-		if (strstr($widget, "suricata_alerts")) {
-			if (config_get_path('installedpackages/suricata/config/0/forcekeepsettings') == 'on') {
-				config_set_path('installedpackages/suricata/config/0/dashboard_widget', $widget);
-				if (config_get_path('widgets/widget_suricata_display_lines')) {
-					config_set_path('installedpackages/suricata/config/0/dashboard_widget_rows', config_get_path('widgets/widget_suricata_display_lines'));
-					config_del_path('widgets/widget_suricata_display_lines');
-				}
-			}
-			unset($widgetlist[$key]);
-		}
-	}
-	config_set_path('widgets/sequence', implode(",", $widgetlist));
-	write_config("Suricata pkg removed Dashboard Alerts widget.", false);
-}
 
 // See if we are to clear blocked hosts on uninstall
 if (config_get_path('installedpackages/suricata/config/0/clearblocks') == 'on') {

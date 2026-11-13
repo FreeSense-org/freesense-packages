@@ -198,16 +198,6 @@ if (config_get_path('installedpackages/suricata/config/0/forcekeepsettings') == 
 	suricata_rm_blocked_install_cron(config_get_path('installedpackages/suricata/config/0/rm_blocked') != "never_b" ? true : false);
 	suricata_rules_up_install_cron(config_get_path('installedpackages/suricata/config/0/autoruleupdate') != "never_up" ? true : false);
 
-	// Restore the Dashboard Widget if it was previously enabled and saved
-	if (!empty(config_get_path('installedpackages/suricata/config/0/dashboard_widget')) && !empty(config_get_path('widgets/sequence'))) {
-		if (strpos(config_get_path('widgets/sequence', ''), "suricata_alerts") === FALSE)
-			config_set_path('widgets/sequence', config_get_path('widgets/sequence') . "," . config_get_path('installedpackages/suricata/config/0/dashboard_widget'));
-	}
-	if (!empty(config_get_path('installedpackages/suricata/config/0/dashboard_widget_rows')) && !empty(config_get_path('widgets'))) {
-		if (empty(config_get_path('widgets/widget_suricata_display_lines')))
-			config_set_path('widgets/widget_suricata_display_lines', config_get_path('installedpackages/suricata/config/0/dashboard_widget_rows'));
-	}
-
 	$rebuild_rules = false;
 	update_status(gettext("Finished rebuilding Suricata configuration from saved settings.") . "\n");
 	logger(LOG_NOTICE, localize_text("Finished rebuilding installation from saved settings."), LOG_PREFIX_PKG_SURICATA);
