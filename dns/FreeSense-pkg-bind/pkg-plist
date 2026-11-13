@@ -7,6 +7,7 @@ pkg/bind_views.xml
 pkg/bind_zones.xml
 %%DATADIR%%/info.xml
 www/shortcuts/pkg_bind.inc
-www/widgets/widgets/bind.widget.php
+www/widgets/bind.js
+www/widgets/bind.widget.json
 @dir /etc/inc/priv
 @dir /etc/inc

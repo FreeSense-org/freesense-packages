@@ -38,6 +38,5 @@ $priv_list['page-services-binddns']['match'][] = "pkg_edit.php?xml=bind_sync.xml
 $priv_list['page-services-binddns']['match'][] = "pkg_edit.php?xml=bind_views.xml*";
 $priv_list['page-services-binddns']['match'][] = "pkg_edit.php?xml=bind_zones.xml*";
 
-$priv_list['page-services-binddns']['match'][] = "widgets/widgets/bind.widget.php*";
 
 ?>

@@ -395,6 +395,9 @@
 		<item>
 			<type>plugin_xmlrpc_recv_done</type>
 		</item>
+		<item>
+			<type>plugin_restapi</type>
+		</item>
 	</plugins>
 	<custom_php_resync_config_command>
 		bind_sync();

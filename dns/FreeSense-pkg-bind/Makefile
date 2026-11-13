@@ -2,7 +2,7 @@
 
 PORTNAME=	FreeSense-pkg-bind
 PORTVERSION=	9.20
-PORTREVISION=	9
+PORTREVISION=	10
 CATEGORIES=	dns
 MASTER_SITES=	# empty
 DISTFILES=	# empty
@@ -26,7 +26,7 @@ do-install:
 	${MKDIR} ${STAGEDIR}/etc/inc/priv
 	${MKDIR} ${STAGEDIR}${DATADIR}
 	${MKDIR} ${STAGEDIR}${PREFIX}/www/shortcuts
-	${MKDIR} ${STAGEDIR}${PREFIX}/www/widgets/widgets
+	${MKDIR} ${STAGEDIR}${PREFIX}/www/widgets
 
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/pkg/bind.xml \
 		${STAGEDIR}${PREFIX}/pkg
@@ -46,8 +46,9 @@ do-install:
 		${STAGEDIR}${DATADIR}
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/shortcuts/pkg_bind.inc \
 		${STAGEDIR}${PREFIX}/www/shortcuts
-	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/widgets/widgets/bind.widget.php \
-		${STAGEDIR}${PREFIX}/www/widgets/widgets
+	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/widgets/bind.widget.json \
+		${FILESDIR}${PREFIX}/www/widgets/bind.js \
+		${STAGEDIR}${PREFIX}/www/widgets
 	@${REINPLACE_CMD} -i '' -e "s|%%PKGVERSION%%|${PKGVERSION}|" \
 		${STAGEDIR}${DATADIR}/info.xml \
 		${STAGEDIR}${PREFIX}/pkg/bind.xml \

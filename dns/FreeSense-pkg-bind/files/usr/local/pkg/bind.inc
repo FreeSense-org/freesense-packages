@@ -1177,4 +1177,38 @@ function reverse_zonename($zonename, $zonereverso=false, $zonereversv6o=false) {
 	}
 }
 
+/* REST API routes for the dashboard widget (core restapi_routes_v1() collects them through the plugin_restapi hook). */
+function bind_plugin_restapi($params) {
+	return array(
+		restapi_route('GET', '/v1/packages/bind/status', 'bind_restapi_status', array(
+			'page' => 'pkg.php?xml=bind.xml', 'area' => 'packages',
+			'summary' => 'BIND: whether named runs and its rndc status (version, zones, queries, up since)')),
+	);
+}
+
+/* pure: `rndc status` lines ("key: value") -> list of {key, value} */
+function bind_parse_rndc_status($lines) {
+	$out = array();
+	foreach ((array)$lines as $line) {
+		$pos = strpos((string)$line, ':');
+		if ($pos === false) {
+			continue;
+		}
+		$key = trim(substr($line, 0, $pos));
+		if ($key !== '') {
+			$out[] = array('key' => ucfirst($key), 'value' => trim(substr($line, $pos + 1)));
+		}
+	}
+	return $out;
+}
+
+function bind_restapi_status($req) {
+	$lines = array();
+	$rndc = '/usr/local/sbin/rndc';
+	if (is_executable($rndc)) {
+		exec($rndc . ' -c /var/etc/named/etc/namedb/rndc.conf status 2>/dev/null', $lines);
+	}
+	return array('data' => array('running' => is_process_running('named'), 'status' => bind_parse_rndc_status($lines)));
+}
+
 ?>

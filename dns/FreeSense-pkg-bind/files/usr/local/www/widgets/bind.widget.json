@@ -1,0 +1,15 @@
+{
+	"type": "bind",
+	"title": "BIND",
+	"description": "Whether the BIND DNS server runs, its zones and queries",
+	"icon": "fa-server",
+	"tone": "series-3",
+	"category": "Services",
+	"page": "pkg.php?xml=bind.xml",
+	"link": "/pkg.php?xml=bind.xml",
+	"order": 60,
+	"sizes": ["sm", "md", "lg"],
+	"size": "md",
+	"every": 30,
+	"strings": ["Running", "Stopped", "BIND does not report a status."]
+}
