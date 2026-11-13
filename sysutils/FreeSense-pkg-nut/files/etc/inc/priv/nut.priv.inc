@@ -30,6 +30,5 @@ $priv_list['page-services-nut']['descr'] = "Allow access to NUT UPS package gui"
 $priv_list['page-services-nut']['match'] = array();
 $priv_list['page-services-nut']['match'][] = "nut_status.php*";
 $priv_list['page-services-nut']['match'][] = "nut_settings.php*";
-$priv_list['page-services-nut']['match'][] = "nut_status.widget.php*";
 
 ?>

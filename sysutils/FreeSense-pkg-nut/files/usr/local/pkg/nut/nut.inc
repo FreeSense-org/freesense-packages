@@ -493,3 +493,36 @@ function nut_deinstall_command() {
 	unlink_if_exists(NUT_RCFILE);
 	unlink_if_exists(NUT_SHUTDOWNFILE);
 }
+
+/* ---------------------------------------------- dashboard (REST API) */
+
+/* REST API routes for the dashboard widget (core collects them through the plugin_restapi hook). */
+function nut_plugin_restapi($params)
+{
+	return array(
+		restapi_route('GET', '/v1/packages/nut/status', 'nut_restapi_status', array(
+			'page' => 'nut_status.php', 'area' => 'packages',
+			'summary' => 'UPS (NUT): summary, status words, alarm, runtime, load, battery and voltages')),
+	);
+}
+
+function nut_restapi_status($req)
+{
+	$s = nut_ups_status();
+	$num = function ($k) use ($s) {
+		return (isset($s[$k]) && is_numeric($s[$k])) ? (float)$s[$k] : null;
+	};
+	return array('data' => array(
+		'alert' => !empty($s['_alert']),
+		'summary' => (string)($s['_summary'] ?? ''),
+		'status' => (string)($s['ups.status'] ?? ''),
+		'alarm' => (string)($s['ups.alarm'] ?? ''),
+		'runtime' => (string)($s['_hms'] ?? ''),
+		'load' => $num('ups.load'),
+		'battery' => $num('battery.charge'),
+		'battery_voltage' => $num('battery.voltage'),
+		'input_voltage' => $num('input.voltage'),
+		'output_voltage' => $num('output.voltage'),
+		'model' => trim((string)($s['ups.mfr'] ?? '') . ' ' . (string)($s['ups.model'] ?? '')),
+	));
+}
