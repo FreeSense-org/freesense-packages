@@ -3167,3 +3167,47 @@ function rename_backend_references($oldvalue, $newvalue) {
 	
 	//TODO: acl's with backendservercount/backend should also be renamed..
 }
+
+/* ---------------------------------------------- dashboard (REST API) */
+
+/* REST API routes for the dashboard widget (core collects them through the plugin_restapi hook). */
+function haproxy_plugin_restapi($params) {
+	return array(
+		restapi_route('GET', '/v1/packages/haproxy/status', 'haproxy_restapi_status', array(
+			'page' => 'haproxy/haproxy_stats.php', 'area' => 'packages',
+			'summary' => 'HAProxy: frontends, backends and their servers with status and sessions')),
+		restapi_route('POST', '/v1/packages/haproxy/servers/{backend}/{server}/{action}', 'haproxy_restapi_server_action', array(
+			'page' => 'haproxy/haproxy_stats.php', 'area' => 'packages', 'write' => true,
+			'summary' => 'Enable or disable a backend server (action: enable or disable) on the running HAProxy')),
+	);
+}
+
+function haproxy_restapi_status($req) {
+	require_once('haproxy/haproxy_socketinfo.inc');
+	$s = haproxy_get_statistics();
+	$out = array('frontends' => array(), 'backends' => array());
+	foreach ((array)($s['frontends'] ?? array()) as $f) {
+		$out['frontends'][] = array('name' => (string)$f['pxname'], 'status' => (string)$f['status'], 'sessions' => (int)$f['scur'], 'limit' => (int)$f['slim']);
+	}
+	foreach ((array)($s['backends'] ?? array()) as $b) {
+		$servers = array();
+		foreach ((array)($s['servers'] ?? array()) as $v) {
+			if ($v['pxname'] === $b['pxname']) {
+				$servers[] = array('name' => (string)$v['svname'], 'status' => (string)$v['status'], 'sessions' => (int)$v['scur'], 'limit' => (int)$v['slim']);
+			}
+		}
+		$out['backends'][] = array('name' => (string)$b['pxname'], 'status' => (string)$b['status'], 'sessions' => (int)$b['scur'], 'limit' => (int)$b['slim'], 'servers' => $servers);
+	}
+	return array('data' => $out);
+}
+
+function haproxy_restapi_server_action($req) {
+	require_once('haproxy/haproxy_socketinfo.inc');
+	$p = $req['params'];
+	$name = '/^[A-Za-z0-9_.:-]{1,128}$/';
+	if (!preg_match($name, (string)$p['backend']) || !preg_match($name, (string)$p['server']) || !in_array($p['action'], array('enable', 'disable'), true)) {
+		throw new RestApiError(404, 'not_found', 'No such server or action.');
+	}
+	haproxy_set_server_enabled($p['backend'], $p['server'], $p['action'] === 'enable');
+	return array('data' => null);
+}

@@ -1,0 +1,18 @@
+{
+	"type": "haproxy",
+	"title": "HAProxy",
+	"description": "HAProxy backends and servers with their state and sessions",
+	"icon": "fa-scale-balanced",
+	"tone": "series-2",
+	"category": "Services",
+	"page": "haproxy/haproxy_stats.php",
+	"link": "/haproxy/haproxy_stats.php",
+	"order": 65,
+	"sizes": ["md", "lg", "xl"],
+	"size": "md",
+	"every": 10,
+	"settings": [
+		{"key": "frontends", "type": "checkbox", "label": "Show frontends", "value": false}
+	],
+	"strings": ["Frontends", "Backends", "HAProxy has no frontends or backends.", "Enable %s", "Disable %s", "%s enabled", "%s disabled"]
+}
