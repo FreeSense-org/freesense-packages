@@ -2,7 +2,7 @@
 
 PORTNAME=	FreeSense-pkg-suricata
 PORTVERSION=	8.0.0
-PORTREVISION=	8
+PORTREVISION=	9
 CATEGORIES=	security
 MASTER_SITES=	# empty
 DISTFILES=	# empty
@@ -31,9 +31,7 @@ do-install:
 	${MKDIR} ${STAGEDIR}/etc/inc/priv
 	${MKDIR} ${STAGEDIR}${PREFIX}/pkg/suricata
 	${MKDIR} ${STAGEDIR}${PREFIX}/www/suricata
-	${MKDIR} ${STAGEDIR}${PREFIX}/www/widgets/javascript
-	${MKDIR} ${STAGEDIR}${PREFIX}/www/widgets/widgets
-	${MKDIR} ${STAGEDIR}${PREFIX}/www/widgets/include
+	${MKDIR} ${STAGEDIR}${PREFIX}/www/widgets
 	${MKDIR} ${STAGEDIR}/var/db/suricata/sidmods
 	${MKDIR} ${STAGEDIR}${DATADIR}
 	${INSTALL_DATA} -m 0644 ${FILESDIR}${PREFIX}/pkg/suricata.xml \
@@ -118,12 +116,6 @@ do-install:
 		${STAGEDIR}${PREFIX}/www/suricata
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/suricata/suricata_iprep_list_browser.php \
 		${STAGEDIR}${PREFIX}/www/suricata
-	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/widgets/javascript/suricata_alerts.js \
-		${STAGEDIR}${PREFIX}/www/widgets/javascript
-	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/widgets/widgets/suricata_alerts.widget.php \
-		${STAGEDIR}${PREFIX}/www/widgets/widgets
-	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/widgets/include/widget-suricata.inc \
-		${STAGEDIR}${PREFIX}/www/widgets/include
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/suricata/suricata_blocked.php \
 		${STAGEDIR}${PREFIX}/www/suricata
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/suricata/suricata_files.php \
@@ -146,6 +138,9 @@ do-install:
 		${STAGEDIR}/var/db/suricata/sidmods
 	${INSTALL_DATA} ${FILESDIR}${DATADIR}/info.xml \
 		${STAGEDIR}${DATADIR}
+	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/widgets/suricata-alerts.widget.json \
+		${FILESDIR}${PREFIX}/www/widgets/suricata-alerts.js \
+		${STAGEDIR}${PREFIX}/www/widgets
 	@${REINPLACE_CMD} -i '' -e "s|%%PKGVERSION%%|${PKGVERSION}|" \
 		${STAGEDIR}${DATADIR}/info.xml
 

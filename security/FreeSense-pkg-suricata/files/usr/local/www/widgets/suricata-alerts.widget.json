@@ -1,0 +1,18 @@
+{
+	"type": "suricata-alerts",
+	"title": "Suricata alerts",
+	"description": "The newest Suricata alerts of every interface",
+	"icon": "fa-shield-virus",
+	"tone": "block",
+	"category": "Security",
+	"page": "suricata/suricata_alerts.php",
+	"link": "/suricata/suricata_alerts.php",
+	"order": 61,
+	"sizes": ["md", "lg", "xl", "full"],
+	"size": "lg",
+	"every": 15,
+	"settings": [
+		{"key": "rows", "type": "number", "label": "Alerts", "value": 8, "min": 3, "max": 50}
+	],
+	"strings": ["No alerts.", "Decoder event", "Priority %s", "Time", "Interface", "Signature", "Source", "Destination"]
+}

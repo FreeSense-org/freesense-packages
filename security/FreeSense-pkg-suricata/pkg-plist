@@ -39,9 +39,8 @@ www/suricata/suricata_define_vars.php
 www/suricata/suricata_ip_list_mgmt.php
 www/suricata/suricata_ip_reputation.php
 www/suricata/suricata_iprep_list_browser.php
-www/widgets/javascript/suricata_alerts.js
-www/widgets/widgets/suricata_alerts.widget.php
-www/widgets/include/widget-suricata.inc
+www/widgets/suricata-alerts.js
+www/widgets/suricata-alerts.widget.json
 www/suricata/suricata_blocked.php
 www/suricata/suricata_files.php
 www/suricata/suricata_filecheck.php
