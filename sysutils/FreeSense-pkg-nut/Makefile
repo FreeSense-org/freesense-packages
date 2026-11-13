@@ -2,7 +2,7 @@
 
 PORTNAME=	FreeSense-pkg-nut
 PORTVERSION=	2.8.2
-PORTREVISION=	13
+PORTREVISION=	14
 CATEGORIES=	sysutils
 MASTER_SITES=	# empty
 DISTFILES=	# empty
@@ -28,9 +28,8 @@ do-install:
 	${MKDIR} ${STAGEDIR}${PREFIX}/pkg/nut
 	${MKDIR} ${STAGEDIR}/etc/inc/priv
 	${MKDIR} ${STAGEDIR}${PREFIX}/www/shortcuts
-	${MKDIR} ${STAGEDIR}${PREFIX}/www/widgets/widgets
-	${MKDIR} ${STAGEDIR}${PREFIX}/www/widgets/include
 	${MKDIR} ${STAGEDIR}${DATADIR}
+	${MKDIR} ${STAGEDIR}${PREFIX}/www/widgets
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/pkg/nut.xml \
 		${STAGEDIR}${PREFIX}/pkg
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/pkg/nut/nut.inc \
@@ -45,12 +44,9 @@ do-install:
 		${STAGEDIR}${PREFIX}/www
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/nut_status.php \
 		${STAGEDIR}${PREFIX}/www
-	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/widgets/widgets/nut_status.widget.php \
-		${STAGEDIR}${PREFIX}/www/widgets/widgets
-	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/widgets/include/nut_status.inc \
-		${STAGEDIR}${PREFIX}/www/widgets/include
 	${INSTALL_DATA} ${FILESDIR}${DATADIR}/info.xml \
 		${STAGEDIR}${DATADIR}
+	${INSTALL_DATA} ${FILESDIR}${PREFIX}/www/widgets/nut.widget.json ${FILESDIR}${PREFIX}/www/widgets/nut.js ${STAGEDIR}${PREFIX}/www/widgets
 	@${REINPLACE_CMD} -i '' -e "s|%%PKGVERSION%%|${PKGVERSION}|" \
 		${STAGEDIR}${DATADIR}/info.xml
 

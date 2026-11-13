@@ -1,0 +1,15 @@
+{
+	"type": "nut",
+	"title": "UPS",
+	"description": "UPS state, runtime, load and battery (NUT)",
+	"icon": "fa-car-battery",
+	"tone": "series-4",
+	"category": "System",
+	"page": "nut_status.php",
+	"link": "/nut_status.php",
+	"order": 66,
+	"sizes": ["sm", "md", "lg"],
+	"size": "sm",
+	"every": 10,
+	"strings": ["The UPS requires attention", "Alarm", "Runtime", "Load", "Battery", "Vin %s V", "Vout %s V", "%s V"]
+}

@@ -5,7 +5,7 @@ pkg/nut/nut_email.php
 www/nut_settings.php
 www/nut_status.php
 www/shortcuts/pkg_nut.inc
-www/widgets/include/nut_status.inc
-www/widgets/widgets/nut_status.widget.php
+www/widgets/nut.js
+www/widgets/nut.widget.json
 %%DATADIR%%/info.xml
 @dir /etc/inc/priv
