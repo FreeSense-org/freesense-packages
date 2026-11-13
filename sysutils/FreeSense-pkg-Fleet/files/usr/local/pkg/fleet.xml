@@ -6,6 +6,11 @@
 	<title>System: FreeSense Fleet</title>
 	<donotsave>true</donotsave>
 	<include_file>/usr/local/pkg/fleet.inc</include_file>
+	<plugins>
+		<item>
+			<type>plugin_restapi</type>
+		</item>
+	</plugins>
 	<menu>
 		<name>FreeSense Fleet</name>
 		<tooltiptext>Manage many FreeSense firewalls from this one</tooltiptext>

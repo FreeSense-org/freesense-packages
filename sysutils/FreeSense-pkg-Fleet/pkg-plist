@@ -85,5 +85,5 @@ www/fleet/fleet_schedules.php
 www/fleet/fleet_updates.php
 www/fleet/fleet_dashboard.php
 www/fleet/fleet_data.php
-www/widgets/include/fleet.inc
-www/widgets/widgets/fleet.widget.php
+www/widgets/fleet.js
+www/widgets/fleet.widget.json
