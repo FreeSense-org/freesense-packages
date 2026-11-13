@@ -1,0 +1,29 @@
+{
+	"type": "fleet",
+	"title": "FreeSense Fleet",
+	"description": "Fleet health, firewalls that need attention, availability and the controller",
+	"icon": "fa-network-wired",
+	"tone": "series-1",
+	"category": "Fleet",
+	"page": "fleet/fleet_dashboard.php",
+	"link": "/fleet/fleet_dashboard.php",
+	"order": 64,
+	"sizes": ["md", "lg", "xl"],
+	"size": "lg",
+	"every": 30,
+	"allow_copies": true,
+	"settings": [
+		{"key": "health", "type": "checkbox", "label": "Health tiles", "value": true},
+		{"key": "problems", "type": "checkbox", "label": "Firewalls that need attention", "value": true},
+		{"key": "availability", "type": "checkbox", "label": "Availability (24 hours)", "value": true},
+		{"key": "controller", "type": "checkbox", "label": "Controller and standby", "value": true},
+		{"key": "group", "type": "select", "label": "Firewalls", "options": [["0", "All firewalls"]], "value": "0"},
+		{"key": "rows", "type": "select", "label": "List at most", "options": [["3", "3 firewalls"], ["5", "5 firewalls"], ["10", "10 firewalls"]], "value": "5"}
+	],
+	"strings": ["This server is the Fleet standby.", "Last copy %s.", "No copy yet.", "Standby status", "FreeSense Fleet is not set up on this firewall.",
+		"Settings", "in %s", "Firewalls", "Online", "Degraded", "Offline", "Updates", "Waiting", "No firewalls yet.", "The firewall is fine.",
+		"All %s firewalls are fine.", "Needs attention", "and %s more", "Last 24 hours", "available", "%s outage", "%s outages", "Now", "Controller",
+		"up %s", "Standby", "Late", "Up to date", "waiting for it to connect", "Alerts (24 h)", "Blocked", "%s addresses (wrong keys)",
+		"Every part is turned off. Open the widget settings to choose what it shows.", "Group %s",
+		"Firewalls online, degraded and offline per half hour, last 24 hours", "%1$s online, %2$s degraded, %3$s offline"]
+}

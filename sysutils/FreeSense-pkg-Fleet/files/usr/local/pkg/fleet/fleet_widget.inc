@@ -20,7 +20,8 @@
  */
 
 /*
- * The "FreeSense Fleet" dashboard widget (widgets/widgets/fleet.widget.php):
+ * The "FreeSense Fleet" dashboard widget (www/widgets/fleet.js, data from
+ * GET /api/v1/packages/fleet/widget through the plugin_restapi hook):
  * health tiles, the firewalls that need attention, availability over 24
  * hours, and the controller with its standby. Each part can be turned off
  * and the widget can focus on one group.
@@ -146,109 +147,31 @@ function fleet_widget_pulse_cols(array $pulse): array {
 	return array('t' => $pulse['t'], 'cols' => $cols);
 }
 
-/* pure: the mini pulse as SVG: one column per half hour, stacked online, degraded, offline. */
-function fleet_widget_pulse_svg(array $p): string {
-	$n = count($p['cols']);
-	$max = 1;
-	foreach ($p['cols'] as $c) {
-		$max = max($max, array_sum($c));
-	}
-	$w = 4;
-	$h = 40;
-	$out = '<svg class="fs-fleet-widget-pulse" viewBox="0 0 ' . ($n * $w) . ' ' . $h . '" preserveAspectRatio="none" role="img" aria-label="' .
-	    htmlspecialchars(gettext('Firewalls online, degraded and offline per half hour, last 24 hours')) . '">';
-	foreach ($p['cols'] as $i => $c) {
-		$y = $h;
-		foreach (array('online', 'degraded', 'offline') as $k => $cls) {
-			$bh = $h * $c[$k] / $max;
-			if ($bh > 0) {
-				$y -= $bh;
-				$out .= '<rect class="s-' . $cls . '" x="' . ($i * $w + .5) . '" y="' . round($y, 2) . '" width="' . ($w - 1) . '" height="' . round($bh, 2) . '"><title>' .
-				    htmlspecialchars(date('H:i', $p['t'][$i]) . ': ' . sprintf(gettext('%1$d online, %2$d degraded, %3$d offline'), $c[0], $c[1], $c[2])) . '</title></rect>';
-			}
-		}
-	}
-	return $out . '</svg>';
+/* REST API routes for the dashboard widget (core collects them through the plugin_restapi hook). */
+function fleet_plugin_restapi($params) {
+	return array(
+		restapi_route('GET', '/v1/packages/fleet/widget', 'fleet_restapi_widget', array(
+			'page' => 'fleet/fleet_dashboard.php', 'area' => 'packages',
+			'query' => array('parts' => 'Comma list of health, problems, availability, controller (all when omitted)',
+			    'group' => 'Group id (0: every firewall)', 'rows' => '3, 5 or 10'),
+			'summary' => 'FreeSense Fleet at a glance: health counts, firewalls that need attention, availability (24 h), controller and standby')),
+	);
 }
 
-/* The widget body (also what the refresh fetches). */
-function fleet_widget_html(array $d, array $cfg): string {
-	$h = function ($s) { return htmlspecialchars((string)$s); };
-	if (!$d['ready']) {
-		if ($d['standby'] !== null) {
-			$ok = (int)($d['standby']['last_ok'] ?? 0);
-			return '<p class="fs-fleet-widget-note">' . $h(gettext('This server is the Fleet standby.')) . ' ' .
-			    $h(($ok > 0) ? sprintf(gettext('Last copy %s.'), date('Y-m-d H:i', $ok)) : gettext('No copy yet.')) .
-			    ' <a href="/fleet/fleet.php?tab=settings&amp;view=standby">' . $h(gettext('Standby status')) . '</a></p>';
-		}
-		return '<p class="fs-fleet-widget-note">' . $h(gettext('FreeSense Fleet is not set up on this firewall.')) .
-		    ' <a href="/fleet/fleet.php?tab=settings">' . $h(gettext('Settings')) . '</a></p>';
+function fleet_restapi_widget($req) {
+	$q = (array)($req['query'] ?? array());
+	$w = array('fleet_group' => $q['group'] ?? 0, 'fleet_rows' => $q['rows'] ?? 5);
+	if (isset($q['parts'])) {
+		$w['fleet_parts'] = (string)$q['parts'];
 	}
-	$c = $d['counts'];
-	$out = '';
-	if (in_array('health', $cfg['parts'], true)) {
-		$tone = ($c['offline'] > 0) ? 'block' : (($c['degraded'] > 0) ? 'warn' : 'pass');
-		$out .= '<a class="fs-fleet-widget-head" href="/fleet/fleet_dashboard.php"><span class="fs-fleet-ov-state fs-fc-' . $tone . '"><i class="fa-solid ' .
-		    (($tone === 'pass') ? 'fa-circle-check' : 'fa-triangle-exclamation') . '" aria-hidden="true"></i></span><span><strong>' . $h(gettext($d['headline'])) . '</strong>' .
-		    (empty($d['group']) ? '' : '<span class="fs-muted">' . $h(sprintf(gettext('in %s'), $d['group'])) . '</span>') . '</span></a>';
-		$wall = '/fleet/fleet_dashboard.php?view=firewalls';
-		$tiles = array(
-			array('fa-server', gettext('Firewalls'), $d['total'], $wall, 'c1'),
-			array('fa-circle-check', gettext('Online'), $c['online'], $wall, 'pass'),
-			array('fa-triangle-exclamation', gettext('Degraded'), $c['degraded'], $wall, ($c['degraded'] > 0) ? 'warn' : 'neutral'),
-			array('fa-plug-circle-xmark', gettext('Offline'), $c['offline'], $wall, ($c['offline'] > 0) ? 'block' : 'neutral'),
-			array('fa-circle-up', gettext('Updates'), $d['updates'], '/fleet/fleet_updates.php', ($d['updates'] > 0) ? 'info' : 'neutral'),
-			array('fa-hourglass-half', gettext('Waiting'), $c['pending'], '/fleet/fleet.php', ($c['pending'] > 0) ? 'warn' : 'neutral'),
-		);
-		$out .= '<div class="fs-fleet-widget-tiles">';
-		foreach ($tiles as list($icon, $label, $n, $href, $t)) {
-			$out .= '<a class="fs-fleet-widget-tile fs-fc-' . $t . ((((int)$n > 0) && in_array($t, array('warn', 'block'), true)) ? ' is-hot' : '') . '" href="' . $h($href) . '">' .
-			    '<i class="fa-solid ' . $icon . '" aria-hidden="true"></i><span class="fs-fleet-widget-n">' . (int)$n . '</span><span class="fs-fleet-widget-l">' . $h($label) . '</span></a>';
-		}
-		$out .= '</div>';
+	$cfg = fleet_widget_cfg($w);
+	$data = fleet_widget_data($cfg);
+	$data['parts'] = $cfg['parts'];
+	$data['groups'] = (fleet_ctl_settings()['enable'] && is_file(FLEET_DATA . '/fleet.db')) ?
+	    array_map(function ($g) { return array('id' => (int)$g['id'], 'name' => (string)$g['name']); }, fleet_groups_all()) : array();
+	if (isset($data['controller']['uptime']) && ($data['controller']['uptime'] !== null)) {
+		$data['controller']['uptime_text'] = fleet_uptime_text((int)$data['controller']['uptime']);
 	}
-	if (in_array('problems', $cfg['parts'], true)) {
-		$out .= '<div class="fs-fleet-widget-part">';
-		if (empty($d['problems'])) {
-			$out .= '<p class="fs-fleet-widget-ok"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> ' .
-			    $h(($d['total'] === 0) ? gettext('No firewalls yet.') : sprintf(($d['total'] === 1) ? gettext('The firewall is fine.') : gettext('All %d firewalls are fine.'), $d['total'])) . '</p>';
-		} else {
-			$out .= '<h4 class="fs-fleet-widget-sub"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>' . $h(gettext('Needs attention')) . '</h4><ul class="fs-fleet-widget-list">';
-			foreach ($d['problems'] as $p) {
-				$out .= '<li>' . fs_badge($p['badge'][0], gettext($p['badge'][1])) . '<a href="' . $h($p['link']) . '">' . $h($p['label']) . '</a><span class="fs-fleet-widget-why" title="' .
-				    $h(gettext($p['text'])) . '">' . $h(gettext($p['text'])) . '</span></li>';
-			}
-			$out .= '</ul>';
-			if ($d['problem_count'] > count($d['problems'])) {
-				$out .= '<a class="fs-fleet-widget-more" href="/fleet/fleet_dashboard.php">' . $h(sprintf(gettext('and %d more'), $d['problem_count'] - count($d['problems']))) . '</a>';
-			}
-		}
-		$out .= '</div>';
-	}
-	if (in_array('availability', $cfg['parts'], true) && isset($d['stats'])) {
-		$st = $d['stats'];
-		$pct = ($st['percent'] === null) ? '-' : rtrim(rtrim(number_format((float)$st['percent'], 2, '.', ''), '0'), '.') . ' %';
-		$out .= '<a class="fs-fleet-widget-part fs-fleet-widget-avail" href="/fleet/fleet_dashboard.php?view=trends">' .
-		    '<span class="fs-fleet-widget-sub"><i class="fa-solid fa-wave-square" aria-hidden="true"></i>' . $h(gettext('Last 24 hours')) . '<span class="fs-fleet-widget-sum"><strong>' .
-		    $h($pct) . '</strong> ' . $h(gettext('available')) . ', ' . $h(sprintf(((int)$st['outages'] === 1) ? gettext('%d outage') : gettext('%d outages'), (int)$st['outages'])) .
-		    '</span></span>' . (isset($d['pulse']) ? fleet_widget_pulse_svg($d['pulse']) : '') .
-		    '<span class="fs-fleet-widget-axis"><span>' . $h(date('H:i', (int)($d['pulse']['t'][0] ?? (time() - 86400)))) . '</span><span>' . $h(gettext('Now')) . '</span></span></a>';
-	}
-	if (in_array('controller', $cfg['parts'], true) && isset($d['controller'])) {
-		$ctl = $d['controller'];
-		$sb = $d['standby'];
-		$out .= '<dl class="fs-fleet-widget-part fs-fleet-widget-facts"><dt><i class="fa-solid fa-tower-broadcast" aria-hidden="true"></i>' . $h(gettext('Controller')) . '</dt><dd>' . $h($ctl['version']) .
-		    (($ctl['uptime'] !== null) ? ', ' . $h(sprintf(gettext('up %s'), fleet_uptime_text((int)$ctl['uptime']))) : '') . '</dd>';
-		if (($sb['role'] ?? '') === 'primary') {
-			$late = ($sb['seen'] > 0) && ((time() - $sb['seen']) > FLEET_STANDBY_LATE);
-			$out .= '<dt><i class="fa-solid fa-clone" aria-hidden="true"></i>' . $h(gettext('Standby')) . '</dt><dd>' . (($sb['addr'] !== '') ? fs_badge($late ? 'warn' : 'pass', $late ? gettext('Late') : gettext('Up to date')) . ' ' . $h($sb['addr']) :
-			    '<span class="fs-muted">' . $h(gettext('waiting for it to connect')) . '</span>') . '</dd>';
-		}
-		$out .= '<dt><i class="fa-solid fa-bell" aria-hidden="true"></i>' . $h(gettext('Alerts (24 h)')) . '</dt><dd><a href="/fleet/fleet_alerts.php">' . (int)$d['alerts'] . '</a></dd>';
-		if ($d['blocked'] > 0) {
-			$out .= '<dt><i class="fa-solid fa-ban" aria-hidden="true"></i>' . $h(gettext('Blocked')) . '</dt><dd><a href="/fleet/fleet.php?tab=settings&amp;view=access&amp;section=allowed">' . $h(sprintf(gettext('%d addresses (wrong keys)'), $d['blocked'])) . '</a></dd>';
-		}
-		$out .= '</dl>';
-	}
-	return ($out === '') ? '<p class="fs-fleet-widget-note">' . $h(gettext('Every part is turned off. Open the widget settings to choose what it shows.')) . '</p>' : $out;
+	$data['standby_late'] = isset($data['standby']['seen']) && ($data['standby']['seen'] > 0) && ((time() - $data['standby']['seen']) > FLEET_STANDBY_LATE);
+	return array('data' => $data);
 }

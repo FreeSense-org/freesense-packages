@@ -1643,13 +1643,11 @@ check((array_column($wp, 'label') === array('D', 'A + F', 'C', 'E', 'B', 'A')) &
     ($wp[1]['badge'][1] === 'Split-brain') && ($wp[3]['text'] === '2 policy rules fail') && ($wp[5]['link'] === '/fleet/fleet_updates.php') &&
     (count(fleet_widget_problems($wboxes, array(), array(), 3)) === 3) && (fleet_widget_problems(array($wb('f', 'online')), array(), array(), 5) === array()),
     'widget problem list: offline, HA problems, degraded, policy, no rollback, updates, worst first and cut to the rows; a healthy fleet lists nothing');
-check((strpos(fleet_widget_html(array('ready' => false, 'standby' => null), fleet_widget_cfg(array())), 'not set up') !== false) &&
-    (strpos(fleet_widget_html(array('ready' => false, 'standby' => array('last_ok' => 0)), fleet_widget_cfg(array())), 'standby') !== false) &&
-    (strpos(fleet_widget_html(array('ready' => true, 'counts' => array(), 'total' => 0), fleet_widget_cfg(array('fleet_parts' => ''))), 'Every part is turned off') !== false),
-    'widget on a server that is not a controller, on a standby, and with every part off');
-$wpl = (string)file_get_contents($repo . '/sysutils/FreeSense-pkg-Fleet/pkg-plist') . (string)file_get_contents($repo . '/sysutils/FreeSense-pkg-Fleet/Makefile') .
-    (string)file_get_contents($repo . '/sysutils/FreeSense-pkg-Fleet/files/etc/inc/priv/fleet.priv.inc');
-check((substr_count($wpl, 'widgets/widgets/fleet.widget.php') === 3) && (strpos($wpl, 'www/widgets/include/fleet.inc') !== false), 'the widget is packaged, installed and in the read-only Fleet privilege');
+$wpl = (string)file_get_contents($repo . '/sysutils/FreeSense-pkg-Fleet/pkg-plist') . (string)file_get_contents($repo . '/sysutils/FreeSense-pkg-Fleet/Makefile');
+$wxml = (string)file_get_contents($repo . '/sysutils/FreeSense-pkg-Fleet/files/usr/local/pkg/fleet.xml');
+check((substr_count($wpl, 'fleet.widget.json') === 2) && (substr_count($wpl, 'fleet.js') >= 2) && (strpos($wpl, 'widgets/widgets/') === false) &&
+    (strpos($wxml, '<type>plugin_restapi</type>') !== false) && function_exists('fleet_plugin_restapi') && function_exists('fleet_restapi_widget'),
+    'the dashboard widget is packaged as a manifest and script, with its REST route through plugin_restapi');
 
 /* Load samples. */
 check((fleet_samples_last(array(1, 2.5, null, null)) === 2.5) && (fleet_samples_last(array(null)) === null) && (fleet_samples_last(null) === null), 'the last value of an RRD series skips the unfilled end');
