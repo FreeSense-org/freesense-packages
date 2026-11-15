@@ -1,0 +1,14 @@
+name: Commit messages
+
+# Every commit becomes a line of "What is new" on System > Update, so its first
+# line reads "Area: what changed". Rules: docs/commit-messages.md in freesense-os-base.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  commit-messages:
+    uses: FreeSense-org/.github/.github/workflows/commit-messages.yml@main
