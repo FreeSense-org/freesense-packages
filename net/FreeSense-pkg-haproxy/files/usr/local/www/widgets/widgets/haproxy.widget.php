@@ -28,8 +28,6 @@
 	Copyleft 2012 by jvorhees
 */
 
-$nocsrf = true;
-
 require_once("guiconfig.inc");
 require_once("freesense-utils.inc");
 require_once("functions.inc");
@@ -48,7 +46,13 @@ if(!empty($_REQUEST['getupdatestatus'])) {
 }
 
 #Backends/Servers Actions if asked
-if(!empty($_GET['act']) and !empty($_GET['be']) and !empty($_GET['srv'])) {
+if (!empty($_REQUEST['act']) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
+	// State changes need a POST, which the CSRF check covers
+	http_response_code(405);
+	echo "POST required";
+	return;
+}
+if(!empty($_POST['act']) and !empty($_POST['be']) and !empty($_POST['srv'])) {
 	if (!session_id()) {
 		session_start();
 	}
@@ -58,9 +62,13 @@ if(!empty($_GET['act']) and !empty($_GET['be']) and !empty($_GET['srv'])) {
 		echo "Privilege Denied";
 		return;
 	}
-	$backend = $_GET['be'];
-	$server =  $_GET['srv'];
-	$enable = $_GET['act'] == 'start' ? true : false;
+	$backend = $_POST['be'];
+	$server =  $_POST['srv'];
+	if (!preg_match('/^[A-Za-z0-9_.:-]{1,128}$/', $backend) || !preg_match('/^[A-Za-z0-9_.:-]{1,128}$/', $server)) {
+		echo "Invalid name";
+		return;
+	}
+	$enable = $_POST['act'] == 'start' ? true : false;
 	haproxy_set_server_enabled($backend, $server, $enable);
 	return;
 }
@@ -276,6 +284,7 @@ if ($getupdatestatus) {
 	function control_haproxy(act, be, srv) {
 			$.ajax({
 				url: "/widgets/widgets/haproxy.widget.php",
+				type: "POST",
 				data: { 'act': act, 'be': be, 'srv': srv },
 				success: function(){
 					getstatusgetupdate();
