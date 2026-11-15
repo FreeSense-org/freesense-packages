@@ -1469,7 +1469,7 @@ function haproxy_uses_ocsp() {
 }
 
 function haproxy_getocspurl($filename) {
-	return exec("openssl x509 -noout -ocsp_uri -in $filename", $output, $err);
+	return exec("openssl x509 -noout -ocsp_uri -in " . escapeshellarg($filename), $output, $err);
 }
 
 function haproxy_updateocsp_one($socketupdate, $filename, $name) {
@@ -1478,13 +1478,17 @@ function haproxy_updateocsp_one($socketupdate, $filename, $name) {
 		// If the .ocsp file exists we want to use ocsp
 		logger(LOG_NOTICE, localize_text("Retrieving OCSP for frontend %s.. ", $name), LOG_PREFIX_PKG_HAPROXY);
 		$ocsp_url = haproxy_getocspurl($filename);
+		if (!empty($ocsp_url) && !preg_match('~^https?://[A-Za-z0-9._~:/?#@!&=+%-]+$~', $ocsp_url)) {
+			logger(LOG_ERR, localize_text("OCSP ERROR Cert has an invalid %s", 'ocsp_uri'), LOG_PREFIX_PKG_HAPROXY);
+			$ocsp_url = '';
+		}
 		$ocsp_host = parse_url($ocsp_url, PHP_URL_HOST);
 		$ocsp_host_dm = ($openssl111) ? "=" : " ";
 		if (empty($ocsp_url)) {
 			// If cert does not have a ocsp_uri, it cannot be updated..
 			logger(LOG_ERR, localize_text("OCSP ERROR Cert does not have a %s", 'ocsp_uri'), LOG_PREFIX_PKG_HAPROXY);
 		} else {
-			$retval = exec("openssl ocsp -issuer {$filename}.issuer -verify_other {$filename}.issuer -cert {$filename} -url {$ocsp_url} -header Host{$ocsp_host_dm}{$ocsp_host} -respout {$filename}.ocsp 2>&1", $output, $err);
+			$retval = exec("openssl ocsp -issuer " . escapeshellarg("{$filename}.issuer") . " -verify_other " . escapeshellarg("{$filename}.issuer") . " -cert " . escapeshellarg($filename) . " -url " . escapeshellarg($ocsp_url) . " -header " . escapeshellarg("Host{$ocsp_host_dm}{$ocsp_host}") . " -respout " . escapeshellarg("{$filename}.ocsp") . " 2>&1", $output, $err);
 			if ($socketupdate) {
 				$ocspresponse = base64_encode(file_get_contents("{$filename}.ocsp"));
 				$r = haproxy_socket_command("set ssl ocsp-response $ocspresponse");
