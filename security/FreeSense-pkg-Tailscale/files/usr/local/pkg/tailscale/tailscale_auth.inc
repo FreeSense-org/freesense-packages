@@ -48,9 +48,15 @@ function tailscale_clean_restart()
  */
 function tailscale_auth_validation_hook(&$post, &$input_errors)
 {
-	$loginserver = $post['loginserver'];
-	if (!empty($loginserver) && !is_URL($loginserver))
-		$input_errors[] = sprintf(gettext('Login Server (%s) is not a valid URL.'), $loginserver);
+	$loginserver = $post['loginserver'] ?? '';
+	if (!is_string($loginserver) || ($loginserver !== '' &&
+	    (!is_URL($loginserver, true) || preg_match('/["\\\\$`\s]/', $loginserver)))) {
+		$input_errors[] = gettext('The login server must be an HTTP or HTTPS URL without shell metacharacters.');
+	}
+	$preauthkey = $post['preauthkey'] ?? '';
+	if (!is_string($preauthkey) || ($preauthkey !== '' && !preg_match('/^[A-Za-z0-9_-]+$/D', $preauthkey))) {
+		$input_errors[] = gettext('The pre-authentication key may contain only letters, digits, "-" and "_".');
+	}
 }
 
 /* 

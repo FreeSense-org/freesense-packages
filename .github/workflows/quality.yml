@@ -36,8 +36,10 @@ jobs:
           path: freesense-src
           ref: ${{ steps.source.outputs.ref }}
       - name: Enforce repository boundary and catalog policy
+        env:
+          SOURCE_REF: ${{ github.base_ref || github.ref_name }}
         run: |
-          case "${GITHUB_REF_NAME}" in RELENG_*) MODE=--release ;; *) MODE= ;; esac
+          case "${SOURCE_REF}" in RELENG_*) MODE=--release ;; *) MODE= ;; esac
           python3 tools/boundary_audit.py
           python3 tools/catalog_audit.py --source freesense-src $MODE
           python3 tools/webgateway_smoke.py
@@ -68,7 +70,8 @@ jobs:
           find . -type f \( -name 'pkg-install.in' -o -name 'pkg-deinstall.in' -o -path '*/files/usr/local/etc/rc.d/*' \) \
             ! -path './freesense-src/*' -print0 | xargs -0 -r -n1 sh -n
       - name: syslog-ng validation regression tests
-        run: php tools/tests/syslog-ng.php
-
+        run: |
+          php tools/tests/syslog-ng.php
+          php tools/tests/package-security.php
       - name: Threat Shield unit tests
         run: php tools/tests/threatshield/run.php
