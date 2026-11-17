@@ -173,9 +173,13 @@ def main() -> int:
         errors.append("interception exemptions must not bypass explicit-proxy authentication and policy")
     if "&& in_array('intercept_https', $config['listener_modes'], true)" not in integration:
         errors.append("QUIC fallback must be scoped to transparent HTTPS interception")
-    for dangerous in ("url_rewrite_program", "external_acl_type", "auth_param\\s+\\S+\\s+program"):
+    # Every *_program directive (sslcrtvalidator_program included) is protected,
+    # and squid's "\" line continuation is joined before the check.
+    for dangerous in ("[a-z_]*_program", "external_acl_type", "auth_param\\s+\\S+\\s+program"):
         if dangerous not in integration:
             errors.append(f"expert-directive protection missing: {dangerous}")
+    if "preg_replace('/\\\\\\\\\\R/', ''" not in integration:
+        errors.append("custom options must be checked after joining squid's line continuations")
 
     # av_max_mb must drive runtime config, not be decorative.
     if "'av_max_mb'" in integration and "webgateway_apply_av_scan_limit" not in integration:
