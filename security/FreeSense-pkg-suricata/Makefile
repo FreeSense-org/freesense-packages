@@ -2,7 +2,7 @@
 
 PORTNAME=	FreeSense-pkg-suricata
 PORTVERSION=	8.0.0
-PORTREVISION=	9
+PORTREVISION=	10
 CATEGORIES=	security
 MASTER_SITES=	# empty
 DISTFILES=	# empty
@@ -13,7 +13,7 @@ COMMENT=	FreeSense package suricata
 
 LICENSE=	APACHE20
 
-RUN_DEPENDS=	suricata>=8.0.0:security/suricata
+RUN_DEPENDS=	suricata>=8.0.8:security/suricata
 
 NO_BUILD=	yes
 NO_MTREE=	yes
