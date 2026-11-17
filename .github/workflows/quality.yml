@@ -17,20 +17,26 @@ jobs:
         id: source
         env:
           CANDIDATE_REF: ${{ github.head_ref || github.ref_name }}
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          if git ls-remote --exit-code --heads https://github.com/FreeSense-org/freesense.git "${CANDIDATE_REF}" >/dev/null; then
-            echo "ref=${CANDIDATE_REF}" >> "${GITHUB_OUTPUT}"
-          else
-            echo "ref=main" >> "${GITHUB_OUTPUT}"
-          fi
+          ref=main
+          for candidate in "${CANDIDATE_REF}" "${BASE_REF}"; do
+            if [ -n "${candidate}" ] && git ls-remote --exit-code --heads https://github.com/FreeSense-org/freesense.git "${candidate}" >/dev/null; then
+              ref=${candidate}
+              break
+            fi
+          done
+          echo "ref=${ref}" >> "${GITHUB_OUTPUT}"
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: FreeSense-org/freesense
           path: freesense-src
           ref: ${{ steps.source.outputs.ref }}
       - name: Enforce repository boundary and catalog policy
+        env:
+          SOURCE_REF: ${{ github.base_ref || github.ref_name }}
         run: |
-          case "${GITHUB_REF_NAME}" in RELENG_*) MODE=--release ;; *) MODE= ;; esac
+          case "${SOURCE_REF}" in RELENG_*) MODE=--release ;; *) MODE= ;; esac
           python3 tools/boundary_audit.py
           python3 tools/catalog_audit.py --source freesense-src $MODE
           python3 tools/webgateway_smoke.py
@@ -61,7 +67,9 @@ jobs:
           find . -type f \( -name 'pkg-install.in' -o -name 'pkg-deinstall.in' -o -path '*/files/usr/local/etc/rc.d/*' \) \
             ! -path './freesense-src/*' -print0 | xargs -0 -r -n1 sh -n
       - name: syslog-ng validation regression tests
-        run: php tools/tests/syslog-ng.php
+        run: |
+          php tools/tests/syslog-ng.php
+          php tools/tests/package-security.php
       - name: Guest tools packages are refused on the cloud image
         run: sh tools/tests/guest-tools/run.sh
       - name: Threat Shield unit tests

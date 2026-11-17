@@ -40,7 +40,17 @@ define('BIND_CHECKZONE', '/usr/local/bin/named-checkzone');
 define('CHROOT_LOCALBASE', '/var/etc/named');
 define('LOG_PREFIX_PKG_BIND', 'bind');
 
+/* pure: zone names are used in daemon configuration, file paths and DNSSEC commands. */
+function bind_zone_name_valid(mixed $name): bool {
+	return is_string($name) && strlen($name) <= 254 &&
+	    preg_match('/^(\.|[A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(\.[A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*\.?)$/D', $name) === 1;
+}
+
 function bind_zone_validate($post, &$input_errors) {
+	if (!bind_zone_name_valid($post['name'] ?? null)) {
+		$input_errors[] = gettext('The zone name must be a domain name with labels separated by dots.');
+		return;
+	}
 
 	if (array_key_exists("mail", $_POST)) {
 		$_POST['mail'] = preg_replace("/@/", ".", $post['mail']);
@@ -668,8 +678,8 @@ EOD;
 								$dnssec_bin = "/usr/local/bin/dnssec-keygen";
 								$z = reverse_zonename($zonename, $zonereverso, $zonereversv6o);
 								if (file_exists($dnssec_bin) && $key_restored == 0) {
-									exec("{$dnssec_bin} -a ECDSAP256SHA256 -K " . CHROOT_LOCALBASE . "/etc/namedb/keys {$z}", $kout);
-									exec("{$dnssec_bin} -a ECDSAP256SHA256 -K " . CHROOT_LOCALBASE . "/etc/namedb/keys -fk {$z}", $kout);
+									exec("{$dnssec_bin} -a ECDSAP256SHA256 -K " . CHROOT_LOCALBASE . "/etc/namedb/keys " . escapeshellarg($z), $kout);
+									exec("{$dnssec_bin} -a ECDSAP256SHA256 -K " . CHROOT_LOCALBASE . "/etc/namedb/keys -fk " . escapeshellarg($z), $kout);
 									foreach ($kout as $filename) {
 										chown(CHROOT_LOCALBASE . "/etc/namedb/keys/{$filename}.key", "bind");
 										chown(CHROOT_LOCALBASE . "/etc/namedb/keys/{$filename}.private", "bind");
@@ -682,7 +692,7 @@ EOD;
 							foreach (glob(CHROOT_LOCALBASE."/etc/namedb/keys/K{$zonename}*key", GLOB_NOSORT) as $filename) {
 								$zone_key = file_get_contents($filename);
 								if (preg_match("/IN DNSKEY 257 /", $zone_key) && file_exists($dsfromkey)) {
-									exec("$dsfromkey $filename", $dsset);
+									exec("$dsfromkey " . escapeshellarg($filename), $dsset);
 									config_set_path("installedpackages/bindzone/config/{$x}/dsset", base64_encode(array_pop($dsset)."\n".array_pop($dsset)));
 									$write_config++;
 								}
