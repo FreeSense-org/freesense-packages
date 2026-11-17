@@ -60,6 +60,8 @@ jobs:
             ! -path './freesense-src/*' -print0 | xargs -0 -r -n1 php -l
           find . -type f \( -name 'pkg-install.in' -o -name 'pkg-deinstall.in' -o -path '*/files/usr/local/etc/rc.d/*' \) \
             ! -path './freesense-src/*' -print0 | xargs -0 -r -n1 sh -n
+      - name: syslog-ng validation regression tests
+        run: php tools/tests/syslog-ng.php
       - name: Guest tools packages are refused on the cloud image
         run: sh tools/tests/guest-tools/run.sh
       - name: Threat Shield unit tests
