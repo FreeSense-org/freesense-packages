@@ -497,24 +497,27 @@ function tailscale_map_and_write_rcconf($var_map, $output_file)
 	 */
 
 	# first perform sanity check
-	$cmd = implode(' ', [SYSRC_BIN, '-c', '-f', $output_file, $var_string]);
+	$cmd = implode(' ', [SYSRC_BIN, '-c', '-f', escapeshellarg($output_file), $var_string]);
 	if (mwexec($cmd, true) === 0)
 		return false;
 
 	# looks good, changes needed so write them out
-	$cmd = implode(' ', [SYSRC_BIN, '-f', $output_file, $var_string]);
+	$cmd = implode(' ', [SYSRC_BIN, '-f', escapeshellarg($output_file), $var_string]);
 	$written = (mwexec($cmd, true) === 0);
 	@chmod($output_file, 0600);
 	return $written;
 }
 
 /*
- * Utility function that takes a $key and $value and returns
- * an sh-style variable assignment like $key="$value"
+ * Utility function that takes a $key and $value and returns a sysrc(8)
+ * argument $key=$value, quoted for the shell. The value ends up inside double
+ * quotes in an rc.conf.d file that rc(8) sources as root, so characters the
+ * shell expands there (or that end the quoting) are dropped.
  */
 function tailscale_format_sysrc_variable($key, $value)
 {
-	return sprintf('%s="%s"', $key, $value);
+	$value = str_replace(['"', '\\', '$', '`', "\r", "\n", "\0"], '', (string)$value);
+	return escapeshellarg("{$key}={$value}");
 }
 
 /*

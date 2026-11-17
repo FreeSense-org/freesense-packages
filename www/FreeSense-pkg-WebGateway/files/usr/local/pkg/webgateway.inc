@@ -230,6 +230,16 @@ function webgateway_valid_icap_url($url) {
 	    (!isset($parts['port']) || ((int)$parts['port'] >= 1 && (int)$parts['port'] <= 65535));
 }
 
+/* pure: custom options cannot override the managed runtime or start helper programs. */
+function webgateway_custom_options_allowed(string $options): bool {
+	$protected = '(?:include|http_port|https_port|cache_effective_(?:user|group)|pid_filename|chroot|'
+		. '[a-z_]*_program|external_acl_type|'
+		. 'logfile_daemon|auth_param\s+\S+\s+program|'
+		. 'http_access\s+(?:allow|deny)\s+all)';
+	$custom_options = preg_replace('/\\\\\R/', '', $options);
+	return preg_match('/(^|\R)\s*' . $protected . '\b/im', $custom_options) === 0;
+}
+
 function webgateway_validate_config($config, &$errors) {
 	$errors = [];
 	$available = webgateway_client_interfaces();
@@ -334,11 +344,7 @@ function webgateway_validate_config($config, &$errors) {
 			$errors[] = sprintf(gettext('Invalid additional client address or network: %s'), htmlspecialchars($network));
 		}
 	}
-	$protected = '(?:include|http_port|https_port|cache_effective_(?:user|group)|pid_filename|chroot|'
-		. 'url_rewrite_program|store_id_program|external_acl_type|sslcrtd_program|unlinkd_program|'
-		. 'logfile_daemon|pinger_program|dns_program|diskd_program|auth_param\s+\S+\s+program|'
-		. 'http_access\s+(?:allow|deny)\s+all)';
-	if (preg_match('/(^|\R)\s*' . $protected . '\b/im', webgateway_decode_list($config['custom_options'] ?? ''))) {
+	if (!webgateway_custom_options_allowed(webgateway_decode_list($config['custom_options'] ?? ''))) {
 		$errors[] = gettext('Custom options contain a protected directive. FreeSense manages listeners, includes, helper programs, runtime identity, PID handling, and terminal access policy.');
 	}
 	foreach (webgateway_lines($config['schedules'] ?? '') as $schedule) {
