@@ -65,11 +65,22 @@ function syslogng_validate_general($post, &$input_errors) {
 		$post['interfaces'] = implode(",", $post['interfaces']);
 	}
 
-	if (!is_port($post['default_port'])) {
+	$protocol = $post['default_protocol'] ?? null;
+	$port = $post['default_port'] ?? null;
+	if (!in_array($protocol, array('udp', 'tcp', 'tls'), true)) {
+		$input_errors[] = gettext('Choose a valid default protocol.');
+	}
+	if (!is_scalar($port) || !is_port($port)) {
 		$input_errors[] = 'You must enter a valid port number in the \'Default Port\' field';
 	}
+	if ($input_errors) {
+		return;
+	}
 
-	$sockstat = trim(shell_exec("/usr/bin/sockstat -l -P " . $post['default_protocol'] . " -p " . $post['default_port'] . " | /usr/bin/grep -v ^USER | /usr/bin/grep -v syslog-ng"));
+	/* TLS listeners use TCP sockets; the select value is not a sockstat protocol. */
+	$sockstat_protocol = ($protocol === 'tls') ? 'tcp' : $protocol;
+	$sockstat = trim(shell_exec('/usr/bin/sockstat -l -P ' . escapeshellarg($sockstat_protocol) .
+	    ' -p ' . escapeshellarg((string)$port) . ' | /usr/bin/grep -v ^USER | /usr/bin/grep -v syslog-ng'));
 	if (!empty($sockstat)) {
 		$input_errors[] = 'The port specified in the \'Default Port\' field is already in use';
 	}
