@@ -253,7 +253,7 @@ function fleet_schedule_run(array $s, string $who): string {
 		$result = 'Not run: no firewalls' . $note . '.';
 	} elseif ($s['kind'] === 'backup') {
 		mwexec_bg('/usr/local/bin/php /usr/local/sbin/freesense-fleet-backup nodes ' . escapeshellarg($who) . ' ' .
-		    escapeshellarg('Back up ' . fleet_targets_text($s['targets'], fleet_target_names())) . ' ' . escapeshellarg(implode(',', array_column($boxes, 'node_id'))));
+		    escapeshellarg('Back up ' . fleet_targets_text($s['targets'], fleet_target_names())) . ' ' . escapeshellarg(fleet_backup_nodes_write(array_column($boxes, 'node_id'))));
 		$result = sprintf('Backup of %d firewalls started%s.', count($boxes), $note);
 	} else {
 		$plan = fleet_boxes_plan($boxes, $s['kind']);
@@ -279,6 +279,7 @@ function fleet_schedules_tick(int $now): void {
 		if ($due === null) {
 			continue;
 		}
+		$was = (int)$s['last_run'];
 		fleet_db()->prepare('UPDATE schedules SET last_run = ? WHERE id = ?')->execute(array($due[1], $s['id']));
 		if ($due[0] === 'missed') {
 			$text = sprintf('Missed %s: the controller was not running then.', date('D H:i', $due[1]));
@@ -289,7 +290,13 @@ function fleet_schedules_tick(int $now): void {
 		try {
 			fleet_schedule_run($s, 'schedule: ' . $s['name']);
 		} catch (Throwable $e) {
-			fleet_db()->prepare('UPDATE schedules SET last_result = ?, ran_at = ? WHERE id = ?')->execute(array('Failed: ' . $e->getMessage(), time(), $s['id']));
+			/* Nothing was started: the next minute tries again until the grace time is over, and it is in the audit log and an alert. */
+			$text = 'Failed: ' . $e->getMessage();
+			fleet_db()->prepare('UPDATE schedules SET last_result = ?, ran_at = ?, last_run = ? WHERE id = ?')->execute(array($text, time(), $was, $s['id']));
+			fleet_audit('schedule', 'schedule_failed', "{$s['name']}: {$text}");
+			if (function_exists('fleet_alert')) {
+				fleet_alert('op_failed', '', "Schedule {$s['name']} could not run: " . $e->getMessage());
+			}
 		}
 	}
 }

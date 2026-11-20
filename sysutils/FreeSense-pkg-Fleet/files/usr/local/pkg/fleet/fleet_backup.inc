@@ -190,6 +190,29 @@ function fleet_backup_fetch(array $box): string {
 	return (string)$raw;
 }
 
+/*
+ * The firewalls of a "back up these" run go to the backup process in a file, not on its command line (a few
+ * thousand node ids do not fit the argument limit). Returns the file's path (0600, in the data folder).
+ */
+function fleet_backup_nodes_write(array $node_ids): string {
+	$path = FLEET_DATA . '/nodes-' . bin2hex(random_bytes(8)) . '.json';
+	if (file_put_contents($path, json_encode(array_values($node_ids))) === false) {
+		throw new RuntimeException('The list of firewalls could not be written.');
+	}
+	@chmod($path, 0600);
+	return $path;
+}
+
+/* The node ids in such a file, which is removed; only a file Fleet wrote in its data folder is read. */
+function fleet_backup_nodes_read(string $path): array {
+	if (($path === '') || !preg_match('/^nodes-[0-9a-f]{16}\.json$/D', basename($path)) || (dirname($path) !== FLEET_DATA) || !is_file($path)) {
+		return array();
+	}
+	$ids = json_decode((string)file_get_contents($path), true);
+	@unlink($path);
+	return is_array($ids) ? array_values(array_filter($ids, 'is_string')) : array();
+}
+
 /* pure: may an on-change backup of this box be tried now? After failures the wait grows (2, 4, 8, ... minutes, at most 6 hours). */
 function fleet_backup_retry_ok(array $box, int $now): bool {
 	$fails = (int)($box['backup_fails'] ?? 0);
