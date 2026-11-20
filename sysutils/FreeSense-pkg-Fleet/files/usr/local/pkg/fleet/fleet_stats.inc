@@ -127,6 +127,29 @@ function fleet_stats_box(?string $before, array $log, int $from, int $to): array
 	return array('up' => $up, 'known' => $known, 'outages' => $outages);
 }
 
+/* Each firewall's state changes over [$from, $to): node => array(before, log). */
+function fleet_stats_logs(array $boxes, int $from, int $to): array {
+	$out = array();
+	foreach ($boxes as $b) {
+		$out[$b['node_id']] = array(null, array());
+	}
+	/* Two queries per few hundred firewalls, not two per firewall. */
+	foreach (array_chunk(array_keys($out), 500) as $chunk) {
+		$in = implode(',', array_fill(0, count($chunk), '?'));
+		$q = fleet_db()->prepare("SELECT node_id, state FROM state_log WHERE id IN (SELECT MAX(id) FROM state_log WHERE time < ? AND node_id IN ({$in}) GROUP BY node_id)");
+		$q->execute(array_merge(array($from), $chunk));
+		foreach ($q->fetchAll() as $r) {
+			$out[$r['node_id']][0] = (string)$r['state'];
+		}
+		$q = fleet_db()->prepare("SELECT node_id, time, state FROM state_log WHERE time >= ? AND time < ? AND node_id IN ({$in}) ORDER BY time, id");
+		$q->execute(array_merge(array($from, $to), $chunk));
+		foreach ($q->fetchAll() as $r) {
+			$out[$r['node_id']][1][] = array((int)$r['time'], (string)$r['state']);
+		}
+	}
+	return $out;
+}
+
 /* pure: availability as a percentage with one decimal, or null when nothing is known. */
 function fleet_stats_percent(int $up, int $known): ?float {
 	return ($known > 0) ? floor(1000 * $up / $known) / 10 : null;
@@ -256,20 +279,16 @@ function fleet_stats(string $range, ?array $nodes = null, int $points = 48): arr
 	if ($nodes !== null) {
 		$boxes = array_values(array_filter($boxes, function ($b) use ($nodes) { return in_array($b['node_id'], $nodes, true); }));
 	}
-	$before = fleet_db()->prepare('SELECT state FROM state_log WHERE node_id = ? AND time < ? ORDER BY time DESC, id DESC LIMIT 1');
-	$inside = fleet_db()->prepare('SELECT time, state FROM state_log WHERE node_id = ? AND time >= ? AND time < ? ORDER BY time, id');
+	$logs = fleet_stats_logs($boxes, $from, $to);
 	$rows = array();
 	$all = array();
 	$up = 0;
 	$known = 0;
 	$outages = 0;
 	foreach ($boxes as $b) {
-		$before->execute(array($b['node_id'], $from));
-		$st = $before->fetchColumn();
-		$inside->execute(array($b['node_id'], $from, $to));
-		$log = array_map(function ($r) { return array((int)$r['time'], (string)$r['state']); }, $inside->fetchAll());
-		$r = fleet_stats_box(($st === false) ? null : (string)$st, $log, $from, $to);
-		$all[$b['node_id']] = array(($st === false) ? null : (string)$st, $log);
+		list($st, $log) = $logs[$b['node_id']];
+		$r = fleet_stats_box($st, $log, $from, $to);
+		$all[$b['node_id']] = array($st, $log);
 		$longest = 0;
 		foreach ($r['outages'] as list($a, $z)) {
 			$longest = max($longest, $z - $a);

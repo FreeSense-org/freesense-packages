@@ -209,8 +209,9 @@ check(((int)$sdb->query('PRAGMA user_version')->fetchColumn() >= 31) && (strpos(
     'schema 31: an invitation keeps how the firewall connects and the interface of a direct path');
 $sdb->exec("INSERT INTO samples (node_id, time, cpu) VALUES ('sx', 100, 5), ('sy', 100, 9)");
 $sdb->exec("INSERT INTO samples_hourly (node_id, time, n, cpu, cpu_max) VALUES ('sx', 50, 12, 4, 8)");
-check((count(fleet_samples_rows(null, 0, 200)) === 3) && (count(fleet_samples_rows(array('sx'), 0, 200)) === 2) && (fleet_samples_rows(array(), 0, 200) === array()) &&
-    (fleet_samples_rows(array('sx'), 0, 200)[0]['cpu_max'] == 8), 'sample rows for some or all firewalls, hourly before five-minute');
+$sbk = fleet_samples_buckets(null, 0, 100, 2);
+check(($sbk['sx']['cpu'] === array(4.0, 5.0)) && ($sbk['sx']['cpu_max'] === array(8.0, 5.0)) && ($sbk['sy']['cpu'] === array(null, 9.0)) && (array_keys(fleet_samples_buckets(array('sx'), 0, 100, 2)) === array('sx')) &&
+    (fleet_samples_buckets(array(), 0, 100, 2) === array()), 'sample buckets for some or all firewalls, averaged by the database: hourly rows before five-minute rows');
 $sdb->exec("DELETE FROM samples WHERE node_id IN ('sx', 'sy'); DELETE FROM samples_hourly WHERE node_id = 'sx'");
 
 /* Dashboard trends. */
@@ -225,11 +226,12 @@ check(($tdays === array('2026-03-08', '2026-03-09', '2026-03-10')) &&
     (fleet_trends_per_day(array(array(mktime(1, 0, 0, 3, 9, 2026), 'warning'), array(mktime(2, 0, 0, 3, 9, 2026), 'warning'), array(mktime(3, 0, 0, 3, 10, 2026), 'critical'),
     array(mktime(3, 0, 0, 3, 1, 2026), 'critical'), array(mktime(3, 0, 0, 3, 10, 2026), 'bogus')), $tdays, array('critical', 'warning')) ===
     array('critical' => array(0, 0, 1), 'warning' => array(0, 2, 0))), 'counts per day and kind; other days and kinds are left out');
-$tb = fleet_trends_buckets(array(
-    array('node_id' => 'a', 'time' => 0, 'cpu' => 10, 'cpu_max' => 10, 'mem' => 40, 'states' => 50, 'states_max' => 100, 'temp' => null, 'rx_bps' => 100, 'tx_bps' => 10),
-    array('node_id' => 'a', 'time' => 50, 'cpu' => 30, 'cpu_max' => 60, 'mem' => 60, 'states' => 70, 'states_max' => 100, 'temp' => null, 'rx_bps' => 300, 'tx_bps' => 30),
-    array('node_id' => 'b', 'time' => 120, 'cpu' => 90, 'cpu_max' => 90, 'mem' => 10, 'states' => 1, 'states_max' => 10, 'temp' => 70, 'rx_bps' => 1000, 'tx_bps' => null),
-    array('node_id' => 'b', 'time' => 999, 'cpu' => 1, 'cpu_max' => 1, 'mem' => 1, 'states' => 1, 'states_max' => 1, 'temp' => 1, 'rx_bps' => 1, 'tx_bps' => 1)), 0, 100, 2);
+$sdb->exec("DELETE FROM samples; DELETE FROM samples_hourly");
+$sdb->exec("INSERT INTO samples_hourly (node_id, time, n, cpu, cpu_max, mem, states, states_max, temp, rx_bps, tx_bps) VALUES
+    ('a', 0, 1, 10, 10, 40, 50, 100, NULL, 100, 10), ('a', 50, 1, 30, 60, 60, 70, 100, NULL, 300, 30)");
+$sdb->exec("INSERT INTO samples (node_id, time, cpu, mem, states, states_max, temp, rx_bps, tx_bps) VALUES ('b', 120, 90, 10, 1, 10, 70, 1000, NULL), ('b', 999, 1, 1, 1, 1, 1, 1, 1), ('c', 100, 5, 5, 5, 5, 5, 5, 5)");
+$tb = fleet_samples_buckets(array('a', 'b'), 0, 100, 2);
+$sdb->exec("DELETE FROM samples; DELETE FROM samples_hourly");
 check(($tb['a']['cpu'] === array(20.0, null)) && ($tb['a']['cpu_max'] === array(60.0, null)) && ($tb['b']['temp'] === array(null, 70.0)) && !isset($tb['a']['temp']),
     'sample buckets: the average per firewall and bucket, the CPU peak, samples outside the range left out');
 $tl = fleet_trends_load($tb, 2);

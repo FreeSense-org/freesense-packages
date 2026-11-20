@@ -176,15 +176,30 @@ function fleet_samples_rollup(int $now): void {
 }
 
 /*
- * The samples between $from and $to for some firewalls (null = all):
- * five-minute rows where they exist, hourly rows before that. Each row
- * {node_id, time, cpu, cpu_max, mem, states, states_max, temp, rx_bps, tx_bps}.
+ * The samples of $n buckets of $size seconds from $from (to $from + $n * $size) for some firewalls (null = all),
+ * averaged per firewall and bucket by the database: five-minute rows where they exist, hourly rows before that,
+ * so a 30-day view of thousands of firewalls reads a few rows per firewall and bucket, not every sample.
+ * Returns node => column => [n values, null where there were none]; columns: cpu, cpu_max (the peak),
+ * mem, states, states_max, temp, rx_bps, tx_bps.
  */
-function fleet_samples_rows(?array $nodes, int $from, int $to): array {
+function fleet_samples_buckets(?array $nodes, int $from, int $size, int $n): array {
+	$to = $from + $n * $size;
 	$in = ($nodes === null) ? '' : (empty($nodes) ? ' AND 0' : ' AND node_id IN (' . implode(',', array_fill(0, count($nodes), '?')) . ')');
 	$args = array_merge(array($from, $to), $nodes ?? array());
-	$q = fleet_db()->prepare('SELECT node_id, time, cpu, cpu AS cpu_max, mem, states, states_max, temp, rx_bps, tx_bps FROM samples WHERE time >= ? AND time <= ?' . $in .
-	    ' UNION ALL SELECT node_id, time, cpu, cpu_max, mem, states, states_max, temp, rx_bps, tx_bps FROM samples_hourly WHERE time >= ? AND time <= ?' . $in . ' ORDER BY time');
-	$q->execute(array_merge($args, $args));
-	return $q->fetchAll(PDO::FETCH_ASSOC);
+	$q = fleet_db()->prepare('SELECT node_id, (time - ?) / ? AS b, AVG(cpu) AS cpu, MAX(cpu_max) AS cpu_max, AVG(mem) AS mem, AVG(states) AS states, AVG(states_max) AS states_max,
+	    AVG(temp) AS temp, AVG(rx_bps) AS rx_bps, AVG(tx_bps) AS tx_bps FROM (
+	    SELECT node_id, time, cpu, cpu AS cpu_max, mem, states, states_max, temp, rx_bps, tx_bps FROM samples WHERE time >= ? AND time < ?' . $in . '
+	    UNION ALL SELECT node_id, time, cpu, cpu_max, mem, states, states_max, temp, rx_bps, tx_bps FROM samples_hourly WHERE time >= ? AND time < ?' . $in . ')
+	    GROUP BY node_id, b');
+	$q->execute(array_merge(array($from, $size), $args, $args));
+	$out = array();
+	foreach ($q->fetchAll() as $r) {
+		foreach (array('cpu', 'cpu_max', 'mem', 'states', 'states_max', 'temp', 'rx_bps', 'tx_bps') as $c) {
+			if ($r[$c] !== null) {
+				$out[$r['node_id']][$c] = $out[$r['node_id']][$c] ?? array_fill(0, $n, null);
+				$out[$r['node_id']][$c][(int)$r['b']] = (float)$r[$c];
+			}
+		}
+	}
+	return $out;
 }

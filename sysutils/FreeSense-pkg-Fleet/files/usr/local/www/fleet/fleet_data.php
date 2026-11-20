@@ -30,11 +30,19 @@ if (!fleet_ctl_settings()['enable'] || !is_file(FLEET_DATA . '/fleet.db')) {
 	echo json_encode(fleet_dashboard_data(array(), 0, time()), JSON_INVALID_UTF8_SUBSTITUTE);
 	exit;
 }
-$rows = fleet_db()->query('SELECT node_id, name, label, overlay, role, state, last_seen, error, status, update_info, (SELECT MAX(time) FROM backups b WHERE b.node_id = boxes.node_id) AS last_backup FROM boxes')->fetchAll();
-$pending = (int)fleet_db()->query("SELECT COUNT(*) FROM enrollments WHERE state = 'pending'")->fetchColumn();
-$data = fleet_dashboard_data($rows, $pending, time(), fleet_groups_by_box(), fleet_ops_for_tiles(time()), fleet_ops_groups_running());
-/* The clock is not part of the ETag: only a change in the fleet is. */
-$etag = '"' . substr(hash('sha256', json_encode(array_diff_key($data, array('now' => 1)), JSON_INVALID_UTF8_SUBSTITUTE)), 0, 16) . '"';
+/*
+ * The whole fleet is read, decoded and hashed once every 2 seconds however many tabs and screens ask (the
+ * ETag only saves the bandwidth, so without this each of them cost the same work).
+ */
+$made = fleet_cached('dashboard', 2, function () {
+	$rows = fleet_db()->query('SELECT node_id, name, label, overlay, role, state, last_seen, error, status, update_info, (SELECT MAX(time) FROM backups b WHERE b.node_id = boxes.node_id) AS last_backup FROM boxes')->fetchAll();
+	$pending = (int)fleet_db()->query("SELECT COUNT(*) FROM enrollments WHERE state = 'pending'")->fetchColumn();
+	$data = fleet_dashboard_data($rows, $pending, time(), fleet_groups_by_box(), fleet_ops_for_tiles(time()), fleet_ops_groups_running());
+	/* The clock is not part of the ETag: only a change in the fleet is. */
+	return array('etag' => '"' . substr(hash('sha256', json_encode(array_diff_key($data, array('now' => 1)), JSON_INVALID_UTF8_SUBSTITUTE)), 0, 16) . '"', 'data' => $data);
+});
+$data = $made['data'];
+$etag = $made['etag'];
 header("ETag: {$etag}");
 /* nginx gzip turns the tag into a weak one (W/".."). */
 if (preg_replace('#^W/#', '', trim((string)($_SERVER['HTTP_IF_NONE_MATCH'] ?? ''))) === $etag) {
