@@ -273,7 +273,9 @@ function fleet_ts_authkey_mint(string $label, int $ttl, string $who, string $tok
 	list($code, $json) = fleet_ts_api('POST', '/tailnet/-/keys', fleet_ts_authkey_body($label, $ttl, fleet_ts_tags()));
 	$key = (string)($json['key'] ?? '');
 	if (($code !== 200) || (strncmp($key, 'tskey-auth-', 11) !== 0)) {
-		throw new RuntimeException("Tailscale did not create an auth key (HTTP {$code}): the API token may need the auth keys permission.");
+		$why = trim(substr(preg_replace('/[\x00-\x1f\x7f]/', ' ', (string)($json['message'] ?? '')), 0, 160));
+		$hint = ($code === 400) ? ' If tags are set, the tailnet policy must define each tag and list the token\'s owner in tagOwners.' : ' The API token may need the auth keys permission.';
+		throw new RuntimeException("Tailscale did not create an auth key (HTTP {$code}" . (($why !== '') ? ": {$why}" : '') . ").{$hint}");
 	}
 	fleet_audit($who, 'connections', "One-time Tailscale key created for \"{$label}\" (id " . (string)($json['id'] ?? '?') . ')');
 	if ($token_id !== '') {
