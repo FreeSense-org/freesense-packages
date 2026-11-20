@@ -113,9 +113,19 @@ function fleet_data_on_zfs(): bool {
 function fleet_secret_file(string $name, callable $make): string {
 	$path = FLEET_DATA . "/{$name}";
 	if (!is_file($path)) {
+		/* Private from the first byte, and the first process to finish wins: link() fails when the file is already there, so two first runs never leave one with a key the other replaced. */
 		$tmp = "{$path}.tmp" . getmypid();
-		if ((@file_put_contents($tmp, $make()) === false) || !@chmod($tmp, 0600) || !@rename($tmp, $path)) {
+		$h = @fopen($tmp, 'xb');
+		if (($h === false) || !@chmod($tmp, 0600)) {
 			@unlink($tmp);
+			throw new RuntimeException("{$path} could not be written.");
+		}
+		$content = $make();
+		$ok = (fwrite($h, $content) === strlen($content)) && fflush($h);
+		fclose($h);
+		$ok = $ok && (@link($tmp, $path) || is_file($path));
+		@unlink($tmp);
+		if (!$ok) {
 			throw new RuntimeException("{$path} could not be written.");
 		}
 	}

@@ -150,6 +150,16 @@ function fleet_factory_plan(array $rows, array $settings, ?array $naming, array 
  * unattended, else sealed to the PIN or to the join key's data, so it is
  * opened by what the admin types anyway.
  */
+/* A PIN for a PIN seed: 20 characters from a 32-letter alphabet (no 0, 1, I, O), 100 bits. Typed in any case, with or without dashes. */
+function fleet_factory_new_pin(): string {
+	$alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+	$pin = '';
+	for ($i = 0; $i < 20; $i++) {
+		$pin .= $alphabet[random_int(0, 31)];
+	}
+	return $pin;
+}
+
 function fleet_factory_seed(string $link, string $mode, string $key, ?string $pin, ?string $tskey = null): array {
 	$seed = array('version' => 1, 'link' => $link, 'mode' => $mode);
 	if ($mode === 'unattended') {
@@ -324,7 +334,7 @@ function fleet_factory_generate(array $settings, string $csv, string $passphrase
 			    ->execute(array($settings['group'] ?: null, $host, $r['domain'], $r['serial'], $r['instance_id'], $settings['auto_approve'] ? 1 : 0, $bid, $tid));
 			fleet_db()->prepare('INSERT INTO batch_rows (batch_id, n, site, label, hostname, domain, serial, instance_id, token_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
 			    ->execute(array($bid, $i + 1, $r['site'], $r['label'], $host, $r['domain'], $r['serial'], $r['instance_id'], $tid));
-			$pin = ($settings['mode'] === 'pin') ? sprintf('%06d', random_int(0, 999999)) : null;
+			$pin = ($settings['mode'] === 'pin') ? fleet_factory_new_pin() : null;
 			$folder = ($host !== '') ? $host : sprintf('firewall-%03d', $i + 1);
 			@mkdir("{$dir}/bundle/{$folder}", 0700);
 			$seed = fleet_factory_seed($link, $settings['mode'], $key, $pin, $tskey);
@@ -343,7 +353,7 @@ function fleet_factory_generate(array $settings, string $csv, string $passphrase
 			$fqdn = $host . (($host !== '' && $r['domain'] !== '') ? '.' . $r['domain'] : '');
 			$cards[] = array('label' => $r['label'], 'site' => $r['site'], 'name' => $fqdn, 'serial' => $r['serial'], 'link' => $link, 'folder' => $folder);
 			if ($settings['mode'] !== 'unattended') {
-				$keys[] = array('label' => $r['label'], 'name' => $fqdn, 'secret' => ($settings['mode'] === 'pin') ? $pin : $key,
+				$keys[] = array('label' => $r['label'], 'name' => $fqdn, 'secret' => ($settings['mode'] === 'pin') ? implode('-', str_split($pin, 5)) : $key,
 				    'paste' => ($settings['mode'] === 'attended') ? fleet_invite_paste($link, $key) : '');
 				if ($settings['mode'] === 'attended') {
 					file_put_contents("{$dir}/bundle/{$folder}/paste-on-the-firewall.txt", fleet_invite_paste($link, $key) . "\n");
