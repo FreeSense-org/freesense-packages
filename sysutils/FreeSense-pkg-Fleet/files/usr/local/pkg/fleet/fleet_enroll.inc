@@ -193,6 +193,21 @@ function fleet_enroll_binding_ok(string $serial, string $instance, array $invent
 	    (($instance !== '') && hash_equals($instance, (string)($inventory['instance_id'] ?? '')));
 }
 
+/* pure: what a firewall reports about itself, bounded: scalar values only, at most 24 short entries, no control characters. */
+function fleet_enroll_inventory_clean($inventory): array {
+	$out = array();
+	foreach ((is_array($inventory) ? $inventory : array()) as $k => $v) {
+		if (count($out) >= 24) {
+			break;
+		}
+		if (!is_string($k) || !preg_match('/^[a-z0-9_]{1,32}$/D', $k) || !is_scalar($v)) {
+			continue;
+		}
+		$out[$k] = substr(preg_replace('/[\x00-\x1f\x7f]/', '', (string)$v), 0, 200);
+	}
+	return $out;
+}
+
 /* pure: a JSON error answer in the form the join client maps to FLEET codes. */
 function fleet_enroll_error(int $status, string $code, string $message): array {
 	return array($status, array('error' => array('code' => $code, 'message' => $message)));
@@ -283,7 +298,7 @@ function fleet_enroll_enroll(array $body, string $bearer, string $ip, int $now, 
 		return $burned ? fleet_enroll_error(410, 'invitation_burned', 'Too many wrong keys: this invitation is no longer valid.') :
 		    fleet_enroll_error(403, 'bad_proof', 'The join key is wrong.');
 	}
-	$inventory = is_array($body['inventory'] ?? null) ? $body['inventory'] : array();
+	$inventory = fleet_enroll_inventory_clean($body['inventory'] ?? null);
 	$bound = ((string)($inv['bind_serial'] ?? '') !== '') || ((string)($inv['bind_instance'] ?? '') !== '');
 	if (!fleet_enroll_binding_ok((string)($inv['bind_serial'] ?? ''), (string)($inv['bind_instance'] ?? ''), $inventory)) {
 		fleet_audit('enrollment', 'binding_mismatch', "{$inv['token_id']} from {$ip}: serial \"" . (string)($inventory['serial'] ?? '') . '"');
