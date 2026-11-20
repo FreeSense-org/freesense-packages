@@ -303,6 +303,10 @@ function fleet_conn_call(array $box, string $method, string $path, ?array $body,
 		} catch (FleetJoinError $e) {
 			fleet_conn_note($box, $p, false, $e->getMessage(), $now, $idx);
 			$box = fleet_box_get($box['node_id']) ?? $box;
+			/* A change that may have reached the firewall is not sent a second time over another route. */
+			if (($method !== 'GET') && (strpos($e->getMessage(), 'is unreachable') === false) && ($e->fleet_code !== 'E101')) {
+				throw $e;
+			}
 		}
 	}
 	return fleet_http_pinned(fleet_box_target($box), $method, $path, $body, $key);
