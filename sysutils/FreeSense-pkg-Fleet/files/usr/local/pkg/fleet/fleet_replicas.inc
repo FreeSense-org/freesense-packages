@@ -471,31 +471,96 @@ function fleet_recover_apply(array $opened, bool $replace, string $who): array {
 	if ((int)$bundle['schema'] > FLEET_DB_SCHEMA) {
 		throw new RuntimeException('FLEET-E805: The copy comes from a newer Fleet. Update this controller first.');
 	}
-	$write = function (string $name, string $bytes) {
-		$path = FLEET_DATA . '/' . $name;
-		if (!is_dir(dirname($path))) {
-			@mkdir(dirname($path), 0700, true);
+	/* Only backups that the copy's own database vouches for are kept: the label of a vault item is the holder's word, the database is sealed. */
+	$dbfile = tempnam(sys_get_temp_dir(), 'fleet-rec');
+	file_put_contents($dbfile, (string)base64_decode($bundle['db']));
+	$known = array();
+	try {
+		$rdb = new PDO('sqlite:' . $dbfile);
+		foreach ($rdb->query('SELECT file, sha256 FROM backups') as $r) {
+			$known[(string)$r['file']] = (string)$r['sha256'];
 		}
-		if ((@file_put_contents("{$path}.tmp", $bytes) === false) || !@chmod("{$path}.tmp", 0600) || !@rename("{$path}.tmp", $path)) {
+		$rdb = null;
+	} finally {
+		@unlink($dbfile);
+	}
+	list($backups, $rejected) = fleet_recover_vouched($backups, $known, $master);
+	/* Everything is staged first and swapped in at the end, so a failure leaves the controller as it was. */
+	$stage = FLEET_DATA . '/.recover-' . getmypid();
+	exec('rm -rf ' . escapeshellarg($stage));
+	$stage_write = function (string $name, string $bytes) use ($stage) {
+		$path = $stage . '/new/' . $name;
+		if (!is_dir(dirname($path)) && !@mkdir(dirname($path), 0700, true)) {
+			throw new RuntimeException("{$path} could not be written.");
+		}
+		if ((@file_put_contents($path, $bytes) === false) || !@chmod($path, 0600)) {
 			throw new RuntimeException("{$path} could not be written.");
 		}
 	};
-	$write('master.key', $master);
-	if ((string)$bundle['keys']['wg.key'] !== '') {
-		$write('wg.key', (string)base64_decode($bundle['keys']['wg.key']));
+	$moved = array();
+	try {
+		@mkdir($stage . '/old', 0700, true);
+		$stage_write('master.key', $master);
+		if ((string)$bundle['keys']['wg.key'] !== '') {
+			$stage_write('wg.key', (string)base64_decode($bundle['keys']['wg.key']));
+		}
+		$stage_write('signing.pem', (string)$bundle['keys']['signing.pem']);
+		$stage_write('tls.pem', (string)$bundle['keys']['tls.pem']);
+		$stage_write('fleet.db', (string)base64_decode($bundle['db']));
+		foreach ($backups as $label => $bytes) {
+			$stage_write('backups/' . $label, $bytes);
+		}
+		/* Swap: each current item is moved aside, then the new one moved in. */
+		$items = array('master.key', 'wg.key', 'signing.pem', 'tls.pem', 'fleet.db', 'fleet.db-wal', 'fleet.db-shm', 'backups');
+		foreach ($items as $item) {
+			$cur = FLEET_DATA . '/' . $item;
+			$new = $stage . '/new/' . $item;
+			if (file_exists($cur) || is_link($cur)) {
+				if (!@rename($cur, $stage . '/old/' . $item)) {
+					throw new RuntimeException("{$cur} could not be moved aside.");
+				}
+				$moved[] = $item;
+			}
+			if (file_exists($new) && !@rename($new, $cur)) {
+				throw new RuntimeException("{$cur} could not be replaced.");
+			}
+		}
+	} catch (Throwable $e) {
+		/* Put back what was moved aside. */
+		foreach (array_reverse($moved) as $item) {
+			$cur = FLEET_DATA . '/' . $item;
+			if (file_exists($cur)) {
+				exec('rm -rf ' . escapeshellarg($cur));
+			}
+			@rename($stage . '/old/' . $item, $cur);
+		}
+		exec('rm -rf ' . escapeshellarg($stage));
+		throw new RuntimeException('The recovery was not applied and the controller is as it was: ' . $e->getMessage());
 	}
-	$write('signing.pem', (string)$bundle['keys']['signing.pem']);
-	$write('tls.pem', (string)$bundle['keys']['tls.pem']);
-	foreach (glob(FLEET_DATA . '/fleet.db*') ?: array() as $f) {
-		@unlink($f);
-	}
-	$write('fleet.db', (string)base64_decode($bundle['db']));
-	foreach ($backups as $label => $bytes) {
-		$write('backups/' . $label, $bytes);
-	}
+	exec('rm -rf ' . escapeshellarg($stage));
 	fleet_db(true);
-	fleet_audit($who, 'recover', sprintf('Fleet recovered from copies of %s: %d backup files', date('Y-m-d H:i', (int)$bundle['created']), count($backups)));
+	fleet_audit($who, 'recover', sprintf('Fleet recovered from copies of %s: %d backup files%s', date('Y-m-d H:i', (int)$bundle['created']), count($backups),
+	    ($rejected > 0) ? ", {$rejected} not vouched for by the copy's database and left out" : ''));
 	return (array)$bundle['settings'];
+}
+
+/*
+ * pure-ish: keep the backup files whose label the sealed database knows and whose content decrypts (with the
+ * master key) to the hash recorded there. $known: label => sha256 of the plain configuration.
+ * Returns array(kept label => bytes, number left out).
+ */
+function fleet_recover_vouched(array $backups, array $known, string $master): array {
+	$kept = array();
+	$out = 0;
+	foreach ($backups as $label => $bytes) {
+		$plain = isset($known[$label]) ? fleet_unseal($bytes, $master) : null;
+		if (($plain !== null) && hash_equals($known[$label], hash('sha256', $plain))) {
+			$kept[$label] = $bytes;
+		} else {
+			$out++;
+		}
+	}
+	return array($kept, $out);
 }
 
 /* ------------------------------------------------------------------ */
