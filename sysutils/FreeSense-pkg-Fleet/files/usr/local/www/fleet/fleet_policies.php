@@ -379,11 +379,12 @@ $state_badge = function (string $state) {
 	}
 	$pol = $pol ?? array('id' => 0, 'name' => '', 'description' => '', 'targets' => array('all'), 'enabled' => true, 'rules' => array());
 	$custom_ids = array_values(array_filter(array_keys($pol['rules']), function ($rid) { return strncmp($rid, 'CUSTOM:', 7) === 0; }));
-	$next = 1;
-	foreach ($custom_ids as $cid) {
-		$next = max($next, (int)substr($cid, 7) + 1);
+	try {
+		/* The number is free across every policy, not only in this one. */
+		$custom_ids[] = 'CUSTOM:' . fleet_policy_custom_next(fleet_policies_all());
+	} catch (InvalidArgumentException $e) {
+		/* All 999 numbers taken: no new empty slot is offered. */
 	}
-	$custom_ids[] = 'CUSTOM:' . $next;
 	$areas = array();
 	foreach ($cat as $rid => $r) {
 		if (empty($r['custom'])) {
