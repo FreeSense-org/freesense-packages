@@ -409,6 +409,19 @@ function fleet_rollout_tick(array $ro, int $now): void {
 		$t = $rings[$next['ring']]['tasks'][array_key_first(fleet_ha_sort(array_combine(array_keys($queued), array_column($queued, 'node_id'))))];
 		$ha = fleet_ha_wait((string)$t['node_id']);
 		if ($ha !== null) {
+			/* The same limit as a group update: a pair that stays unhealthy fails the task (and pauses the rollout) instead of waiting for ever. */
+			$q = fleet_db()->prepare('SELECT data FROM ops WHERE id = ?');
+			$q->execute(array((int)$t['id']));
+			$wait = json_decode((string)$q->fetchColumn(), true) ?: array();
+			if (empty($wait['ha_since'])) {
+				$wait['ha_since'] = $now;
+				fleet_db()->prepare('UPDATE ops SET data = ? WHERE id = ?')->execute(array(json_encode($wait), (int)$t['id']));
+			}
+			if ($now - (int)$wait['ha_since'] >= FLEET_HA_WAIT) {
+				fleet_op_fail_open((int)$t['id'], $ha . ' for ' . (FLEET_HA_WAIT / 60) . ' minutes; not started.');
+				fleet_op_group_update($op);
+				break;
+			}
 			fleet_op_set($op, 'running', $ha);
 			break;
 		}
@@ -418,8 +431,10 @@ function fleet_rollout_tick(array $ro, int $now): void {
 				throw new RuntimeException('Not in the fleet any more.');
 			}
 			fleet_box_update($box, (string)$ro['who'], (int)$t['id']);
+		} catch (FleetOpCancelled $e) {
+			/* Cancelled while it waited: it stays skipped. */
 		} catch (RuntimeException $e) {
-			fleet_op_set((int)$t['id'], 'failed', 'Update refused: ' . $e->getMessage());
+			fleet_op_fail_open((int)$t['id'], 'Update refused: ' . $e->getMessage());
 		}
 		fleet_op_group_update($op);
 		break;

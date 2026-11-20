@@ -69,6 +69,12 @@ do {
 		fleet_backup_many($due, 'change', 'system');
 	}
 	if ($first) {
+		/* Operations nothing is running any more fail instead of staying "running" for ever. */
+		try {
+			fleet_ops_reap(time());
+		} catch (Throwable $e) {
+			error_log('Fleet: ops reaper failed: ' . $e->getMessage());
+		}
 		/* Rollouts move on once a minute: the next firewall when its ring's window is open. */
 		fleet_rollouts_tick(time());
 		fleet_conn_auto_tick();

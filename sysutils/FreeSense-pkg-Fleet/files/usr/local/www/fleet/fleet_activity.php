@@ -39,6 +39,15 @@ if ($ready && isset($_GET['op'])) {
 	$q->execute(array((int)$_GET['op']));
 	$op = $q->fetch() ?: null;
 }
+$cancel_msg = null;
+$cancel_err = null;
+if ($ready && $manage && isset($_POST['cancel_op'])) {
+	try {
+		$cancel_msg = fleet_op_cancel((int)$_POST['cancel_op'], (string)($_SESSION['Username'] ?? 'admin'));
+	} catch (RuntimeException $e) {
+		$cancel_err = $e->getMessage();
+	}
+}
 $asset = function ($f) {
 	return '/fleet/assets/' . $f . '?v=' . (int)@filemtime('/usr/local/www/fleet/assets/' . $f);
 };
@@ -112,6 +121,8 @@ if ($manage) {
 	display_top_tabs($tab_array);
 }
 ?>
+<?php if ($cancel_msg !== null): ?><div class="alert alert-success" role="status"><?=htmlspecialchars($cancel_msg)?></div><?php endif; ?>
+<?php if ($cancel_err !== null): ?><div class="alert alert-danger" role="alert"><?=htmlspecialchars($cancel_err)?></div><?php endif; ?>
 <?php if ($ready && $op === null): ?>
 <?=fleet_activity_nav('ops')?>
 <?=fleet_list_filterbar($base, $f, array('state' => array(gettext('Any state'), FLEET_OPS_STATES), 'kind' => array(gettext('Any action'), FLEET_OPS_KINDS),
@@ -158,6 +169,11 @@ if ($manage) {
 				<dt><?=gettext('By')?></dt><dd><?=htmlspecialchars((string)$op['who'])?></dd>
 				<dt><?=$running ? gettext('Running for') : gettext('Took')?></dt><dd><?=$took($op)?></dd>
 			</dl>
+<?php if ($running && $manage): ?>
+			<form method="post" class="fs-fleet-actions">
+				<button type="submit" class="btn btn-sm btn-warning" name="cancel_op" value="<?=(int)$op['id']?>"<?=fleet_confirm(gettext('Cancel this action?'), gettext('What is still waiting is skipped. A firewall that is busy with its part finishes it first; an action nothing runs any more is marked failed so the firewall is free again.'), gettext('Cancel the action'), 'warning', 'ban')?>><i class="fa-solid fa-ban icon-embed-btn" aria-hidden="true"></i><?=gettext('Cancel')?></button>
+			</form>
+<?php endif; ?>
 		</div>
 	</div>
 <?php if (!empty($tasks)): ?>

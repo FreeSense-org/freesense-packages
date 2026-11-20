@@ -58,6 +58,15 @@ $lock = fopen("/var/run/fleet-op-{$op_id}.lock", 'c');
 if (!flock($lock, LOCK_EX | LOCK_NB)) {
 	exit(0);
 }
+/* An error nothing below catches (a TypeError, a database failure) must not leave the operation "running" for ever. */
+set_exception_handler(function (Throwable $e) use ($op_id): void {
+	try {
+		fleet_op_runner_crashed($op_id, $e->getMessage());
+	} catch (Throwable $again) {
+		/* The store itself is gone: the reaper in the poll finishes the job later. */
+	}
+	exit(1);
+});
 
 if ($cmd === 'ha-setup') {
 	try {
@@ -95,8 +104,8 @@ if ($cmd === 'users') {
 				fleet_op_set((int)$task['id'], 'running', $text, $percent);
 			});
 			fleet_op_set((int)$task['id'], 'done', $text);
-		} catch (RuntimeException $e) {
-			fleet_op_set((int)$task['id'], 'failed', $e->getMessage());
+		} catch (Throwable $e) {
+			fleet_op_fail_open((int)$task['id'], $e->getMessage());
 		}
 		fleet_op_group_update($op_id);
 	}
@@ -122,8 +131,8 @@ if ($cmd === 'connections') {
 				fleet_op_set((int)$task['id'], 'running', $text, $percent);
 			});
 			fleet_op_set((int)$task['id'], 'done', $text);
-		} catch (RuntimeException $e) {
-			fleet_op_set((int)$task['id'], 'failed', $e->getMessage());
+		} catch (Throwable $e) {
+			fleet_op_fail_open((int)$task['id'], $e->getMessage());
 		}
 		fleet_op_group_update($op_id);
 	}
@@ -149,8 +158,8 @@ if ($cmd === 'template') {
 				fleet_op_set((int)$task['id'], 'running', $text, $percent);
 			});
 			fleet_op_set((int)$task['id'], 'done', $text);
-		} catch (RuntimeException $e) {
-			fleet_op_set((int)$task['id'], 'failed', $e->getMessage());
+		} catch (Throwable $e) {
+			fleet_op_fail_open((int)$task['id'], $e->getMessage());
 		}
 		fleet_op_group_update($op_id);
 	}
@@ -172,7 +181,7 @@ if ($cmd === 'restore') {
 		fleet_op_set($op_id, 'done', $text);
 		/* The dashboard shows the restored configuration at once, not after the next check. */
 		fleet_poll_box(fleet_box_get($box['node_id']), time());
-	} catch (RuntimeException $e) {
+	} catch (Throwable $e) {
 		fleet_op_set($op_id, 'failed', $e->getMessage());
 	}
 	exit(0);
@@ -223,8 +232,10 @@ while (true) {
 		} else {
 			fleet_box_reboot($box, (string)$t['who'], (int)$t['id']);
 		}
-	} catch (RuntimeException $e) {
-		fleet_op_set((int)$t['id'], 'failed', (($cmd === 'update-group') ? 'Update refused: ' : 'Reboot refused: ') . $e->getMessage());
+	} catch (FleetOpCancelled $e) {
+		/* Cancelled while it waited: it stays skipped. */
+	} catch (Throwable $e) {
+		fleet_op_fail_open((int)$t['id'], (($cmd === 'update-group') ? 'Update refused: ' : 'Reboot refused: ') . $e->getMessage());
 	}
 	fleet_op_group_update($op_id);
 }
