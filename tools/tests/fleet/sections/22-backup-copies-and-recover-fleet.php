@@ -43,3 +43,12 @@ list($ob, $oj) = fleet_offsite_names('cfg.n1.7', str_repeat('ab', 32));
 check($ob === 'fleet-cfg.n1.7.abababababab.blob' && $oj === 'fleet-cfg.n1.7.abababababab.json', 'off-site names carry the id and a short hash');
 check(fleet_offsite_held(array($ob, $oj, 'fleet-ctl.self.9.0123456789ab.blob', 'fw1-20261016-010000-deadbeef.xml', 'fleet-x.y.zz.blob')) === array('cfg.n1.7' => 'abababababab'),
     'only complete Fleet pairs count as held; System\'s own remote backups are never touched');
+
+/* Recover vouches for backups: a label the sealed database does not know, or content that does not match, is left out. */
+$vm = random_bytes(32);
+$plain_ok = '<xml>one</xml>';
+list($kept, $left) = fleet_recover_vouched(array('n1/a.xml.enc' => fleet_seal($plain_ok, $vm), 'n1/swapped.xml.enc' => fleet_seal('<xml>other</xml>', $vm),
+    'n9/unknown.xml.enc' => fleet_seal($plain_ok, $vm), 'n1/foreign.xml.enc' => fleet_seal($plain_ok, random_bytes(32))),
+    array('n1/a.xml.enc' => hash('sha256', $plain_ok), 'n1/swapped.xml.enc' => hash('sha256', $plain_ok), 'n1/foreign.xml.enc' => hash('sha256', $plain_ok)), $vm);
+check(array_keys($kept) === array('n1/a.xml.enc') && $left === 3, 'Recover keeps only backups the copy\'s own database vouches for');
+check(!is_dir(FLEET_DATA . '/.recover-' . getmypid()), 'Recover leaves no staging directory behind');
