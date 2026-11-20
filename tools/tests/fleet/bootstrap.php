@@ -15,6 +15,8 @@ set_include_path("{$src}/src/etc/inc" . PATH_SEPARATOR . "{$repo}/sysutils/FreeS
 if (!function_exists('gettext')) {
 	function gettext($t) { return $t; }
 }
+/* The webhook tests call a sink on 127.0.0.1, which production refuses. */
+define('FLEET_ALERT_ALLOW_LOOPBACK', true);
 require_once('fleet.inc');
 
 /* Records a failure and goes on, so one run reports every failing check. */
