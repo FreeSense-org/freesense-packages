@@ -74,10 +74,10 @@ check((fleet_standby_box_action(array('api_level' => 12), $sbw, 0) === 'skip') &
     (fleet_standby_box_action(array('api_level' => 13, 'controller_endpoints' => $sbw, 'controller_epoch' => 3), $sbw, 2) === 'newer'),
     'each firewall\'s controller endpoints are kept current, and one that saw a newer controller means this one was replaced');
 $sbp = array('role' => 'standby');
-$sbs = array('takeover' => 'auto', 'auto_minutes' => 10, 'snapshot' => array('created' => 1), 'last_ok' => 1000);
+$sbs = array('takeover' => 'auto', 'auto_minutes' => 10, 'snapshot' => array('created' => 1), 'last_alive' => 1000);
 check(!fleet_standby_takeover_due($sbp, $sbs, 1000 + 599) && fleet_standby_takeover_due($sbp, $sbs, 1000 + 600) &&
     !fleet_standby_takeover_due($sbp, array('takeover' => 'manual') + $sbs, 99999) && !fleet_standby_takeover_due($sbp, array('snapshot' => null) + $sbs, 99999) &&
-    !fleet_standby_takeover_due($sbp, array('last_ok' => 0) + $sbs, 99999) && !fleet_standby_takeover_due(array('role' => 'primary'), $sbs, 99999),
+    !fleet_standby_takeover_due($sbp, array('last_alive' => 0) + $sbs, 99999) && !fleet_standby_takeover_due(array('role' => 'primary'), $sbs, 99999),
     'automatic takeover only on a standby with a copy, set to automatic, after the primary answered once and was silent long enough');
 check((fleet_standby_url_host('https://[2001:db8::5]:8443') === '2001:db8::5') && (fleet_standby_url_host('https://ctl.example.net:8443') === 'ctl.example.net'),
     'the primary\'s host from its URL');

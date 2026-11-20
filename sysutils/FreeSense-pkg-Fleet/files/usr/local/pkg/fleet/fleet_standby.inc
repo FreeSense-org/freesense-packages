@@ -136,14 +136,23 @@ function fleet_standby_box_action(array $status, array $want, int $epoch): strin
 	return ((($status['controller_endpoints'] ?? null) === $want) && ($has === $epoch)) ? 'ok' : 'push';
 }
 
-/* pure: is an automatic takeover due? */
+/* pure: did the primary itself answer? Any HTTP answer below 500 does (a refusal after a re-pair is an answer from a primary that is up); no answer or a server error does not. */
+function fleet_standby_primary_answered(int $code): bool {
+	return ($code > 0) && ($code < 500);
+}
+
+/*
+ * pure: is an automatic takeover due? Only when the primary has not *answered* for the set time. A copy that
+ * could not be stored or opened, a refusal after the primary removed this standby or was paired again: the primary
+ * is up in all of those, so the standby never takes over for them.
+ */
 function fleet_standby_takeover_due(array $pairing, array $state, int $now): bool {
 	if ((($pairing['role'] ?? '') !== 'standby') || (($state['takeover'] ?? 'manual') !== 'auto') || empty($state['snapshot'])) {
 		return false;
 	}
 	$minutes = in_array((int)($state['auto_minutes'] ?? 0), FLEET_STANDBY_AUTO_MINUTES, true) ? (int)$state['auto_minutes'] : 15;
 	/* Only after the primary answered at least once, and has been silent since. */
-	return ((int)($state['last_ok'] ?? 0) > 0) && (($now - (int)$state['last_ok']) >= 60 * $minutes);
+	return ((int)($state['last_alive'] ?? 0) > 0) && (($now - (int)$state['last_alive']) >= 60 * $minutes);
 }
 
 /* pure: the host part of an https://host:port URL. */
@@ -284,28 +293,73 @@ function fleet_standby_outbox_tick(int $now): void {
  * ones that joined later). A firewall that has seen a newer controller
  * means this one was replaced: it steps down.
  */
-function fleet_standby_endpoints_tick(): void {
+function fleet_standby_endpoints_tick(?callable $ask = null, float $budget = 40.0): void {
 	$own = (string)fleet_setting('wg_endpoint', '');
 	if ($own === '') {
 		return;
 	}
 	$want = fleet_standby_endpoints_want($own, fleet_standby_peer_endpoint());
 	$epoch = fleet_ctl_epoch();
+	$start = microtime(true);
 	foreach (fleet_db()->query("SELECT * FROM boxes WHERE state = 'online'")->fetchAll() as $box) {
-		$act = fleet_standby_box_action(json_decode((string)$box['status'], true) ?: array(), $want, $epoch);
-		if ($act === 'newer') {
-			fleet_standby_step_down(sprintf('%s has seen a newer Fleet controller', $box['label']));
-			return;
+		if ((microtime(true) - $start) > $budget) {
+			break;
 		}
-		if ($act !== 'push') {
+		/* One firewall that times out must not stop the rest (or the poll's other stages). */
+		try {
+			$act = fleet_standby_box_action(json_decode((string)$box['status'], true) ?: array(), $want, $epoch);
+			$why = ($act === 'newer') ? sprintf('%s has seen a newer Fleet controller', $box['label']) : null;
+			if ($act === 'push') {
+				list($code, $json) = fleet_box_call($box, 'PUT', '/api/v1/management/controller-endpoints', array('endpoints' => $want, 'epoch' => $epoch));
+				if ($code === 409) {
+					$why = sprintf('%s refused this controller: %s', $box['label'], fleet_box_error($code, $json));
+				}
+			}
+		} catch (Throwable $e) {
 			continue;
 		}
-		list($code, $json) = fleet_box_call($box, 'PUT', '/api/v1/management/controller-endpoints', array('endpoints' => $want, 'epoch' => $epoch));
-		if ($code === 409) {
-			fleet_standby_step_down(sprintf('%s refused this controller: %s', $box['label'], fleet_box_error($code, $json)));
+		if ($why === null) {
+			continue;
+		}
+		/* A firewall's word alone does not stop a controller (a rogue or confused one could shut the fleet down): the partner must confirm it is the primary now. */
+		if (fleet_standby_partner_newer($ask) === true) {
+			fleet_standby_step_down($why);
 			return;
 		}
+		fleet_standby_newer_notice($why);
 	}
+}
+
+/*
+ * Ask the partner whether it is the primary with a newer epoch than this controller. true: it is (so this one was
+ * replaced); false: it answered and is not; null: no partner is paired or it did not answer.
+ * $ask: array(code, json) for the partner's state (a test passes its own).
+ */
+function fleet_standby_partner_newer(?callable $ask = null): ?bool {
+	$p = fleet_standby_pairing();
+	if ((($p['role'] ?? '') !== 'primary') || (($p['peer_addr'] ?? '') === '')) {
+		return null;
+	}
+	if ($ask === null) {
+		$ask = function () use ($p): array {
+			return fleet_standby_http('https://' . fleet_hostport($p['peer_addr'], fleet_ctl_settings()['enroll_port']), fleet_cert_fingerprint(fleet_tls_pem()), $p['token'], '/fleet/standby/state', array());
+		};
+	}
+	list($code, $json) = $ask();
+	if ($code !== 200) {
+		return null;
+	}
+	return (($json['role'] ?? '') === 'primary') && ((int)($json['epoch'] ?? 0) > fleet_ctl_epoch());
+}
+
+/* A firewall says a newer controller exists but the partner does not confirm it: look into it, at most once an hour. */
+function fleet_standby_newer_notice(string $why): void {
+	if ((time() - (int)fleet_setting('standby_newer_notice', '0')) < 3600) {
+		return;
+	}
+	fleet_setting_set('standby_newer_notice', (string)time());
+	fleet_audit('system', 'standby', "{$why}, but no standby confirms it: this controller goes on. Check that no second controller manages the same firewalls.");
+	fleet_alert('standby_problem', '', "{$why}, but no standby confirms it, so this controller goes on. Check that no second Fleet controller manages the same firewalls.");
 }
 
 /* Is the partner the primary with a newer epoch? Asked every few minutes; steps down when it is. */
@@ -315,9 +369,7 @@ function fleet_standby_fence_tick(int $now): void {
 		return;
 	}
 	fleet_setting_set('standby_fence_checked', (string)$now);
-	$url = 'https://' . fleet_hostport($p['peer_addr'], fleet_ctl_settings()['enroll_port']);
-	list($code, $json) = fleet_standby_http($url, fleet_cert_fingerprint(fleet_tls_pem()), $p['token'], '/fleet/standby/state', array());
-	if (($code === 200) && (($json['role'] ?? '') === 'primary') && ((int)($json['epoch'] ?? 0) > fleet_ctl_epoch())) {
+	if (fleet_standby_partner_newer() === true) {
 		fleet_standby_step_down('the standby took over');
 	}
 }
@@ -491,20 +543,26 @@ function fleet_standby_pull(int $now): ?string {
 	$st = fleet_standby_state();
 	list($code, $json) = fleet_standby_http($p['url'], $p['fp'], $p['token'], '/fleet/standby/pull',
 	    array('addr' => $p['own_addr'], 'version' => trim((string)@file_get_contents('/etc/version')), 'last' => (string)($st['sha'] ?? '')));
+	/* "Alive" is when the primary last answered at all, whatever it answered: only silence leads to a takeover. */
+	$alive = fleet_standby_primary_answered($code) ? array('last_alive' => $now) : array();
 	if ($code !== 200) {
 		$problem = ($code === 0) ? 'The primary did not answer (or its certificate is not the paired one).' :
-		    "The primary refused the request (HTTP {$code}); pair this standby again.";
-		fleet_standby_state_merge(array('last_try' => $now, 'last_error' => $problem));
+		    (($code >= 500) ? "The primary answered with an error (HTTP {$code})." : "The primary refused the request (HTTP {$code}); pair this standby again.");
+		fleet_standby_state_merge(array('last_try' => $now, 'last_error' => $problem) + $alive);
 		return $problem;
 	}
-	$set = array('last_try' => $now, 'last_ok' => $now, 'last_error' => '', 'primary_epoch' => (int)($json['epoch'] ?? 0)) + array_intersect_key((array)($json['settings'] ?? array()),
+	$set = array('last_try' => $now, 'last_ok' => $now, 'last_alive' => $now, 'last_error' => '', 'primary_epoch' => (int)($json['epoch'] ?? 0)) + array_intersect_key((array)($json['settings'] ?? array()),
 	    array('takeover' => 1, 'interval' => 1, 'auto_minutes' => 1));
 	if (is_string($json['snapshot'] ?? null)) {
 		$opened = fleet_standby_open($json['snapshot'], $p['key']);
 		$summary = is_array($opened) ? $opened[1] : array();
 		$problem = is_array($opened) ? fleet_standby_db_check($opened[0], $summary) : $opened;
+		/* A copy from a newer Fleet cannot be taken over from: say so now, not during the outage. */
+		if (($problem === null) && ((int)($summary['schema'] ?? 0) > FLEET_DB_SCHEMA)) {
+			$problem = sprintf('The primary runs a newer Fleet (database %d) than this standby (%d): update the Fleet package here first, or a takeover would fail.', (int)$summary['schema'], FLEET_DB_SCHEMA);
+		}
 		if ($problem !== null) {
-			fleet_standby_state_merge(array('last_try' => $now, 'last_error' => $problem));
+			fleet_standby_state_merge(array('last_try' => $now, 'last_error' => $problem, 'last_alive' => $now));
 			return $problem;
 		}
 		if ((@file_put_contents(FLEET_STANDBY_INBOX . '.tmp', $json['snapshot']) === false) || !@chmod(FLEET_STANDBY_INBOX . '.tmp', 0600) ||
