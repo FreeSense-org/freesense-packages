@@ -341,3 +341,8 @@ check(fleet_ts_expiry_should_disable(array('id' => 'd1', 'keyExpiryDisabled' => 
 check((fleet_invite_recommend(true, true, true) === 'tailscale') && (fleet_invite_recommend(false, true, true) === 'tunnel') &&
     (fleet_invite_recommend(false, false, true) === 'direct') && (fleet_invite_recommend(false, false, false) === 'tunnel'),
     'an invitation recommends Tailscale when the controller is ready in a tailnet, else the tunnel, Direct only with just an internal point');
+
+/* The sync rules reach both firewalls before either starts pfsync (a pfsync packet under the default LAN rule makes a synced state that the two refresh for each other). */
+$ha_src = (string)file_get_contents($repo . '/sysutils/FreeSense-pkg-Fleet/files/usr/local/pkg/fleet/fleet_ha_setup.inc');
+check(preg_match("/foreach \\(array\\('rules', 'sync'\\) as \\\$phase\\) \\{\\s*foreach \\(array\\(array\\(\\\$p, \\\$tp, true\\), array\\(\\\$s, \\\$ts, false\\)\\)/", $ha_src) === 1 && strpos($ha_src, "if (\$phase === 'rules')") !== false,
+    'HA setup loads the sync rules on both firewalls before any firewall starts state sync');

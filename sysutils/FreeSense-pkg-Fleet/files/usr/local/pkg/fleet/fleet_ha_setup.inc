@@ -812,15 +812,23 @@ function fleet_ha_setup_run(int $op): void {
 		$fail($e->getMessage(), $ts);
 		return;
 	}
-	$steps = function (array $plan, bool $primary, string $carp_pass, string $sync_pass, int $gui_port): array {
+	/*
+	 * Two phases, each on both firewalls before the next starts: the sync rules first, then the shared addresses and the
+	 * state sync. pfsync packets that reach a firewall without the sync rules match its default LAN rule and make a state;
+	 * that state is synced back, every pfsync packet refreshes it, and the two firewalls trade updates for it (about a
+	 * million packets in a few seconds). So no firewall may start pfsync before the other has loaded the rules.
+	 */
+	$steps = function (array $plan, bool $primary, string $carp_pass, string $sync_pass, int $gui_port, string $phase): array {
 		$out = array();
-		/* The sync interface lets the peer's state and configuration sync in. */
-		foreach (fleet_ha_rule_bodies($plan, $gui_port) as $rb) {
-			$out[] = array('POST', '/api/v1/firewall/rules', $rb + array('after' => -1), 'Rule: ' . substr($rb['descr'], strlen(FLEET_HA_MARK) + 1),
-			    function (array $box) use ($rb) { return fleet_ha_has_rule($box, $rb['descr']); });
+		if ($phase === 'rules') {
+			/* The sync interface lets the peer's state and configuration sync in. */
+			foreach (fleet_ha_rule_bodies($plan, $gui_port) as $rb) {
+				$out[] = array('POST', '/api/v1/firewall/rules', $rb + array('after' => -1), 'Rule: ' . substr($rb['descr'], strlen(FLEET_HA_MARK) + 1),
+				    function (array $box) use ($rb) { return fleet_ha_has_rule($box, $rb['descr']); });
+			}
+			$out[] = array('POST', '/api/v1/firewall/apply', null, 'Loading the sync rules', function (array $box) { return true; });
+			return $out;
 		}
-		/* The rules must be loaded before pfsync starts: a pfsync packet sent under the default rules makes a state that is synced, and the two firewalls then keep refreshing it for each other. */
-		$out[] = array('POST', '/api/v1/firewall/apply', null, 'Loading the sync rules', function (array $box) { return true; });
 		foreach ($plan['vips'] as $v) {
 			$out[] = array('POST', '/api/v1/firewall/virtual-ips?apply=true', fleet_ha_vip_body($v, $primary ? 0 : 100, $carp_pass), "Shared address {$v['address']} on {$v['name']}",
 			    function (array $box) use ($v) {
@@ -862,18 +870,20 @@ function fleet_ha_setup_run(int $op): void {
 			return;
 		}
 	}
-	foreach (array(array($p, $tp, true), array($s, $ts, false)) as list($box, $task, $primary)) {
-		try {
-			fleet_op_set($task, 'running', 'Starting');
-			/* On the encrypted link the sync interface is the one that firewall made for it. */
-			$boxplan = isset($ifaces[$box['node_id']]) ? array('sync_iface' => $ifaces[$box['node_id']]) + $plan : $plan;
-			fleet_ha_setup_box($box, $who, FLEET_HA_LABEL, $steps($boxplan, $primary, $carp_pass, $sync_pass, $gui_port), function (string $t) use ($task) {
-				fleet_op_set($task, 'running', $t);
-			});
-			fleet_op_set($task, 'running', $primary ? 'Set up; waiting for the secondary' : 'Set up');
-		} catch (Throwable $e) {
-			$fail($e->getMessage(), $task);
-			return;
+	foreach (array('rules', 'sync') as $phase) {
+		foreach (array(array($p, $tp, true), array($s, $ts, false)) as list($box, $task, $primary)) {
+			try {
+				fleet_op_set($task, 'running', ($phase === 'rules') ? 'Starting: the sync rules' : 'The shared addresses and state sync');
+				/* On the encrypted link the sync interface is the one that firewall made for it. */
+				$boxplan = isset($ifaces[$box['node_id']]) ? array('sync_iface' => $ifaces[$box['node_id']]) + $plan : $plan;
+				fleet_ha_setup_box($box, $who, FLEET_HA_LABEL, $steps($boxplan, $primary, $carp_pass, $sync_pass, $gui_port, $phase), function (string $t) use ($task) {
+					fleet_op_set($task, 'running', $t);
+				});
+				fleet_op_set($task, ($phase === 'rules') ? 'queued' : 'running', ($phase === 'rules') ? 'Rules loaded; waiting for the other firewall' : ($primary ? 'Set up; waiting for the secondary' : 'Set up'));
+			} catch (Throwable $e) {
+				$fail($e->getMessage(), $task);
+				return;
+			}
 		}
 	}
 	/* The pair must settle: found, one MASTER per address, and that is the primary. */
