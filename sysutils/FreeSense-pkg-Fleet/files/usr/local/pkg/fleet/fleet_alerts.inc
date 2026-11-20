@@ -152,6 +152,14 @@ function fleet_alert_from_audit(string $action, string $detail, string $node = '
 	}
 }
 
+/* pure: where the WebUI answers, for the links in alerts: the WebGUI's own protocol and port on the controller's address (not the enrollment port). */
+function fleet_alert_link_base(string $host, array $webgui): string {
+	$https = (($webgui['protocol'] ?? 'https') !== 'http');
+	$port = (int)($webgui['port'] ?? 0);
+	$suffix = (($port > 0) && ($port !== ($https ? 443 : 80))) ? ":{$port}" : '';
+	return ($https ? 'https' : 'http') . '://' . ((strpos($host, ':') !== false) ? "[{$host}]" : $host) . $suffix;
+}
+
 /* pure: an https (or, for a lab, http) address. */
 function fleet_alert_url_ok(string $url): bool {
 	if (!preg_match('~^https?://([A-Za-z0-9.\[\]:_-]+?)(:\d+)?(/[^\s]*)?$~D', $url, $m) || (strlen($url) > 500)) {
@@ -448,7 +456,7 @@ function fleet_alert_message(array $row): array {
 	$box = ($row['node_id'] !== '') ? fleet_box_get((string)$row['node_id']) : null;
 	$title = FLEET_ALERT_EVENTS[$row['event']][0] . (($box !== null) ? ': ' . $box['label'] : '');
 	$s = fleet_ctl_settings();
-	$link = (($s['public_host'] ?? '') !== '') ? 'https://' . $s['public_host'] . '/fleet/' . (($box !== null) ? 'fleet_box.php?id=' . rawurlencode($box['node_id']) : 'fleet_dashboard.php') : '';
+	$link = (($s['public_host'] ?? '') !== '') ? fleet_alert_link_base((string)$s['public_host'], function_exists('config_get_path') ? (array)config_get_path('system/webgui', array()) : array()) . '/fleet/' . (($box !== null) ? 'fleet_box.php?id=' . rawurlencode($box['node_id']) : 'fleet_dashboard.php') : '';
 	return array('title' => $title, 'text' => (string)$row['text'], 'severity' => (string)$row['severity'], 'node' => (string)$row['node_id'],
 	    'time' => gmdate('c', (int)$row['time']), 'event' => (string)$row['event'], 'link' => $link);
 }
