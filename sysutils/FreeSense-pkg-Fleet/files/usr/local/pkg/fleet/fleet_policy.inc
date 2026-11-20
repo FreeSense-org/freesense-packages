@@ -505,9 +505,16 @@ function fleet_policy_save(?int $id, array $in, string $who): int {
 		throw new InvalidArgumentException('Choose at least one rule.');
 	}
 	/* A custom rule number belongs to one policy (two forms open at once could pick the same one). */
+	$mine = array();
+	foreach (fleet_policies_all() as $own) {
+		if (($id !== null) && ((int)$own['id'] === (int)$id)) {
+			$mine = $own['rules'];
+		}
+	}
 	foreach (fleet_policies_all() as $other) {
 		foreach (array_keys($rules) as $rid) {
-			if ((strncmp($rid, 'CUSTOM:', 7) === 0) && ((int)$other['id'] !== (int)$id) && isset($other['rules'][$rid])) {
+			/* A number this policy already held stays its own (older policies numbered their custom rules one by one). */
+			if ((strncmp($rid, 'CUSTOM:', 7) === 0) && ((int)$other['id'] !== (int)$id) && isset($other['rules'][$rid]) && !isset($mine[$rid])) {
 				throw new InvalidArgumentException(sprintf('Custom rule %d is already used by the policy "%s". Open the policy again and add the rule again.', (int)substr($rid, 7), $other['name']));
 			}
 		}
@@ -653,7 +660,9 @@ function fleet_compliance_refresh(?string $only = null, bool $push = true): void
 			continue;
 		}
 		$eff = fleet_box_effective($box['node_id'], $policies, $groups);
-		$needs_config = !empty(array_filter(array_keys($eff), function ($rid) { return fleet_policy_lockable((string)preg_replace('/:\d+$/', '', (string)$rid)); }));
+		$needs_config = !empty(array_filter(array_keys($eff), function ($rid) {
+			return in_array(fleet_policy_catalog()[(string)preg_replace('/:\d+$/', '', (string)$rid)]['kind'] ?? '', array('config', 'ssh_keyonly', 'login_protection'), true);
+		}));
 		$facts = empty($eff) ? array() : fleet_box_facts($box, $needs_config);
 		$alerts = array();
 		/* One transaction per firewall: a reader never sees its results half replaced, and it costs one disk sync, not one per rule. */

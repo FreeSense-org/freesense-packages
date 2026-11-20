@@ -305,11 +305,11 @@ function fleet_inet_tick(int $now): int {
 		$n++;
 	}
 	/* One transaction (one disk sync) for every gateway row of this tick. */
-	$db->exec('BEGIN IMMEDIATE');
-	foreach ($gw_rows as $r) {
-		$ins->execute($r);
-	}
-	$db->exec('COMMIT');
+	fleet_transaction(function () use ($gw_rows, $ins): void {
+		foreach ($gw_rows as $r) {
+			$ins->execute($r);
+		}
+	});
 	/* Firewalls the controller cannot reach keep their last known internet state. */
 	$states = array();
 	foreach ($prev as $node => $r) {

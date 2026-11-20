@@ -312,7 +312,7 @@ function fleet_enroll_fpm_conf(): string {
 	    "syslog.ident = fleet-enroll\nlog_level = error\ndaemonize = yes\nprocess.max = 6\n\n" .
 	    "[fleet-enroll]\nuser = root\ngroup = wheel\nlisten = " . FLEET_ENROLL_SOCKET . "\nlisten.owner = root\nlisten.group = wheel\nlisten.mode = 0600\n" .
 	    "security.limit_extensions =\nenv[PATH] = /bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin\nenv[LOGNAME] = root\n" .
-	    "request_terminate_timeout = 60\npm = static\npm.max_children = 4\npm.max_requests = 500\n";
+	    "request_terminate_timeout = 120\nphp_admin_value[memory_limit] = 256M\npm = static\npm.max_children = 4\npm.max_requests = 500\n";
 }
 
 /* pure: the enrollment nginx configuration. */
@@ -326,7 +326,7 @@ function fleet_enroll_nginx_conf(array $binds, string $tls, string $socket = FLE
 	    "\tclient_max_body_size 64k;\n\tclient_header_timeout 10;\n\tclient_body_timeout 10;\n\tkeepalive_timeout 5;\n" .
 	    "\tlimit_req_status 429;\n" .
 	    /* IPv6: a client owns a whole /64, so the limit counts the /64, not each address in it. */
-	    "\tmap \$remote_addr \$fleet_client {\n\t\t\"~^(?<net>[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}):\" \$net;\n\t\tdefault \$remote_addr;\n\t}\n" .
+	    "\tmap \$remote_addr \$fleet_client {\n\t\t\"~^(?<net>[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}):\" \$net;\n\t\t\"~^(?<net>[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}::)\" \$net;\n\t\tdefault \$remote_addr;\n\t}\n" .
 	    "\tlimit_req_zone \$fleet_client zone=fleetjoin:2m rate=2r/s;\n\n" .
 	    "\tserver {\n" . fleet_enroll_listen($binds) .
 	    "\t\tssl_certificate {$tls};\n\t\tssl_certificate_key {$tls};\n\t\tssl_protocols TLSv1.2 TLSv1.3;\n" .

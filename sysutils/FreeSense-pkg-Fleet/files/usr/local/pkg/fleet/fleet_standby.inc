@@ -327,7 +327,7 @@ function fleet_standby_snapshot_build(): void {
 		$sizes[basename(dirname($f)) . '/' . basename($f)] = (int)@filesize($f);
 	}
 	$bundle['backup_files'] = array();
-	foreach (fleet_standby_backup_pick($sizes, 2, 24 * 1024 * 1024) as $rel) {
+	foreach (fleet_standby_backup_pick($sizes, 2, 8 * 1024 * 1024) as $rel) {
 		$bytes = @file_get_contents(FLEET_BACKUP_DIR . '/' . $rel);
 		if ($bytes !== false) {
 			$bundle['backup_files'][$rel] = base64_encode($bytes);
@@ -595,7 +595,7 @@ function fleet_standby_pull(int $now): ?string {
 	}
 	$st = fleet_standby_state();
 	list($code, $json) = fleet_standby_http($p['url'], $p['fp'], $p['token'], '/fleet/standby/pull',
-	    array('addr' => $p['own_addr'], 'version' => trim((string)@file_get_contents('/etc/version')), 'last' => (string)($st['sha'] ?? '')));
+	    array('addr' => $p['own_addr'], 'version' => trim((string)@file_get_contents('/etc/version')), 'last' => (string)($st['sha'] ?? '')), 120);
 	/* "Alive" is when the primary last answered at all, whatever it answered: only silence leads to a takeover. */
 	$alive = fleet_standby_primary_answered($code) ? array('last_alive' => $now) : array();
 	if ($code !== 200) {

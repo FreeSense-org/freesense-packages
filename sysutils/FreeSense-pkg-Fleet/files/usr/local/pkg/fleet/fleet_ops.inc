@@ -213,7 +213,8 @@ function fleet_op_group_start(string $kind, string $title, string $who): int {
 /* Recount a group operation from its tasks; it is over when none is waiting or running. */
 function fleet_op_group_update(int $id): array {
 	$p = fleet_op_group_progress($id);
-	$over = $p['finished'] === $p['total'];
+	/* A group with no firewall tasks (a Deployment Factory batch) is never "all done" by counting: its runner reports its own end. */
+	$over = ($p['total'] > 0) && ($p['finished'] === $p['total']);
 	fleet_op_set($id, $over ? (($p['failed'] > 0) ? 'failed' : 'done') : 'running', fleet_op_summary($p, $over), $p['percent']);
 	return $p;
 }
@@ -323,7 +324,11 @@ function fleet_op_runner_crashed(int $id, string $why): void {
 	foreach ($st->fetchAll() as $t) {
 		fleet_op_set((int)$t['id'], ($t['state'] === 'queued') ? 'skipped' : 'failed', ($t['state'] === 'queued') ? 'Skipped: the process that ran this stopped' : 'The process stopped: ' . $why);
 	}
-	fleet_op_group_update($id);
+	if ((int)$db->query('SELECT COUNT(*) FROM ops WHERE parent = ' . $id)->fetchColumn() === 0) {
+		fleet_op_fail_open($id, 'The process stopped: ' . $why);
+	} else {
+		fleet_op_group_update($id);
+	}
 	fleet_audit('system', 'op_crashed', "operation {$id}: the process stopped: {$why}");
 }
 
@@ -461,6 +466,12 @@ function fleet_ops_reap(int $now): int {
 			continue;
 		}
 		if ($op['node_id'] === '') {
+			/* A group with no tasks (a Deployment Factory batch) has nothing to recount: its runner died, so it failed. */
+			if ((int)$db->query("SELECT COUNT(*) FROM ops WHERE parent = " . (int)$op['id'])->fetchColumn() === 0) {
+				fleet_op_set((int)$op['id'], 'failed', 'Stopped: the process that ran it is gone (the controller restarted or the process died). Make it again.');
+				$failed++;
+				continue;
+			}
 			/* A group's own row: recount it below from its tasks. */
 			$groups[$root] = true;
 			continue;

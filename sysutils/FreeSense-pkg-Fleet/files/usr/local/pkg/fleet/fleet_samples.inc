@@ -135,13 +135,12 @@ function fleet_samples_tick(int $now): int {
 		$n++;
 	}
 	/* One transaction (one disk sync) for all of them, not one per firewall. */
-	$db = fleet_db();
-	$db->exec('BEGIN IMMEDIATE');
-	$ins = $db->prepare('INSERT INTO samples (node_id, time, cpu, mem, states, states_max, temp, rx_bps, tx_bps) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-	foreach ($rows as $r) {
-		$ins->execute($r);
-	}
-	$db->exec('COMMIT');
+	fleet_transaction(function () use ($rows): void {
+		$ins = fleet_db()->prepare('INSERT INTO samples (node_id, time, cpu, mem, states, states_max, temp, rx_bps, tx_bps) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+		foreach ($rows as $r) {
+			$ins->execute($r);
+		}
+	});
 	return $n;
 }
 
