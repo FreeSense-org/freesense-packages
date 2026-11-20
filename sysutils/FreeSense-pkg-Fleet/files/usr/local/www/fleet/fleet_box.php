@@ -158,10 +158,9 @@ if ($manage && (isset($_POST['pin']) || isset($_POST['unpin']))) {
 }
 if ($manage && ($_POST['backup_now'] ?? false)) {
 	try {
-		list($result) = fleet_backup_box($box, 'manual', $who);
+		$result = fleet_box_backup_now($box, $who);
 		$savemsg = ($result === 'stored') ? gettext('Backed up and checked.') : gettext('No change since the last backup, so nothing new was stored.');
 	} catch (RuntimeException $e) {
-		fleet_audit($who, 'backup_failed', "{$box['node_id']} ({$box['label']}): " . $e->getMessage());
 		$input_errors[] = $e->getMessage();
 	}
 }

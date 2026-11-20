@@ -40,6 +40,10 @@ function fleet_action_answer(int $code, string $message): void {
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 	fleet_action_answer(405, gettext('Use POST.'));
 }
+/* Like the other pages: nothing is created on a controller that is off (or a standby): no database, no actions. */
+if (!fleet_ctl_settings()['enable'] || !is_file(FLEET_DATA . '/fleet.db')) {
+	fleet_action_answer(404, gettext('Fleet is not turned on on this firewall.'));
+}
 $box = fleet_box_get((string)($_POST['id'] ?? ''));
 if ($box === null) {
 	fleet_action_answer(404, gettext('That firewall is not in the fleet any more.'));
@@ -51,26 +55,17 @@ try {
 		fleet_action_answer(200, fleet_box_reboot($box, $who));
 		break;
 	case 'backup':
-		if (fleet_op_running($box['node_id']) !== null) {
-			throw new RuntimeException(gettext('Something is already running on this firewall. Wait until it is done.'));
-		}
 		/* The tile shows "Backing up" while this request runs. */
 		session_write_close();
-		$op = fleet_op_start($box['node_id'], 'backup', 'Backing up', $who);
-		try {
-			list($result) = fleet_backup_box($box, 'manual', $who);
-		} catch (RuntimeException $e) {
-			fleet_op_set($op, 'failed', 'Backup failed: ' . $e->getMessage());
-			fleet_audit($who, 'backup_failed', "{$box['node_id']} ({$box['label']}): " . $e->getMessage());
-			throw $e;
-		}
-		$text = ($result === 'stored') ? 'Backed up and checked' : 'No change since the last backup';
-		fleet_op_set($op, 'done', $text);
-		fleet_action_answer(200, $text);
+		fleet_action_answer(200, (fleet_box_backup_now($box, $who) === 'stored') ? 'Backed up and checked' : 'No change since the last backup');
 		break;
 	default:
 		fleet_action_answer(400, gettext('Unknown action.'));
 	}
-} catch (RuntimeException $e) {
+} catch (RuntimeException | FleetJoinError $e) {
 	fleet_action_answer(409, $e->getMessage());
+} catch (Throwable $e) {
+	/* The script reads JSON: an uncaught error would send an HTML page. */
+	error_log('Fleet action failed: ' . $e->getMessage() . ' at ' . $e->getFile() . ':' . $e->getLine());
+	fleet_action_answer(500, gettext('The action failed unexpectedly. See the system log.'));
 }
