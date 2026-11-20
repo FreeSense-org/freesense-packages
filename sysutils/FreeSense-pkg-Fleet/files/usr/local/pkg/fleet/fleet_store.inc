@@ -154,6 +154,52 @@ function fleet_tls_pem(): string {
 /* Database                                                            */
 /* ------------------------------------------------------------------ */
 
+/*
+ * A value kept for $ttl seconds in the data folder, so many pages, screens and browser tabs do not each work
+ * it out. Whoever finds it stale takes a lock and makes it fresh; the others meanwhile get the old value (when
+ * there is none, they wait for the one that is making it). Written to a unique file and renamed, so a reader never
+ * sees half a file. $make returns something json_encode() can keep.
+ */
+function fleet_cached(string $name, int $ttl, callable $make) {
+	$f = FLEET_DATA . '/cache-' . preg_replace('/[^a-z0-9_-]/', '', $name) . '.json';
+	$read = function () use ($f) {
+		$v = json_decode((string)@file_get_contents($f), true);
+		return is_array($v) ? $v : null;
+	};
+	$st = @stat($f);
+	if (($st !== false) && (time() - $st['mtime'] < $ttl) && (($v = $read()) !== null)) {
+		return $v;
+	}
+	$lock = fopen($f . '.lock', 'c');
+	if ($lock === false) {
+		return $make();
+	}
+	$mine = flock($lock, LOCK_EX | LOCK_NB);
+	if (!$mine) {
+		if (($v = $read()) !== null) {
+			fclose($lock);
+			return $v;
+		}
+		flock($lock, LOCK_EX);
+		/* The one that was making it is done. */
+		if (($v = $read()) !== null) {
+			fclose($lock);
+			return $v;
+		}
+	}
+	try {
+		$v = $make();
+		$tmp = tempnam(FLEET_DATA, 'cache-tmp');
+		if (($tmp !== false) && (file_put_contents($tmp, json_encode($v, JSON_INVALID_UTF8_SUBSTITUTE)) !== false)) {
+			@chmod($tmp, 0600);
+			rename($tmp, $f);
+		}
+		return $v;
+	} finally {
+		fclose($lock);
+	}
+}
+
 /* The database; $reopen after the file was replaced (Recover fleet). */
 function fleet_db(bool $reopen = false): PDO {
 	static $db = null;

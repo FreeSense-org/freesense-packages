@@ -109,36 +109,7 @@ function fleet_trends_quantile(array $v, float $q): ?float {
 }
 
 /*
- * pure: the samples in $n buckets of $size from $from: per bucket and
- * firewall the average of each column. Returns node => col => [values].
- */
-function fleet_trends_buckets(array $rows, int $from, int $size, int $n): array {
-	$acc = array();
-	foreach ($rows as $r) {
-		$i = intdiv((int)$r['time'] - $from, $size);
-		if (($i < 0) || ($i >= $n)) {
-			continue;
-		}
-		foreach (array('cpu', 'cpu_max', 'mem', 'states', 'states_max', 'temp', 'rx_bps', 'tx_bps') as $c) {
-			if ($r[$c] !== null) {
-				$acc[$r['node_id']][$c][$i][] = (float)$r[$c];
-			}
-		}
-	}
-	$out = array();
-	foreach ($acc as $node => $cols) {
-		foreach ($cols as $c => $byi) {
-			$out[$node][$c] = array_fill(0, $n, null);
-			foreach ($byi as $i => $vals) {
-				$out[$node][$c][$i] = ($c === 'cpu_max') ? max($vals) : array_sum($vals) / count($vals);
-			}
-		}
-	}
-	return $out;
-}
-
-/*
- * pure: the fleet's load per bucket from fleet_trends_buckets(): CPU and
+ * pure: the fleet's load per bucket from fleet_samples_buckets(): CPU and
  * memory median and 90th percentile across firewalls, WAN traffic summed.
  */
 function fleet_trends_load(array $buckets, int $n): array {
@@ -222,21 +193,6 @@ function fleet_trends_boxes(int|array $group): array {
 	return empty($ids) ? $boxes : fleet_trends_in_groups($boxes, fleet_groups_by_box(), $ids);
 }
 
-/* Each firewall's state changes over [$from, $to): node => array(before, log). */
-function fleet_trends_logs(array $boxes, int $from, int $to): array {
-	$before = fleet_db()->prepare('SELECT state FROM state_log WHERE node_id = ? AND time < ? ORDER BY time DESC, id DESC LIMIT 1');
-	$inside = fleet_db()->prepare('SELECT time, state FROM state_log WHERE node_id = ? AND time >= ? AND time < ? ORDER BY time, id');
-	$out = array();
-	foreach ($boxes as $b) {
-		$before->execute(array($b['node_id'], $from));
-		$st = $before->fetchColumn();
-		$before->closeCursor();
-		$inside->execute(array($b['node_id'], $from, $to));
-		$out[$b['node_id']] = array(($st === false) ? null : (string)$st, array_map(function ($r) { return array((int)$r['time'], (string)$r['state']); }, $inside->fetchAll()));
-	}
-	return $out;
-}
-
 /*
  * The fleet pulse: the last 24 hours in half hours, one row per firewall,
  * worst first. {t, rows: [{label, link, node, cells, bad}], healthy}.
@@ -247,7 +203,7 @@ function fleet_trends_pulse(int|array $group, int $now): array {
 	$to = intdiv($now, $size) * $size + $size;
 	$from = $to - $n * $size;
 	$boxes = fleet_trends_boxes($group);
-	$logs = fleet_trends_logs($boxes, $from, $to);
+	$logs = fleet_stats_logs($boxes, $from, $to);
 	$rows = array();
 	foreach ($boxes as $b) {
 		list($before, $log) = $logs[$b['node_id']];
@@ -282,7 +238,7 @@ function fleet_trends(string $range, int|array $group, int $now): array {
 	$out = array('range' => $range, 'from' => $from, 'to' => $now, 't' => $t, 'total' => count($boxes));
 
 	/* Availability over time (as on the availability panel). */
-	$logs = fleet_trends_logs($boxes, $from, $now);
+	$logs = fleet_stats_logs($boxes, $from, $now);
 	$tl = fleet_stats_timeline($logs, $from, $now, min($n, 96));
 	$out['up'] = array('t' => array_map(function ($i) use ($from, $tl) { return $from + $i * $tl['size']; }, array_keys($tl['up'])), 'up' => $tl['up'], 'in' => $tl['in']);
 
@@ -297,7 +253,7 @@ function fleet_trends(string $range, int|array $group, int $now): array {
 	}
 	/* Outages per day need the whole day range, not only the chart range. */
 	if ($dfrom < $from) {
-		foreach (fleet_trends_logs($boxes, $dfrom, $from) as list($before, $log)) {
+		foreach (fleet_stats_logs($boxes, $dfrom, $from) as list($before, $log)) {
 			foreach (fleet_stats_box($before, $log, $dfrom, $from)['outages'] as list($a)) {
 				$outs[] = array($a, 'outages');
 			}
@@ -324,7 +280,7 @@ function fleet_trends(string $range, int|array $group, int $now): array {
 	$out['backups_day'] = array('ok' => $bk['ok'], 'failed' => $bf['failed']);
 
 	/* Load from the samples. */
-	$b = fleet_trends_buckets(fleet_samples_rows($grouped ? $nodes : null, $from, $now), $from, $size, $n);
+	$b = fleet_samples_buckets($grouped ? $nodes : null, $from, $size, $n);
 	$b = array_intersect_key($b, array_flip($nodes));
 	$out['load'] = fleet_trends_load($b, $n);
 	$out['sampled'] = count($b);
@@ -376,7 +332,7 @@ function fleet_trends_box(string $node, string $range, int $now): array {
 		$out['avail'][$rk] = fleet_stats($rk, array($node), 2)['percent'];
 	}
 	$dto = strtotime(date('Y-m-d', $now) . ' 00:00:00') + 86400;
-	list($before, $log) = fleet_trends_logs(array(array('node_id' => $node)), $dto - 30 * 86400, $dto)[$node];
+	list($before, $log) = fleet_stats_logs(array(array('node_id' => $node)), $dto - 30 * 86400, $dto)[$node];
 	$out['days'] = fleet_trends_days($now, 30);
 	$out['day_cells'] = fleet_trends_cells($before, $log, $dto - 30 * 86400, 86400, 30);
 	$out['outages'] = array_reverse(array_map(function ($o) { return array('from' => $o[0], 'to' => $o[1]); },
@@ -384,7 +340,7 @@ function fleet_trends_box(string $node, string $range, int $now): array {
 	$n = ($range === '1h') ? 12 : 96;
 	$size = max(300, intdiv($span, $n));
 	$from = $now - $n * $size;
-	$b = fleet_trends_buckets(fleet_samples_rows(array($node), $from, $now), $from, $size, $n)[$node] ?? array();
+	$b = fleet_samples_buckets(array($node), $from, $size, $n)[$node] ?? array();
 	$out['t'] = array_map(function ($i) use ($from, $size) { return $from + $i * $size; }, range(0, $n - 1));
 	$out['states'] = $b['states'] ?? array_fill(0, $n, null);
 	$out['states_max'] = max(array_merge(array(0), array_filter($b['states_max'] ?? array())));

@@ -623,18 +623,7 @@ function fleet_kiosk_config_set(string $target, array $cfg, string $who): void {
 
 /* A value kept for $ttl seconds in the data folder, so many screens do not each work it out. */
 function fleet_kiosk_cached(string $name, int $ttl, callable $make) {
-	$f = FLEET_DATA . '/kiosk-cache-' . preg_replace('/[^a-z0-9_-]/', '', $name) . '.json';
-	$st = @stat($f);
-	if (($st !== false) && (time() - $st['mtime'] < $ttl)) {
-		$v = json_decode((string)@file_get_contents($f), true);
-		if (is_array($v)) {
-			return $v;
-		}
-	}
-	$v = $make();
-	@file_put_contents($f . '.tmp', json_encode($v));
-	@rename($f . '.tmp', $f);
-	return $v;
+	return fleet_cached('kiosk-' . $name, $ttl, $make);
 }
 
 /* node id => the list's live values: the newest load sample, availability over 24 hours and the HA role. */
