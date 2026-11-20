@@ -286,8 +286,53 @@ function fleet_stats(string $range, ?array $nodes = null, int $points = 48): arr
 	    'timeline' => fleet_stats_timeline($all, $from, $to, $points));
 }
 
+/*
+ * Remove what is older than the retention settings (Settings > Advanced): the audit log, finished
+ * actions with their rollouts, alerts, decided enrollments and invitations that are over, and ended
+ * policy exceptions. Join key material of an invitation that is over goes at once, whatever its age.
+ * Returns table => rows removed.
+ */
+function fleet_retention_prune(int $now): array {
+	$db = fleet_db();
+	$day = 86400;
+	$gone = array();
+	$run = function (string $name, string $sql, array $args) use ($db, &$gone): void {
+		$st = $db->prepare($sql);
+		$st->execute($args);
+		$gone[$name] = $st->rowCount();
+	};
+	$audit = $now - $day * fleet_opt('keep_audit');
+	$ops = $now - $day * fleet_opt('keep_ops');
+	$enroll = $now - $day * fleet_opt('keep_enroll');
+	$db->exec('BEGIN IMMEDIATE');
+	try {
+		$run('audit', 'DELETE FROM audit WHERE time < ?', array($audit));
+		$run('rollouts', "DELETE FROM rollouts WHERE state IN ('done', 'cancelled') AND created < ?", array($ops));
+		$run('ops_tasks', 'DELETE FROM ops WHERE parent IN (SELECT id FROM ops WHERE parent IS NULL AND finished IS NOT NULL AND finished < ?)', array($ops));
+		$run('ops', 'DELETE FROM ops WHERE parent IS NULL AND finished IS NOT NULL AND finished < ?', array($ops));
+		$run('alerts', 'DELETE FROM alerts WHERE time < ?', array($now - $day * fleet_opt('keep_alerts')));
+		$run('enrollments', "DELETE FROM enrollments WHERE state != 'pending' AND created < ?", array($enroll));
+		/* A join key is no use once its invitation is over. */
+		$run('okm', "UPDATE invitations SET okm = '' WHERE okm != '' AND (state != 'open' OR expires < ?)", array($now));
+		$run('invitations', "DELETE FROM invitations WHERE (state != 'open' OR expires < ?) AND expires < ? AND token_id NOT IN (SELECT token_id FROM enrollments)
+		    AND token_id NOT IN (SELECT token_id FROM batch_rows)", array($now, $enroll));
+		$run('exceptions', 'DELETE FROM policy_exceptions WHERE expires < ?', array($audit));
+		$db->exec('COMMIT');
+	} catch (Throwable $e) {
+		if ($db->inTransaction()) {
+			$db->exec('ROLLBACK');
+		}
+		throw $e;
+	}
+	return $gone;
+}
+
 /* The minute poll: record any firewall whose state differs from its last logged one, and drop old changes. */
 function fleet_stats_prune(int $now): void {
+	if ($now - (int)fleet_setting('retention_at', '0') >= 3600) {
+		fleet_setting_set('retention_at', (string)$now);
+		fleet_retention_prune($now);
+	}
 	foreach (fleet_db()->query('SELECT node_id, state FROM boxes b WHERE state IS NOT (SELECT s.state FROM state_log s WHERE s.node_id = b.node_id ORDER BY s.time DESC, s.id DESC LIMIT 1)')->fetchAll() as $b) {
 		fleet_stats_record((string)$b['node_id'], (string)$b['state'], $now);
 	}
