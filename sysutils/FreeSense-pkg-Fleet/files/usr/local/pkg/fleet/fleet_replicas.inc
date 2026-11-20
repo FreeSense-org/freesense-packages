@@ -126,10 +126,12 @@ function fleet_replica_wanted(array $backups, ?array $self, ?string $envelope_sh
 
 /*
  * pure: what to do on one peer. $held: id => sha256 now on the peer.
- * Only ids Fleet writes (cfg.*, ctl.*) are ever removed. Returns
- * array(ids to upload, ids to remove).
+ * Only ids Fleet writes (cfg.*, ctl.*) are ever removed. $known: ids of
+ * backups that still have a row here, whether or not their file is on this
+ * controller (after a takeover it may not be): the peers' copies of those are
+ * never removed, they may be the only ones left. Returns array(ids to upload, ids to remove).
  */
-function fleet_replica_plan(array $wanted, array $held): array {
+function fleet_replica_plan(array $wanted, array $held, array $known = array()): array {
 	$put = array();
 	foreach ($wanted as $id => $w) {
 		if (!isset($held[$id]) || !hash_equals((string)$w['sha256'], (string)$held[$id])) {
@@ -138,7 +140,7 @@ function fleet_replica_plan(array $wanted, array $held): array {
 	}
 	$del = array();
 	foreach ($held as $id => $sha) {
-		if (!isset($wanted[$id]) && preg_match('/^(cfg|ctl)\./', (string)$id)) {
+		if (!isset($wanted[$id]) && !isset($known[$id]) && preg_match('/^(cfg|ctl)\./', (string)$id)) {
 			$del[] = (string)$id;
 		}
 	}
@@ -242,6 +244,15 @@ function fleet_replica_peers(): array {
 	return array_values(array_filter($boxes, function ($b) { return $b['role'] === 'managed'; }));
 }
 
+/* id => true for every backup that has a row (its vault id), file or no file. */
+function fleet_replica_known(): array {
+	$out = array();
+	foreach (fleet_db()->query('SELECT id, node_id FROM backups')->fetchAll() as $r) {
+		$out[fleet_replica_id($r)] = true;
+	}
+	return $out;
+}
+
 /* Everything a peer should hold right now. */
 function fleet_replica_wanted_now(): array {
 	$rows = fleet_db()->query('SELECT id, node_id, time, file FROM backups ORDER BY id')->fetchAll();
@@ -273,7 +284,9 @@ function fleet_replica_sync_peer(array $box, array $wanted): array {
 		throw new RuntimeException('The firewall did not list its copies: ' . fleet_box_error($code, $json));
 	}
 	$held = array_column((array)($json['data'] ?? array()), 'sha256', 'id');
-	list($put, $del) = fleet_replica_plan($wanted, $held);
+	list($put, $del) = fleet_replica_plan($wanted, $held, fleet_replica_known());
+	/* The controller's own self-backup and recovery envelope go first: with a full peer the first refused upload must not be the one that matters most. */
+	usort($put, function ($a, $b) { return (int)(strncmp($b, 'ctl.', 4) === 0) <=> (int)(strncmp($a, 'ctl.', 4) === 0); });
 	foreach ($del as $id) {
 		fleet_box_call($box, 'DELETE', '/api/v1/management/vault/' . rawurlencode($id));
 	}
@@ -536,7 +549,7 @@ function fleet_offsite_sync_target(array $t, array $wanted): array {
 	}
 	$held = fleet_offsite_held($names);
 	$want12 = array_map(function ($w) { return array('sha256' => substr($w['sha256'], 0, 12)) + $w; }, $wanted);
-	list($put, $del) = fleet_replica_plan($want12, $held);
+	list($put, $del) = fleet_replica_plan($want12, $held, fleet_replica_known());
 	foreach ($put as $id) {
 		$bytes = fleet_replica_bytes($id, $wanted[$id]);
 		list($blob, $meta) = fleet_offsite_names($id, $wanted[$id]['sha256']);
