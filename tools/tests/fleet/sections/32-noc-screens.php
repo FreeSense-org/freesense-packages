@@ -26,3 +26,12 @@ check(fleet_kiosk_check($kkey, '10.20.5.9', time())[0]['name'] === 'Wall' && fle
     fleet_kiosk_check($kkey . 'x', '10.20.5.9', time())[0] === null && fleet_kiosk_check('nope', '10.20.5.9', time())[0] === null, 'a key works from its networks only, and only that key');
 fleet_kiosk_revoke($kid, 'test');
 check(fleet_kiosk_check($kkey, '10.20.5.9', time())[0] === null, 'a revoked key stops at once');
+
+/* A new key for a screen: the old one stops at once, the settings stay, a revoked screen cannot be rotated. */
+list($rid, $rkey) = fleet_kiosk_create(array('name' => 'Rotate me', 'networks' => '192.0.2.0/24'), 'test');
+$rkey2 = fleet_kiosk_rotate($rid, 'test');
+check($rkey2 !== $rkey && fleet_kiosk_check($rkey, '192.0.2.5', time())[0] === null && (fleet_kiosk_check($rkey2, '192.0.2.5', time())[0]['name'] ?? '') === 'Rotate me', 'a rotated screen key replaces the old one and keeps the settings');
+fleet_kiosk_revoke($rid, 'test');
+$rot_bad = false;
+try { fleet_kiosk_rotate($rid, 'test'); } catch (InvalidArgumentException $e) { $rot_bad = true; }
+check($rot_bad, 'a revoked screen cannot get a new key');
