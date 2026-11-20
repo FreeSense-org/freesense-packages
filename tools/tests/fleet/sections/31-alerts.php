@@ -23,6 +23,13 @@ check($tg[0] === 'https://api.telegram.org/bot123:abc/sendMessage' && json_decod
     $go[0] === 'https://g.example/message' && in_array('X-Gotify-Key: tok', $go[1], true) && strpos(json_decode(fleet_alert_request('slack', array('url' => 'https://h'), $amsg)[2], true)['text'], '[CRITICAL]') === 0 &&
     json_decode(fleet_alert_request('webhook', array('url' => 'https://h'), $amsg)[2], true)['source'] === 'freesense-fleet' && fleet_alert_request('email', array(), $amsg) === null,
     'the request each channel type makes');
+/* Day labels are calendar days, also across a clock change (Europe/Copenhagen, 2026-03-29: a 23-hour day). */
+date_default_timezone_set('Europe/Copenhagen');
+check(fleet_trends_days(strtotime('2026-03-30 12:00:00'), 4) === array('2026-03-27', '2026-03-28', '2026-03-29', '2026-03-30'), 'day labels survive a 23-hour day');
+date_default_timezone_set('UTC');
+check(fleet_alert_link_base('fw.example.net', array()) === 'https://fw.example.net' && fleet_alert_link_base('fw.example.net', array('protocol' => 'https', 'port' => '8443')) === 'https://fw.example.net:8443' &&
+    fleet_alert_link_base('10.0.0.1', array('protocol' => 'http', 'port' => '80')) === 'http://10.0.0.1' && fleet_alert_link_base('fd00::1', array('port' => '443')) === 'https://[fd00::1]',
+    'alert links use the WebGUI protocol and port');
 check(fleet_alert_url_ok('https://192.168.1.50:8443/hook') && fleet_alert_url_ok('https://hooks.example.net/x') && fleet_alert_host_blocked('127.0.0.1') && fleet_alert_host_blocked('localhost') &&
     fleet_alert_host_blocked('169.254.169.254') && fleet_alert_host_blocked('[::1]') && fleet_alert_host_blocked('fe80::1') && fleet_alert_host_blocked('::ffff:127.0.0.1') && fleet_alert_host_blocked('0.0.0.0') &&
     !fleet_alert_host_blocked('192.168.1.50') && !fleet_alert_host_blocked('hooks.example.net'),

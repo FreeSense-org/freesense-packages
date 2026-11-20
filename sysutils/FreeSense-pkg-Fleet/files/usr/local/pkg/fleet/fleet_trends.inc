@@ -77,7 +77,8 @@ function fleet_trends_badness(array $cells): int {
 function fleet_trends_days(int $now, int $days): array {
 	$out = array();
 	for ($i = $days - 1; $i >= 0; $i--) {
-		$out[] = date('Y-m-d', $now - $i * 86400);
+		/* Calendar days, not 86400 s steps: a day with a clock change has 23 or 25 hours. */
+		$out[] = date('Y-m-d', strtotime("-{$i} days", $now));
 	}
 	return $out;
 }
@@ -331,12 +332,13 @@ function fleet_trends_box(string $node, string $range, int $now): array {
 	foreach (FLEET_STATS_RANGES as $rk => $sec) {
 		$out['avail'][$rk] = fleet_stats($rk, array($node), 2)['percent'];
 	}
-	$dto = strtotime(date('Y-m-d', $now) . ' 00:00:00') + 86400;
-	list($before, $log) = fleet_stats_logs(array(array('node_id' => $node)), $dto - 30 * 86400, $dto)[$node];
+	$dto = strtotime('tomorrow', $now);
+	$dfrom = strtotime('-30 days', $dto);
+	list($before, $log) = fleet_stats_logs(array(array('node_id' => $node)), $dfrom, $dto)[$node];
 	$out['days'] = fleet_trends_days($now, 30);
-	$out['day_cells'] = fleet_trends_cells($before, $log, $dto - 30 * 86400, 86400, 30);
+	$out['day_cells'] = fleet_trends_cells($before, $log, $dfrom, 86400, 30);
 	$out['outages'] = array_reverse(array_map(function ($o) { return array('from' => $o[0], 'to' => $o[1]); },
-	    fleet_stats_box($before, $log, $dto - 30 * 86400, min($dto, $now))['outages']));
+	    fleet_stats_box($before, $log, $dfrom, min($dto, $now))['outages']));
 	$n = ($range === '1h') ? 12 : 96;
 	$size = max(300, intdiv($span, $n));
 	$from = $now - $n * $size;
