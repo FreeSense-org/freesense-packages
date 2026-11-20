@@ -94,6 +94,10 @@ function fleet_box_reboot(array $box, string $who, ?int $task = null): string {
 		if (($task !== null) && !fleet_op_claim($task)) {
 			throw new FleetOpCancelled('It was cancelled before it started.');
 		}
+		/* One firewall of an HA pair alone: the same rule as a group reboot, so the pair never loses both at once. */
+		if (($task === null) && (($ha = fleet_ha_wait($box['node_id'])) !== null)) {
+			throw new RuntimeException($ha . '. Wait until the pair is healthy.');
+		}
 		list($code, $json) = fleet_box_call($box, 'POST', '/api/v1/management/reboot', array('confirm' => true, 'operator' => fleet_operator($who)));
 		if ($code !== 202) {
 			throw new RuntimeException('The firewall refused the reboot: ' . fleet_box_error($code, $json));
