@@ -47,4 +47,4 @@ $since = (string)($_GET['since'] ?? '');
 $item['cursor'] = $now;
 $item['toasts'] = ctype_digit($since)
     ? fleet_nav_toasts(fleet_ops_finished_since(max((int)$since, $now - 3600), $now), fleet_opt('toast_done'), fleet_opt('toast_failed')) : array();
-echo json_encode($item);
+echo json_encode($item, JSON_INVALID_UTF8_SUBSTITUTE);
