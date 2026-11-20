@@ -327,6 +327,25 @@ function fleet_op_runner_crashed(int $id, string $why): void {
 	fleet_audit('system', 'op_crashed', "operation {$id}: the process stopped: {$why}");
 }
 
+/*
+ * A runner takes its next queued task: the firewall must not be busy with something else (a reboot,
+ * an update, another group's task) and the task must still be queued (not cancelled). false when it
+ * did not start; the task is then skipped with the reason, and the caller goes on to the next.
+ */
+function fleet_op_begin_task(array $task, string $text = 'Starting'): bool {
+	$lock = fleet_node_lock((string)$task['node_id']);
+	try {
+		$busy = fleet_op_running((string)$task['node_id'], (int)$task['id']);
+		if ($busy !== null) {
+			fleet_op_fail_open((int)$task['id'], 'Busy: ' . lcfirst((string)$busy['text']) . '. Run it again when that is done.');
+			return false;
+		}
+		return fleet_op_claim((int)$task['id'], $text);
+	} finally {
+		fclose($lock);
+	}
+}
+
 /* A queued task that was cancelled before it started: nothing was sent to the firewall. */
 class FleetOpCancelled extends RuntimeException {
 }
