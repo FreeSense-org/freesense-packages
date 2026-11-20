@@ -669,6 +669,10 @@ function fleet_ha_setup_undo(array $box, bool $primary): array {
 		if (!empty($rids)) {
 			fleet_box_call($box, 'POST', '/api/v1/firewall/apply');
 		}
+		/* A pair Fleet did not make has none of its marked items: its sync settings, sync user and link are the admin's, not ours to switch off. */
+		if (empty($ids) && empty($rids)) {
+			return $problems;
+		}
 		/* syncpeerpin only where the System knows it (it then reports its WebGUI certificate). */
 		$knows_pin = isset((json_decode((string)$box['status'], true) ?: array())['webgui_cert_sha256']);
 		list($code, $json) = fleet_box_call($box, 'PUT', '/api/v1/system/hasync', $primary ?

@@ -88,7 +88,9 @@ function fleet_ha_pairs(array $boxes): array {
 	}
 	$out = array();
 	foreach ($groups as $nodes) {
-		if (count($nodes) < 2) {
+		/* A pair is two firewalls. More that share a virtual IP are sites that reuse the same default (1@192.168.1.1), not a cluster:
+		 * they are left as single firewalls, so no split-brain alarm, no blocked rollout and no "Remove the pair" across customers. */
+		if (count($nodes) !== 2) {
 			continue;
 		}
 		sort($nodes);
