@@ -422,14 +422,23 @@ function fleet_access_failed(string $ip, int $now): bool {
 	if (function_exists('fleet_alert')) {
 		fleet_alert('access_blocked', '', sprintf('%s was blocked on the Fleet ports for %d minutes after %d wrong join keys.', $ip, $acc['block_minutes'], $n));
 	}
-	fleet_access_reload();
+	/* The block takes effect at once in the pf table; config.xml and the alias follow with the minute tick (no configuration write from the enrollment endpoint). */
+	fleet_access_table('add', $ip);
 	exec('/sbin/pfctl -k ' . escapeshellarg($ip) . ' > /dev/null 2>&1');
 	return true;
+}
+
+/* Add an address to, or delete it from, the live FleetBlocked pf table. A table that does not exist yet is filled by the next rule load. */
+function fleet_access_table(string $op, string $ip): void {
+	if ((($op === 'add') || ($op === 'delete')) && (fleet_access_cidr($ip) !== null)) {
+		exec('/sbin/pfctl -t FleetBlocked -T ' . $op . ' ' . escapeshellarg($ip) . ' > /dev/null 2>&1');
+	}
 }
 
 function fleet_access_unblock(string $ip, string $who): void {
 	fleet_db()->prepare('DELETE FROM access_blocked WHERE ip = ?')->execute(array($ip));
 	fleet_audit($who, 'access', "{$ip} unblocked");
+	fleet_access_table('delete', $ip);
 	fleet_access_reload();
 }
 
@@ -472,6 +481,12 @@ function fleet_access_tick(int $now): void {
 	if (($acc['open_until'] > 0) && ($acc['open_until'] <= $now)) {
 		$acc['open_until'] = 0;
 		fleet_setting_set('access', json_encode($acc));
+		$changed = true;
+	}
+	/* Blocks made live in the pf table since the last rule load: bring config.xml and the alias in line (once). */
+	$now_blocked = md5(json_encode(array_keys(array_filter(fleet_access_blocked(), function ($u) use ($now) { return (int)$u > $now; }))));
+	if ($now_blocked !== (string)fleet_setting('access_block_synced', '')) {
+		fleet_setting_set('access_block_synced', $now_blocked);
 		$changed = true;
 	}
 	if ($changed) {
