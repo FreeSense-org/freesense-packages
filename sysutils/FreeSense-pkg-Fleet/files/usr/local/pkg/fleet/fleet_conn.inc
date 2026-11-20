@@ -218,6 +218,11 @@ function fleet_conn_set_box(string $node, array $in, string $who): void {
 	    (($c['method'] === 'direct') ? " on {$c['iface']}" : '')));
 }
 
+/* A fingerprint of the connection changes waiting to be applied (which firewalls, to what), for fleet_review_token(). */
+function fleet_conn_review_state(): string {
+	return hash('sha256', json_encode(array_map(function ($r) { return $r['want']; }, array_filter(fleet_conn_overview(), 'fleet_conn_pending'))));
+}
+
 /* Every firewall with what it should use and what it uses: node => {box, want: [method, iface, from, conflict], state}. */
 function fleet_conn_overview(): array {
 	$fleet = fleet_conn_fleet_cfg();

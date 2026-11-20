@@ -276,6 +276,13 @@ function fleet_fuser_delete(int $id, string $who): void {
 /* Sync                                                                */
 /* ------------------------------------------------------------------ */
 
+/* pure-ish: a fingerprint of what a user sync would send (users, user groups and their targets), for fleet_review_token(). */
+function fleet_users_review_state(): string {
+	$db = fleet_db();
+	return hash('sha256', json_encode(array($db->query('SELECT id, updated FROM fusers ORDER BY id')->fetchAll(PDO::FETCH_NUM), $db->query('SELECT id, updated, targets FROM ugroups ORDER BY id')->fetchAll(PDO::FETCH_NUM),
+	    $db->query('SELECT user_id, group_id FROM ugroup_members ORDER BY user_id, group_id')->fetchAll(PDO::FETCH_NUM), fleet_users_for_boxes(fleet_ugroups_all()))));
+}
+
 /* node_id => user group ids that are for it. */
 function fleet_users_for_boxes(array $ugroups): array {
 	$out = array();

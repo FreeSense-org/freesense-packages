@@ -74,6 +74,9 @@ if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 			fleet_users_drift_ignore((string)$_POST['drift_ignore'], $who);
 			$savemsg = gettext('Ignored until the firewall changes again.');
 		} elseif (isset($_POST['sync'])) {
+			if (!fleet_review_ok(array('users', fleet_users_review_state(), isset($_POST['node']) ? (string)$_POST['node'] : 'all'), (string)($_POST['review'] ?? ''))) {
+				throw new RuntimeException(gettext('The users, groups or their firewalls changed while you were looking at this page. Look at the sync again.'));
+			}
 			$op = fleet_users_launch($who, isset($_POST['node']) ? array((string)$_POST['node']) : null);
 			header('Location: /fleet/fleet_activity.php?op=' . (int)$op);
 			exit;
@@ -372,12 +375,12 @@ elseif ($st !== null): ?>
 <?php endif; ?>
 <?php endif; ?>
 			</td>
-			<td class="text-end"><?php if ($manage && ($box['state'] === 'online') && fleet_manage_allowed($box)): ?><form method="post" class="d-inline"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><button class="btn btn-sm btn-link" name="sync" value="1"><?=(empty($drift) || !empty($drift['pending'])) ? gettext('Sync here') : gettext('Revert (sync here)')?></button></form><?php endif; ?></td></tr>
+			<td class="text-end"><?php if ($manage && ($box['state'] === 'online') && fleet_manage_allowed($box)): ?><form method="post" class="d-inline"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><?=fleet_review_field(array('users', fleet_users_review_state(), (string)$node))?><button class="btn btn-sm btn-link" name="sync" value="1"><?=(empty($drift) || !empty($drift['pending'])) ? gettext('Sync here') : gettext('Revert (sync here)')?></button></form><?php endif; ?></td></tr>
 <?php endforeach; ?>
 		</tbody></table></div>
 <?php if ($manage && !empty($nodes)): ?>
 	<div class="panel-footer fs-fleet-review-actions fs-fleet-policy-actions">
-		<form method="post"><button class="btn btn-primary" name="sync" value="1"<?=fleet_confirm(gettext('Sync the users to the firewalls?'), gettext('Each firewall gets a safety backup first. Accounts that Fleet made are created, changed or removed there; other accounts are not touched.'), gettext('Sync'), 'warning', 'rotate')?>><i class="fa-solid fa-rotate icon-embed-btn" aria-hidden="true"></i><?=sprintf(ngettext('Sync %d firewall', 'Sync %d firewalls', count($nodes)), count($nodes))?></button></form>
+		<form method="post"><?=fleet_review_field(array('users', fleet_users_review_state(), 'all'))?><button class="btn btn-primary" name="sync" value="1"<?=fleet_confirm(gettext('Sync the users to the firewalls?'), gettext('Each firewall gets a safety backup first. Accounts that Fleet made are created, changed or removed there; other accounts are not touched.'), gettext('Sync'), 'warning', 'rotate')?>><i class="fa-solid fa-rotate icon-embed-btn" aria-hidden="true"></i><?=sprintf(ngettext('Sync %d firewall', 'Sync %d firewalls', count($nodes)), count($nodes))?></button></form>
 		<p class="fs-fleet-policy-note"><?=gettext('Each firewall gets a safety backup first. Only accounts Fleet made are changed or removed.')?></p>
 	</div>
 <?php endif; ?>
