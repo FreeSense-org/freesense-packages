@@ -69,3 +69,16 @@ check(($n1 !== '') && ($n2 !== '') && ($n1 !== $n2) && ($dup !== null) && (strpo
 $ni->exec("DELETE FROM invitations WHERE token_id LIKE 'nm-tok-%'");
 $ni->exec('DELETE FROM name_counters');
 fleet_group_delete($gid, 'tester');
+
+/* A regular expression in a rule is short, one line and valid (it goes into signed bundles to every firewall). */
+$rx = function (string $rid, array $in) {
+	try {
+		fleet_policy_rule_from($rid, $in + array('mode' => 'audit'));
+		return true;
+	} catch (InvalidArgumentException $e) {
+		return false;
+	}
+};
+check($rx('NAME-001', array('regex' => '^fw-[a-z]+$')) && !$rx('NAME-001', array('regex' => str_repeat('a', 201))) && !$rx('NAME-001', array('regex' => "a\nb")) && !$rx('NAME-001', array('regex' => '(')) &&
+    $rx('CUSTOM:1', array('path' => 'system/ssh/port', 'op' => 'regex', 'value' => '^2[0-9]$', 'title' => 't')) && !$rx('CUSTOM:1', array('path' => 'system/ssh/port', 'op' => 'regex', 'value' => '(', 'title' => 't')),
+    'regular expressions in rules: at most 200 characters, one line, and valid (also the value of a custom regex test)');
