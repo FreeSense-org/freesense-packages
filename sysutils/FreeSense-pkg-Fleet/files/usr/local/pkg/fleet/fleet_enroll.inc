@@ -339,10 +339,20 @@ function fleet_enroll_decide(string $id, bool $approve, string $who, int $now): 
 
 function fleet_enroll_complete(array $body, string $bearer, int $now, array $ctx): array {
 	$e = fleet_enroll_get((string)($body['enrollment_id'] ?? ''), $bearer, $now);
+	$api_key = (string)($body['api_key'] ?? '');
+	if ($e['state'] === 'joined') {
+		/* A retry after a lost answer: the same key gets the same answer; anyone else gets nothing. */
+		$st = fleet_db()->prepare('SELECT i.*, b.node_id AS bnode, b.api_key AS bkey, b.overlay AS boverlay, b.role AS brole FROM invitations i JOIN boxes b ON b.node_id = i.node_id WHERE i.token_id = ?');
+		$st->execute(array($e['token_id']));
+		$row = $st->fetch();
+		if (!$row || ($api_key === '') || !hash_equals((string)fleet_unseal((string)$row['bkey'], fleet_master_key()), $api_key)) {
+			return fleet_enroll_error(403, 'bad_proof', 'The completion proof is wrong.');
+		}
+		return array(200, fleet_enroll_joined_reply($row, array('node_id' => $row['bnode'], 'overlay' => $row['boverlay'], 'role' => $row['brole']), $ctx));
+	}
 	if ($e['state'] !== 'approved') {
 		return fleet_enroll_error(409, 'not_approved', 'This box has not been approved.');
 	}
-	$api_key = (string)($body['api_key'] ?? '');
 	$cert = strtolower((string)($body['node_cert_sha256'] ?? ''));
 	$inv = fleet_enroll_invitation((string)$e['token_id'], $bearer, $now);
 	$okm = (string)fleet_unseal((string)$inv['okm'], fleet_master_key());
@@ -384,13 +394,18 @@ function fleet_enroll_complete(array $body, string $bearer, int $now, array $ctx
 	}
 	fleet_audit('enrollment', 'joined', "{$node_id} ({$box['label']}) at {$box['overlay']}");
 	$ctx['on_joined']($box);
+	return array(200, fleet_enroll_joined_reply($inv, $box, $ctx));
+}
+
+/* The answer to a completed enrollment (also what a retry gets). */
+function fleet_enroll_joined_reply(array $inv, array $box, array $ctx): array {
 	/* Over Tailscale the tunnel's endpoint is the controller's tailnet address: no public port at all. */
 	$endpoint = $ctx['endpoint'];
 	if ((($inv['via'] ?? '') === 'tailscale') && isset($ctx['ts_address']) && ($ctx['ts_address'] !== null)) {
 		$endpoint = $ctx['ts_address'] . substr($endpoint, (int)strrpos($endpoint, ':'));
 	}
-	return array(200, array('node_id' => $node_id, 'signing_key' => fleet_signing_public(), 'method' => 'wireguard',
+	return array('node_id' => $box['node_id'], 'signing_key' => fleet_signing_public(), 'method' => 'wireguard',
 	    'overlay_address' => $box['overlay'], 'role' => $box['role'], 'hostname' => (string)($inv['hostname'] ?? ''), 'domain' => (string)($inv['domain'] ?? ''),
 	    'peers' => array(array('public_key' => base64_encode($ctx['controller_wg_pub']), 'endpoint' => $endpoint,
-	    'allowed_ips' => array(fleet_overlay_host($prefix, 1) . '/128')))));
+	    'allowed_ips' => array(fleet_overlay_host((string)fleet_setting('overlay_prefix'), 1) . '/128'))));
 }
