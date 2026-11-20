@@ -476,7 +476,7 @@ if ($savemsg) {
 	$mstrings = array('cpu' => gettext('CPU'), 'cores' => gettext('cores'), 'memory' => gettext('Memory'), 'swap' => gettext('Swap'), 'uptime' => gettext('Uptime'),
 	    'temperature' => gettext('Temperature'), 'load' => gettext('Load (1, 5, 15 min)'), 'loadHint' => gettext('processes waiting for the CPU'),
 	    'states' => gettext('States'), 'of' => gettext('of'), 'mbufs' => gettext('Network buffers'), 'up' => gettext('Up'), 'down' => gettext('Down'),
-	    'checked' => gettext('Checked'), 'noData' => gettext('The firewall did not answer.'), 'noHistory' => gettext('No history for this range yet.'),
+	    'checked' => gettext('Checked'), 'noData' => gettext('The firewall did not answer.'), 'session' => gettext('Your session may have ended. Reload the page to sign in again.'), 'noHistory' => gettext('No history for this range yet.'),
 	    'showAll' => gettext('Show %d more ZFS datasets (they share the pool)'), 'avg' => gettext('average'), 'peak' => gettext('peak'), 'day' => gettext('day'), 'days' => gettext('days'));
 ?>
 <div data-fleet-metrics="<?=htmlspecialchars($box['node_id'])?>" data-strings="<?=htmlspecialchars(json_encode($mstrings))?>">

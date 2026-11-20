@@ -69,9 +69,22 @@
 		    (extra ? '<span class="fs-fleet-tile-sub">' + extra + '</span>' : '') + '</div>';
 	};
 
+	/* The answer is JSON; the login page (a signed-out session) or an error page is not. */
+	var json = function (r) {
+		if ((r.headers.get('Content-Type') || '').indexOf('application/json') !== 0) {
+			throw new Error('session');
+		}
+		return r.json();
+	};
+	var liveBusy = false;
+
 	function live() {
+		if (liveBusy) {
+			return;
+		}
+		liveBusy = true;
 		fetch('/fleet/fleet_box_metrics.php?what=live&id=' + encodeURIComponent(id), {credentials: 'same-origin'})
-		    .then(function (r) { return r.json(); })
+		    .then(json)
 		    .then(function (d) {
 			if (d.error || !d.system) {
 				$('[data-m="live"]').innerHTML = '<p class="fs-fleet-problem mb-0">' + esc(d.error || T.noData) + '</p>';
@@ -117,14 +130,15 @@
 			}).join('') || '<tr><td colspan="5" class="fs-muted">-</td></tr>';
 			$('[data-m="checked"]').textContent = T.checked + ' ' + new Date(d.time * 1000).toLocaleTimeString();
 		})
-		    .catch(function () { $('[data-m="live"]').innerHTML = '<p class="fs-fleet-problem mb-0">' + esc(T.noData) + '</p>'; });
+		    .catch(function (e) { $('[data-m="live"]').innerHTML = '<p class="fs-fleet-problem mb-0">' + esc(e && e.message === 'session' ? T.session : T.noData) + '</p>'; })
+		    .then(function () { liveBusy = false; });
 	}
 
 	function history() {
 		var box = $('[data-m="history"]');
 		box.setAttribute('aria-busy', 'true');
 		fetch('/fleet/fleet_box_metrics.php?what=history&range=' + range + '&id=' + encodeURIComponent(id), {credentials: 'same-origin'})
-		    .then(function (r) { return r.json(); })
+		    .then(json)
 		    .then(function (d) {
 			box.removeAttribute('aria-busy');
 			if (d.error || !d.history) {
