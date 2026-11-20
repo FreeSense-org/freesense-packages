@@ -36,6 +36,7 @@ $hrb = fleet_ha_rule_bodies($hplan, 8443);
 check((count($hrb) === 3) && ($hrb[1]['proto'] === 'pfsync') && ($hrb[1]['src'] === '10.9.0.0') && ($hrb[1]['srcmask'] === '30') && ($hrb[2]['src'] === '10.9.0.1') &&
     ($hrb[2]['dsttype'] === 'opt1ip') && ($hrb[2]['dstbeginport'] === '8443') && (strpos($hrb[2]['descr'], FLEET_HA_MARK) === 0),
     'the sync interface rules are the same on both and right on either (HA sync copies them): pfsync from the sync network, configuration sync from the primary');
+check($hrb[0]['dsttype'] === 'network' && $hrb[0]['dst'] === '10.9.0.0' && $hrb[1]['dsttype'] === 'network' && $hrb[1]['dst'] === '10.9.0.0' && $hrb[1]['dstmask'] === '30', 'the pfsync rules go only to the sync network, not to any address');
 check(($hrb[0]['direction'] === 'out') && !empty($hrb[0]['floating']) && !empty($hrb[0]['quick']) && ($hrb[0]['interface'] === array('opt1')) && ($hrb[0]['proto'] === 'pfsync') &&
     ($hrb[0]['statetype'] === 'none') && ($hrb[1]['statetype'] === 'none') && !empty($hrb[0]['allowopts']) && !empty($hrb[1]['allowopts']) && !empty($hrb[2]['nopfsync']),
     'the pfsync rules are stateless and allow IP options, in and out (an outgoing floating rule too), or pfsync syncs the states of its own packets again and again');
