@@ -34,14 +34,39 @@ require_once('fleet.inc');
 if (!fleet_ctl_settings()['enable'] || !is_file(FLEET_DATA . '/fleet.db')) {
 	exit(0);
 }
+/* One firewall (started by a poll round to check many at once): print its state as JSON. */
+if (($argv[1] ?? '') === 'one') {
+	$box = fleet_box_get((string)($argv[2] ?? ''));
+	echo json_encode(($box === null) ? array('state' => '', 'due' => false) : fleet_poll_one($box, (int)($argv[3] ?? 60), ($argv[4] ?? '0') === '1'));
+	exit(0);
+}
 $lock = fopen('/var/run/fleet-poll.lock', 'c');
 if (!flock($lock, LOCK_EX | LOCK_NB)) {
 	exit(0);
 }
+
 /*
- * cron starts this every minute; it checks every firewall every
- * poll_interval seconds until the minute is nearly over. On-change backups
- * are looked at once per run.
+ * One stage of the minute: an error in it is logged and the next stage still runs (a database lock
+ * or a bug in one feature must not stop schedules, rollouts, the reaper and the rest every minute).
+ * What the last error of each stage was is kept for Settings to show.
+ */
+function fleet_poll_stage(string $name, callable $run): void {
+	try {
+		$run();
+	} catch (Throwable $e) {
+		error_log("Fleet poll stage {$name} failed: " . $e->getMessage() . ' at ' . $e->getFile() . ':' . $e->getLine());
+		try {
+			fleet_setting_set('poll_error_' . $name, json_encode(array('time' => time(), 'text' => mb_substr($e->getMessage(), 0, 300))));
+		} catch (Throwable $again) {
+			/* The store itself is the problem: the log has it. */
+		}
+	}
+}
+
+/*
+ * cron starts this every minute; it checks every firewall every poll_interval seconds until the
+ * minute is nearly over (several firewalls at once, so ones that do not answer do not hold the rest
+ * up), then runs the stages once a minute. Alerts are sent by freesense-fleet-alerts, not here.
  */
 $interval = fleet_ctl_settings()['poll_interval'];
 $until = time() + 55;
@@ -49,61 +74,63 @@ $first = true;
 do {
 	$round = time();
 	$due = array();
-	foreach (fleet_db()->query('SELECT * FROM boxes ORDER BY host_no')->fetchAll() as $box) {
-		if ((fleet_poll_box($box, time(), $interval) === 'online') && $first) {
-			/* Now and then: is an update available? (the box checks its own channel) */
-			$info = fleet_update_info($box);
-			if (($box['role'] === 'managed' || $box['role'] === 'monitor') && (($info === null) || (time() - (int)$info['checked'] >= 3600 * fleet_opt('update_check_hours')))) {
-				fleet_update_check($box);
-			}
-			/* A changed configuration that has been quiet for a while gets a backup. */
-			$status = json_decode((string)fleet_box_get($box['node_id'])['status'], true) ?: array();
-			if (fleet_backup_due(fleet_backup_latest($box['node_id']), $status, time())) {
-				$due[] = $box;
-			}
+	$boxes = array();
+	$results = array();
+	fleet_poll_stage('round', function () use (&$boxes, &$results, $interval, $first, $until) {
+		$boxes = array_column(fleet_db()->query('SELECT * FROM boxes ORDER BY host_no')->fetchAll(), null, 'node_id');
+		$results = fleet_poll_many(array_values($boxes), $interval, $first, fleet_opt('poll_parallel'), $until - 3);
+	});
+	foreach ($results as $node => $r) {
+		if (!empty($r['due']) && isset($boxes[$node])) {
+			$due[] = $boxes[$node];
 		}
 	}
 	/* How long a round over every firewall took (the NOC's fleet server panel). */
-	fleet_setting_set('poll_round', json_encode(array('at' => $round, 'secs' => time() - $round, 'boxes' => (int)fleet_db()->query('SELECT COUNT(*) FROM boxes')->fetchColumn())));
-	if (!empty($due)) {
-		fleet_backup_many($due, 'change', 'system');
-	}
+	fleet_poll_stage('round_note', function () use ($round) {
+		fleet_setting_set('poll_round', json_encode(array('at' => $round, 'secs' => time() - $round, 'boxes' => (int)fleet_db()->query('SELECT COUNT(*) FROM boxes')->fetchColumn())));
+	});
 	if ($first) {
 		/* Operations nothing is running any more fail instead of staying "running" for ever. */
-		try {
-			fleet_ops_reap(time());
-		} catch (Throwable $e) {
-			error_log('Fleet: ops reaper failed: ' . $e->getMessage());
-		}
+		fleet_poll_stage('reaper', function () { fleet_ops_reap(time()); });
 		/* Rollouts move on once a minute: the next firewall when its ring's window is open. */
-		fleet_rollouts_tick(time());
-		fleet_conn_auto_tick();
-		fleet_ha_tick();
+		fleet_poll_stage('rollouts', function () { fleet_rollouts_tick(time()); });
+		fleet_poll_stage('conn_auto', function () { fleet_conn_auto_tick(); });
+		fleet_poll_stage('ha', function () { fleet_ha_tick(); });
 		/* A standby controller: its copy, the firewalls' endpoints, and whether this controller was replaced. */
-		fleet_standby_fence_tick(time());
-		fleet_access_tick(time());
+		fleet_poll_stage('standby_fence', function () { fleet_standby_fence_tick(time()); });
+		fleet_poll_stage('access', function () { fleet_access_tick(time()); });
 		/* Load samples for the fleet charts, every 5 minutes per firewall. */
-		fleet_samples_tick(time());
-		fleet_samples_rollup(time());
+		fleet_poll_stage('samples', function () { fleet_samples_tick(time()); });
+		fleet_poll_stage('samples_rollup', function () { fleet_samples_rollup(time()); });
 		/* Internet connectivity (an option): every firewall's gateways. */
-		fleet_inet_tick(time());
-		fleet_inet_rollup(time());
+		fleet_poll_stage('inet', function () { fleet_inet_tick(time()); });
+		fleet_poll_stage('inet_rollup', function () { fleet_inet_rollup(time()); });
 		if (fleet_ctl_settings()['enable']) {
-			fleet_standby_endpoints_tick();
-			fleet_standby_outbox_tick(time());
-			fleet_standby_watch_tick(time());
+			fleet_poll_stage('standby_endpoints', function () { fleet_standby_endpoints_tick(); });
+			fleet_poll_stage('standby_outbox', function () { fleet_standby_outbox_tick(time()); });
+			fleet_poll_stage('standby_watch', function () { fleet_standby_watch_tick(time()); });
 		}
 		if (!fleet_ctl_settings()['enable']) {
 			break;
 		}
-		fleet_stats_prune(time());
-		fleet_schedules_tick(time());
-		fleet_alerts_deliver();
-		fleet_alerts_reports(time());
-		if (time() - (int)fleet_setting('compliance_checked', '0') >= 900) {
-			fleet_compliance_refresh();
-			fleet_remediate_tick();
-		}
+		fleet_poll_stage('prune', function () { fleet_stats_prune(time()); });
+		fleet_poll_stage('schedules', function () { fleet_schedules_tick(time()); });
+		fleet_poll_stage('compliance', function () {
+			if (time() - (int)fleet_setting('compliance_checked', '0') >= 900) {
+				fleet_compliance_refresh();
+				fleet_remediate_tick();
+			}
+		});
+	}
+	/* Backups of changed configurations last: they run in their own processes and can take a while. */
+	if (!empty($due)) {
+		fleet_poll_stage('backups', function () use ($due) {
+			foreach (fleet_backup_many($due, 'change', 'system') as $node => $result) {
+				if ($result !== 'skipped') {
+					fleet_backup_attempt_record((string)$node, in_array($result, array('stored', 'unchanged'), true));
+				}
+			}
+		});
 	}
 	$first = false;
 	$next = $round + $interval;

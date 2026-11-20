@@ -1,0 +1,44 @@
+#!/usr/local/bin/php
+<?php
+/*
+ * part of FreeSense (https://www.freesense.org)
+ * Copyright (c) 2026 The FreeSense Project
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/*
+ * freesense-fleet-alerts: sends Fleet's alerts and the daily reports (cron, every minute).
+ * Apart from the status poll so that a webhook that does not answer cannot hold up monitoring,
+ * schedules or rollouts; it has its own lock and stops after FLEET_ALERT_BUDGET seconds.
+ */
+
+require_once('config.inc');
+require_once('functions.inc');
+require_once('fleet.inc');
+
+if (!fleet_ctl_settings()['enable'] || !is_file(FLEET_DATA . '/fleet.db')) {
+	exit(0);
+}
+$lock = fopen('/var/run/fleet-alerts.lock', 'c');
+if (!flock($lock, LOCK_EX | LOCK_NB)) {
+	exit(0);
+}
+foreach (array('deliver' => function () { fleet_alerts_deliver(time()); }, 'reports' => function () { fleet_alerts_reports(time()); }) as $stage => $run) {
+	try {
+		$run();
+	} catch (Throwable $e) {
+		error_log("Fleet alerts ({$stage}) failed: " . $e->getMessage());
+	}
+}

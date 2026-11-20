@@ -190,6 +190,21 @@ function fleet_backup_fetch(array $box): string {
 	return (string)$raw;
 }
 
+/* pure: may an on-change backup of this box be tried now? After failures the wait grows (2, 4, 8, ... minutes, at most 6 hours). */
+function fleet_backup_retry_ok(array $box, int $now): bool {
+	$fails = (int)($box['backup_fails'] ?? 0);
+	return ($fails === 0) || ($now >= (int)($box['backup_try'] ?? 0) + min(6 * 3600, 120 * (2 ** min(12, $fails))));
+}
+
+/* Remember how the last on-change backup of a box went: a failure counts and delays the next try, a success clears it. */
+function fleet_backup_attempt_record(string $node, bool $ok): void {
+	if ($ok) {
+		fleet_db()->prepare('UPDATE boxes SET backup_fails = 0, backup_try = 0 WHERE node_id = ? AND backup_fails != 0')->execute(array($node));
+		return;
+	}
+	fleet_db()->prepare('UPDATE boxes SET backup_fails = backup_fails + 1, backup_try = ? WHERE node_id = ?')->execute(array(time(), $node));
+}
+
 /*
  * A manual backup of one firewall as an operation (its tile shows "Backing up",
  * and nothing else runs on it meanwhile). Returns 'stored' or what

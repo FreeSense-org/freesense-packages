@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 32);
+define('FLEET_DB_SCHEMA', 33);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -570,6 +570,16 @@ CREATE INDEX IF NOT EXISTS access_fails_ip ON access_fails (ip, time);
 CREATE TABLE IF NOT EXISTS access_blocked (ip TEXT PRIMARY KEY, until INTEGER NOT NULL);
 DELETE FROM settings WHERE name IN ('bundles', 'remediations', 'users_sync', 'access_fails', 'access_blocked');
 PRAGMA user_version = 32;
+SQL);
+	}
+	if ($version < 33) {
+		/* A failed alert is tried again later and later (not every minute): when it may be tried next. */
+		$db->exec(<<<'SQL'
+ALTER TABLE alerts ADD COLUMN next_try INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE boxes ADD COLUMN backup_fails INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE boxes ADD COLUMN backup_try INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS alerts_due ON alerts (done, next_try);
+PRAGMA user_version = 33;
 SQL);
 	}
 }
