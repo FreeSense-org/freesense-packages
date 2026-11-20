@@ -334,12 +334,14 @@ function fleet_users_sync_box(array $box, string $who, ?callable $progress = nul
 }
 
 function fleet_users_state_set(string $node, string $result, string $detail): void {
-	$all = json_decode((string)fleet_setting('users_sync', '{}'), true) ?: array();
-	$prev = $all[$node]['synced'] ?? null;
+	$q = fleet_db()->prepare('SELECT synced FROM users_sync WHERE node_id = ?');
+	$q->execute(array($node));
+	$prev = $q->fetchColumn();
 	/* What Fleet last put on the firewall: only differences from that are drift. */
-	$all[$node] = array('time' => time(), 'result' => $result, 'detail' => $detail,
-	    'synced' => ($result === 'done') ? fleet_users_desired_hash(fleet_users_desired_for($node)) : $prev);
-	fleet_setting_set('users_sync', json_encode($all));
+	$synced = ($result === 'done') ? fleet_users_desired_hash(fleet_users_desired_for($node)) : (($prev === false) ? null : $prev);
+	fleet_db()->prepare('INSERT INTO users_sync (node_id, time, result, detail, synced) VALUES (?, ?, ?, ?, ?)
+	    ON CONFLICT(node_id) DO UPDATE SET time = excluded.time, result = excluded.result, detail = excluded.detail, synced = excluded.synced')
+	    ->execute(array($node, time(), $result, $detail, $synced));
 }
 
 /* pure: a fingerprint of what Fleet wants on a firewall. */
@@ -356,8 +358,13 @@ function fleet_users_difference_kind(?string $synced, string $desired): string {
 	return (($synced !== null) && hash_equals($synced, $desired)) ? 'drift' : 'pending';
 }
 
+/* node_id => {time, result, detail, synced} of the last user sync (one row per firewall). */
 function fleet_users_states(): array {
-	return json_decode((string)fleet_setting('users_sync', '{}'), true) ?: array();
+	$out = array();
+	foreach (fleet_db()->query('SELECT * FROM users_sync')->fetchAll() as $r) {
+		$out[$r['node_id']] = array('time' => (int)$r['time'], 'result' => $r['result'], 'detail' => $r['detail'], 'synced' => $r['synced']);
+	}
+	return $out;
 }
 
 /* Start syncing every firewall a user group is for (or $only) in the background. Returns the operation id. */

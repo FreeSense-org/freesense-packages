@@ -73,3 +73,20 @@ unset($udb);
 foreach (glob("{$ufile}*") ?: array() as $f) {
 	@unlink($f);
 }
+
+/* Eight processes record a wrong key from one address at once: no count is lost and the address is blocked exactly once. */
+$astart = microtime(true) + 1.5;
+$aprocs = array();
+for ($i = 0; $i < 8; $i++) {
+	$aprocs[] = array(proc_open(array(PHP_BINARY, __DIR__ . '/../access-worker.php', $src, $data, (string)$astart), array(1 => array('pipe', 'w'), 2 => array('pipe', 'w')), $apipes), $apipes);
+}
+$aout = array();
+foreach ($aprocs as list($p, $pipes)) {
+	$aout[] = trim((string)stream_get_contents($pipes[1])) . trim((string)stream_get_contents($pipes[2]));
+	proc_close($p);
+}
+$newly = count(array_filter($aout, function ($o) { return strpos($o, 'true') !== false; }));
+check(($newly === 1) && !preg_grep('/error/', $aout) && (fleet_access_blocked()['203.0.113.5'] === 5000 + 600) &&
+    (fleet_db()->query("SELECT COUNT(*) FROM access_fails WHERE ip = '203.0.113.5'")->fetchColumn() == 3),
+    'parallel wrong keys: none is lost and the address is blocked once (' . implode(' ', $aout) . ')');
+fleet_db()->exec("DELETE FROM access_blocked; DELETE FROM access_fails");
