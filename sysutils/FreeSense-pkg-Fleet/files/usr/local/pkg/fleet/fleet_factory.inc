@@ -257,7 +257,8 @@ function fleet_factory_settings(array $in): array {
 		throw new InvalidArgumentException('Choose how the key reaches the firewalls.');
 	}
 	$role = in_array($in['role'] ?? '', array('monitor', 'managed'), true) ? $in['role'] : 'managed';
-	$days = max(1, min(30, (int)($in['days'] ?? 14)));
+	/* A seed that joins by itself is kept short: it sits on a stick that may be lost. */
+	$days = max(1, min(($mode === 'unattended') ? 7 : 30, (int)($in['days'] ?? (($mode === 'unattended') ? 3 : 14))));
 	$gid = (int)($in['group'] ?? 0);
 	if (($gid > 0) && (fleet_group_get($gid) === null)) {
 		throw new InvalidArgumentException('That group no longer exists.');
@@ -337,7 +338,7 @@ function fleet_factory_generate(array $settings, string $csv, string $passphrase
 			$pin = ($settings['mode'] === 'pin') ? fleet_factory_new_pin() : null;
 			$folder = ($host !== '') ? $host : sprintf('firewall-%03d', $i + 1);
 			@mkdir("{$dir}/bundle/{$folder}", 0700);
-			$seed = fleet_factory_seed($link, $settings['mode'], $key, $pin, $tskey);
+			$seed = fleet_factory_seed($link, $settings['mode'], $key, $pin, $tskey) + array('expires' => (int)$expires);
 			file_put_contents("{$dir}/bundle/{$folder}/fleet-join.conf", json_encode($seed, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
 			/* The same seed on a small FAT disk, and as cloud-init for a cloud image. */
 			@mkdir("{$dir}/work/{$folder}/seed", 0700, true);

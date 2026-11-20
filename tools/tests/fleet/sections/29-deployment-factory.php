@@ -39,3 +39,8 @@ check(fleet_batch_row_state(array('box' => null, 'inv_state' => 'open', 'expires
 
 fleet_db()->prepare('INSERT INTO batches (name, settings, created, who) VALUES (?, ?, ?, ?)')->execute(array('t', '{}', 1, 't'));
 check(is_array(fleet_batch_rows((int)fleet_db()->lastInsertId())), 'batch rows can be read (the query matches the schema)');
+
+/* An unattended seed is kept short: 3 days by default, 7 at most; the other modes keep their 14 and 30. */
+check(fleet_factory_settings(array('name' => 'x', 'mode' => 'unattended'))['days'] === 3 && fleet_factory_settings(array('name' => 'x', 'mode' => 'unattended', 'days' => 30))['days'] === 7 &&
+    fleet_factory_settings(array('name' => 'x', 'mode' => 'attended'))['days'] === 14 && fleet_factory_settings(array('name' => 'x', 'mode' => 'pin', 'days' => 30))['days'] === 30,
+    'an unattended seed lives 3 days by default and 7 at most');
