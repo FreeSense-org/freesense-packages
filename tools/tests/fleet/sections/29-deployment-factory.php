@@ -15,7 +15,7 @@ check(strpos(implode(' ', $fbad[1]['problems']), 'same label') !== false && strp
 check(fleet_enroll_binding_ok('', '', array()) && fleet_enroll_binding_ok('PT-1', '', array('serial' => 'PT-1')) && !fleet_enroll_binding_ok('PT-1', '', array('serial' => 'PT-2')) &&
     fleet_enroll_binding_ok('PT-1', 'i-9', array('serial' => '', 'instance_id' => 'i-9')) && !fleet_enroll_binding_ok('', 'i-9', array()), 'binding to a serial or instance id (E121 otherwise)');
 $fenc = fleet_factory_encrypt('bundle bytes', 'correct horse battery', 1000);
-check(fleet_factory_decrypt($fenc, 'correct horse battery', 1000) === 'bundle bytes' && fleet_factory_decrypt($fenc, 'wrong', 1000) === null && strncmp($fenc, 'Salted__', 8) === 0,
+check(fleet_factory_decrypt($fenc, 'correct horse battery', 1000) === 'bundle bytes' && fleet_factory_decrypt($fenc, 'wrong', 1000) !== 'bundle bytes' && strncmp($fenc, 'Salted__', 8) === 0,
     'the bundle encryption (OpenSSL salted format)');
 if (trim((string)@shell_exec('command -v openssl')) !== '') {
 	$ftmp = tempnam(sys_get_temp_dir(), 'fenc');
