@@ -480,12 +480,15 @@ function fleet_inet_pulse(array $boxes, int $now): array {
 	$cur = fleet_inet_now();
 	$rows = array();
 	$map = FLEET_INET_PULSE;
+	/* One read of the whole log, not one per firewall (only the last 30 days are kept). */
+	$by_node = array();
+	foreach (fleet_db()->query('SELECT node_id, time, state FROM inet_log WHERE time < ' . (int)$to . ' ORDER BY time')->fetchAll(PDO::FETCH_NUM) as list($nid, $t, $s)) {
+		$by_node[$nid][] = array($t, $s);
+	}
 	foreach ($boxes as $b) {
-		$q = fleet_db()->prepare('SELECT time, state FROM inet_log WHERE node_id = ? AND time < ? ORDER BY time');
-		$q->execute(array($b['node_id'], $to));
 		$before = null;
 		$log = array();
-		foreach ($q->fetchAll(PDO::FETCH_NUM) as list($t, $s)) {
+		foreach ($by_node[$b['node_id']] ?? array() as list($t, $s)) {
 			$s = $map[$s] ?? null;
 			if ((int)$t < $from) {
 				$before = $s;

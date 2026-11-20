@@ -22,8 +22,9 @@
  * freesense-fleet-backup: central configuration backups.
  *   freesense-fleet-backup nightly              every box (cron, 03:17)
  *   freesense-fleet-backup all <who> [group]    every box, or one group's ("Back up all now")
- *   freesense-fleet-backup nodes <who> <title> <node,node,...>
- *                                               these boxes (schedules with several targets)
+ *   freesense-fleet-backup nodes <who> <title> <file>
+ *                                               the boxes listed in <file> (a JSON list the schedule wrote, read and
+ *                                               removed here; schedules with several targets)
  *   freesense-fleet-backup replicate <who>      sync the copies on other firewalls now
  *   freesense-fleet-backup verify <who>         test-restore every firewall's backups now
  *   freesense-fleet-backup one <node> <reason> <who>
@@ -70,23 +71,31 @@ if ($cmd === 'one') {
 }
 
 if (($cmd === 'nightly') || ($cmd === 'all') || ($cmd === 'nodes')) {
-	$lock = fopen('/var/run/fleet-backup.lock', 'c');
+	$who = ($cmd === 'nightly') ? 'schedule' : (string)($argv[2] ?? 'system');
+	$gid = ($cmd === 'all') ? (int)($argv[3] ?? 0) : 0;
+	$group = ($gid > 0) ? fleet_group_get($gid) : null;
+	$wanted = ($cmd === 'nodes') ? fleet_backup_nodes_read((string)($argv[4] ?? '')) : array();
+	$title = ($cmd === 'nodes') ? mb_substr((string)($argv[3] ?? 'Back up'), 0, 120) : (($group !== null) ? sprintf('Back up %s', $group['name']) : (($cmd === 'nightly') ? 'Nightly backup' : 'Back up all firewalls'));
+	/* A group that was deleted since the schedule was made must not turn into "every firewall". */
+	if (($cmd === 'all') && ($gid > 0) && ($group === null)) {
+		fleet_op_set(fleet_op_group_start('backup_all', 'Back up a deleted group', $who), 'failed', 'That group no longer exists; nothing was backed up.');
+		exit(1);
+	}
+	/* The same run twice at once is refused (and shows as skipped in Activity); different runs go side by side. */
+	$lock = fopen('/var/run/fleet-backup-' . substr(hash('sha256', $cmd . '|' . $gid . '|' . implode(',', $wanted)), 0, 16) . '.lock', 'c');
 	if (!flock($lock, LOCK_EX | LOCK_NB)) {
-		echo "A backup of all firewalls is already running.\n";
+		fleet_op_set(fleet_op_group_start('backup_all', $title, $who), 'skipped', 'Skipped: the same backup is already running.');
 		exit(0);
 	}
-	$who = ($cmd === 'nightly') ? 'schedule' : (string)($argv[2] ?? 'system');
-	$group = ($cmd === 'all') ? fleet_group_get((int)($argv[3] ?? 0)) : null;
 	$boxes = fleet_db()->query("SELECT * FROM boxes WHERE state != 'offline' ORDER BY host_no")->fetchAll();
 	if ($cmd === 'nodes') {
-		$want = array_flip(explode(',', (string)($argv[4] ?? '')));
+		$want = array_flip($wanted);
 		$boxes = array_values(array_filter($boxes, function ($b) use ($want) { return isset($want[$b['node_id']]); }));
 	}
 	if ($group !== null) {
 		$members = array_column(fleet_db()->query('SELECT node_id FROM box_groups WHERE group_id = ' . (int)$group['id'])->fetchAll(), 'node_id');
 		$boxes = array_values(array_filter($boxes, function ($b) use ($members) { return in_array($b['node_id'], $members, true); }));
 	}
-	$title = ($cmd === 'nodes') ? mb_substr((string)($argv[3] ?? 'Back up'), 0, 120) : (($group !== null) ? sprintf('Back up %s', $group['name']) : (($cmd === 'nightly') ? 'Nightly backup' : 'Back up all firewalls'));
 	$op = fleet_op_group_start('backup_all', $title, $who);
 	$results = fleet_backup_many($boxes, $cmd, $who, $op);
 	fleet_op_group_update($op);
@@ -111,5 +120,5 @@ if (($cmd === 'nightly') || ($cmd === 'all') || ($cmd === 'nodes')) {
 	exit(0);
 }
 
-echo "usage: freesense-fleet-backup nightly | all <who> [group] | nodes <who> <title> <nodes> | one <node> <reason> <who>\n";
+echo "usage: freesense-fleet-backup nightly | all <who> [group] | nodes <who> <title> <file of nodes> | one <node> <reason> <who>\n";
 exit(64);
