@@ -346,6 +346,19 @@ function fleet_op_begin_task(array $task, string $text = 'Starting'): bool {
 	}
 }
 
+/* Skip every task of a group operation that is still waiting (after a failure that makes going on unsafe), and recount the group. Returns how many. */
+function fleet_op_skip_rest(int $op_id, string $reason): int {
+	$n = 0;
+	foreach (fleet_op_tasks($op_id) as $t) {
+		if ($t['state'] === 'queued') {
+			fleet_op_set((int)$t['id'], 'skipped', $reason);
+			$n++;
+		}
+	}
+	fleet_op_group_update($op_id);
+	return $n;
+}
+
 /* A queued task that was cancelled before it started: nothing was sent to the firewall. */
 class FleetOpCancelled extends RuntimeException {
 }

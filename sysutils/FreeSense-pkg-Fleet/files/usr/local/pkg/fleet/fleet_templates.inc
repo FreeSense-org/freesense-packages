@@ -287,7 +287,11 @@ function fleet_template_settings_open(array $t): array {
 
 /* What a template wants, as a hash (the state of each firewall keeps it, so a changed template shows as "to apply"). */
 function fleet_template_hash(array $t): string {
-	return hash('sha256', json_encode((($t['kind'] === 'aliases') || isset(FLEET_TLIST_KINDS[$t['kind']])) ? $t['items'] : fleet_template_settings_open($t)));
+	if (($t['kind'] === 'aliases') || isset(FLEET_TLIST_KINDS[$t['kind']])) {
+		return hash('sha256', json_encode($t['items']));
+	}
+	/* Settings can hold a secret (the SNMP community): keyed with the master key, so the stored hash cannot be used to guess it. */
+	return hash_hmac('sha256', json_encode(fleet_template_settings_open($t)), fleet_master_key());
 }
 
 /* Save a settings template (time, DNS, SNMP, remote logging). */
@@ -532,12 +536,20 @@ function fleet_template_apply_box(array $t, array $box, string $who, ?callable $
 		}
 		$n++;
 		$say(ucfirst($p['action']) . ' ' . $p['name'], 20 + (int)(60 * $n / $todo));
-		if ($p['action'] === 'delete') {
-			list($code, $json) = fleet_box_call($box, 'DELETE', '/api/v1/firewall/aliases/' . rawurlencode($p['name']));
-		} else {
-			$body = fleet_template_alias_body((int)$t['id'], $items[strtolower($p['name'])]);
-			list($code, $json) = ($p['action'] === 'create') ? fleet_box_call($box, 'POST', '/api/v1/firewall/aliases', $body) :
-			    fleet_box_call($box, 'PUT', '/api/v1/firewall/aliases/' . rawurlencode($p['name']), $body);
+		try {
+			if ($p['action'] === 'delete') {
+				list($code, $json) = fleet_box_call($box, 'DELETE', '/api/v1/firewall/aliases/' . rawurlencode($p['name']));
+			} else {
+				$body = fleet_template_alias_body((int)$t['id'], $items[strtolower($p['name'])]);
+				list($code, $json) = ($p['action'] === 'create') ? fleet_box_call($box, 'POST', '/api/v1/firewall/aliases', $body) :
+				    fleet_box_call($box, 'PUT', '/api/v1/firewall/aliases/' . rawurlencode($p['name']), $body);
+			}
+		} catch (Throwable $e) {
+			/* The connection dropped: what the firewall has now is unknown. Stop here, do not reload a half-made set; applying again carries on from what is there. */
+			$err = sprintf('The connection stopped after %d of %d changes (%s: %s). The first ones are saved on the firewall but not applied; apply the template again to finish.', $n - 1, $todo, $p['name'], $e->getMessage());
+			fleet_template_state_set((int)$t['id'], $box['node_id'], $hash, 'failed', $err);
+			fleet_audit($who, 'template', "{$t['name']} on {$box['label']}: {$err}", $box['node_id']);
+			throw new RuntimeException($err);
 		}
 		if (($code < 200) || ($code >= 300)) {
 			$errors[] = $p['name'] . ': ' . fleet_box_error($code, $json);
@@ -632,7 +644,15 @@ function fleet_template_apply_settings(array $t, array $box, string $who, ?calla
 	$say('Safety backup', 30);
 	fleet_backup_box($box, 'template', $who);
 	$say('Changing ' . strtolower(FLEET_TSET_KINDS[$kind][0]), 60);
-	list($code, $json) = fleet_box_call($box, 'PUT', FLEET_TSET_KINDS[$kind][3], fleet_tset_body($kind, $want));
+	try {
+		list($code, $json) = fleet_box_call($box, 'PUT', FLEET_TSET_KINDS[$kind][3], fleet_tset_body($kind, $want));
+	} catch (Throwable $e) {
+		/* A lost answer: the change may or may not be on the firewall. Recorded as failed so it shows, and applying again compares first. */
+		$err = 'No answer to the change (' . $e->getMessage() . '). Check the firewall and apply again.';
+		fleet_template_state_set((int)$t['id'], $box['node_id'], $hash, 'failed', $err);
+		fleet_audit($who, 'template', "{$t['name']} on {$box['label']}: {$err}", $box['node_id']);
+		throw new RuntimeException($err);
+	}
 	if (($code < 200) || ($code >= 300)) {
 		$err = fleet_box_error($code, $json);
 		fleet_template_state_set((int)$t['id'], $box['node_id'], $hash, 'failed', $err);

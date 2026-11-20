@@ -34,7 +34,8 @@
  *   freesense-fleet-run template <op id> <template id>
  *     Applies a template to the operation's firewalls one after another
  *     (each takes seconds). A failure on one firewall does not stop the
- *     others.
+ *     others for rule and NAT templates (they roll back by themselves); for alias and
+ *     settings templates it stops the rest, which are skipped.
  *   freesense-fleet-run users <op id>
  *     Syncs Fleet users and groups to the operation's firewalls one after
  *     another; a failure on one does not stop the others.
@@ -172,6 +173,11 @@ if ($cmd === 'template') {
 			fleet_op_set((int)$task['id'], 'done', $text);
 		} catch (Throwable $e) {
 			fleet_op_fail_open((int)$task['id'], $e->getMessage());
+			/* Aliases and settings are not under commit-confirm: after a failure the rest wait, so one bad template never reaches every firewall. */
+			if (!isset(FLEET_TLIST_KINDS[$t['kind']])) {
+				fleet_op_skip_rest($op_id, sprintf('Skipped: stopped after a failure on %s. Apply again to the rest.', (string)($box['label'] ?? $box['node_id'])));
+				break;
+			}
 		}
 		fleet_op_group_update($op_id);
 	}

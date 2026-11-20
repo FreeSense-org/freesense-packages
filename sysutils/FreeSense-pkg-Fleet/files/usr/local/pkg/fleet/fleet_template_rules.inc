@@ -82,6 +82,20 @@ function fleet_tlist_addr_ok(string $a): bool {
 	return (bool)preg_match('/^[A-Za-z_][A-Za-z0-9_]{0,30}$/D', $a);
 }
 
+/* pure: the address family an address pins down: 'inet6', 'inet', or null for any, an interface or an alias (which can be either). */
+function fleet_tlist_addr_family(string $a): ?string {
+	$ip = (strpos($a, '/') !== false) ? explode('/', $a, 2)[0] : $a;
+	if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false) {
+		return 'inet6';
+	}
+	return (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false) ? 'inet' : null;
+}
+
+/* pure: the IP version of a rule: the family its addresses name (IPv4 when they name none). Both addresses must agree. */
+function fleet_tlist_ipproto(array $item): string {
+	return fleet_tlist_addr_family((string)($item['src'] ?? 'any')) ?? fleet_tlist_addr_family((string)($item['dst'] ?? 'any')) ?? 'inet';
+}
+
 /* pure: a port: 443, a range 8000-8080, or an alias name. */
 function fleet_tlist_port_ok(string $p): bool {
 	if (preg_match('/^(\d{1,5})(-(\d{1,5}))?$/D', $p, $m)) {
@@ -119,6 +133,11 @@ function fleet_tlist_item_from(string $kind, array $in): array {
 		if (($port !== '') && (!in_array($proto, array('tcp', 'udp', 'tcp/udp'), true) || !fleet_tlist_port_ok($port))) {
 			throw new InvalidArgumentException("{$key}: a port needs TCP or UDP, and is 443, 8000-8080 or an alias.");
 		}
+		$fs = fleet_tlist_addr_family($src);
+		$fd = fleet_tlist_addr_family($dst);
+		if (($fs !== null) && ($fd !== null) && ($fs !== $fd)) {
+			throw new InvalidArgumentException("{$key}: the source and the destination are not both IPv4 or both IPv6.");
+		}
 		return array('key' => $key, 'action' => $action, 'iface' => $iface, 'proto' => $proto, 'src' => $src, 'dst' => $dst, 'port' => $port,
 		    'log' => !empty($in['log']), 'descr' => $descr);
 	}
@@ -132,6 +151,9 @@ function fleet_tlist_item_from(string $kind, array $in): array {
 	}
 	if (($target === '') || !fleet_tlist_addr_ok($target) || ($target === 'any') || (strpos($target, '/') !== false)) {
 		throw new InvalidArgumentException("{$key}: forward to one address or a host alias.");
+	}
+	if (fleet_tlist_addr_family($target) === 'inet6') {
+		throw new InvalidArgumentException("{$key}: port forwards are IPv4: forward to an IPv4 address or a host alias.");
 	}
 	return array('key' => $key, 'iface' => $iface, 'proto' => $proto, 'port' => $port, 'target' => $target, 'local' => ($local !== '') ? $local : $port, 'descr' => $descr);
 }
@@ -188,7 +210,7 @@ function fleet_tlist_body(string $kind, int $tid, array $item): array {
 	if ($kind === 'rules') {
 		list($st, $s, $sm) = fleet_tlist_addr_fields($item['src']);
 		list($dt, $d, $dm) = fleet_tlist_addr_fields($item['dst']);
-		$body = array('type' => $item['action'], 'interface' => $item['iface'], 'ipprotocol' => 'inet', 'proto' => $item['proto'],
+		$body = array('type' => $item['action'], 'interface' => $item['iface'], 'ipprotocol' => fleet_tlist_ipproto($item), 'proto' => $item['proto'],
 		    'srctype' => $st, 'src' => $s, 'srcmask' => $sm, 'dsttype' => $dt, 'dst' => $d, 'dstmask' => $dm,
 		    'dstbeginport' => $pb, 'dstendport' => $pe, 'descr' => $descr, 'log' => $item['log']);
 		return $body;
@@ -312,7 +334,7 @@ function fleet_tlist_rule_order(int $tid, array $items, array $remote): array {
 /* pure: the entries of a configuration backup, as the REST list has them (with ids), or null. */
 function fleet_tlist_from_config(string $kind, string $xml): ?array {
 	$prev = libxml_use_internal_errors(true);
-	$doc = simplexml_load_string($xml);
+	$doc = simplexml_load_string($xml, 'SimpleXMLElement', LIBXML_NONET);
 	libxml_use_internal_errors($prev);
 	if ($doc === false) {
 		return null;
