@@ -68,6 +68,9 @@ check($box['label'] === 'Copenhagen office' && $box['name'] === 'edge01' && $box
     'the box record: label, name, pinned certificate, and the API key encrypted');
 check(in_array('role:managed', $ev, true) && count(preg_grep('/^approval:wait:\d{6}$/', $ev)) === 1, 'the role reaches the box; the code is shown');
 $enr = fleet_db()->query('SELECT * FROM enrollments WHERE state = \'joined\'')->fetch();
+$again = fleet_enroll_complete(array('enrollment_id' => $enr['id'], 'api_key' => 'fsk_0123456789ab_' . str_repeat('B', 43)), $parsed['token_secret'], $clock, $ctx);
+$wrong = fleet_enroll_complete(array('enrollment_id' => $enr['id'], 'api_key' => 'fsk_0123456789ab_' . str_repeat('C', 43)), $parsed['token_secret'], $clock, $ctx);
+check($again[0] === 200 && $again[1]['node_id'] === $box['node_id'] && $wrong[0] === 403 && count($joined) === 1, 'a retried completion gets the same answer, once; a wrong key gets nothing');
 check(in_array("approval:wait:{$enr['code']}", $ev, true), 'the box and the controller show the same code');
 check(fleet_db()->query("SELECT state FROM invitations WHERE token_id = '{$tid}'")->fetchColumn() === 'used' &&
     fleet_db()->query("SELECT okm FROM invitations WHERE token_id = '{$tid}'")->fetchColumn() === '', 'the invitation is used up and its key material deleted');
