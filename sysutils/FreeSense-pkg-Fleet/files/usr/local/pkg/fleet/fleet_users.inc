@@ -329,7 +329,7 @@ function fleet_users_sync_box(array $box, string $who, ?callable $progress = nul
 	}
 	$words = sprintf('%d added, %d changed, %d removed', $c['create'], $c['update'], $c['delete']) . (empty($notes) ? '' : '. ' . implode('. ', $notes));
 	fleet_users_state_set($box['node_id'], 'done', $words);
-	fleet_audit($who, 'users', "Sync to {$box['label']}: {$words}");
+	fleet_audit($who, 'users', "Sync to {$box['label']}: {$words}", $box['node_id']);
 	return $words . '.';
 }
 
@@ -428,7 +428,7 @@ function fleet_users_follow(array $box, array $status): void {
 	}
 	try {
 		fleet_users_launch('fleet', array($box['node_id']));
-		fleet_audit('fleet', 'users', "{$box['label']}: updated from {$was} to {$now}; users synced again");
+		fleet_audit('fleet', 'users', "{$box['label']}: updated from {$was} to {$now}; users synced again", $box['node_id']);
 	} catch (RuntimeException $e) {
 	}
 }

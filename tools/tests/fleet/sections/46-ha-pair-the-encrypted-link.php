@@ -197,7 +197,7 @@ check((strpos((string)$sdb->query("SELECT sql FROM sqlite_master WHERE name = 'k
 check((strpos((string)$sdb->query("SELECT sql FROM sqlite_master WHERE name = 'gw_hourly'")->fetchColumn(), 'flaps') !== false) &&
     ((int)$sdb->query("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('gw_samples', 'gw_hourly', 'inet_state', 'inet_log')")->fetchColumn() === 4),
     'schema 29 has the internet tables');
-check(((int)$sdb->query('PRAGMA user_version')->fetchColumn() === 31) && (strpos((string)$sdb->query("SELECT sql FROM sqlite_master WHERE name = 'invitations'")->fetchColumn(), 'via_iface') !== false),
+check(((int)$sdb->query('PRAGMA user_version')->fetchColumn() >= 31) && (strpos((string)$sdb->query("SELECT sql FROM sqlite_master WHERE name = 'invitations'")->fetchColumn(), 'via_iface') !== false),
     'schema 31: an invitation keeps how the firewall connects and the interface of a direct path');
 $sdb->exec("INSERT INTO samples (node_id, time, cpu) VALUES ('sx', 100, 5), ('sy', 100, 9)");
 $sdb->exec("INSERT INTO samples_hourly (node_id, time, n, cpu, cpu_max) VALUES ('sx', 50, 12, 4, 8)");

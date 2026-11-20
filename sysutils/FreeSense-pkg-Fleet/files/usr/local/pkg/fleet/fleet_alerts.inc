@@ -98,8 +98,8 @@ function fleet_alert_wanted(array $channel, string $event, string $severity): bo
  * text), or null. Every feature already writes its failures to the
  * audit log, so alerts follow from one place.
  */
-function fleet_alert_classify(string $action, string $detail): ?array {
-	$node = preg_match('/^([A-Za-z0-9_-]{6,64}) \(/', $detail, $m) ? $m[1] : '';
+function fleet_alert_classify(string $action, string $detail, string $node = '', string $code = ''): ?array {
+	list($node, $code) = fleet_audit_subject($detail, ($node !== '') ? $node : null, ($code !== '') ? $code : null);
 	switch ($action) {
 	case 'state':
 		if (preg_match('/: (\w+) -> (\w+)/', $detail, $s)) {
@@ -114,14 +114,14 @@ function fleet_alert_classify(string $action, string $detail): ?array {
 	case 'backup_failed':
 		return array('backup_failed', $node, $detail);
 	case 'backup_verify':
-		return (strpos($detail, 'FLEET-E806') !== false) ? array('backup_failed', '', $detail) : null;
+		return ($code === 'FLEET-E806') ? array('backup_failed', $node, $detail) : null;
 	case 'restore_failed':
 		return array('op_failed', $node, $detail);
 	case 'policy':
-		if (strpos($detail, 'FLEET-E321') !== false) {
-			return array('breakglass', '', $detail);
+		if ($code === 'FLEET-E321') {
+			return array('breakglass', $node, $detail);
 		}
-		return (strpos($detail, 'FLEET-E320') !== false) ? array('policy', '', $detail) : null;
+		return ($code === 'FLEET-E320') ? array('policy', $node, $detail) : null;
 	case 'replicas':
 		return preg_match('/fail|FLEET-E80[3-7]|could not|unreachable/i', $detail) ? array('copies', '', $detail) : null;
 	case 'pending':
@@ -134,8 +134,8 @@ function fleet_alert_classify(string $action, string $detail): ?array {
 }
 
 /* Called by fleet_audit(): raise the alert an entry means. Never throws. */
-function fleet_alert_from_audit(string $action, string $detail): void {
-	$a = fleet_alert_classify($action, $detail);
+function fleet_alert_from_audit(string $action, string $detail, string $node = '', string $code = ''): void {
+	$a = fleet_alert_classify($action, $detail, $node, $code);
 	if ($a === null) {
 		return;
 	}
@@ -309,15 +309,17 @@ function fleet_alert(string $event, string $node, string $text, ?string $severit
 	}
 	$severity = $severity ?? FLEET_ALERT_EVENTS[$event][1];
 	$now = time();
-	$q = fleet_db()->prepare('SELECT id FROM alerts WHERE event = ? AND node_id = ? AND time > ? ORDER BY id DESC LIMIT 1');
-	$q->execute(array($event, $node, $now - FLEET_ALERT_MERGE));
+	/* One firewall's repeats merge. An alert about no firewall (an enrollment, the copies) merges only with the same text, so two different ones are both sent. */
+	$text = mb_substr($text, 0, 1000);
+	$q = fleet_db()->prepare('SELECT id FROM alerts WHERE event = ? AND node_id = ? AND time > ? AND (node_id != ? OR text = ?) ORDER BY id DESC LIMIT 1');
+	$q->execute(array($event, $node, $now - FLEET_ALERT_MERGE, '', $text));
 	$same = $q->fetchColumn();
 	if (($same !== false) && ($event !== 'test')) {
 		fleet_db()->prepare('UPDATE alerts SET repeats = repeats + 1 WHERE id = ?')->execute(array((int)$same));
 		return null;
 	}
 	fleet_db()->prepare('INSERT INTO alerts (time, event, severity, node_id, text, sent, tries) VALUES (?, ?, ?, ?, ?, ?, 0)')
-	    ->execute(array($now, $event, $severity, $node, mb_substr($text, 0, 1000), '{}'));
+	    ->execute(array($now, $event, $severity, $node, $text, '{}'));
 	return (int)fleet_db()->lastInsertId();
 }
 

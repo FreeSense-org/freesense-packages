@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 31);
+define('FLEET_DB_SCHEMA', 32);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -537,6 +537,41 @@ ALTER TABLE invitations ADD COLUMN via_iface TEXT NOT NULL DEFAULT '';
 PRAGMA user_version = 31;
 SQL);
 	}
+	if ($version < 32) {
+		/*
+		 * The audit log says which firewall and which FLEET-E code an entry is about (columns, not words to parse),
+		 * and the tables the pages and the poll read all the time get the indexes their queries need. The state that
+		 * lived as whole-fleet JSON in settings (bundles, remediations, users sync, wrong keys, blocked addresses) is
+		 * one row per firewall or address, so a change is one atomic statement. The old JSON rows are dropped:
+		 * the next push or sync simply records them again.
+		 */
+		$db->exec(<<<'SQL'
+ALTER TABLE audit ADD COLUMN node_id TEXT;
+ALTER TABLE audit ADD COLUMN code TEXT;
+UPDATE audit SET node_id = substr(detail, 1, instr(detail, ' (') - 1)
+    WHERE instr(detail, ' (') > 0 AND substr(detail, 1, instr(detail, ' (') - 1) IN (SELECT node_id FROM boxes);
+UPDATE audit SET code = substr(detail, instr(detail, 'FLEET-E'), 10) WHERE instr(detail, 'FLEET-E') > 0;
+CREATE INDEX IF NOT EXISTS audit_time ON audit (time);
+CREATE INDEX IF NOT EXISTS audit_action ON audit (action, time);
+CREATE INDEX IF NOT EXISTS audit_node ON audit (node_id, time);
+CREATE INDEX IF NOT EXISTS ops_state ON ops (state, parent, finished);
+CREATE INDEX IF NOT EXISTS ops_started ON ops (started);
+CREATE INDEX IF NOT EXISTS samples_node ON samples (node_id, time);
+CREATE INDEX IF NOT EXISTS samples_hourly_node ON samples_hourly (node_id, time);
+CREATE TABLE IF NOT EXISTS bundle_state (
+	node_id TEXT PRIMARY KEY, hash TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 0, sent INTEGER, error TEXT, rules INTEGER NOT NULL DEFAULT 0,
+	lock_accounts INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS remediation_state (
+	node_id TEXT NOT NULL, rule_id TEXT NOT NULL, time INTEGER NOT NULL, hash TEXT NOT NULL, result TEXT NOT NULL, detail TEXT NOT NULL,
+	PRIMARY KEY (node_id, rule_id));
+CREATE TABLE IF NOT EXISTS users_sync (node_id TEXT PRIMARY KEY, time INTEGER NOT NULL, result TEXT NOT NULL, detail TEXT NOT NULL, synced TEXT);
+CREATE TABLE IF NOT EXISTS access_fails (ip TEXT NOT NULL, time INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS access_fails_ip ON access_fails (ip, time);
+CREATE TABLE IF NOT EXISTS access_blocked (ip TEXT PRIMARY KEY, until INTEGER NOT NULL);
+DELETE FROM settings WHERE name IN ('bundles', 'remediations', 'users_sync', 'access_fails', 'access_blocked');
+PRAGMA user_version = 32;
+SQL);
+	}
 }
 
 function fleet_setting(string $name, ?string $default = null): ?string {
@@ -551,10 +586,28 @@ function fleet_setting_set(string $name, string $value): void {
 	    ->execute(array($name, $value));
 }
 
-function fleet_audit(string $who, string $action, string $detail): void {
-	fleet_db()->prepare('INSERT INTO audit (time, who, action, detail) VALUES (?, ?, ?, ?)')->execute(array(time(), $who, $action, $detail));
+/*
+ * pure: the firewall and the FLEET-E code an audit entry is about. $node and $code
+ * win when the caller knows them; otherwise a detail that starts "<node id> (<label>)"
+ * names the firewall and a "FLEET-E123" in it is the code.
+ */
+function fleet_audit_subject(string $detail, ?string $node = null, ?string $code = null): array {
+	if ($node === null) {
+		$node = preg_match('/^([A-Za-z0-9_-]{6,64}) \(/', $detail, $m) ? $m[1] : '';
+	}
+	if ($code === null) {
+		$code = preg_match('/FLEET-E\d{3}/', $detail, $m) ? $m[0] : '';
+	}
+	return array($node, $code);
+}
+
+/* Write an audit entry; $node is the firewall it is about (when the detail does not start with its id), $code a FLEET-E code. */
+function fleet_audit(string $who, string $action, string $detail, ?string $node = null, ?string $code = null): void {
+	list($node, $code) = fleet_audit_subject($detail, $node, $code);
+	fleet_db()->prepare('INSERT INTO audit (time, who, action, detail, node_id, code) VALUES (?, ?, ?, ?, ?, ?)')
+	    ->execute(array(time(), $who, $action, $detail, ($node === '') ? null : $node, ($code === '') ? null : $code));
 	if (function_exists('fleet_alert_from_audit')) {
-		fleet_alert_from_audit($action, $detail);
+		fleet_alert_from_audit($action, $detail, $node, $code);
 	}
 }
 
