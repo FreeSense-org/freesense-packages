@@ -295,11 +295,222 @@ function fleet_ops_for_tiles(int $now): array {
  * turn (a rollout ring can wait days for its window) does not make the
  * firewall busy: it can still be backed up or rebooted meanwhile.
  */
-function fleet_op_running(string $node_id): ?array {
-	$q = fleet_db()->prepare("SELECT * FROM ops WHERE node_id = ? AND state = 'running' ORDER BY id DESC LIMIT 1");
-	$q->execute(array($node_id));
+function fleet_op_running(string $node_id, ?int $except = null): ?array {
+	$q = fleet_db()->prepare("SELECT * FROM ops WHERE node_id = ? AND state = 'running' AND id != ? ORDER BY id DESC LIMIT 1");
+	$q->execute(array($node_id, $except ?? 0));
 	$row = $q->fetch();
 	return is_array($row) ? $row : null;
+}
+
+/*
+ * The runner of an operation died with an error nothing caught: what it had waiting is skipped, what it was
+ * doing fails, and the group is recounted, so the firewalls are free again and the page says why.
+ */
+function fleet_op_runner_crashed(int $id, string $why): void {
+	$db = fleet_db();
+	$q = $db->prepare('SELECT node_id FROM ops WHERE id = ?');
+	$q->execute(array($id));
+	$node = $q->fetchColumn();
+	if ($node === false) {
+		return;
+	}
+	if ($node !== '') {
+		fleet_op_fail_open($id, 'The process stopped: ' . $why);
+		return;
+	}
+	$st = $db->prepare("SELECT id, state FROM ops WHERE parent = ? AND state IN ('queued', 'running')");
+	$st->execute(array($id));
+	foreach ($st->fetchAll() as $t) {
+		fleet_op_set((int)$t['id'], ($t['state'] === 'queued') ? 'skipped' : 'failed', ($t['state'] === 'queued') ? 'Skipped: the process that ran this stopped' : 'The process stopped: ' . $why);
+	}
+	fleet_op_group_update($id);
+	fleet_audit('system', 'op_crashed', "operation {$id}: the process stopped: {$why}");
+}
+
+/* A queued task that was cancelled before it started: nothing was sent to the firewall. */
+class FleetOpCancelled extends RuntimeException {
+}
+
+/* Mark a task failed only if it is still open (queued or running): a task that was cancelled meanwhile stays skipped. */
+function fleet_op_fail_open(int $id, string $text): void {
+	$q = fleet_db()->prepare('SELECT state FROM ops WHERE id = ?');
+	$q->execute(array($id));
+	if (in_array((string)$q->fetchColumn(), array('queued', 'running'), true)) {
+		fleet_op_set($id, 'failed', $text);
+	}
+}
+
+/*
+ * An exclusive lock for starting something on one firewall, so that "is anything running?" and "now this
+ * is running" cannot be interleaved by two clicks, two admins or a schedule and a rollout. Hold it
+ * until the operation is recorded (fclose() releases it).
+ * @return resource
+ */
+function fleet_node_lock(string $node_id) {
+	$lock = fopen(FLEET_DATA . '/op-' . substr(hash('sha256', $node_id), 0, 16) . '.lock', 'c');
+	if (($lock === false) || !flock($lock, LOCK_EX)) {
+		throw new RuntimeException('Could not take the lock for this firewall.');
+	}
+	return $lock;
+}
+
+/* Start an operation on a firewall unless another one is running on it (throws RuntimeException then): check and start under one lock. */
+function fleet_op_start_guarded(string $node_id, string $kind, string $text, string $who): int {
+	$lock = fleet_node_lock($node_id);
+	try {
+		if (fleet_op_running($node_id) !== null) {
+			throw new RuntimeException('Something is already running on this firewall. Wait until it is done.');
+		}
+		return fleet_op_start($node_id, $kind, $text, $who);
+	} finally {
+		fclose($lock);
+	}
+}
+
+/* A queued task is mine now: false when it was cancelled or taken meanwhile (one statement, so only one caller wins). */
+function fleet_op_claim(int $id, string $text = 'Starting'): bool {
+	$st = fleet_db()->prepare("UPDATE ops SET state = 'running', text = ?, updated = ? WHERE id = ? AND state = 'queued'");
+	$st->execute(array($text, time(), $id));
+	return $st->rowCount() === 1;
+}
+
+/* ------------------------------------------------------------------ */
+/* Operations whose runner died, and cancelling                        */
+/* ------------------------------------------------------------------ */
+
+/* Is a runner process (freesense-fleet-run) alive for this operation? It holds the lock file of its operation id. */
+function fleet_op_runner_alive(int $id): bool {
+	$path = "/var/run/fleet-op-{$id}.lock";
+	if (!is_file($path)) {
+		return false;
+	}
+	$h = fopen($path, 'c');
+	if ($h === false) {
+		return false;
+	}
+	$free = flock($h, LOCK_EX | LOCK_NB);
+	if ($free) {
+		flock($h, LOCK_UN);
+	}
+	fclose($h);
+	return !$free;
+}
+
+/* pure: how long a running operation may go without any progress before nobody could still be on it, in seconds. */
+function fleet_op_stale_limit(string $kind): int {
+	switch ($kind) {
+	case 'reboot':
+		return max(1800, 120 * fleet_opt('reboot_timeout'));
+	case 'update':
+		return 60 * (fleet_opt('update_timeout') + fleet_opt('update_healthy')) + 1800;
+	case 'restore':
+		return 60 * fleet_opt('restore_confirm') + 1800;
+	}
+	return 1800;
+}
+
+/*
+ * From the poll: operations that nothing is running any more fail instead of staying "running" for ever
+ * (a PHP crash, the controller restarted, a killed runner). A task whose runner is gone and that has had
+ * no progress for its limit fails; what its group still had queued is skipped; the group is recounted.
+ * Rollouts are not touched (a ring may wait days for its window; the poll tick moves them). Returns how many tasks failed.
+ */
+function fleet_ops_reap(int $now): int {
+	$db = fleet_db();
+	$in_rollout = array();
+	foreach ($db->query("SELECT op_id FROM rollouts WHERE state IN ('running', 'paused')")->fetchAll(PDO::FETCH_COLUMN) as $id) {
+		$in_rollout[(int)$id] = true;
+	}
+	$failed = 0;
+	$groups = array();
+	foreach ($db->query("SELECT * FROM ops WHERE state = 'running' AND finished IS NULL ORDER BY id")->fetchAll() as $op) {
+		$root = ($op['parent'] === null) ? (int)$op['id'] : (int)$op['parent'];
+		if (isset($in_rollout[$root]) || ($now - (int)$op['updated'] < fleet_op_stale_limit((string)$op['kind'])) || fleet_op_runner_alive($root)) {
+			continue;
+		}
+		if ($op['node_id'] === '') {
+			/* A group's own row: recount it below from its tasks. */
+			$groups[$root] = true;
+			continue;
+		}
+		fleet_op_set((int)$op['id'], 'failed', sprintf('Stopped: no progress for %s and nothing is running it (the controller restarted or the process died). Check the firewall.', fleet_op_duration($now - (int)$op['updated'])));
+		fleet_audit('poll', 'op_reaped', "{$op['node_id']}: {$op['kind']} operation {$op['id']} stopped after no progress", (string)$op['node_id']);
+		$failed++;
+		if ($op['parent'] !== null) {
+			$groups[$root] = true;
+		}
+	}
+	/* A group whose runner is gone: what is still waiting will never start. */
+	foreach ($db->query("SELECT DISTINCT parent FROM ops WHERE parent IS NOT NULL AND state = 'queued'")->fetchAll(PDO::FETCH_COLUMN) as $parent) {
+		$parent = (int)$parent;
+		if (isset($in_rollout[$parent]) || fleet_op_runner_alive($parent)) {
+			continue;
+		}
+		$q = $db->prepare("SELECT kind, updated, state FROM ops WHERE id = ?");
+		$q->execute(array($parent));
+		$p = $q->fetch();
+		if (!is_array($p) || ($p['state'] !== 'running') || ($now - (int)$p['updated'] < 1800) || ($db->query("SELECT COUNT(*) FROM ops WHERE parent = {$parent} AND state = 'running'")->fetchColumn() > 0)) {
+			continue;
+		}
+		$st = $db->prepare("SELECT id FROM ops WHERE parent = ? AND state = 'queued'");
+		$st->execute(array($parent));
+		foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $tid) {
+			fleet_op_set((int)$tid, 'skipped', 'Skipped: the process that ran this stopped');
+		}
+		$groups[$parent] = true;
+	}
+	foreach (array_keys($groups) as $g) {
+		fleet_op_group_update($g);
+	}
+	return $failed;
+}
+
+/*
+ * Cancel an operation from Activity. A group: what is still waiting is skipped; what is running on a
+ * firewall goes on to its end (a remote update cannot be pulled back) unless nothing runs it any more,
+ * when it is marked failed so the firewall is free again. A single operation is only cancelled when
+ * nothing runs it. A rollout is cancelled as a whole. Returns the words for the result.
+ */
+function fleet_op_cancel(int $id, string $who): string {
+	$db = fleet_db();
+	$q = $db->prepare('SELECT * FROM ops WHERE id = ? AND parent IS NULL');
+	$q->execute(array($id));
+	$op = $q->fetch();
+	if (!is_array($op) || !in_array($op['state'], array('running', 'queued'), true)) {
+		throw new RuntimeException('That action is not running any more.');
+	}
+	$alive = fleet_op_runner_alive($id);
+	$q = $db->prepare("SELECT id FROM rollouts WHERE op_id = ? AND state IN ('running', 'paused')");
+	$q->execute(array($id));
+	$rollout = $q->fetchColumn();
+	if ($rollout !== false) {
+		fleet_rollout_cancel((int)$rollout, $who);
+		return 'The rollout was cancelled: the firewalls that were waiting stay as they are, one already updating finishes.';
+	}
+	if ($op['node_id'] !== '') {
+		if ($alive || ((time() - (int)$op['updated']) < 60)) {
+			throw new RuntimeException('It is still running. It can be cancelled when it has made no progress for a minute and nothing is running it.');
+		}
+		fleet_op_set($id, 'failed', "Cancelled by {$who}. It may still have been running on the firewall.");
+		fleet_audit($who, 'op_cancel', "{$op['node_id']}: {$op['kind']} operation {$id} cancelled", (string)$op['node_id']);
+		return 'Cancelled. The firewall is free for new actions.';
+	}
+	$st = $db->prepare("SELECT id, state FROM ops WHERE parent = ? AND state IN ('queued', 'running')");
+	$st->execute(array($id));
+	$skipped = 0;
+	$stopped = 0;
+	foreach ($st->fetchAll() as $t) {
+		if ($t['state'] === 'queued') {
+			fleet_op_set((int)$t['id'], 'skipped', "Skipped: cancelled by {$who}");
+			$skipped++;
+		} elseif (!$alive) {
+			fleet_op_set((int)$t['id'], 'failed', "Cancelled by {$who}. It may still have been running on the firewall.");
+			$stopped++;
+		}
+	}
+	fleet_op_group_update($id);
+	fleet_audit($who, 'op_cancel', sprintf('%s: cancelled by %s (%d waiting skipped, %d stopped)', (string)$op['title'], $who, $skipped, $stopped));
+	return sprintf('Cancelled: %d waiting skipped%s.', $skipped, ($alive && ($stopped === 0)) ? '; the one running finishes first' : '');
 }
 
 /* Called by the status poll for every firewall: moves its running reboot along. */

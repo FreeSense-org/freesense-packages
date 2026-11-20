@@ -208,21 +208,30 @@ function fleet_box_update(array $box, string $who, ?int $task = null): string {
 	if ($block !== null) {
 		throw new RuntimeException($block . '. Change the policy first.');
 	}
-	if (($task === null) && (fleet_op_running($box['node_id']) !== null)) {
-		throw new RuntimeException('Something is already running on this firewall. Wait until it is done.');
+	/* The check, the claim of the task and the request are one step (see fleet_box_reboot()). */
+	$lock = fleet_node_lock($box['node_id']);
+	try {
+		if (fleet_op_running($box['node_id'], $task) !== null) {
+			throw new RuntimeException('Something is already running on this firewall. Wait until it is done.');
+		}
+		if (($task !== null) && !fleet_op_claim($task)) {
+			throw new FleetOpCancelled('It was cancelled before it started.');
+		}
+		list($code, $json) = fleet_box_call($box, 'POST', '/api/v1/management/update', array('confirm' => true, 'operator' => fleet_operator($who)));
+		if ($code !== 202) {
+			throw new RuntimeException('The firewall did not start the update: ' . fleet_box_error($code, $json));
+		}
+		$from = (string)($json['data']['from'] ?? '');
+		$to = (string)($json['data']['to'] ?? '');
+		$data = json_encode(array('from' => $from, 'to' => $to));
+		if ($task === null) {
+			$task = fleet_op_start($box['node_id'], 'update', 'Downloading and installing', $who);
+		}
+		fleet_db()->prepare("UPDATE ops SET state = 'running', text = 'Downloading and installing', started = ?, updated = ?, progress = 10, data = ? WHERE id = ?")
+		    ->execute(array(time(), time(), $data, $task));
+	} finally {
+		fclose($lock);
 	}
-	list($code, $json) = fleet_box_call($box, 'POST', '/api/v1/management/update', array('confirm' => true, 'operator' => fleet_operator($who)));
-	if ($code !== 202) {
-		throw new RuntimeException('The firewall did not start the update: ' . fleet_box_error($code, $json));
-	}
-	$from = (string)($json['data']['from'] ?? '');
-	$to = (string)($json['data']['to'] ?? '');
-	$data = json_encode(array('from' => $from, 'to' => $to));
-	if ($task === null) {
-		$task = fleet_op_start($box['node_id'], 'update', 'Downloading and installing', $who);
-	}
-	fleet_db()->prepare("UPDATE ops SET state = 'running', text = 'Downloading and installing', started = ?, updated = ?, progress = 10, data = ? WHERE id = ?")
-	    ->execute(array(time(), time(), $data, $task));
 	fleet_audit($who, 'update', "{$box['node_id']} ({$box['label']}): from {$from} to {$to}");
 	return sprintf('Updating from %s to %s. It reboots on the way; this page follows it.', fleet_version_show($from, $to), fleet_version_show($to, $from));
 }
