@@ -39,7 +39,7 @@
  */
 
 define('FLEET_DATA', getenv('FLEET_DATA') ?: '/fleet');
-define('FLEET_DB_SCHEMA', 33);
+define('FLEET_DB_SCHEMA', 34);
 
 /* ------------------------------------------------------------------ */
 /* Pure: secrets                                                       */
@@ -626,6 +626,20 @@ ALTER TABLE boxes ADD COLUMN backup_fails INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE boxes ADD COLUMN backup_try INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS alerts_due ON alerts (done, next_try);
 PRAGMA user_version = 33;
+SQL);
+	}
+	if ($version < 34) {
+		/*
+		 * An open invitation holds its hostname alone (two invitations cannot be given the same name), and a fix that
+		 * keeps being undone on a firewall is counted per rule so the automatic fix can stop.
+		 */
+		$db->exec(<<<'SQL'
+UPDATE invitations SET hostname = '' WHERE state = 'open' AND hostname != ''
+    AND rowid NOT IN (SELECT MIN(rowid) FROM invitations WHERE state = 'open' AND hostname != '' GROUP BY hostname);
+CREATE UNIQUE INDEX IF NOT EXISTS invitations_hostname ON invitations (hostname) WHERE hostname != '' AND state = 'open';
+ALTER TABLE remediation_state ADD COLUMN fixed_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE remediation_state ADD COLUMN fixed_since INTEGER NOT NULL DEFAULT 0;
+PRAGMA user_version = 34;
 SQL);
 	}
 }

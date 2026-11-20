@@ -159,6 +159,11 @@ function fleet_naming_taken(): array {
 	return array_values(array_filter(array_map(function ($n) { return strtolower(strtok((string)$n, '.')); }, $names), 'strlen'));
 }
 
+/* A counter only ever goes up: two requests that raced cannot set it back and hand a name out twice. */
+function fleet_naming_counter_raise(string $scope, int $next): void {
+	fleet_db()->prepare('INSERT INTO name_counters (scope, next) VALUES (?, ?) ON CONFLICT(scope) DO UPDATE SET next = MAX(next, excluded.next)')->execute(array($scope, $next));
+}
+
 /* The next name for a group (and keep the counter): array(hostname, domain), or array('', '') when the group names nothing. */
 function fleet_naming_take(int $gid, array $vars): array {
 	$g = fleet_group_get($gid);
@@ -174,7 +179,7 @@ function fleet_naming_take(int $gid, array $vars): array {
 	if ($got === null) {
 		throw new InvalidArgumentException(sprintf('The group\'s pattern %s gives no free hostname here. Fill in the site, or write the hostname yourself.', $g['naming_pattern']));
 	}
-	fleet_db()->prepare('INSERT OR REPLACE INTO name_counters (scope, next) VALUES (?, ?)')->execute(array($scope, $got[1] + 1));
+	fleet_naming_counter_raise($scope, $got[1] + 1);
 	return array($got[0], (string)$g['naming_domain']);
 }
 
@@ -192,26 +197,33 @@ function fleet_naming_peek(int $gid, array $vars): ?string {
 }
 
 /*
- * A firewall's naming group: the first of its groups (by name) with a
- * domain or pattern, and the other groups that name it differently.
+ * pure: the group that names a firewall by $what ('pattern' or 'domain', '' for either), from its groups ordered
+ * by name: the first one that sets it, and the names of the others that set it differently. Each attribute is
+ * decided on its own: a group with only a domain does not hide another group's pattern.
  * Returns array(group row or null, conflicting group names).
  */
-function fleet_naming_group_of(string $node): array {
-	$q = fleet_db()->prepare("SELECT g.* FROM box_groups bg JOIN fleet_groups g ON g.id = bg.group_id WHERE bg.node_id = ?
-	    AND (g.naming_pattern != '' OR g.naming_domain != '') ORDER BY g.name COLLATE NOCASE");
-	$q->execute(array($node));
-	$rows = $q->fetchAll();
-	if (empty($rows)) {
+function fleet_naming_pick(array $groups, string $what = ''): array {
+	$set = array_values(array_filter($groups, function ($g) use ($what) {
+		return ($what === '') ? (($g['naming_pattern'] !== '') || ($g['naming_domain'] !== '')) : ((string)$g['naming_' . $what] !== '');
+	}));
+	if (empty($set)) {
 		return array(null, array());
 	}
-	$first = $rows[0];
 	$other = array();
-	foreach (array_slice($rows, 1) as $r) {
-		if (($r['naming_pattern'] !== $first['naming_pattern']) || ($r['naming_domain'] !== $first['naming_domain'])) {
+	foreach (array_slice($set, 1) as $r) {
+		$differs = ($what === '') ? (($r['naming_pattern'] !== $set[0]['naming_pattern']) || ($r['naming_domain'] !== $set[0]['naming_domain'])) : ($r['naming_' . $what] !== $set[0]['naming_' . $what]);
+		if ($differs) {
 			$other[] = $r['name'];
 		}
 	}
-	return array($first, $other);
+	return array($set[0], $other);
+}
+
+/* A firewall's naming group for $what ('pattern', 'domain', or '' for either): see fleet_naming_pick(). */
+function fleet_naming_group_of(string $node, string $what = ''): array {
+	$q = fleet_db()->prepare('SELECT g.* FROM box_groups bg JOIN fleet_groups g ON g.id = bg.group_id WHERE bg.node_id = ? ORDER BY g.name COLLATE NOCASE');
+	$q->execute(array($node));
+	return fleet_naming_pick($q->fetchAll(), $what);
 }
 
 /*
@@ -227,18 +239,29 @@ function fleet_invite_set_name(string $token_id, int $gid, string $site, string 
 		throw new InvalidArgumentException('That group no longer exists.');
 	}
 	$hostname = strtolower(trim($hostname));
-	if ($hostname !== '') {
-		if (!preg_match('/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/D', $hostname)) {
-			throw new InvalidArgumentException('A hostname is letters, digits and -, up to 63 characters.');
-		}
-		if (in_array($hostname, fleet_naming_taken(), true)) {
-			throw new InvalidArgumentException("Another firewall or invitation already has the name {$hostname}.");
-		}
-		$domain = (string)fleet_group_get($gid)['naming_domain'];
-	} else {
-		list($hostname, $domain) = fleet_naming_take($gid, array('site' => $site, 'role' => $role));
+	if (($hostname !== '') && !preg_match('/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/D', $hostname)) {
+		throw new InvalidArgumentException('A hostname is letters, digits and -, up to 63 characters.');
 	}
-	fleet_db()->prepare('UPDATE invitations SET group_id = ?, hostname = ?, domain = ? WHERE token_id = ?')->execute(array($gid, $hostname, $domain, $token_id));
+	/* Taking the name and holding it for the invitation are one step: two invitations made at once cannot get the same name. */
+	$db = fleet_db();
+	$db->exec('BEGIN IMMEDIATE');
+	try {
+		if ($hostname !== '') {
+			if (in_array($hostname, fleet_naming_taken(), true)) {
+				throw new InvalidArgumentException("Another firewall or invitation already has the name {$hostname}.");
+			}
+			$domain = (string)fleet_group_get($gid)['naming_domain'];
+		} else {
+			list($hostname, $domain) = fleet_naming_take($gid, array('site' => $site, 'role' => $role));
+		}
+		$db->prepare('UPDATE invitations SET group_id = ?, hostname = ?, domain = ? WHERE token_id = ?')->execute(array($gid, $hostname, $domain, $token_id));
+		$db->exec('COMMIT');
+	} catch (Throwable $e) {
+		if ($db->inTransaction()) {
+			$db->exec('ROLLBACK');
+		}
+		throw $e;
+	}
 	if ($hostname !== '') {
 		fleet_audit($who, 'invite', "{$token_id} named {$hostname}" . (($domain !== '') ? ".{$domain}" : ''));
 	}
