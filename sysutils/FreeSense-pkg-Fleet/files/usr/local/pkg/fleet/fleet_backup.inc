@@ -196,10 +196,7 @@ function fleet_backup_fetch(array $box): string {
  * fleet_backup_box() says; throws RuntimeException (busy, or the backup failed).
  */
 function fleet_box_backup_now(array $box, string $who): string {
-	if (fleet_op_running($box['node_id']) !== null) {
-		throw new RuntimeException('Something is already running on this firewall. Wait until it is done.');
-	}
-	$op = fleet_op_start($box['node_id'], 'backup', 'Backing up', $who);
+	$op = fleet_op_start_guarded($box['node_id'], 'backup', 'Backing up', $who);
 	try {
 		list($result) = fleet_backup_box($box, 'manual', $who);
 	} catch (RuntimeException $e) {

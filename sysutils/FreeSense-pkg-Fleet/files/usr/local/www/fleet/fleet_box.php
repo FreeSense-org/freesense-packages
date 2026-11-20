@@ -64,11 +64,13 @@ if ($manage && isset($_POST['restore_id'])) {
 		$input_errors[] = gettext('That backup does not belong to this firewall.');
 	} else {
 		/* In the background (it waits up to a minute for the firewall to answer); Activity shows each step. */
-		$running = fleet_op_running($box['node_id']);
-		if ($running !== null) {
-			$input_errors[] = sprintf(gettext('Something is already running on this firewall (%s). Wait until it is done.'), $running['text']);
-		} else {
-			$op = fleet_op_start($box['node_id'], 'restore', 'Starting', $who);
+		try {
+			$op = fleet_op_start_guarded($box['node_id'], 'restore', 'Starting', $who);
+		} catch (RuntimeException $e) {
+			$op = null;
+			$input_errors[] = $e->getMessage();
+		}
+		if ($op !== null) {
 			fleet_op_set($op, 'running', 'Starting', 0);
 			mwexec_bg('/usr/local/bin/php /usr/local/sbin/freesense-fleet-run restore ' . (int)$op . ' ' . (int)$row['id']);
 			header('Location: /fleet/fleet_activity.php?op=' . (int)$op);
