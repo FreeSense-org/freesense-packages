@@ -545,7 +545,7 @@ function fleet_kiosk_create(array $in, string $who): array {
 	if ($problem !== null) {
 		throw new InvalidArgumentException($problem);
 	}
-	$key = FLEET_KIOSK_PREFIX . rtrim(strtr(base64_encode(random_bytes(24)), '+/', '-_'), '=');
+	$key = fleet_kiosk_key_new();
 	list($style, $theme) = fleet_kiosk_look((string)($in['style'] ?? ''), (string)($in['theme'] ?? ''));
 	fleet_db()->prepare('INSERT INTO kiosk_keys (name, hash, networks, hide, created, who, style, theme) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
 	    ->execute(array($name, hash('sha256', $key), json_encode($nets), empty($in['hide']) ? 0 : 1, time(), $who, $style, $theme));
@@ -565,6 +565,23 @@ function fleet_kiosk_update(int $id, array $in, string $who): void {
 	fleet_db()->prepare('UPDATE kiosk_keys SET name = ?, networks = ?, hide = ?, style = ?, theme = ? WHERE id = ? AND revoked IS NULL')
 	    ->execute(array($name, json_encode($nets), empty($in['hide']) ? 0 : 1, $style, $theme, $id));
 	fleet_audit($who, 'kiosk', sprintf('Screen %s: from %s%s', $name, implode(', ', $nets), empty($in['hide']) ? '' : ', names hidden'));
+}
+
+/* pure: a new kiosk key. */
+function fleet_kiosk_key_new(): string {
+	return FLEET_KIOSK_PREFIX . rtrim(strtr(base64_encode(random_bytes(24)), '+/', '-_'), '=');
+}
+
+/* A screen gets a new key and keeps its settings; the old key stops working at once. Returns the new key (shown once). */
+function fleet_kiosk_rotate(int $id, string $who): string {
+	$key = fleet_kiosk_key_new();
+	$st = fleet_db()->prepare('UPDATE kiosk_keys SET hash = ?, last_used = NULL, last_ip = NULL WHERE id = ? AND revoked IS NULL');
+	$st->execute(array(hash('sha256', $key), $id));
+	if ($st->rowCount() === 0) {
+		throw new InvalidArgumentException('That screen is gone or its link was revoked.');
+	}
+	fleet_audit($who, 'kiosk', "Screen {$id}: key replaced");
+	return $key;
 }
 
 function fleet_kiosk_revoke(int $id, string $who): void {

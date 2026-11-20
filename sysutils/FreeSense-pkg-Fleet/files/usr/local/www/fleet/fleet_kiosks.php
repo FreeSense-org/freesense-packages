@@ -55,6 +55,9 @@ if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 				fleet_kiosk_update((int)$_POST['id'], $_POST, $who);
 				$savemsg = gettext('Screen changed. It keeps its link.');
 			}
+		} elseif (isset($_POST['rotate'])) {
+			$key = fleet_kiosk_rotate((int)$_POST['rotate'], $who);
+			$new_link = 'https://' . (string)($_SERVER['HTTP_HOST'] ?? '') . '/fleet/kiosk.php#' . $key;
 		} elseif (isset($_POST['revoke'])) {
 			fleet_kiosk_revoke((int)$_POST['revoke'], $who);
 			$savemsg = gettext('Link revoked. That screen shows "not connected" within 10 seconds.');
@@ -307,6 +310,7 @@ endif;
 				<button type="button" class="btn btn-sm btn-link" data-fs-modal="#kiosk-modal" data-fs-modal-title="<?=htmlspecialchars(sprintf(gettext('Change %s'), $k['name']))?>"
 				    data-fs-fill="<?=htmlspecialchars(json_encode(array('id' => (string)$k['id'], 'name' => $k['name'], 'networks' => implode("\n", $k['networks']), 'hide' => !empty($k['hide']), 'style' => (string)($k['style'] ?? 'freesense'), 'theme' => (string)($k['theme'] ?? 'auto'))))?>"><?=gettext('Change')?></button>
 				<a class="btn btn-sm btn-link" href="?config=<?=(int)$k['id']?>"><?=gettext('Layout')?></a>
+				<form method="post" class="d-inline"><button class="btn btn-sm btn-link" name="rotate" value="<?=(int)$k['id']?>"<?=fleet_confirm(sprintf(gettext('Make a new link for "%s"?'), $k['name']), gettext('The old link stops working at once. The screen keeps its settings and needs the new link.'), gettext('New link'), 'warning', 'rotate')?>><?=gettext('New link')?></button></form>
 				<form method="post" class="d-inline"><button class="btn btn-sm btn-link fs-fleet-danger-link" name="revoke" value="<?=(int)$k['id']?>"<?=fleet_confirm(sprintf(gettext('Revoke the link "%s"?'), $k['name']), gettext('The screen that uses it shows "not connected" within 10 seconds. Make a new link to show it again.'), gettext('Revoke link'), 'danger', 'ban')?>><?=gettext('Revoke')?></button></form>
 <?php endif; ?>
 			</td></tr>
