@@ -97,6 +97,10 @@ if ($cmd === 'users') {
 			fleet_op_group_update($op_id);
 			continue;
 		}
+		if (!fleet_op_begin_task($task)) {
+			fleet_op_group_update($op_id);
+			continue;
+		}
 		fleet_op_set((int)$task['id'], 'running', 'Starting', 0);
 		fleet_op_group_update($op_id);
 		try {
@@ -124,6 +128,10 @@ if ($cmd === 'connections') {
 			fleet_op_group_update($op_id);
 			continue;
 		}
+		if (!fleet_op_begin_task($task)) {
+			fleet_op_group_update($op_id);
+			continue;
+		}
 		fleet_op_set((int)$task['id'], 'running', 'Starting', 0);
 		fleet_op_group_update($op_id);
 		try {
@@ -148,6 +156,10 @@ if ($cmd === 'template') {
 		$box = fleet_box_get((string)$task['node_id']);
 		if (($t === null) || ($box === null)) {
 			fleet_op_set((int)$task['id'], 'failed', 'The template or firewall is gone.');
+			fleet_op_group_update($op_id);
+			continue;
+		}
+		if (!fleet_op_begin_task($task)) {
 			fleet_op_group_update($op_id);
 			continue;
 		}

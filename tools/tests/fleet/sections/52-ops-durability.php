@@ -111,3 +111,18 @@ fleet_op_runner_crashed($xg, 'Call to undefined function');
 $s = $od->query('SELECT id, state FROM ops')->fetchAll(PDO::FETCH_KEY_PAIR);
 check(($s[$xr] === 'failed') && ($s[$xq] === 'skipped') && ($s[$xg] === 'failed'), 'a runner that died with an uncaught error fails what it was doing and skips the rest');
 $od->exec('DELETE FROM ops; DELETE FROM rollouts');
+
+/* A runner taking its next task: not while the firewall is busy with something else, and not when the task was cancelled. */
+$od->exec('DELETE FROM ops');
+$bg = fleet_op_group_start('template', 'Apply template Z', 'w');
+$busy_other = fleet_op_start('n-od-0020', 'update', 'Updating', 'w');
+$ta = fleet_op_start('n-od-0020', 'template', 'Waiting', 'w', $bg, 'queued');
+$tfree = fleet_op_start('n-od-0021', 'template', 'Waiting', 'w', $bg, 'queued');
+$tcan = fleet_op_start('n-od-0022', 'template', 'Waiting', 'w', $bg, 'queued');
+fleet_op_set($tcan, 'skipped', 'Skipped: cancelled');
+$rows = $od->query("SELECT * FROM ops WHERE parent = {$bg}")->fetchAll();
+$by = array_column($rows, null, 'id');
+check(!fleet_op_begin_task($by[$ta]) && fleet_op_begin_task($by[$tfree]) && !fleet_op_begin_task($by[$tcan]), 'a task does not start on a busy firewall or after it was cancelled, otherwise it is claimed');
+$s = $od->query('SELECT id, state, text FROM ops')->fetchAll(PDO::FETCH_UNIQUE | PDO::FETCH_ASSOC);
+check(($s[$ta]['state'] === 'failed') && (strpos($s[$ta]['text'], 'Busy: updating') === 0) && ($s[$tfree]['state'] === 'running') && ($s[$tcan]['state'] === 'skipped'), 'and the reason is recorded');
+$od->exec('DELETE FROM ops');
