@@ -209,7 +209,8 @@ if ($view === 'recover'):
 				<dt><?=gettext('Backups')?></dt><dd><?=sprintf(gettext('%1$d of %2$d files present'), $recover_preview['backup_files'], $recover_preview['backup_rows'])?></dd>
 			</dl>
 			<form method="post" class="fs-fleet-review-actions">
-				<input type="hidden" name="recovery_key" value="<?=htmlspecialchars((string)$_POST['recovery_key'])?>"/>
+				<div class="fs-fleet-field fs-fleet-field--wide"><label class="form-label" for="recovery_key_again"><?=gettext('Type the recovery key again to recover')?></label>
+					<input class="form-control fs-mono" id="recovery_key_again" name="recovery_key" type="password" autocomplete="off" spellcheck="false" required/></div>
 <?php if ($has_boxes): ?>
 				<label class="form-check"><input class="form-check-input" type="checkbox" name="replace" value="1" required/> <span class="form-check-label"><?=gettext('This controller already has firewalls. Replace them all with the copy.')?></span></label>
 <?php endif; ?>
