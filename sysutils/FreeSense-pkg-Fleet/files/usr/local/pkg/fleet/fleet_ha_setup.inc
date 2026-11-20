@@ -466,12 +466,12 @@ function fleet_ha_rule_bodies(array $plan, int $gui_port): array {
 	 * floating rule on the sync interface.
 	 */
 	$out = array('type' => 'pass', 'interface' => array($plan['sync_iface']), 'floating' => true, 'direction' => 'out', 'quick' => true, 'ipprotocol' => 'inet', 'log' => false,
-	    'statetype' => 'none', 'allowopts' => true, 'proto' => 'pfsync', 'srctype' => 'any', 'src' => '', 'srcmask' => '', 'dsttype' => 'any', 'dst' => '', 'dstmask' => '',
+	    'statetype' => 'none', 'allowopts' => true, 'proto' => 'pfsync', 'srctype' => 'any', 'src' => '', 'srcmask' => '', 'dsttype' => 'network', 'dst' => $plan['sync_net'], 'dstmask' => (string)$plan['sync_bits'],
 	    'dstbeginport' => '', 'dstendport' => '', 'descr' => FLEET_HA_MARK . ' State sync (pfsync) out');
 	return array(
 		$out,
 		$base + array('allowopts' => true, 'statetype' => 'none', 'quick' => true, 'proto' => 'pfsync', 'srctype' => 'network', 'src' => $plan['sync_net'], 'srcmask' => (string)$plan['sync_bits'],
-		    'dsttype' => 'any', 'dst' => '', 'dstmask' => '', 'dstbeginport' => '', 'dstendport' => '',
+		    'dsttype' => 'network', 'dst' => $plan['sync_net'], 'dstmask' => (string)$plan['sync_bits'], 'dstbeginport' => '', 'dstendport' => '',
 		    'descr' => FLEET_HA_MARK . ' State sync (pfsync) on the sync network'),
 		$base + array('proto' => 'tcp', 'srctype' => 'single', 'src' => $plan['primary_sync_ip'], 'srcmask' => '',
 		    'dsttype' => $plan['sync_iface'] . 'ip', 'dst' => '', 'dstmask' => '', 'dstbeginport' => (string)$gui_port, 'dstendport' => (string)$gui_port,
