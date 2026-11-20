@@ -46,13 +46,17 @@ require_once('fleet/fleet_store.inc');
  * box that merely missed a check is never "back".
  */
 function fleet_op_reboot_step(array $op, ?array $status, int $now): ?array {
+	$timeout = 60 * fleet_opt('reboot_timeout');
 	if ($status !== null) {
 		if ((int)($status['boot_time'] ?? 0) > (int)$op['started']) {
 			return array('done', sprintf('Back online after %s', fleet_op_duration($now - (int)$op['started'])), 100);
 		}
+		/* It answers but never restarted (the request was accepted and nothing happened): do not wait for ever. */
+		if (($now - (int)$op['started']) > $timeout) {
+			return array('failed', 'Still running the same boot after ' . fleet_op_duration($timeout) . ': it did not restart. Check its console.', 100);
+		}
 		return ($op['text'] === 'Waiting for it to go down') ? null : array('running', 'Waiting for it to go down', 25);
 	}
-	$timeout = 60 * fleet_opt('reboot_timeout');
 	if (($now - (int)$op['started']) > $timeout) {
 		return array('failed', 'Not back after ' . fleet_op_duration($timeout) . '. Check its console.', 100);
 	}

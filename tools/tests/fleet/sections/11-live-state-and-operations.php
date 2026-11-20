@@ -10,6 +10,10 @@ check(fleet_op_reboot_step($rop, array('boot_time' => 900), 1010) === array('run
     fleet_op_reboot_step(array('started' => 1000, 'text' => 'Restarting'), null, 1040) === null &&
     fleet_op_reboot_step($rop, array('boot_time' => 1050), 1070) === array('done', 'Back online after 1 min 10 s', 100) &&
     fleet_op_reboot_step($rop, null, 1000 + 60 * fleet_opt('reboot_timeout') + 1)[0] === 'failed', 'a reboot is done only when the box answers with a new boot time');
+check((fleet_op_reboot_step($rop, array('boot_time' => 900), 1000 + 60 * fleet_opt('reboot_timeout'))[0] ?? '') === 'running' &&
+    (fleet_op_reboot_step($rop, array('boot_time' => 900), 1000 + 60 * fleet_opt('reboot_timeout') + 1)[0] ?? '') === 'failed' &&
+    (fleet_op_reboot_step($rop, array('boot_time' => 1050), 1000 + 60 * fleet_opt('reboot_timeout') + 1)[0] ?? '') === 'done',
+    'a firewall that answers but never restarts fails the reboot after the timeout instead of waiting for ever (the group runner then stops)');
 check(fleet_op_duration(45) === '45 s' && fleet_op_duration(120) === '2 min' && fleet_op_duration(-3) === '0 s', 'durations in words');
 check(fleet_op_view(array('id' => 1, 'kind' => 'reboot', 'state' => 'done', 'text' => 'x', 'started' => 1, 'who' => 'a', 'finished' => 100), 100 + fleet_opt('show_done') + 1) === null &&
     fleet_op_view(array('id' => 1, 'kind' => 'reboot', 'state' => 'running', 'text' => 'x', 'started' => 1, 'who' => 'a', 'finished' => null), 99999)['state'] === 'running',
