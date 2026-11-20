@@ -17,7 +17,15 @@
 	var live = document.body.getAttribute('data-mode') === 'live';
 	var fixed = document.body.getAttribute('data-fixed') === '1';
 	var root = document.documentElement;
-	var key = live ? '' : decodeURIComponent((location.hash || '').replace(/^#/, ''));
+	var key = '';
+	if (!live) {
+		/* A link with a broken % in it must show the "no kiosk key" notice, not a blank page. */
+		try {
+			key = decodeURIComponent((location.hash || '').replace(/^#/, ''));
+		} catch (e) {
+			key = '';
+		}
+	}
 	var $ = function (id) { return document.getElementById(id); };
 	var dark = window.matchMedia('(prefers-color-scheme: dark)');
 	var charts = window.FleetCharts || null;
@@ -957,9 +965,17 @@
 
 	/* ------------------------------------------------------------ data */
 
+	/* One request at a time, and none waits for ever (a stalled network must not pile requests up). */
+	var polling = false;
 	function poll() {
-		var req = live ? fetch('/fleet/noc_data.php', { cache: 'no-store', credentials: 'same-origin', redirect: 'manual' }) :
-		    fetch('/fleet/kiosk_data.php', { headers: { 'X-Kiosk-Key': key }, cache: 'no-store', credentials: 'omit' });
+		if (polling) {
+			return;
+		}
+		polling = true;
+		var abort = new AbortController();
+		var cut = setTimeout(function () { abort.abort(); }, 15000);
+		var req = live ? fetch('/fleet/noc_data.php', { cache: 'no-store', credentials: 'same-origin', redirect: 'manual', signal: abort.signal }) :
+		    fetch('/fleet/kiosk_data.php', { headers: { 'X-Kiosk-Key': key }, cache: 'no-store', credentials: 'omit', signal: abort.signal });
 		req.then(function (r) {
 			/* A wall screen whose key is refused, or a live view whose session ended (the WebUI answers with its login page). */
 			if (r.status === 403 || r.status === 405 || r.type === 'opaqueredirect' || (r.headers.get('Content-Type') || '').indexOf('json') < 0) {
@@ -1007,7 +1023,10 @@
 			draw();
 			clock();
 			if (beepNow) { beep(); }
-		}).catch(function () { clock(); });
+		}).catch(function () { clock(); }).then(function () {
+			clearTimeout(cut);
+			polling = false;
+		});
 	}
 
 	$('k-sound').addEventListener('click', function () {

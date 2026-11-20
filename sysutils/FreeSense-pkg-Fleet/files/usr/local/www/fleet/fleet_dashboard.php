@@ -76,7 +76,7 @@ $cstrings = array(
 	'fail' => gettext('Fail'), 'unknown' => gettext('Not checked'), 'warn_temp' => gettext('80 °C'), 'nothing' => gettext('Nothing in this range.'),
 	'no_samples' => gettext('No samples in this range yet.'), 'no_temp' => gettext('No firewall reports a temperature sensor.'),
 	'no_states' => gettext('No firewall reports its state table yet.'), 'sum_now' => gettext('%s now'), 'sum_peak' => gettext('peak %s'),
-	'sum_total' => gettext('%s in all'), 'sum_firewalls' => gettext('%d firewalls'), 'sum_rules' => gettext('%d checks'), 'firewall' => gettext('Firewall'),
+	'sum_total' => gettext('%s in all'), 'sum_firewalls' => gettext('%d firewalls'), 'sum_rules' => gettext('%d checks'), 'session_ended' => gettext('This page is no longer updating: your session may have ended. Reload the page to sign in again.'), 'firewall' => gettext('Firewall'),
 	'cpu' => gettext('CPU'), 'memory' => gettext('Memory'), 'states' => gettext('States'), 'peak' => gettext('Peak'), 'none_busy' => gettext('No samples yet.'),
 	'in_use' => gettext('%s of the limit'),
 );

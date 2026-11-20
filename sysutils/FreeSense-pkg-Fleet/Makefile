@@ -1,12 +1,12 @@
 PORTNAME=	FreeSense-pkg-Fleet
 PORTVERSION=	0.5.0
-PORTREVISION=	6
+PORTREVISION=	7
 CATEGORIES=	sysutils
 MASTER_SITES=	# empty
 DISTFILES=	# empty
 EXTRACT_ONLY=	# empty
 
-MAINTAINER=	coreteam@freesense.org
+MAINTAINER=	dev@freesense.org
 COMMENT=	FreeSense Fleet central management controller
 LICENSE=	APACHE20
 

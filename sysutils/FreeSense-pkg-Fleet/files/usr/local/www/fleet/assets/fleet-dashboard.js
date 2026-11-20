@@ -157,6 +157,21 @@
 		}
 	}
 
+	/* A line above the charts while the refresh fails (what shows is the last good picture). */
+	function note(on) {
+		var el = root.querySelector('[data-stale-note]');
+		if (on && !el) {
+			el = document.createElement('p');
+			el.className = 'fs-fleet-problem small';
+			el.setAttribute('data-stale-note', '');
+			el.setAttribute('role', 'status');
+			el.textContent = T.session_ended;
+			root.insertBefore(el, root.firstChild);
+		} else if (!on && el) {
+			el.remove();
+		}
+	}
+
 	/* Refresh the part: Overview every minute, Trends every five; a hidden tab waits. */
 	var busy = false;
 	setInterval(function () {
@@ -167,10 +182,15 @@
 		fetch(root.getAttribute('data-part'), {credentials: 'same-origin'})
 		    .then(function (r) { return r.ok ? r.text() : Promise.reject(r.status); })
 		    .then(function (html) {
+			/* A signed-out session answers 200 with the login page: only a real part (it carries its data) replaces the charts. */
+			if (!new DOMParser().parseFromString(html, 'text/html').querySelector('script[data-fleet-json]')) {
+				return Promise.reject(new Error('not a dashboard part'));
+			}
 			part.innerHTML = html;
+			note(false);
 			draw();
 		})
-		    .catch(function () {})
+		    .catch(function () { note(true); })
 		    .then(function () { busy = false; });
 	}, (view === 'overview') ? 60000 : 300000);
 	draw();
