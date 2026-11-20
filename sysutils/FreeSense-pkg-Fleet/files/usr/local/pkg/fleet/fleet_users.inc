@@ -37,11 +37,24 @@ define('FLEET_USERS_FORMAT', 'fleet-users-v1');
 /* Pure                                                                */
 /* ------------------------------------------------------------------ */
 
-/* pure: a valid account name (the firewall checks the same). */
+/* The accounts and groups FreeBSD and FreeSense create themselves: a Fleet user never takes one of these names. */
+define('FLEET_USERS_RESERVED', array('root', 'toor', 'daemon', 'operator', 'bin', 'tty', 'kmem', 'games', 'news', 'man', 'sshd', 'smmsp', 'mailnull', 'bind', 'unbound',
+    'proxy', 'uucp', 'pop', 'auditdistd', 'www', 'hast', 'nobody', 'nogroup', 'sys', 'mail', 'staff', 'dialer', 'network', 'guest', 'authpf', 'dhcpd', 'radvd', 'ntpd',
+    'admin', 'admins', 'all', 'wheel', 'fleet-controller', 'fleet-hasync', 'fleet', 'postgres', 'mysql', 'squid', 'freeradius', 'nagios', 'zabbix', 'clamav', 'snort'));
+
+/* pure: a valid account name (the firewall checks the same): letters, digits . - _, starts with a letter, and is none the system itself uses. */
 function fleet_users_valid_name(string $name): bool {
-	return (bool)preg_match('/^[a-z_][a-z0-9._-]{0,31}$/iD', $name) &&
-	    !in_array(strtolower($name), array('root', 'admin', 'fleet-controller', 'nobody', 'toor', 'daemon', 'operator', 'www', 'sshd', 'uucp', 'unbound', 'dhcpd',
-	    'admins', 'all', 'wheel', 'nogroup'), true);
+	return (bool)preg_match('/^[a-z][a-z0-9._-]{0,31}$/iD', $name) && !in_array(strtolower($name), FLEET_USERS_RESERVED, true);
+}
+
+/* pure: are these public keys (one per line) fine to give a firewall? No options such as command="..." can hide in them. */
+function fleet_users_ssh_keys_valid(string $keys): bool {
+	foreach (array_filter(explode("\n", trim(str_replace("\r", '', $keys))), 'strlen') as $line) {
+		if (!preg_match('~^(ssh-(ed25519|rsa)|ecdsa-sha2-nistp(256|384|521)|sk-[a-z0-9@.-]+) [A-Za-z0-9+/=]{20,}( [^\x00-\x1f]{0,200})?$~D', trim($line))) {
+			return false;
+		}
+	}
+	return true;
 }
 
 /*
@@ -179,8 +192,10 @@ function fleet_ugroup_save(?int $id, array $in, string $who): int {
 
 function fleet_ugroup_delete(int $id, string $who): void {
 	$g = fleet_ugroups_all()[$id] ?? null;
-	fleet_db()->prepare('DELETE FROM ugroup_members WHERE group_id = ?')->execute(array($id));
-	fleet_db()->prepare('DELETE FROM ugroups WHERE id = ?')->execute(array($id));
+	fleet_transaction(function () use ($id): void {
+		fleet_db()->prepare('DELETE FROM ugroup_members WHERE group_id = ?')->execute(array($id));
+		fleet_db()->prepare('DELETE FROM ugroups WHERE id = ?')->execute(array($id));
+	});
 	fleet_audit($who, 'users', 'User group ' . ($g['name'] ?? $id) . ': deleted (removed from the firewalls with the next sync)');
 }
 
@@ -196,10 +211,8 @@ function fleet_fuser_save(?int $id, array $in, string $who): int {
 	}
 	$full = mb_substr(trim(preg_replace('/[\x00-\x1f\x7f]/u', ' ', (string)($in['fullname'] ?? ''))), 0, 100);
 	$keys = trim(str_replace("\r", '', (string)($in['ssh_keys'] ?? '')));
-	foreach (array_filter(explode("\n", $keys), 'strlen') as $line) {
-		if (!preg_match('~^(ssh-(ed25519|rsa)|ecdsa-sha2-nistp(256|384|521)|sk-[a-z0-9@.-]+) [A-Za-z0-9+/=]{20,}( [^\x00-\x1f]{0,200})?$~D', trim($line))) {
-			throw new InvalidArgumentException('SSH keys are public keys (ssh-ed25519 AAAA... name), one per line.');
-		}
+	if (!fleet_users_ssh_keys_valid($keys)) {
+		throw new InvalidArgumentException('SSH keys are public keys (ssh-ed25519 AAAA... name), one per line.');
 	}
 	$expires = trim((string)($in['expires'] ?? ''));
 	if (($expires !== '') && (!preg_match('/^\d{4}-\d{2}-\d{2}$/D', $expires) || (strtotime($expires) < time() - 86400))) {
@@ -213,6 +226,10 @@ function fleet_fuser_save(?int $id, array $in, string $who): int {
 		if (strlen($pw) < 10) {
 			throw new InvalidArgumentException('A password has at least 10 characters.');
 		}
+		if (strlen($pw) > 72) {
+			/* bcrypt only reads the first 72 bytes: a longer password would be silently cut. */
+			throw new InvalidArgumentException('A password has at most 72 characters.');
+		}
 	}
 	$groups = array_values(array_intersect(array_map('intval', (array)($in['groups'] ?? array())), array_keys(fleet_ugroups_all())));
 	$q = fleet_db()->prepare('SELECT COUNT(*) FROM fusers WHERE name = ? COLLATE NOCASE AND id != ?');
@@ -220,32 +237,38 @@ function fleet_fuser_save(?int $id, array $in, string $who): int {
 	if ((int)$q->fetchColumn() > 0) {
 		throw new InvalidArgumentException('There is already a user with that name.');
 	}
-	if ($id === null) {
-		/* No password: a random one nobody knows, so only SSH keys work. */
-		$hash = password_hash(($pw !== '') ? $pw : bin2hex(random_bytes(32)), PASSWORD_BCRYPT);
-		fleet_db()->prepare('INSERT INTO fusers (name, fullname, hash, ssh_keys, expires, disabled, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-		    ->execute(array($name, $full, $hash, $keys, $expires, empty($in['disabled']) ? 0 : 1, time(), time()));
-		$id = (int)fleet_db()->lastInsertId();
-	} else {
-		fleet_db()->prepare('UPDATE fusers SET name = ?, fullname = ?, ssh_keys = ?, expires = ?, disabled = ?, updated = ? WHERE id = ?')
-		    ->execute(array($name, $full, $keys, $expires, empty($in['disabled']) ? 0 : 1, time(), $id));
-		if ($pw !== '') {
-			fleet_db()->prepare('UPDATE fusers SET hash = ? WHERE id = ?')->execute(array(password_hash($pw, PASSWORD_BCRYPT), $id));
+	/* The user and the groups it is in are saved together: an error between them must not leave a user without groups (the next sync would then remove its accounts). */
+	$id = fleet_transaction(function () use ($id, $name, $full, $pw, $keys, $expires, $in, $groups): int {
+		if ($id === null) {
+			/* No password: a random one nobody knows, so only SSH keys work. */
+			$hash = password_hash(($pw !== '') ? $pw : bin2hex(random_bytes(32)), PASSWORD_BCRYPT);
+			fleet_db()->prepare('INSERT INTO fusers (name, fullname, hash, ssh_keys, expires, disabled, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+			    ->execute(array($name, $full, $hash, $keys, $expires, empty($in['disabled']) ? 0 : 1, time(), time()));
+			$id = (int)fleet_db()->lastInsertId();
+		} else {
+			fleet_db()->prepare('UPDATE fusers SET name = ?, fullname = ?, ssh_keys = ?, expires = ?, disabled = ?, updated = ? WHERE id = ?')
+			    ->execute(array($name, $full, $keys, $expires, empty($in['disabled']) ? 0 : 1, time(), $id));
+			if ($pw !== '') {
+				fleet_db()->prepare('UPDATE fusers SET hash = ? WHERE id = ?')->execute(array(password_hash($pw, PASSWORD_BCRYPT), $id));
+			}
 		}
-	}
-	fleet_db()->prepare('DELETE FROM ugroup_members WHERE user_id = ?')->execute(array($id));
-	$ins = fleet_db()->prepare('INSERT INTO ugroup_members (user_id, group_id) VALUES (?, ?)');
-	foreach ($groups as $gid) {
-		$ins->execute(array($id, $gid));
-	}
+		fleet_db()->prepare('DELETE FROM ugroup_members WHERE user_id = ?')->execute(array($id));
+		$ins = fleet_db()->prepare('INSERT INTO ugroup_members (user_id, group_id) VALUES (?, ?)');
+		foreach ($groups as $gid) {
+			$ins->execute(array($id, $gid));
+		}
+		return $id;
+	});
 	fleet_audit($who, 'users', sprintf('User %s: %d groups%s%s (sync to apply)', $name, count($groups), empty($in['disabled']) ? '' : ', disabled', ($pw !== '') ? ', password set' : ''));
 	return $id;
 }
 
 function fleet_fuser_delete(int $id, string $who): void {
 	$u = fleet_fusers_all()[$id] ?? null;
-	fleet_db()->prepare('DELETE FROM ugroup_members WHERE user_id = ?')->execute(array($id));
-	fleet_db()->prepare('DELETE FROM fusers WHERE id = ?')->execute(array($id));
+	fleet_transaction(function () use ($id): void {
+		fleet_db()->prepare('DELETE FROM ugroup_members WHERE user_id = ?')->execute(array($id));
+		fleet_db()->prepare('DELETE FROM fusers WHERE id = ?')->execute(array($id));
+	});
 	fleet_audit($who, 'users', 'User ' . ($u['name'] ?? $id) . ': deleted (removed from the firewalls with the next sync)');
 }
 
@@ -539,7 +562,8 @@ function fleet_users_drift_adopt(string $node, string $who): int {
 			continue;
 		}
 		$u = fleet_users_from_entry($e);
-		if (!preg_match('~^\$2[aby]\$\d\d\$~', $u['hash'])) {
+		/* What a firewall reports is checked like a form: a changed account must not bring key options or a bad hash to every other firewall. */
+		if (!preg_match('~^\$2[aby]\$\d\d\$~', $u['hash']) || !fleet_users_ssh_keys_valid($u['ssh_keys'])) {
 			continue;
 		}
 		fleet_db()->prepare('UPDATE fusers SET fullname = ?, hash = ?, ssh_keys = ?, expires = ?, disabled = ?, updated = ? WHERE name = ? COLLATE NOCASE')
