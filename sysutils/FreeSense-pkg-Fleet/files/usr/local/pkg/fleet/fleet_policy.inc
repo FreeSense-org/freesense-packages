@@ -125,7 +125,7 @@ function fleet_policy_rule_from(string $id, array $in): array {
 		} elseif ($type === 'int') {
 			(!ctype_digit($v) || ((int)$v < 1) || ((int)$v > 3650)) ? $bad() : null;
 		} elseif ($type === 'regex') {
-			(($v === '') || (@preg_match('/' . str_replace('/', '\/', $v) . '/', '') === false)) ? $bad() : null;
+			(($v === '') || (strlen($v) > 200) || preg_match('/[\x00-\x1f]/', $v) || (@preg_match('/' . str_replace('/', '\/', $v) . '/', '') === false)) ? $bad() : null;
 		} elseif ($type === 'path') {
 			!preg_match('#^[a-z0-9_-]+(/[a-z0-9_-]+){0,7}$#i', $v) ? $bad() : null;
 		} elseif (strncmp($type, 'choice:', 7) === 0) {
@@ -137,6 +137,9 @@ function fleet_policy_rule_from(string $id, array $in): array {
 	}
 	if (($base === 'CUSTOM') && in_array($params['op'], array('equals', 'not_equals', 'regex', 'min', 'max'), true) && ($params['value'] === '')) {
 		throw new InvalidArgumentException("{$id}: this test needs a value.");
+	}
+	if (($base === 'CUSTOM') && ($params['op'] === 'regex') && (@preg_match('/' . str_replace('/', '\/', $params['value']) . '/', '') === false)) {
+		throw new InvalidArgumentException("{$id}: the value is not a valid regular expression.");
 	}
 	$mode = (string)($in['mode'] ?? 'audit');
 	if (!isset(FLEET_POLICY_MODES[$mode])) {
