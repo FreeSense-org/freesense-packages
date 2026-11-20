@@ -410,6 +410,16 @@ function fleet_policy_custom_next(array $policies): int {
 	throw new InvalidArgumentException('All 999 custom rules are in use. Remove some first.');
 }
 
+/* pure: the effective rules of a firewall without those it has an exception for (they must not be locked or fixed on it either). */
+function fleet_policy_without_exceptions(array $eff, array $exceptions, string $node, int $now): array {
+	foreach (array_keys($eff) as $rid) {
+		if (fleet_policy_excepted($exceptions, $node, (string)$rid, $now) !== null) {
+			unset($eff[$rid]);
+		}
+	}
+	return $eff;
+}
+
 /* pure: is there an exception for this firewall and rule that has not expired? */
 function fleet_policy_excepted(array $exceptions, string $node, string $rid, int $now): ?array {
 	foreach ($exceptions as $e) {
@@ -592,10 +602,9 @@ function fleet_box_facts(array $box): array {
 function fleet_box_effective(string $node, ?array $policies = null, ?array $groups = null): array {
 	$eff = fleet_policy_effective($policies ?? fleet_policies_all(), $node, ($groups ?? fleet_box_group_ids())[$node] ?? array());
 	if (isset($eff['NAME-003']) || isset($eff['NAME-004'])) {
-		list($ng) = fleet_naming_group_of($node);
 		foreach (array('NAME-003' => 'domain', 'NAME-004' => 'pattern') as $rid => $what) {
 			if (isset($eff[$rid])) {
-				$eff[$rid][0] = fleet_policy_group_params($what, $ng);
+				$eff[$rid][0] = fleet_policy_group_params($what, fleet_naming_group_of($node, $what)[0]);
 			}
 		}
 	}
@@ -749,11 +758,13 @@ function fleet_bundles_push(?array $only = null): void {
 	$policies = fleet_policies_all();
 	$groups = fleet_box_group_ids();
 	$lock_users = fleet_users_locked() ? array_flip(fleet_users_nodes()) : array();
+	$exceptions = fleet_policy_exceptions();
 	foreach (fleet_db()->query('SELECT * FROM boxes')->fetchAll() as $box) {
 		if ((($only !== null) && !in_array($box['node_id'], $only, true)) || !fleet_manage_allowed($box)) {
 			continue;
 		}
-		$rules = fleet_policy_lock_rules(fleet_box_effective($box['node_id'], $policies, $groups));
+		/* A rule with an exception on this firewall is neither locked nor fixed there: the firewall must accept what the exception allows. */
+		$rules = fleet_policy_lock_rules(fleet_policy_without_exceptions(fleet_box_effective($box['node_id'], $policies, $groups), $exceptions, $box['node_id'], time()));
 		$lock_acc = isset($lock_users[$box['node_id']]);
 		$hash = hash('sha256', json_encode($rules) . ($lock_acc ? '+accounts' : ''));
 		$prev = fleet_bundle_state_get($box['node_id']);
@@ -810,22 +821,44 @@ function fleet_lock_follow(array $box, array $status): void {
 /* Remediate                                                           */
 /* ------------------------------------------------------------------ */
 
-/* rule id => {time, hash, result, detail} of the last fix Fleet tried on a firewall (one row per firewall and rule). */
+/* The window in which fixes of one rule on one firewall are counted, and how many are made automatically in it. */
+define('FLEET_AUTOFIX_WINDOW', 86400);
+define('FLEET_AUTOFIX_MAX', 3);
+
+/* rule id => {time, hash, result, detail, fixed_count, fixed_since} of the last fix Fleet tried on a firewall (one row per firewall and rule). */
 function fleet_remediations_for(string $node): array {
-	$q = fleet_db()->prepare('SELECT rule_id, time, hash, result, detail FROM remediation_state WHERE node_id = ?');
+	$q = fleet_db()->prepare('SELECT rule_id, time, hash, result, detail, fixed_count, fixed_since FROM remediation_state WHERE node_id = ?');
 	$q->execute(array($node));
 	$out = array();
 	foreach ($q->fetchAll() as $r) {
-		$out[$r['rule_id']] = array('time' => (int)$r['time'], 'hash' => $r['hash'], 'result' => $r['result'], 'detail' => $r['detail']);
+		$out[$r['rule_id']] = array('time' => (int)$r['time'], 'hash' => $r['hash'], 'result' => $r['result'], 'detail' => $r['detail'],
+		    'fixed_count' => (int)$r['fixed_count'], 'fixed_since' => (int)$r['fixed_since']);
 	}
 	return $out;
 }
 
 /* Record the last fix tried for one rule on one firewall. */
-function fleet_remediation_record(string $node, string $rid, string $hash, string $result, string $detail): void {
-	fleet_db()->prepare('INSERT INTO remediation_state (node_id, rule_id, time, hash, result, detail) VALUES (?, ?, ?, ?, ?, ?)
-	    ON CONFLICT(node_id, rule_id) DO UPDATE SET time = excluded.time, hash = excluded.hash, result = excluded.result, detail = excluded.detail')
-	    ->execute(array($node, $rid, time(), $hash, $result, $detail));
+function fleet_remediation_record(string $node, string $rid, string $hash, string $result, string $detail): int {
+	$now = time();
+	$q = fleet_db()->prepare('SELECT fixed_count, fixed_since FROM remediation_state WHERE node_id = ? AND rule_id = ?');
+	$q->execute(array($node, $rid));
+	$prev = $q->fetch() ?: array('fixed_count' => 0, 'fixed_since' => 0);
+	/* Fixes that worked, counted over a day: a rule somebody keeps changing back is not fixed again and again. */
+	if ($result !== 'fixed') {
+		$count = (int)$prev['fixed_count'];
+		$since = (int)$prev['fixed_since'];
+	} elseif (($now - (int)$prev['fixed_since']) < FLEET_AUTOFIX_WINDOW) {
+		$count = (int)$prev['fixed_count'] + 1;
+		$since = (int)$prev['fixed_since'];
+	} else {
+		$count = 1;
+		$since = $now;
+	}
+	fleet_db()->prepare('INSERT INTO remediation_state (node_id, rule_id, time, hash, result, detail, fixed_count, fixed_since) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	    ON CONFLICT(node_id, rule_id) DO UPDATE SET time = excluded.time, hash = excluded.hash, result = excluded.result, detail = excluded.detail,
+	    fixed_count = excluded.fixed_count, fixed_since = excluded.fixed_since')
+	    ->execute(array($node, $rid, $now, $hash, $result, $detail, $count, $since));
+	return $count;
 }
 
 /* Is a firewall inside a maintenance window now? (No window on any of its groups: always.) */
@@ -859,6 +892,10 @@ function fleet_remediate_due(array $failing, array $last, int $now, bool $manual
 		$prev = $last[$rid] ?? null;
 		if (!$manual && ($prev !== null) && ($prev['hash'] === $hash) &&
 		    (($prev['result'] !== 'fixed') || (($now - (int)$prev['time']) < 3600))) {
+			continue;
+		}
+		/* Fixed and changed back again too often in a day: somebody or something undoes it, so stop and let a person look. */
+		if (!$manual && ($prev !== null) && ((int)($prev['fixed_count'] ?? 0) >= FLEET_AUTOFIX_MAX) && (($now - (int)($prev['fixed_since'] ?? 0)) < FLEET_AUTOFIX_WINDOW)) {
 			continue;
 		}
 		$out[$rid] = $hash;
@@ -901,8 +938,8 @@ function fleet_remediate_box(array $box, string $who, bool $manual = false): str
 	foreach (array_keys($due) as $rid) {
 		$node_ids[fleet_policy_node_rule($rid, $failing[$rid], 'remediate')['id']] = $rid;
 	}
-	$record = function (string $rid, string $result, string $detail) use ($box, $due) {
-		fleet_remediation_record($box['node_id'], $rid, $due[$rid], $result, $detail);
+	$record = function (string $rid, string $result, string $detail) use ($box, $due): int {
+		return fleet_remediation_record($box['node_id'], $rid, $due[$rid], $result, $detail);
 	};
 	try {
 		fleet_backup_box($box, 'remediation', $who);
@@ -925,7 +962,11 @@ function fleet_remediate_box(array $box, string $who, bool $manual = false): str
 			continue;
 		}
 		$res = in_array($r['result'] ?? '', array('fixed', 'compliant'), true) ? 'fixed' : 'cannot';
-		$record($rid, $res, (string)($r['detail'] ?? ''));
+		$fixes = $record($rid, $res, (string)($r['detail'] ?? ''));
+		if (($res === 'fixed') && ($fixes >= FLEET_AUTOFIX_MAX)) {
+			fleet_audit($who, 'policy', sprintf('FLEET-E320: %s: %s was changed back on the firewall %d times within a day; automatic fixes of it stop until you press Fix now.',
+			    $box['label'], fleet_policy_rule_title($rid, $failing[$rid]), $fixes), $box['node_id']);
+		}
 		$words[] = fleet_policy_rule_title($rid, $failing[$rid]) . ': ' . (string)($r['detail'] ?? '');
 		if ($res === 'fixed') {
 			$fixed[] = $rid;

@@ -53,6 +53,7 @@ check(((int)$s32->query('PRAGMA user_version')->fetchColumn() >= 32) && (array_d
 $ufile = "{$data}/migrate-up.db";
 $udb = new PDO('sqlite:' . $ufile, null, null, array(PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION));
 fleet_db_migrate($udb);
+$udb->exec('DROP INDEX invitations_hostname; ALTER TABLE remediation_state DROP COLUMN fixed_count; ALTER TABLE remediation_state DROP COLUMN fixed_since;');
 foreach (array('audit_time', 'audit_action', 'audit_node', 'ops_state', 'ops_started', 'samples_node', 'samples_hourly_node', 'access_fails_ip') as $i) {
 	$udb->exec("DROP INDEX {$i}");
 }

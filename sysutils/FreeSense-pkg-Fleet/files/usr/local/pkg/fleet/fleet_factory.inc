@@ -303,78 +303,82 @@ function fleet_factory_generate(array $settings, string $csv, string $passphrase
 	$dir = FLEET_DATA . '/tmp/batch-' . $bid;
 	exec('rm -rf ' . escapeshellarg($dir));
 	@mkdir($dir . '/bundle', 0700, true);
-	$cards = array();
-	$keys = array();
-	$vms = array();
-	$manifest = array('batch' => $settings['name'], 'created' => gmdate('c', $now), 'mode' => $settings['mode'], 'expires' => gmdate('c', $now + 86400 * $settings['days']), 'firewalls' => array());
-	foreach ($rows as $i => $r) {
-		/* Attended: the paste text alone joins, so a Tailscale key travels sealed in the link; PIN and unattended seeds hold it themselves. */
-		try {
-			list($link, $key, $tid, $expires, $tskey) = fleet_invite_create($settings['role'], $r['label'], 86400 * $settings['days'], $who, $authority, $now, $via,
-			    function (string $t) use ($r, $settings, $who) { return fleet_ts_authkey_mint($r['label'], 86400 * $settings['days'], $who, $t); }, '', $settings['mode'] === 'attended');
-		} catch (InvalidArgumentException $e) {
-			/* Nothing half-made: the batch's invitations and keys so far go again. */
-			fleet_batch_revoke($bid, $who);
-			exec('rm -rf ' . escapeshellarg($dir));
-			throw new RuntimeException('Line ' . $r['line'] . ': ' . $e->getMessage() . ' Nothing was made.');
-		}
-		$host = $r['hostname'];
-		if ($r['scope'] !== null) {
-			fleet_db()->prepare('INSERT OR REPLACE INTO name_counters (scope, next) VALUES (?, ?)')->execute(array($r['scope'], (int)$r['n'] + 1));
-		}
-		fleet_db()->prepare('UPDATE invitations SET group_id = ?, hostname = ?, domain = ?, bind_serial = ?, bind_instance = ?, auto_approve = ?, batch_id = ? WHERE token_id = ?')
-		    ->execute(array($settings['group'] ?: null, $host, $r['domain'], $r['serial'], $r['instance_id'], $settings['auto_approve'] ? 1 : 0, $bid, $tid));
-		fleet_db()->prepare('INSERT INTO batch_rows (batch_id, n, site, label, hostname, domain, serial, instance_id, token_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-		    ->execute(array($bid, $i + 1, $r['site'], $r['label'], $host, $r['domain'], $r['serial'], $r['instance_id'], $tid));
-		$pin = ($settings['mode'] === 'pin') ? sprintf('%06d', random_int(0, 999999)) : null;
-		$folder = ($host !== '') ? $host : sprintf('firewall-%03d', $i + 1);
-		@mkdir("{$dir}/bundle/{$folder}", 0700);
-		$seed = fleet_factory_seed($link, $settings['mode'], $key, $pin, $tskey);
-		file_put_contents("{$dir}/bundle/{$folder}/fleet-join.conf", json_encode($seed, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
-		/* The same seed on a small FAT disk, and as cloud-init for a cloud image. */
-		@mkdir("{$dir}/work/{$folder}/seed", 0700, true);
-		copy("{$dir}/bundle/{$folder}/fleet-join.conf", "{$dir}/work/{$folder}/seed/fleet-join.conf");
-		fleet_factory_fat_image("{$dir}/work/{$folder}/seed", "{$dir}/bundle/{$folder}/seed.img");
-		@mkdir("{$dir}/bundle/{$folder}/cloud", 0700);
-		foreach (fleet_factory_cloud_files($r, $folder, $host, $seed) as $fname => $text) {
-			file_put_contents("{$dir}/bundle/{$folder}/cloud/{$fname}", $text);
-		}
-		fleet_factory_cidata_iso("{$dir}/bundle/{$folder}/cloud", "{$dir}/bundle/{$folder}/cidata.iso");
-		$vms[$folder] = array('name' => ($host !== '') ? $host : $folder, 'instance_id' => fleet_factory_instance_id($r, $folder));
-		file_put_contents("{$dir}/bundle/{$folder}/README.txt", fleet_factory_readme($r, $settings, $host, $expires));
-		$fqdn = $host . (($host !== '' && $r['domain'] !== '') ? '.' . $r['domain'] : '');
-		$cards[] = array('label' => $r['label'], 'site' => $r['site'], 'name' => $fqdn, 'serial' => $r['serial'], 'link' => $link, 'folder' => $folder);
-		if ($settings['mode'] !== 'unattended') {
-			$keys[] = array('label' => $r['label'], 'name' => $fqdn, 'secret' => ($settings['mode'] === 'pin') ? $pin : $key,
-			    'paste' => ($settings['mode'] === 'attended') ? fleet_invite_paste($link, $key) : '');
-			if ($settings['mode'] === 'attended') {
-				file_put_contents("{$dir}/bundle/{$folder}/paste-on-the-firewall.txt", fleet_invite_paste($link, $key) . "\n");
+	try {
+		$cards = array();
+		$keys = array();
+		$vms = array();
+		$manifest = array('batch' => $settings['name'], 'created' => gmdate('c', $now), 'mode' => $settings['mode'], 'expires' => gmdate('c', $now + 86400 * $settings['days']), 'firewalls' => array());
+		foreach ($rows as $i => $r) {
+			/* Attended: the paste text alone joins, so a Tailscale key travels sealed in the link; PIN and unattended seeds hold it themselves. */
+			try {
+				list($link, $key, $tid, $expires, $tskey) = fleet_invite_create($settings['role'], $r['label'], 86400 * $settings['days'], $who, $authority, $now, $via,
+				    function (string $t) use ($r, $settings, $who) { return fleet_ts_authkey_mint($r['label'], 86400 * $settings['days'], $who, $t); }, '', $settings['mode'] === 'attended');
+			} catch (InvalidArgumentException $e) {
+				throw new RuntimeException('Line ' . $r['line'] . ': ' . $e->getMessage() . ' Nothing was made.');
 			}
+			$host = $r['hostname'];
+			if ($r['scope'] !== null) {
+				fleet_naming_counter_raise((string)$r['scope'], (int)$r['n'] + 1);
+			}
+			fleet_db()->prepare('UPDATE invitations SET group_id = ?, hostname = ?, domain = ?, bind_serial = ?, bind_instance = ?, auto_approve = ?, batch_id = ? WHERE token_id = ?')
+			    ->execute(array($settings['group'] ?: null, $host, $r['domain'], $r['serial'], $r['instance_id'], $settings['auto_approve'] ? 1 : 0, $bid, $tid));
+			fleet_db()->prepare('INSERT INTO batch_rows (batch_id, n, site, label, hostname, domain, serial, instance_id, token_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+			    ->execute(array($bid, $i + 1, $r['site'], $r['label'], $host, $r['domain'], $r['serial'], $r['instance_id'], $tid));
+			$pin = ($settings['mode'] === 'pin') ? sprintf('%06d', random_int(0, 999999)) : null;
+			$folder = ($host !== '') ? $host : sprintf('firewall-%03d', $i + 1);
+			@mkdir("{$dir}/bundle/{$folder}", 0700);
+			$seed = fleet_factory_seed($link, $settings['mode'], $key, $pin, $tskey);
+			file_put_contents("{$dir}/bundle/{$folder}/fleet-join.conf", json_encode($seed, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+			/* The same seed on a small FAT disk, and as cloud-init for a cloud image. */
+			@mkdir("{$dir}/work/{$folder}/seed", 0700, true);
+			copy("{$dir}/bundle/{$folder}/fleet-join.conf", "{$dir}/work/{$folder}/seed/fleet-join.conf");
+			fleet_factory_fat_image("{$dir}/work/{$folder}/seed", "{$dir}/bundle/{$folder}/seed.img");
+			@mkdir("{$dir}/bundle/{$folder}/cloud", 0700);
+			foreach (fleet_factory_cloud_files($r, $folder, $host, $seed) as $fname => $text) {
+				file_put_contents("{$dir}/bundle/{$folder}/cloud/{$fname}", $text);
+			}
+			fleet_factory_cidata_iso("{$dir}/bundle/{$folder}/cloud", "{$dir}/bundle/{$folder}/cidata.iso");
+			$vms[$folder] = array('name' => ($host !== '') ? $host : $folder, 'instance_id' => fleet_factory_instance_id($r, $folder));
+			file_put_contents("{$dir}/bundle/{$folder}/README.txt", fleet_factory_readme($r, $settings, $host, $expires));
+			$fqdn = $host . (($host !== '' && $r['domain'] !== '') ? '.' . $r['domain'] : '');
+			$cards[] = array('label' => $r['label'], 'site' => $r['site'], 'name' => $fqdn, 'serial' => $r['serial'], 'link' => $link, 'folder' => $folder);
+			if ($settings['mode'] !== 'unattended') {
+				$keys[] = array('label' => $r['label'], 'name' => $fqdn, 'secret' => ($settings['mode'] === 'pin') ? $pin : $key,
+				    'paste' => ($settings['mode'] === 'attended') ? fleet_invite_paste($link, $key) : '');
+				if ($settings['mode'] === 'attended') {
+					file_put_contents("{$dir}/bundle/{$folder}/paste-on-the-firewall.txt", fleet_invite_paste($link, $key) . "\n");
+				}
+			}
+			$manifest['firewalls'][] = array('folder' => $folder, 'label' => $r['label'], 'site' => $r['site'], 'hostname' => $host, 'domain' => $r['domain'],
+			    'serial' => $r['serial'], 'instance_id' => $r['instance_id'], 'invitation' => $tid);
 		}
-		$manifest['firewalls'][] = array('folder' => $folder, 'label' => $r['label'], 'site' => $r['site'], 'hostname' => $host, 'domain' => $r['domain'],
-		    'serial' => $r['serial'], 'instance_id' => $r['instance_id'], 'invitation' => $tid);
+		exec('rm -rf ' . escapeshellarg("{$dir}/work"));
+		@mkdir("{$dir}/bundle/recipes/terraform", 0700, true);
+		foreach (fleet_factory_recipes($settings, $vms) as $fname => $text) {
+			file_put_contents("{$dir}/bundle/recipes/{$fname}", $text);
+		}
+		file_put_contents("{$dir}/bundle/join-cards.html", fleet_factory_cards_html($settings, $cards));
+		if (!empty($keys)) {
+			file_put_contents("{$dir}/bundle/key-sheet.html", fleet_factory_keys_html($settings, $keys));
+		}
+		file_put_contents("{$dir}/bundle/manifest.json", json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+		list($rc) = fleet_ctl_exec(array('/usr/bin/tar', '-czf', "{$dir}/bundle.tar.gz", '-C', "{$dir}/bundle", '.'));
+		exec('rm -rf ' . escapeshellarg("{$dir}/bundle"));
+		if ($rc !== 0) {
+			throw new RuntimeException('The bundle could not be packed.');
+		}
+		$out = "{$dir}/bundle.tar.gz.enc";
+		file_put_contents($out, fleet_factory_encrypt((string)file_get_contents("{$dir}/bundle.tar.gz"), $passphrase));
+		@unlink("{$dir}/bundle.tar.gz");
+		@chmod($out, 0600);
+		fleet_audit($who, 'factory', sprintf('Batch %s: %d firewalls, %s, for %d days', $settings['name'], count($rows), $settings['mode'], $settings['days']) . (($via === 'tailscale') ? ', over Tailscale' : ''));
+		return array($bid, $out);
+	} catch (Throwable $e) {
+		/* Nothing half-made, whatever failed: the batch's invitations and keys so far go again, and the files. */
+		fleet_batch_revoke($bid, $who);
+		exec('rm -rf ' . escapeshellarg($dir));
+		throw $e;
 	}
-	exec('rm -rf ' . escapeshellarg("{$dir}/work"));
-	@mkdir("{$dir}/bundle/recipes/terraform", 0700, true);
-	foreach (fleet_factory_recipes($settings, $vms) as $fname => $text) {
-		file_put_contents("{$dir}/bundle/recipes/{$fname}", $text);
-	}
-	file_put_contents("{$dir}/bundle/join-cards.html", fleet_factory_cards_html($settings, $cards));
-	if (!empty($keys)) {
-		file_put_contents("{$dir}/bundle/key-sheet.html", fleet_factory_keys_html($settings, $keys));
-	}
-	file_put_contents("{$dir}/bundle/manifest.json", json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
-	list($rc) = fleet_ctl_exec(array('/usr/bin/tar', '-czf', "{$dir}/bundle.tar.gz", '-C', "{$dir}/bundle", '.'));
-	exec('rm -rf ' . escapeshellarg("{$dir}/bundle"));
-	if ($rc !== 0) {
-		throw new RuntimeException('The bundle could not be packed.');
-	}
-	$out = "{$dir}/bundle.tar.gz.enc";
-	file_put_contents($out, fleet_factory_encrypt((string)file_get_contents("{$dir}/bundle.tar.gz"), $passphrase));
-	@unlink("{$dir}/bundle.tar.gz");
-	@chmod($out, 0600);
-	fleet_audit($who, 'factory', sprintf('Batch %s: %d firewalls, %s, for %d days', $settings['name'], count($rows), $settings['mode'], $settings['days']) . (($via === 'tailscale') ? ', over Tailscale' : ''));
-	return array($bid, $out);
 }
 
 /* The encrypted bundle of a batch, while it is kept. */
