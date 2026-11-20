@@ -44,3 +44,20 @@ check(is_array(fleet_batch_rows((int)fleet_db()->lastInsertId())), 'batch rows c
 check(fleet_factory_settings(array('name' => 'x', 'mode' => 'unattended'))['days'] === 3 && fleet_factory_settings(array('name' => 'x', 'mode' => 'unattended', 'days' => 30))['days'] === 7 &&
     fleet_factory_settings(array('name' => 'x', 'mode' => 'attended'))['days'] === 14 && fleet_factory_settings(array('name' => 'x', 'mode' => 'pin', 'days' => 30))['days'] === 30,
     'an unattended seed lives 3 days by default and 7 at most');
+
+/* The batch runs in the background: a lost request fails the operation in words, a bad one reports the reason. */
+$fop = fleet_op_group_start('factory', 'test batch', 'test');
+fleet_factory_run($fop);
+$fst = fleet_db()->prepare('SELECT state, text FROM ops WHERE id = ?');
+$fst->execute(array($fop));
+$frow = $fst->fetch();
+$fst->closeCursor();
+check($frow['state'] === 'failed' && strpos($frow['text'], 'Make the batch again') !== false, 'a batch whose request is gone fails the operation in words');
+@mkdir(FLEET_DATA . '/tmp', 0700, true);
+$fop2 = fleet_op_group_start('factory', 'test batch 2', 'test');
+file_put_contents(FLEET_DATA . "/tmp/factory-request-{$fop2}.json", json_encode(array('settings' => fleet_factory_settings(array('name' => 'x')), 'csv' => '', 'passphrase' => 'short', 'who' => 'test', 'authority' => 'h:1')));
+fleet_factory_run($fop2);
+$fst->execute(array($fop2));
+$frow = $fst->fetch();
+$fst->closeCursor();
+check($frow['state'] === 'failed' && strpos($frow['text'], 'The batch was not made') !== false && !is_file(FLEET_DATA . "/tmp/factory-request-{$fop2}.json"), 'a refused batch reports why and the request file (with the passphrase) is deleted');

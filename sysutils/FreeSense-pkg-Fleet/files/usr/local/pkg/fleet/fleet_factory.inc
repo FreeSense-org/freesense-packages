@@ -283,6 +283,62 @@ function fleet_factory_counters(): array {
  * encrypted bundle. Returns array(batch id, bundle path). Nothing is
  * kept when a row has a problem.
  */
+/*
+ * Start a batch in the background (a batch of 200 firewalls takes minutes: bcrypt-strength key stretching, images,
+ * Tailscale keys). The passphrase travels in a 0600 file the runner reads and deletes, never on a command line.
+ * Returns the operation id; the checks that can fail on input run first, so the page can show them.
+ */
+function fleet_factory_launch(array $settings, string $csv, string $passphrase, string $who, string $authority): int {
+	$problem = fleet_factory_passphrase_problem($passphrase);
+	if ($problem !== null) {
+		throw new InvalidArgumentException($problem);
+	}
+	$rows = fleet_factory_rows($csv);
+	if (empty($rows) || (count($rows) > FLEET_FACTORY_MAX_ROWS)) {
+		throw new InvalidArgumentException('Add 1 to ' . FLEET_FACTORY_MAX_ROWS . ' rows.');
+	}
+	list($planned) = fleet_factory_plan($rows, $settings, fleet_factory_naming($settings['group']), fleet_factory_counters(), fleet_naming_taken());
+	foreach ($planned as $r) {
+		if (!empty($r['problems'])) {
+			throw new InvalidArgumentException('FLEET-E120: line ' . $r['line'] . ': ' . implode('; ', $r['problems']) . '. Nothing was made.');
+		}
+	}
+	$op = fleet_op_group_start('factory', sprintf('Deployment Factory batch "%s" (%d firewalls)', $settings['name'], count($planned)), $who);
+	$dir = FLEET_DATA . '/tmp';
+	if (!is_dir($dir) && !@mkdir($dir, 0700, true)) {
+		fleet_op_set($op, 'failed', 'The working directory could not be created.');
+		throw new RuntimeException('The working directory could not be created.');
+	}
+	$file = "{$dir}/factory-request-{$op}.json";
+	$old = umask(0077);
+	$ok = @file_put_contents($file, json_encode(array('settings' => $settings, 'csv' => $csv, 'passphrase' => $passphrase, 'who' => $who, 'authority' => $authority)), LOCK_EX);
+	umask($old);
+	if ($ok === false) {
+		fleet_op_set($op, 'failed', 'The request could not be stored.');
+		throw new RuntimeException('The request could not be stored.');
+	}
+	mwexec_bg('/usr/local/bin/php /usr/local/sbin/freesense-fleet-run factory ' . (int)$op);
+	return $op;
+}
+
+/* The background half (freesense-fleet-run factory <op>). */
+function fleet_factory_run(int $op): void {
+	$file = FLEET_DATA . "/tmp/factory-request-{$op}.json";
+	$req = json_decode((string)@file_get_contents($file), true);
+	@unlink($file);
+	if (!is_array($req)) {
+		fleet_op_set($op, 'failed', 'The request is gone (the controller restarted before the batch started). Make the batch again.');
+		return;
+	}
+	try {
+		fleet_op_set($op, 'running', 'Making the seeds, keys and images', 10);
+		list($bid) = fleet_factory_generate($req['settings'], (string)$req['csv'], (string)$req['passphrase'], (string)$req['who'], (string)$req['authority']);
+		fleet_op_set($op, 'done', sprintf('Batch %d is ready. Download the bundle under Firewalls > Deployment Factory: it is the only copy of the seeds and keys.', (int)$bid));
+	} catch (Throwable $e) {
+		fleet_op_set($op, 'failed', 'The batch was not made: ' . $e->getMessage());
+	}
+}
+
 function fleet_factory_generate(array $settings, string $csv, string $passphrase, string $who, string $authority): array {
 	$problem = fleet_factory_passphrase_problem($passphrase);
 	if ($problem !== null) {
