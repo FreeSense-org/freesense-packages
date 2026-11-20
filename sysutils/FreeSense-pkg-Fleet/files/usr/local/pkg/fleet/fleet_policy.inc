@@ -102,7 +102,7 @@ define('FLEET_POLICY_REMEDIABLE', array('OPS-001', 'OPS-003', 'NAME-002', 'NAME-
 
 /*
  * pure: one rule of a policy from a form: array(rule id, params, mode) or
- * InvalidArgumentException. Custom rules get the key CUSTOM:<n>.
+ * InvalidArgumentException. Custom rules get the key CUSTOM:<n> (n fleet-wide, see fleet_policy_custom_next()).
  */
 function fleet_policy_rule_from(string $id, array $in): array {
 	$cat = fleet_policy_catalog();
@@ -372,13 +372,42 @@ function fleet_policy_effective(array $policies, string $node, array $groups): a
 			if (!isset($out[$rid]) || ($l > $lv[$rid])) {
 				$out[$rid] = array($params, $mode, (int)$p['id'], $p['name'], null);
 				$lv[$rid] = $l;
-			} elseif (($l === $lv[$rid]) && ($params !== $out[$rid][0]) && ($out[$rid][4] === null)) {
-				$out[$rid][4] = $p['name'];
+			} elseif (($l === $lv[$rid]) && (($params !== $out[$rid][0]) || ($mode !== $out[$rid][1]))) {
+				/* The same level disagrees (what to check, or how hard): shown as a conflict; the stricter mode is the one enforced. */
+				$strict = array_flip(array('audit', 'remediate', 'lock'));
+				if (($strict[$mode] ?? 0) > ($strict[$out[$rid][1]] ?? 0)) {
+					$out[$rid] = array($params, $mode, (int)$p['id'], $p['name'], $out[$rid][4] ?? $out[$rid][3]);
+				} elseif ($out[$rid][4] === null) {
+					$out[$rid][4] = $p['name'];
+				}
 			}
 		}
 	}
 	ksort($out);
 	return $out;
+}
+
+/*
+ * pure: the number for a new custom rule: the lowest free one across every policy
+ * (rule ids are fleet-wide: the compliance table, exceptions and the firewall's
+ * own rule list all key on them, and the firewall accepts CUS-001 to CUS-999).
+ * $policies: policy rows. Throws when all 999 are taken.
+ */
+function fleet_policy_custom_next(array $policies): int {
+	$used = array();
+	foreach ($policies as $p) {
+		foreach (array_keys((array)$p['rules']) as $rid) {
+			if (strncmp((string)$rid, 'CUSTOM:', 7) === 0) {
+				$used[(int)substr((string)$rid, 7)] = true;
+			}
+		}
+	}
+	for ($n = 1; $n <= 999; $n++) {
+		if (!isset($used[$n])) {
+			return $n;
+		}
+	}
+	throw new InvalidArgumentException('All 999 custom rules are in use. Remove some first.');
 }
 
 /* pure: is there an exception for this firewall and rule that has not expired? */
@@ -461,6 +490,14 @@ function fleet_policy_save(?int $id, array $in, string $who): int {
 	}
 	if (empty($rules)) {
 		throw new InvalidArgumentException('Choose at least one rule.');
+	}
+	/* A custom rule number belongs to one policy (two forms open at once could pick the same one). */
+	foreach (fleet_policies_all() as $other) {
+		foreach (array_keys($rules) as $rid) {
+			if ((strncmp($rid, 'CUSTOM:', 7) === 0) && ((int)$other['id'] !== (int)$id) && isset($other['rules'][$rid])) {
+				throw new InvalidArgumentException(sprintf('Custom rule %d is already used by the policy "%s". Open the policy again and add the rule again.', (int)substr($rid, 7), $other['name']));
+			}
+		}
 	}
 	$q = fleet_db()->prepare('SELECT COUNT(*) FROM policies WHERE name = ? COLLATE NOCASE AND id != ?');
 	$q->execute(array($name, $id ?? 0));
