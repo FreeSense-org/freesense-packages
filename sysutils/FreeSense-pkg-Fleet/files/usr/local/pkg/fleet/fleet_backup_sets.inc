@@ -190,11 +190,24 @@ function fleet_backup_rules_by_box(): array {
 	return $out;
 }
 
-/* Remove the backups no rule keeps. Returns array(backups removed, bytes freed). Backups of firewalls that left the fleet are left alone. */
+/*
+ * Remove the backups no rule keeps, and the backups of firewalls that left the fleet once they are older than
+ * the keep_removed setting (pinned ones stay). Returns array(backups removed, bytes freed).
+ */
 function fleet_backup_prune(string $who, ?int $now = null): array {
 	$now = $now ?? time();
 	$removed = 0;
 	$freed = 0;
+	/* A firewall that is gone has no keep rule: its backups (full configurations with secrets) must not stay for ever. */
+	$q = fleet_db()->prepare('SELECT id, size, file FROM backups WHERE pinned = 0 AND time < ? AND node_id NOT IN (SELECT node_id FROM boxes)');
+	$q->execute(array($now - 86400 * fleet_opt('keep_removed')));
+	foreach ($q->fetchAll() as $r) {
+		/* The row first: a file left behind is harmless, a row without a file is a backup that cannot be read. */
+		fleet_db()->prepare('DELETE FROM backups WHERE id = ?')->execute(array($r['id']));
+		@unlink(FLEET_BACKUP_DIR . '/' . $r['file']);
+		$removed++;
+		$freed += (int)$r['size'];
+	}
 	foreach (fleet_backup_rules_by_box() as $node => list($rules)) {
 		$q = fleet_db()->prepare('SELECT id, time, reason, pinned, file, size FROM backups WHERE node_id = ?');
 		$q->execute(array($node));
@@ -204,8 +217,8 @@ function fleet_backup_prune(string $who, ?int $now = null): array {
 			if (isset($keep[(int)$r['id']])) {
 				continue;
 			}
-			@unlink(FLEET_BACKUP_DIR . '/' . $r['file']);
 			fleet_db()->prepare('DELETE FROM backups WHERE id = ?')->execute(array($r['id']));
+			@unlink(FLEET_BACKUP_DIR . '/' . $r['file']);
 			$removed++;
 			$freed += (int)$r['size'];
 		}
