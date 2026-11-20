@@ -126,3 +126,17 @@ check(!fleet_op_begin_task($by[$ta]) && fleet_op_begin_task($by[$tfree]) && !fle
 $s = $od->query('SELECT id, state, text FROM ops')->fetchAll(PDO::FETCH_UNIQUE | PDO::FETCH_ASSOC);
 check(($s[$ta]['state'] === 'failed') && (strpos($s[$ta]['text'], 'Busy: updating') === 0) && ($s[$tfree]['state'] === 'running') && ($s[$tcan]['state'] === 'skipped'), 'and the reason is recorded');
 $od->exec('DELETE FROM ops');
+
+/* After a failure that makes going on unsafe the rest of a group is skipped. */
+$od->exec('DELETE FROM ops');
+$sg = fleet_op_group_start('template', 'Apply template W', 'w');
+$sf = fleet_op_start('n-od-0030', 'template', 'Failed', 'w', $sg, 'running');
+fleet_op_set($sf, 'failed', 'No answer');
+$sq1 = fleet_op_start('n-od-0031', 'template', 'Waiting', 'w', $sg, 'queued');
+$sq2 = fleet_op_start('n-od-0032', 'template', 'Waiting', 'w', $sg, 'queued');
+$sd0 = fleet_op_start('n-od-0033', 'template', 'Done', 'w', $sg, 'running');
+fleet_op_set($sd0, 'done', 'ok');
+check((fleet_op_skip_rest($sg, 'Skipped: stopped after a failure on Shop. Apply again to the rest.') === 2) &&
+    ($od->query("SELECT group_concat(state) FROM (SELECT state FROM ops WHERE parent = {$sg} ORDER BY id)")->fetchColumn() === 'failed,skipped,skipped,done') && ($od->query("SELECT state FROM ops WHERE id = {$sg}")->fetchColumn() === 'failed'),
+    'after a failure the tasks still waiting are skipped with the reason and the group is settled');
+$od->exec('DELETE FROM ops');
