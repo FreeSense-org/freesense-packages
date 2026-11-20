@@ -840,6 +840,10 @@ function fleet_handoff_url(array $status, string $base, string $path): ?string {
 	if (!preg_match('#^/\?fleet_handoff=[A-Za-z0-9_-]{43}$#D', $path)) {
 		return null;
 	}
+	/* The one-time token travels in the address: only over https, to a plain host (no user@ part that could hide the real one). */
+	if (!preg_match('#^https://[A-Za-z0-9.\[\]:-]+(:\d+)?/?$#D', $base)) {
+		return null;
+	}
 	return $base . $path;
 }
 

@@ -22,3 +22,8 @@ check(fleet_event_text('node-1', 'backup', 'node-1 (Lab): Nightly, 0123456789ab'
     fleet_event_text('node-1', 'backup_failed', 'node-1 (Lab): FLEET-E105: x') === array('Backup failed', 'FLEET-E105: x') &&
     fleet_event_text('node-1', 'backup_download', 'node-1 (Lab): backup of 2026-10-15 20:28') === array('Downloaded a backup', 'from 2026-10-15 20:28'),
     'backup events in words');
+
+/* The token is only sent over https, to a plain host. */
+$hst = array('webgui' => array(array('url' => 'http://192.168.1.1'), array('url' => 'https://u@evil.example'), array('url' => 'https://192.168.1.2:8443')));
+check((fleet_handoff_url($hst, 'http://192.168.1.1', "/?fleet_handoff={$tok}") === null) && (fleet_handoff_url($hst, 'https://u@evil.example', "/?fleet_handoff={$tok}") === null) &&
+    (fleet_handoff_url($hst, 'https://192.168.1.2:8443', "/?fleet_handoff={$tok}") === "https://192.168.1.2:8443/?fleet_handoff={$tok}"), 'Open WebUI refuses http and addresses with a user part');
