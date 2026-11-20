@@ -524,15 +524,26 @@ function fleet_policy_save(?int $id, array $in, string $who): int {
 		    ->execute(array_merge($args, array($id)));
 	}
 	fleet_audit($who, 'policy', sprintf('%s: %d rules for %s%s', $name, count($rules), fleet_targets_text($targets, fleet_target_names()), empty($in['enabled']) ? ' (off)' : ''));
-	fleet_compliance_refresh();
+	/* Checking every firewall and sending the lock rules takes minutes on a big fleet: the poll does it (within a minute), not this page. */
+	fleet_compliance_queue();
 	return $id;
+}
+
+/* Ask the poll to check every firewall and send the lock rules now (it does within a minute). */
+function fleet_compliance_queue(): void {
+	fleet_setting_set('compliance_due', (string)time());
+}
+
+/* Is a full check due: asked for (a policy changed) or the last one is 15 minutes old? */
+function fleet_compliance_due(int $now): bool {
+	return ((int)fleet_setting('compliance_due', '0') > 0) || (($now - (int)fleet_setting('compliance_checked', '0')) >= 900);
 }
 
 function fleet_policy_delete(int $id, string $who): void {
 	$p = fleet_policy_get($id);
 	fleet_db()->prepare('DELETE FROM policies WHERE id = ?')->execute(array($id));
 	fleet_audit($who, 'policy', ($p['name'] ?? (string)$id) . ': deleted');
-	fleet_compliance_refresh();
+	fleet_compliance_queue();
 }
 
 function fleet_policy_exceptions(): array {
@@ -582,12 +593,13 @@ function fleet_box_group_ids(): array {
 }
 
 /* What the controller knows about a firewall, for the checks. */
-function fleet_box_facts(array $box): array {
+function fleet_box_facts(array $box, bool $with_config = true): array {
 	$st = json_decode((string)($box['status'] ?? ''), true) ?: array();
 	$info = fleet_update_info($box);
 	$latest = fleet_backup_latest($box['node_id']);
 	$xml = null;
-	if ($latest !== null) {
+	/* Decrypting and parsing the newest backup is the expensive part: only for firewalls with a rule that reads the configuration. */
+	if (($latest !== null) && $with_config) {
 		$text = fleet_backup_read($latest);
 		$prev = libxml_use_internal_errors(true);
 		$xml = ($text === null) ? null : (simplexml_load_string($text, 'SimpleXMLElement', LIBXML_NONET) ?: null);
@@ -638,22 +650,30 @@ function fleet_compliance_refresh(?string $only = null, bool $push = true): void
 			continue;
 		}
 		$eff = fleet_box_effective($box['node_id'], $policies, $groups);
-		$facts = empty($eff) ? array() : fleet_box_facts($box);
-		$was = fleet_db()->prepare("SELECT rule_id FROM compliance WHERE node_id = ? AND state = 'fail'");
-		$was->execute(array($box['node_id']));
-		$was = $was->fetchAll(PDO::FETCH_COLUMN);
-		fleet_db()->prepare('DELETE FROM compliance WHERE node_id = ?')->execute(array($box['node_id']));
-		$ins = fleet_db()->prepare('INSERT INTO compliance (node_id, rule_id, state, detail, policy_id, conflict, checked) VALUES (?, ?, ?, ?, ?, ?, ?)');
-		foreach ($eff as $rid => list($params, $mode, $pid, $pname, $conflict)) {
-			list($state, $detail) = fleet_policy_check($rid, $params, $facts);
-			if (($state === 'fail') && (($e = fleet_policy_excepted($exceptions, $box['node_id'], $rid, $now)) !== null)) {
-				$state = 'excepted';
-				$detail .= ' (exception until ' . date('Y-m-d', (int)$e['expires'] - 1) . ')';
+		$needs_config = !empty(array_filter(array_keys($eff), function ($rid) { return fleet_policy_lockable((string)preg_replace('/:\d+$/', '', (string)$rid)); }));
+		$facts = empty($eff) ? array() : fleet_box_facts($box, $needs_config);
+		$alerts = array();
+		/* One transaction per firewall: a reader never sees its results half replaced, and it costs one disk sync, not one per rule. */
+		fleet_transaction(function () use ($box, $eff, $facts, $exceptions, $now, &$alerts): void {
+			$was = fleet_db()->prepare("SELECT rule_id FROM compliance WHERE node_id = ? AND state = 'fail'");
+			$was->execute(array($box['node_id']));
+			$was = $was->fetchAll(PDO::FETCH_COLUMN);
+			fleet_db()->prepare('DELETE FROM compliance WHERE node_id = ?')->execute(array($box['node_id']));
+			$ins = fleet_db()->prepare('INSERT INTO compliance (node_id, rule_id, state, detail, policy_id, conflict, checked) VALUES (?, ?, ?, ?, ?, ?, ?)');
+			foreach ($eff as $rid => list($params, $mode, $pid, $pname, $conflict)) {
+				list($state, $detail) = fleet_policy_check($rid, $params, $facts);
+				if (($state === 'fail') && (($e = fleet_policy_excepted($exceptions, $box['node_id'], $rid, $now)) !== null)) {
+					$state = 'excepted';
+					$detail .= ' (exception until ' . date('Y-m-d', (int)$e['expires'] - 1) . ')';
+				}
+				$ins->execute(array($box['node_id'], $rid, $state, $detail, $pid, $conflict, $now));
+				if (fleet_policy_fail_alerts($rid, $state, $was)) {
+					$alerts[] = sprintf('%s fails %s (%s): %s', $box['label'], fleet_policy_rule_title($rid, $params), $pname, $detail);
+				}
 			}
-			$ins->execute(array($box['node_id'], $rid, $state, $detail, $pid, $conflict, $now));
-			if (fleet_policy_fail_alerts($rid, $state, $was)) {
-				fleet_alert('policy_fail', $box['node_id'], sprintf('%s fails %s (%s): %s', $box['label'], fleet_policy_rule_title($rid, $params), $pname, $detail));
-			}
+		});
+		foreach ($alerts as $text) {
+			fleet_alert('policy_fail', $box['node_id'], $text);
 		}
 	}
 	if ($only === null) {

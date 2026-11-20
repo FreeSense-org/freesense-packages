@@ -78,9 +78,15 @@ check(fleet_policy_excepted(array(array('node_id' => 'a', 'rule_id' => 'SEC-002'
 
 $pid = fleet_policy_save(null, array('name' => 'Test baseline', 'targets' => array('all'), 'enabled' => '1',
     'use' => array('VER-001' => '1', 'OPS-010' => '1'), 'rule' => array('VER-001' => array('version' => '1.1.5'), 'OPS-010' => array('days' => '2'))), 'test');
+check(((int)fleet_setting('compliance_due', '0') > 0) && fleet_compliance_due(time()) && ((int)fleet_db()->query('SELECT COUNT(*) FROM compliance')->fetchColumn() === 0),
+    'saving a policy only asks for a check (the poll does it): nothing is checked or sent inside the request');
+/* What the poll does next. */
+fleet_setting_set('compliance_due', '0');
+fleet_compliance_refresh();
 $crows = fleet_db()->query('SELECT * FROM compliance')->fetchAll();
 $nboxes = (int)fleet_db()->query('SELECT COUNT(*) FROM boxes')->fetchColumn();
-check(($nboxes === 0) || (count($crows) === 2 * $nboxes), 'saving a policy checks every firewall against it');
+check(($nboxes === 0) || (count($crows) === 2 * $nboxes), 'the poll then checks every firewall against it');
+check(!fleet_compliance_due(time()) && fleet_compliance_due(time() + 901), 'a check is due when asked for, or every 15 minutes');
 try {
 	fleet_policy_save(null, array('name' => 'Test baseline', 'targets' => array('all'), 'use' => array('VER-001' => '1'), 'rule' => array('VER-001' => array('version' => '1.1.5'))), 'test');
 	check(false, 'policy names are unique');
@@ -98,6 +104,9 @@ if ($nboxes > 0) {
 	check(in_array($st, array('excepted', 'pass'), true), 'an exception turns a failure into excepted');
 }
 fleet_policy_delete($pid, 'test');
+check((int)fleet_setting('compliance_due', '0') > 0, 'deleting a policy asks for a new check');
+fleet_setting_set('compliance_due', '0');
+fleet_compliance_refresh();
 check((int)fleet_db()->query('SELECT COUNT(*) FROM compliance')->fetchColumn() === 0, 'deleting the last policy clears compliance');
 
 /* A custom rule number belongs to one policy: a second policy with the same one is refused. */

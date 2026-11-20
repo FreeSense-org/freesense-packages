@@ -49,7 +49,7 @@ if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 		} elseif (isset($_POST['policy_delete'])) {
 			$view = 'policies';
 			fleet_policy_delete((int)$_POST['policy_delete'], $who);
-			$savemsg = gettext('Policy deleted. Its firewalls are checked against the remaining policies.');
+			$savemsg = gettext('Policy deleted. Its firewalls are checked against the remaining policies within a minute.');
 		} elseif (isset($_POST['exception_save'])) {
 			$view = 'exceptions';
 			fleet_policy_exception_add((string)($_POST['node'] ?? ''), (string)($_POST['rule'] ?? ''), (string)($_POST['reason'] ?? ''), (string)($_POST['until'] ?? ''), $who);
@@ -59,8 +59,8 @@ if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 			fleet_policy_exception_delete((int)$_POST['exception_delete'], $who);
 			$savemsg = gettext('Exception ended. The rule counts again for that firewall.');
 		} elseif (isset($_POST['recheck'])) {
-			fleet_compliance_refresh();
-			$savemsg = gettext('Every firewall was checked again.');
+			fleet_compliance_queue();
+			$savemsg = gettext('Every firewall is checked again within a minute.');
 		}
 	} catch (InvalidArgumentException | RuntimeException $e) {
 		$input_errors[] = $e->getMessage();
@@ -70,7 +70,7 @@ if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 	}
 }
 if (isset($_GET['saved'])) {
-	$savemsg = gettext('Policy saved and every firewall checked against it.');
+	$savemsg = gettext('Policy saved. Every firewall is checked against it, and sent its lock rules, within a minute.');
 }
 if ($ready && $manage && ($view === 'policies')) {
 	fs_page_action(gettext('Add policy'), '/fleet/fleet_policies.php?view=edit', 'fa-plus', 'primary');

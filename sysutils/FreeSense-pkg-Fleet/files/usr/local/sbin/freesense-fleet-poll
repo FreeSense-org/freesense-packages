@@ -116,7 +116,9 @@ do {
 		fleet_poll_stage('prune', function () { fleet_stats_prune(time()); });
 		fleet_poll_stage('schedules', function () { fleet_schedules_tick(time()); });
 		fleet_poll_stage('compliance', function () {
-			if (time() - (int)fleet_setting('compliance_checked', '0') >= 900) {
+			if (fleet_compliance_due(time())) {
+				/* Cleared first: a policy changed while this runs asks again. */
+				fleet_setting_set('compliance_due', '0');
 				fleet_compliance_refresh();
 				fleet_remediate_tick();
 			}
