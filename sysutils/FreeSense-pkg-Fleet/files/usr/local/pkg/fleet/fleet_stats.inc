@@ -38,6 +38,51 @@ define('FLEET_STATS_KEEP', 90 * 86400);
 /* Pure                                                                */
 /* ------------------------------------------------------------------ */
 
+/*
+ * pure: the System block of a firewall's /status/system answer, cut down to the
+ * numbers and short texts the System view shows. A managed firewall is not
+ * trusted with the admin's browser session: every number is cast, every text is
+ * stripped of control characters and capped, and nothing else passes through.
+ */
+function fleet_metrics_system(mixed $system): ?array {
+	if (!is_array($system)) {
+		return null;
+	}
+	$num = function (mixed $v): int|float {
+		$v = (is_int($v) || is_float($v) || (is_string($v) && is_numeric($v))) ? $v + 0 : 0;
+		return (is_float($v) && !is_finite($v)) ? 0 : $v;
+	};
+	$text = function (mixed $v, int $max): string {
+		$v = is_scalar($v) ? preg_replace('/[\x00-\x1f\x7f]/u', '', (string)$v) : '';
+		return mb_substr((string)$v, 0, $max);
+	};
+	$pair = function (mixed $a, string $x, string $y) use ($num): array {
+		$a = is_array($a) ? $a : array();
+		return array($x => $num($a[$x] ?? 0), $y => $num($a[$y] ?? 0));
+	};
+	$cpu = is_array($system['cpu'] ?? null) ? $system['cpu'] : array();
+	$disks = array();
+	foreach (array_slice(array_values(is_array($system['disks'] ?? null) ? $system['disks'] : array()), 0, 64) as $d) {
+		$d = is_array($d) ? $d : array();
+		$disks[] = array('mount' => $text($d['mount'] ?? '', 128), 'type' => $text($d['type'] ?? '', 16)) + $pair($d, 'used_bytes', 'total_bytes');
+	}
+	$temps = array();
+	foreach (array_slice(array_values(is_array($system['temperatures'] ?? null) ? $system['temperatures'] : array()), 0, 32) as $t) {
+		$temps[] = array('celsius' => $num(is_array($t) ? ($t['celsius'] ?? 0) : 0));
+	}
+	return array(
+		'cpu' => array('model' => $text($cpu['model'] ?? '', 80), 'count' => (int)$num($cpu['count'] ?? 0),
+		    'load' => array_map(function ($v) use ($num) { return round((float)$num($v), 2); }, array_slice(array_values(is_array($cpu['load'] ?? null) ? $cpu['load'] : array()), 0, 3))),
+		'memory' => $pair($system['memory'] ?? null, 'used_bytes', 'total_bytes'),
+		'swap' => $pair($system['swap'] ?? null, 'used_bytes', 'total_bytes'),
+		'states' => $pair($system['states'] ?? null, 'current', 'max'),
+		'mbuf' => $pair($system['mbuf'] ?? null, 'used', 'max'),
+		'uptime_seconds' => $num($system['uptime_seconds'] ?? 0),
+		'temperatures' => $temps,
+		'disks' => $disks,
+	);
+}
+
 /* pure: does a state count as up? */
 function fleet_stats_up(?string $state): bool {
 	return in_array($state, array('online', 'degraded'), true);

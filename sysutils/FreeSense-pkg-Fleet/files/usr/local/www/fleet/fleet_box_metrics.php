@@ -33,6 +33,8 @@ require_once('fleet.inc');
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-cache');
+header('X-Content-Type-Options: nosniff');
+header("Content-Security-Policy: default-src 'none'; sandbox");
 
 $box = fleet_ctl_settings()['enable'] ? fleet_box_get((string)($_GET['id'] ?? '')) : null;
 if ($box === null) {
@@ -76,7 +78,7 @@ try {
 		$ifs[] = array('name' => (string)($i['description'] ?? $i['name'] ?? ''), 'if' => (string)($i['if'] ?? ''), 'status' => (string)($i['status'] ?? ''),
 		    'ip' => (string)($i['ipaddr'] ?? ''), 'mac' => (string)($i['macaddr'] ?? ''), 'errors' => (int)($i['inerrs'] ?? 0) + (int)($i['outerrs'] ?? 0));
 	}
-	echo json_encode(array('system' => $json['data'] ?? null, 'interfaces' => $ifs, 'time' => time()), JSON_UNESCAPED_SLASHES);
+	echo json_encode(array('system' => fleet_metrics_system($json['data'] ?? null), 'interfaces' => $ifs, 'time' => time()), JSON_UNESCAPED_SLASHES);
 } catch (RuntimeException | FleetJoinError $e) {
 	http_response_code(502);
 	echo json_encode(array('error' => $e->getMessage()));
