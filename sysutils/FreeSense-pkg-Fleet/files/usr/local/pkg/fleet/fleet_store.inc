@@ -200,6 +200,28 @@ function fleet_cached(string $name, int $ttl, callable $make) {
 	}
 }
 
+/*
+ * Run $fn in one write transaction: all of it happens or none of it. Inside a transaction already, it just runs
+ * (the outer one decides). Returns what $fn returns; an exception rolls back and goes on.
+ */
+function fleet_transaction(callable $fn) {
+	$db = fleet_db();
+	if ($db->inTransaction()) {
+		return $fn();
+	}
+	$db->exec('BEGIN IMMEDIATE');
+	try {
+		$r = $fn();
+		$db->exec('COMMIT');
+		return $r;
+	} catch (Throwable $e) {
+		if ($db->inTransaction()) {
+			$db->exec('ROLLBACK');
+		}
+		throw $e;
+	}
+}
+
 /* The database; $reopen after the file was replaced (Recover fleet). */
 function fleet_db(bool $reopen = false): PDO {
 	static $db = null;
