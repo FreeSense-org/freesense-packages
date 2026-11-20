@@ -142,7 +142,8 @@ function fleet_backup_store(array $box, string $xml, string $reason, string $who
 	}
 	$sha = hash('sha256', $xml);
 	$latest = fleet_backup_latest($box['node_id']);
-	if (($latest !== null) && hash_equals((string)$latest['sha256'], $sha)) {
+	/* "Unchanged" only while the file is really there (after a takeover it may not be): otherwise it is stored again. */
+	if (($latest !== null) && hash_equals((string)$latest['sha256'], $sha) && is_file(FLEET_BACKUP_DIR . '/' . $latest['file'])) {
 		return array('unchanged', $latest);
 	}
 	$file = fleet_backup_file($box['node_id'], $now, $sha);
