@@ -108,7 +108,9 @@ function fleet_samples_tick(int $now): int {
 	}
 	$start = microtime(true);
 	$n = 0;
-	foreach (fleet_db()->query("SELECT * FROM boxes WHERE state = 'online' ORDER BY host_no")->fetchAll() as $box) {
+	$rows = array();
+	/* The one sampled longest ago goes first, so when the time budget runs out the same firewalls are not always the ones left. */
+	foreach (fleet_oldest_first(fleet_db()->query("SELECT * FROM boxes WHERE state = 'online' ORDER BY host_no")->fetchAll(), $last) as $box) {
 		if ((microtime(true) - $start) > FLEET_SAMPLES_BUDGET) {
 			break;
 		}
@@ -129,11 +131,26 @@ function fleet_samples_tick(int $now): int {
 			continue;
 		}
 		$s = fleet_samples_from($sys, $get('/api/v1/status/system/history?range=10m'), $get('/api/v1/status/traffic/history?if=wan&range=10m'));
-		fleet_db()->prepare('INSERT INTO samples (node_id, time, cpu, mem, states, states_max, temp, rx_bps, tx_bps) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-		    ->execute(array($box['node_id'], $now, $s['cpu'], $s['mem'], $s['states'], $s['states_max'], $s['temp'], $s['rx_bps'], $s['tx_bps']));
+		$rows[] = array($box['node_id'], $now, $s['cpu'], $s['mem'], $s['states'], $s['states_max'], $s['temp'], $s['rx_bps'], $s['tx_bps']);
 		$n++;
 	}
+	/* One transaction (one disk sync) for all of them, not one per firewall. */
+	$db = fleet_db();
+	$db->exec('BEGIN IMMEDIATE');
+	$ins = $db->prepare('INSERT INTO samples (node_id, time, cpu, mem, states, states_max, temp, rx_bps, tx_bps) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+	foreach ($rows as $r) {
+		$ins->execute($r);
+	}
+	$db->exec('COMMIT');
 	return $n;
+}
+
+/* pure: the firewalls in the order a tick should visit them: the one checked longest ago first (never checked: first). $last: node_id => time. */
+function fleet_oldest_first(array $boxes, array $last): array {
+	usort($boxes, function ($a, $b) use ($last) {
+		return ($last[$a['node_id']] ?? 0) <=> ($last[$b['node_id']] ?? 0);
+	});
+	return $boxes;
 }
 
 /* Once an hour: fold five-minute rows older than 48 hours into hourly rows; drop hourly rows older than 30 days. */

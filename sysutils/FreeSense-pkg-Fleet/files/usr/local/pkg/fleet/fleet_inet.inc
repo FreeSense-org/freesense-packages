@@ -258,7 +258,13 @@ function fleet_inet_tick(int $now): int {
 	$checked = array();
 	$db = fleet_db();
 	$ins = $db->prepare('INSERT INTO gw_samples (node_id, time, gw, iface, descr, is_default, status, state, delay_ms, stddev_ms, loss_pct) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-	foreach ($db->query("SELECT * FROM boxes WHERE state = 'online' ORDER BY host_no")->fetchAll() as $box) {
+	$gw_rows = array();
+	$last_checked = array();
+	foreach ($prev as $node => $r) {
+		$last_checked[$node] = (int)$r['checked'];
+	}
+	/* The firewall checked longest ago first: a tick that runs out of time does not always skip the same ones. */
+	foreach (fleet_oldest_first($db->query("SELECT * FROM boxes WHERE state = 'online' ORDER BY host_no")->fetchAll(), $last_checked) as $box) {
 		if ((microtime(true) - $start) > FLEET_SAMPLES_BUDGET) {
 			break;
 		}
@@ -292,12 +298,18 @@ function fleet_inet_tick(int $now): int {
 		}
 		foreach ($gws as $g) {
 			if ($all || $g['default'] || (count($gws) === 1)) {
-				$ins->execute(array($box['node_id'], $now, $g['name'], $g['iface'], $g['descr'], $g['default'] ? 1 : 0, $g['status'], $g['state'], $g['delay_ms'], $g['stddev_ms'], $g['loss_pct']));
+				$gw_rows[] = array($box['node_id'], $now, $g['name'], $g['iface'], $g['descr'], $g['default'] ? 1 : 0, $g['status'], $g['state'], $g['delay_ms'], $g['stddev_ms'], $g['loss_pct']);
 			}
 		}
 		$checked[$box['node_id']] = array('box' => $box, 'state' => fleet_inet_box_state($gws) + array('default_gw' => $default), 'gws' => $gws);
 		$n++;
 	}
+	/* One transaction (one disk sync) for every gateway row of this tick. */
+	$db->exec('BEGIN IMMEDIATE');
+	foreach ($gw_rows as $r) {
+		$ins->execute($r);
+	}
+	$db->exec('COMMIT');
 	/* Firewalls the controller cannot reach keep their last known internet state. */
 	$states = array();
 	foreach ($prev as $node => $r) {
