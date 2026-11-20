@@ -430,7 +430,7 @@ function fleet_nav_toasts(array $finished, bool $done_on, bool $failed_on): arra
 			continue;
 		}
 		$text = $op['name'] . ': ' . $op['text'];
-		$out[] = array('text' => (strlen($text) > 200) ? substr($text, 0, 197) . '...' : $text, 'kind' => $failed ? 'block' : 'pass',
+		$out[] = array('text' => mb_strimwidth($text, 0, 200, '...'), 'kind' => $failed ? 'block' : 'pass',
 		    'href' => '/fleet/fleet_activity.php?op=' . (int)$op['id'], 'sticky' => $failed);
 	}
 	return array_slice($out, -5);
