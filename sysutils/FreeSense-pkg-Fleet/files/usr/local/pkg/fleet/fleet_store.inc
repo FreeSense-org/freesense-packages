@@ -161,22 +161,53 @@ function fleet_db(bool $reopen = false): PDO {
 		$db = null;
 	}
 	if ($db === null) {
-		$db = new PDO('sqlite:' . FLEET_DATA . '/fleet.db', null, null, array(PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+		$handle = new PDO('sqlite:' . FLEET_DATA . '/fleet.db', null, null, array(PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
 		    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC));
-		$db->exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
+		$handle->exec('PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;');
+		/* The WAL switch (first open only) fails at once instead of waiting when another process is opening the file: try again. */
+		for ($try = 0;; $try++) {
+			try {
+				$handle->exec('PRAGMA journal_mode=WAL');
+				break;
+			} catch (PDOException $e) {
+				if ($try >= 50) {
+					throw $e;
+				}
+				usleep(100000);
+			}
+		}
 		@chmod(FLEET_DATA . '/fleet.db', 0600);
-		fleet_db_migrate($db);
+		fleet_db_migrate($handle);
+		/* Kept only once it is migrated: a failed migration must not leave a half-built handle for later calls. */
+		$db = $handle;
 	}
 	return $db;
 }
 
-/* Create or upgrade the schema; safe to run again. */
+/*
+ * Create or upgrade the schema; safe to run again and safe to run in several
+ * processes at once (the web pages, the poll and the enrollment endpoint all open
+ * the store after a package upgrade): the version is read again once the write
+ * lock is held, and a failure rolls everything back.
+ */
 function fleet_db_migrate(PDO $db): void {
-	$version = (int)$db->query('PRAGMA user_version')->fetchColumn();
-	if ($version >= FLEET_DB_SCHEMA) {
+	if ((int)$db->query('PRAGMA user_version')->fetchColumn() >= FLEET_DB_SCHEMA) {
 		return;
 	}
 	$db->exec('BEGIN IMMEDIATE');
+	try {
+		fleet_db_migrate_steps($db, (int)$db->query('PRAGMA user_version')->fetchColumn());
+		$db->exec('COMMIT');
+	} catch (Throwable $e) {
+		if ($db->inTransaction()) {
+			$db->exec('ROLLBACK');
+		}
+		throw $e;
+	}
+}
+
+/* The schema steps from $version on, inside fleet_db_migrate()'s transaction. */
+function fleet_db_migrate_steps(PDO $db, int $version): void {
 	if ($version < 1) {
 		$db->exec(<<<'SQL'
 CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -506,7 +537,6 @@ ALTER TABLE invitations ADD COLUMN via_iface TEXT NOT NULL DEFAULT '';
 PRAGMA user_version = 31;
 SQL);
 	}
-	$db->exec('COMMIT');
 }
 
 function fleet_setting(string $name, ?string $default = null): ?string {
