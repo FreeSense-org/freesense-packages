@@ -142,8 +142,8 @@ function fleet_ops_find(array $f, int $page, int $now): array {
 
 /* pure: a firewall's event filters as SQL on audit. */
 function fleet_events_where(string $node_id, array $f, int $now): array {
-	$where = array('detail LIKE ?');
-	$params = array($node_id . '%');
+	$where = array('node_id = ?');
+	$params = array($node_id);
 	if (isset($f['type'])) {
 		$actions = FLEET_EVENT_TYPES[$f['type']][1];
 		$where[] = 'action IN (' . implode(', ', array_fill(0, count($actions), '?')) . ')';

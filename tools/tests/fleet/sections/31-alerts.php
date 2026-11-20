@@ -49,3 +49,25 @@ check($thrown, 'a bad webhook address is refused');
 check(strpos(fleet_alert_report_text(array('boxes' => 3, 'online' => 2, 'degraded' => 0, 'offline' => 1, 'ops' => 5, 'ops_failed' => 1, 'backups' => 3, 'backups_failed' => 0, 'compliance' => 90, 'alerts' => 2)), '3 firewalls: 2 online') === 0,
     'the daily report text');
 check(is_array(fleet_alert_report_counts(time())), 'the daily report counts (queries match the schema)');
+
+/* The audit log keeps the firewall and the FLEET-E code of an entry as columns; alerts read them from there. */
+check(fleet_audit_subject('n-abc123 (Shop): online -> offline (FLEET-E105)') === array('n-abc123', 'FLEET-E105') && fleet_audit_subject('Shop: nothing') === array('', '') &&
+    fleet_audit_subject('FLEET-E321: Lock suspended on Shop', 'n-abc123') === array('n-abc123', 'FLEET-E321') && fleet_audit_subject('x', 'n-1', 'FLEET-E999') === array('n-1', 'FLEET-E999'),
+    'the firewall and the code of an audit entry: given by the caller, or read from the start of the detail');
+fleet_audit('poll', 'state', 'n-col123 (Col): online -> degraded');
+fleet_audit('poll', 'policy', 'FLEET-E321: Lock suspended on Col until later by x: y', 'n-col123');
+$arow = fleet_db()->query("SELECT node_id, code FROM audit WHERE detail LIKE 'FLEET-E321: Lock suspended on Col%'")->fetch();
+check(($arow === array('node_id' => 'n-col123', 'code' => 'FLEET-E321')) && (fleet_db()->query("SELECT node_id FROM audit WHERE detail LIKE 'n-col123 (Col)%'")->fetchColumn() === 'n-col123'),
+    'fleet_audit stores the node id and the code');
+check((fleet_alert_classify('policy', 'FLEET-E321: Lock suspended on Shop', 'n-abc123')[1] === 'n-abc123') && (fleet_alert_classify('policy', 'x', 'n-abc123', 'FLEET-E320')[0] === 'policy') &&
+    (fleet_alert_classify('backup_verify', 'a backup is damaged FLEET-E806', 'n-abc123')[1] === 'n-abc123'),
+    'break-glass and policy alerts carry their firewall');
+/* Alerts about no firewall merge only with the same text: two different pending enrollments are both sent. */
+$a1 = fleet_alert('approval', '', 'e-1 waits for approval');
+$a2 = fleet_alert('approval', '', 'e-2 waits for approval');
+$a3 = fleet_alert('approval', '', 'e-1 waits for approval');
+$b1 = fleet_alert('breakglass', 'n-bg-one1', 'Lock suspended on One');
+$b2 = fleet_alert('breakglass', 'n-bg-two2', 'Lock suspended on Two');
+$b3 = fleet_alert('breakglass', 'n-bg-one1', 'Lock suspended on One again');
+check(($a1 !== null) && ($a2 !== null) && ($a3 === null) && ($b1 !== null) && ($b2 !== null) && ($b3 === null),
+    'an alert merges with the same event for the same firewall (or, for none, the same text), never with another firewall\'s');

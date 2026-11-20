@@ -39,3 +39,37 @@ foreach (glob("{$rdir}/*") ?: array() as $f) {
 foreach (glob("{$mfile}-*") ?: array() as $f) {
 	@unlink($f);
 }
+
+/* Schema 32: audit columns, the indexes the queries need, and the per-row state tables (no JSON blobs in settings any more). */
+$s32 = fleet_db();
+$idx = $s32->query("SELECT name FROM sqlite_master WHERE type = 'index'")->fetchAll(PDO::FETCH_COLUMN);
+$tabs = $s32->query("SELECT name FROM sqlite_master WHERE type = 'table'")->fetchAll(PDO::FETCH_COLUMN);
+check(((int)$s32->query('PRAGMA user_version')->fetchColumn() >= 32) && (array_diff(array('audit_time', 'audit_action', 'audit_node', 'ops_state', 'ops_started', 'samples_node', 'samples_hourly_node', 'access_fails_ip'), $idx) === array()) &&
+    (array_diff(array('bundle_state', 'remediation_state', 'users_sync', 'access_fails', 'access_blocked'), $tabs) === array()) &&
+    (strpos((string)$s32->query("SELECT sql FROM sqlite_master WHERE name = 'audit'")->fetchColumn(), 'node_id') !== false),
+    'schema 32: audit columns, indexes and the per-row state tables exist');
+
+/* Upgrading from schema 31: old audit rows get their node id and code, the old JSON state is dropped. */
+$ufile = "{$data}/migrate-up.db";
+$udb = new PDO('sqlite:' . $ufile, null, null, array(PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION));
+fleet_db_migrate($udb);
+foreach (array('audit_time', 'audit_action', 'audit_node', 'ops_state', 'ops_started', 'samples_node', 'samples_hourly_node', 'access_fails_ip') as $i) {
+	$udb->exec("DROP INDEX {$i}");
+}
+foreach (array('bundle_state', 'remediation_state', 'users_sync', 'access_fails', 'access_blocked') as $t) {
+	$udb->exec("DROP TABLE {$t}");
+}
+$udb->exec('ALTER TABLE audit DROP COLUMN node_id; ALTER TABLE audit DROP COLUMN code; PRAGMA user_version = 31;');
+$udb->exec("INSERT INTO boxes (node_id, name, label, host_no, overlay, wg_pub, api_key, cert_sha256, role, joined) VALUES ('n-up-0001', 'up', 'Up', 1, 'x', 'wg1', 'k', 'c', 'managed', 1)");
+$udb->exec("INSERT INTO audit (time, who, action, detail) VALUES (1, 'poll', 'state', 'n-up-0001 (Up): online -> offline (FLEET-E105)'), (2, 'poll', 'policy', 'FLEET-E321: Lock suspended on Up'),
+    (3, 'x', 'state', 'n-gone-99 (Gone): online -> offline'), (4, 'x', 'users', 'Sync to Up: 1 added')");
+$udb->exec("INSERT INTO settings (name, value) VALUES ('bundles', '{}'), ('access_blocked', '{}'), ('keep', 'me')");
+fleet_db_migrate($udb);
+$urows = $udb->query('SELECT node_id, code FROM audit ORDER BY id')->fetchAll(PDO::FETCH_NUM);
+check(((int)$udb->query('PRAGMA user_version')->fetchColumn() === FLEET_DB_SCHEMA) && ($urows === array(array('n-up-0001', 'FLEET-E105'), array(null, 'FLEET-E321'), array(null, null), array(null, null))) &&
+    ($udb->query("SELECT group_concat(name) FROM settings")->fetchColumn() === 'keep') && ($udb->query('SELECT COUNT(*) FROM bundle_state')->fetchColumn() == 0),
+    'upgrading from schema 31 fills node id and code on old audit rows (only for firewalls that exist) and drops the old JSON state');
+unset($udb);
+foreach (glob("{$ufile}*") ?: array() as $f) {
+	@unlink($f);
+}

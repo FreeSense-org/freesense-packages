@@ -747,7 +747,7 @@ function fleet_bundles_push(?array $only = null): void {
 				throw new RuntimeException('FLEET-E320: The firewall refused the lock rules: ' . fleet_box_error($code, $json));
 			}
 			$state[$box['node_id']] = array('hash' => $hash, 'version' => $version, 'sent' => time(), 'error' => null, 'rules' => count($rules), 'lock_accounts' => $lock_acc);
-			fleet_audit('fleet', 'policy', sprintf('%s: %d lock and fix rules sent%s (bundle %d)', $box['label'], count($rules), $lock_acc ? ', Fleet users locked' : '', $version));
+			fleet_audit('fleet', 'policy', sprintf('%s: %d lock and fix rules sent%s (bundle %d)', $box['label'], count($rules), $lock_acc ? ', Fleet users locked' : '', $version), $box['node_id']);
 		} catch (RuntimeException $e) {
 			$state[$box['node_id']] = array('hash' => $hash, 'version' => $prev['version'] ?? 0, 'sent' => $prev['sent'] ?? null,
 			    'error' => $e->getMessage(), 'rules' => count($rules));
@@ -767,12 +767,12 @@ function fleet_lock_follow(array $box, array $status): void {
 	if (is_array($bg) && ((int)($bg['since'] ?? 0) !== (int)($old['breakglass']['since'] ?? 0))) {
 		$text = sprintf('FLEET-E321: Lock suspended on %s until %s by %s: %s', $box['label'], date('Y-m-d H:i', (int)($bg['until'] ?? 0)),
 		    (string)($bg['by'] ?? '?'), (string)($bg['reason'] ?? ''));
-		fleet_audit('poll', 'policy', $text);
+		fleet_audit('poll', 'policy', $text, $box['node_id']);
 		if (function_exists('file_notice')) {
 			file_notice('fleet', $text, 'FreeSense Fleet', '');
 		}
 	} elseif (($bg === null) && is_array($old['breakglass'] ?? null)) {
-		fleet_audit('poll', 'policy', sprintf('%s: Lock is in force again (break-glass ended)', $box['label']));
+		fleet_audit('poll', 'policy', sprintf('%s: Lock is in force again (break-glass ended)', $box['label']), $box['node_id']);
 	}
 	$state = fleet_bundle_state();
 	$sent = $state[$box['node_id']] ?? null;
@@ -880,7 +880,7 @@ function fleet_remediate_box(array $box, string $who, bool $manual = false): str
 			$record($rid, 'failed', $e->getMessage());
 		}
 		fleet_setting_set('remediations', json_encode($all));
-		fleet_audit($who, 'policy', "FLEET-E320: {$box['label']}: the fix failed: " . $e->getMessage());
+		fleet_audit($who, 'policy', "FLEET-E320: {$box['label']}: the fix failed: " . $e->getMessage(), $box['node_id']);
 		return 'FLEET-E320: The fix failed: ' . $e->getMessage();
 	}
 	$fixed = array();
@@ -896,11 +896,11 @@ function fleet_remediate_box(array $box, string $who, bool $manual = false): str
 		if ($res === 'fixed') {
 			$fixed[] = $rid;
 		} else {
-			fleet_audit($who, 'policy', "FLEET-E320: {$box['label']}: " . fleet_policy_rule_title($rid, $failing[$rid]) . ': ' . (string)($r['detail'] ?? ''));
+			fleet_audit($who, 'policy', "FLEET-E320: {$box['label']}: " . fleet_policy_rule_title($rid, $failing[$rid]) . ': ' . (string)($r['detail'] ?? ''), $box['node_id']);
 		}
 	}
 	fleet_setting_set('remediations', json_encode($all));
-	fleet_audit($who, 'policy', "{$box['label']}: remediation: " . implode('; ', $words));
+	fleet_audit($who, 'policy', "{$box['label']}: remediation: " . implode('; ', $words), $box['node_id']);
 	if (!empty($fixed)) {
 		/* A fresh backup shows the fix in compliance at once. */
 		try {
