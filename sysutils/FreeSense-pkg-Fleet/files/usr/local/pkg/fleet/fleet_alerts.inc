@@ -75,7 +75,13 @@ define('FLEET_ALERT_EVENTS', array(
 ));
 define('FLEET_ALERT_SEVERITIES', array('info' => 1, 'warning' => 2, 'critical' => 3));
 define('FLEET_ALERT_MERGE', 900);
-define('FLEET_ALERT_TRIES', 5);
+define('FLEET_ALERT_TRIES', 8);
+/* An alert nobody ever tried to send (no channel yet) is not sent once it is older than this: a new channel does not get the old backlog. */
+define('FLEET_ALERT_MAX_AGE', 3600);
+/* More alerts than this for one channel in one run go out as one summary message. */
+define('FLEET_ALERT_DIGEST', 8);
+/* The most time one delivery run spends sending, in seconds (each send has its own timeout too). */
+define('FLEET_ALERT_BUDGET', 45);
 
 /* ------------------------------------------------------------------ */
 /* Pure                                                                */
@@ -418,33 +424,112 @@ function fleet_alert_message(array $row): array {
 	    'time' => gmdate('c', (int)$row['time']), 'event' => (string)$row['event'], 'link' => $link);
 }
 
-/* From the minute poll: send what is not sent yet; a failed send is tried again up to FLEET_ALERT_TRIES times. */
-function fleet_alerts_deliver(): void {
+/*
+ * pure: what each channel is to be sent now: channel id => array(digest, rows). A row is for a channel when
+ * the channel wants its event and severity (and the row is not aimed at another channel) and it was not
+ * sent there yet. More than $limit rows for one channel are sent as one summary, not one message each.
+ */
+function fleet_alerts_plan(array $rows, array $channels, int $limit): array {
+	$plan = array();
+	foreach ($channels as $ch) {
+		$mine = array();
+		foreach ($rows as $row) {
+			$sent = json_decode((string)$row['sent'], true) ?: array();
+			if ((($sent[(string)$ch['id']] ?? null) === 'ok') || ((($row['channel'] ?? null) !== null) && ((int)$row['channel'] !== (int)$ch['id'])) ||
+			    !fleet_alert_wanted($ch, (string)$row['event'], (string)$row['severity'])) {
+				continue;
+			}
+			$mine[] = $row;
+		}
+		if (!empty($mine)) {
+			$plan[(int)$ch['id']] = array(count($mine) > $limit, $mine);
+		}
+	}
+	return $plan;
+}
+
+/* pure: one message for many alerts (the worst severity, the first lines, how many more). */
+function fleet_alerts_digest_message(array $rows, int $now): array {
+	$worst = 'info';
+	$lines = array();
+	foreach ($rows as $row) {
+		if ((FLEET_ALERT_SEVERITIES[$row['severity']] ?? 1) > (FLEET_ALERT_SEVERITIES[$worst] ?? 1)) {
+			$worst = (string)$row['severity'];
+		}
+		if (count($lines) < 15) {
+			$lines[] = '[' . $row['severity'] . '] ' . mb_substr((string)$row['text'], 0, 160);
+		}
+	}
+	$more = count($rows) - count($lines);
+	return array('title' => sprintf('%d alerts from FreeSense Fleet', count($rows)), 'text' => implode("\n", $lines) . (($more > 0) ? "\nand {$more} more. See Activity > Alerts." : ''),
+	    'severity' => $worst, 'node' => '', 'time' => gmdate('c', $now), 'event' => 'digest', 'link' => '');
+}
+
+/* pure: when a failed alert may be tried again: 1, 2, 4, 8, ... minutes, at most an hour. $tries: how often it was tried. */
+function fleet_alert_next_try(int $tries, int $now): int {
+	return $now + min(3600, 60 * (2 ** min(10, $tries)));
+}
+
+/*
+ * From the alert worker (every minute): send what is not sent yet. Alerts nobody ever tried to send and
+ * that are older than FLEET_ALERT_MAX_AGE are dropped (no backlog for a new channel). A failed send is
+ * tried again later and later, up to FLEET_ALERT_TRIES times; a burst goes out as one summary per
+ * channel; and the whole run stops after FLEET_ALERT_BUDGET seconds so a dead webhook cannot hold it.
+ */
+function fleet_alerts_deliver(?int $now = null, float $budget = FLEET_ALERT_BUDGET): void {
+	$now = $now ?? time();
+	$db = fleet_db();
+	$db->prepare("UPDATE alerts SET done = 1, sent = '{\"expired\":\"too old to send\"}' WHERE done = 0 AND tries = 0 AND time < ?")->execute(array($now - FLEET_ALERT_MAX_AGE));
 	$channels = fleet_alert_channels();
 	if (empty($channels)) {
 		return;
 	}
-	$q = fleet_db()->prepare('SELECT * FROM alerts WHERE done = 0 AND tries < ? ORDER BY id LIMIT 50');
-	$q->execute(array(FLEET_ALERT_TRIES));
-	foreach ($q->fetchAll() as $row) {
-		$sent = json_decode((string)$row['sent'], true) ?: array();
-		$open = false;
-		foreach ($channels as $ch) {
-			$key = (string)$ch['id'];
-			if (($sent[$key] ?? null) === 'ok') {
-				continue;
+	$q = $db->prepare('SELECT * FROM alerts WHERE done = 0 AND tries < ? AND next_try <= ? ORDER BY id LIMIT 200');
+	$q->execute(array(FLEET_ALERT_TRIES, $now));
+	$rows = array_column($q->fetchAll(), null, 'id');
+	if (empty($rows)) {
+		return;
+	}
+	$start = microtime(true);
+	$sent = array();
+	foreach ($rows as $id => $row) {
+		$sent[$id] = json_decode((string)$row['sent'], true) ?: array();
+	}
+	$attempted = array();
+	$by_id = array_column($channels, null, 'id');
+	foreach (fleet_alerts_plan($rows, $channels, FLEET_ALERT_DIGEST) as $cid => list($digest, $mine)) {
+		$ch = $by_id[$cid];
+		if ($digest) {
+			if ((microtime(true) - $start) > $budget) {
+				break;
 			}
-			if ((($row['channel'] ?? null) !== null) && ((int)$row['channel'] !== (int)$ch['id'])) {
-				continue;
+			$problem = fleet_alert_send($ch, fleet_alerts_digest_message($mine, $now));
+			foreach ($mine as $row) {
+				$sent[(int)$row['id']][(string)$cid] = ($problem === null) ? 'ok' : $problem;
+				$attempted[(int)$row['id']] = true;
 			}
-			if (!fleet_alert_wanted($ch, (string)$row['event'], (string)$row['severity'])) {
-				continue;
+			continue;
+		}
+		foreach ($mine as $row) {
+			if ((microtime(true) - $start) > $budget) {
+				break 2;
 			}
 			$problem = fleet_alert_send($ch, fleet_alert_message($row));
-			$sent[$key] = ($problem === null) ? 'ok' : $problem;
-			$open = $open || ($problem !== null);
+			$sent[(int)$row['id']][(string)$cid] = ($problem === null) ? 'ok' : $problem;
+			$attempted[(int)$row['id']] = true;
 		}
-		fleet_db()->prepare('UPDATE alerts SET sent = ?, tries = tries + 1, done = ? WHERE id = ?')->execute(array(json_encode($sent), $open ? 0 : 1, (int)$row['id']));
+	}
+	$up = $db->prepare('UPDATE alerts SET sent = ?, tries = tries + 1, done = ?, next_try = ? WHERE id = ?');
+	foreach ($rows as $id => $row) {
+		$wanted = fleet_alerts_plan(array(array('sent' => '{}') + $row), $channels, 1000);
+		if (!isset($attempted[$id]) && !empty($wanted)) {
+			continue;
+		}
+		$open = false;
+		foreach (array_keys($wanted) as $cid) {
+			$open = $open || (($sent[$id][(string)$cid] ?? null) !== 'ok');
+		}
+		$up->execute(array(json_encode($sent[$id]), $open ? 0 : 1, $open ? fleet_alert_next_try((int)$row['tries'], $now) : 0, $id));
 	}
 }
 

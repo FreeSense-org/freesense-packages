@@ -59,6 +59,7 @@ foreach (array('audit_time', 'audit_action', 'audit_node', 'ops_state', 'ops_sta
 foreach (array('bundle_state', 'remediation_state', 'users_sync', 'access_fails', 'access_blocked') as $t) {
 	$udb->exec("DROP TABLE {$t}");
 }
+$udb->exec('DROP INDEX alerts_due; ALTER TABLE alerts DROP COLUMN next_try; ALTER TABLE boxes DROP COLUMN backup_fails; ALTER TABLE boxes DROP COLUMN backup_try;');
 $udb->exec('ALTER TABLE audit DROP COLUMN node_id; ALTER TABLE audit DROP COLUMN code; PRAGMA user_version = 31;');
 $udb->exec("INSERT INTO boxes (node_id, name, label, host_no, overlay, wg_pub, api_key, cert_sha256, role, joined) VALUES ('n-up-0001', 'up', 'Up', 1, 'x', 'wg1', 'k', 'c', 'managed', 1)");
 $udb->exec("INSERT INTO audit (time, who, action, detail) VALUES (1, 'poll', 'state', 'n-up-0001 (Up): online -> offline (FLEET-E105)'), (2, 'poll', 'policy', 'FLEET-E321: Lock suspended on Up'),

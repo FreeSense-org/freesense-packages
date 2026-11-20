@@ -122,6 +122,8 @@ define('FLEET_TUNABLES', array(
 	    'Share of the fleet that loses its internet at the same time (at least three firewalls): one alert instead of one per firewall.'),
 	'ts_expiry_auto' => array('access', 'bool', true, null, null, 'Turn Tailscale key expiry off for firewalls on a Tailscale path',
 	    'With a Tailscale API token, Fleet turns key expiry off when it sets up the Tailscale path of a firewall, so the path does not drop months later (FLEET-E136). Off: you do it in the Tailscale admin console.'),
+	'poll_parallel' => array('monitoring', 'firewalls', 10, 1, 50, 'Check at once at most',
+	    'Firewalls that do not answer wait for their time-out side by side. More is faster for big fleets and puts more load on the controller; 1 checks one by one.'),
 	'inet_all' => array('monitoring', 'bool', false, null, null, 'Keep the history of every gateway, not only the default one',
 	    'For firewalls with several WANs. More rows in the database.'),
 	'toast_done' => array('actions', 'bool', true, null, null, 'Tell me when an action is done',
@@ -678,6 +680,7 @@ function fleet_sync_config(): array {
 		}
 	}
 	install_cron_job('/usr/local/bin/php /usr/local/sbin/freesense-fleet-poll', true, '*', '*', '*', '*', '*', 'root');
+	install_cron_job('/usr/local/bin/php /usr/local/sbin/freesense-fleet-alerts', true, '*', '*', '*', '*', '*', 'root');
 	install_cron_job('/usr/local/bin/php /usr/local/sbin/freesense-fleet-backup nightly', true, '17', '3', '*', '*', '*', 'root');
 	fleet_access_sync_config();
 	filter_configure();
@@ -704,6 +707,7 @@ function fleet_remove_config(): void {
 	}
 	fleet_ctl_exec(array('/sbin/ifconfig', FLEET_CTL_IF, 'destroy'));
 	install_cron_job('/usr/local/bin/php /usr/local/sbin/freesense-fleet-poll', false);
+	install_cron_job('/usr/local/bin/php /usr/local/sbin/freesense-fleet-alerts', false);
 	install_cron_job('/usr/local/bin/php /usr/local/sbin/freesense-fleet-backup nightly', false);
 	/* The data directory stays: removing the package must never delete a fleet. */
 }
@@ -853,6 +857,96 @@ function fleet_box_handoff(array $box, string $user, string $operator): string {
 		return $json['data']['path'];
 	}
 	throw new RuntimeException((string)($json['error']['message'] ?? "The box answered HTTP {$code}."));
+}
+
+/*
+ * Poll one box and, on a deep pass (once a minute), look at its update channel and whether a quiet
+ * changed configuration needs a backup. Returns array(state, due): its state and whether a backup is due.
+ */
+function fleet_poll_one(array $box, int $interval, bool $deep): array {
+	$state = fleet_poll_box($box, time(), $interval);
+	$due = false;
+	if (($state === 'online') && $deep) {
+		/* Now and then: is an update available? (the box checks its own channel) */
+		$info = fleet_update_info($box);
+		if (($box['role'] === 'managed' || $box['role'] === 'monitor') && (($info === null) || (time() - (int)$info['checked'] >= 3600 * fleet_opt('update_check_hours')))) {
+			fleet_update_check($box);
+		}
+		/* A changed configuration that has been quiet for a while gets a backup. */
+		$status = json_decode((string)fleet_box_get($box['node_id'])['status'], true) ?: array();
+		$due = fleet_backup_due(fleet_backup_latest($box['node_id']), $status, time()) && fleet_backup_retry_ok($box, time());
+	}
+	return array('state' => $state, 'due' => $due);
+}
+
+/*
+ * Poll many boxes, $parallel at a time, each in its own process, so firewalls that do not answer wait
+ * for their timeouts side by side instead of one after the other. A process that is still running at
+ * $deadline is ended. With $parallel 1 (or when processes cannot be started) the boxes are polled
+ * here, one by one. $command: the program that polls one box, given the node id, the interval and
+ * 1 or 0 for a deep pass; it prints fleet_poll_one()'s answer as JSON. Returns node id => array(state, due).
+ */
+function fleet_poll_many(array $boxes, int $interval, bool $deep, int $parallel, int $deadline, ?array $command = null): array {
+	$command = $command ?? array('/usr/local/bin/php', '/usr/local/sbin/freesense-fleet-poll', 'one');
+	$out = array();
+	$serial = function (array $box) use ($interval, $deep, &$out): void {
+		try {
+			$out[$box['node_id']] = fleet_poll_one($box, $interval, $deep);
+		} catch (Throwable $e) {
+			error_log("Fleet: polling {$box['node_id']} failed: " . $e->getMessage());
+			$out[$box['node_id']] = array('state' => (string)$box['state'], 'due' => false);
+		}
+	};
+	if ($parallel <= 1) {
+		foreach ($boxes as $box) {
+			if (time() < $deadline) {
+				$serial($box);
+			}
+		}
+		return $out;
+	}
+	foreach (array_chunk(array_values($boxes), $parallel) as $chunk) {
+		if (time() >= $deadline) {
+			break;
+		}
+		$procs = array();
+		foreach ($chunk as $box) {
+			$p = proc_open(array_merge($command, array($box['node_id'], (string)$interval, $deep ? '1' : '0')), array(1 => array('pipe', 'w'), 2 => array('file', '/dev/null', 'w')), $pipes);
+			if (!is_resource($p)) {
+				$serial($box);
+				continue;
+			}
+			stream_set_blocking($pipes[1], false);
+			$procs[$box['node_id']] = array($p, $pipes[1], '', $box);
+		}
+		while (!empty($procs)) {
+			$read = array_map(function ($x) { return $x[1]; }, $procs);
+			$w = $e = null;
+			if (@stream_select($read, $w, $e, 1) > 0) {
+				foreach ($procs as $node => $x) {
+					if (in_array($x[1], $read, true)) {
+						$procs[$node][2] .= (string)fread($x[1], 65536);
+					}
+				}
+			}
+			foreach ($procs as $node => $x) {
+				$late = time() >= $deadline;
+				if (!feof($x[1]) && !$late) {
+					continue;
+				}
+				if ($late) {
+					proc_terminate($x[0]);
+				}
+				$answer = json_decode(trim($x[2] . (string)stream_get_contents($x[1])), true);
+				fclose($x[1]);
+				proc_close($x[0]);
+				$out[$node] = (is_array($answer) && isset($answer['state'])) ? array('state' => (string)$answer['state'], 'due' => !empty($answer['due']))
+				    : array('state' => (string)$x[3]['state'], 'due' => false);
+				unset($procs[$node]);
+			}
+		}
+	}
+	return $out;
 }
 
 /* Poll one box; returns its new state. */

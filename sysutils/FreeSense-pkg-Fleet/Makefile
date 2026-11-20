@@ -25,6 +25,7 @@ do-install:
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/pkg/fleet.xml ${STAGEDIR}${PREFIX}/pkg/
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/pkg/fleet/*.inc ${STAGEDIR}${PREFIX}/pkg/fleet/
 	${INSTALL_DATA} ${FILESDIR}${PREFIX}/pkg/fleet/enroll/index.php ${STAGEDIR}${PREFIX}/pkg/fleet/enroll/
+	${INSTALL_SCRIPT} ${FILESDIR}${PREFIX}/sbin/freesense-fleet-alerts ${STAGEDIR}${PREFIX}/sbin/
 	${INSTALL_SCRIPT} ${FILESDIR}${PREFIX}/sbin/freesense-fleet-backup ${STAGEDIR}${PREFIX}/sbin/
 	${INSTALL_SCRIPT} ${FILESDIR}${PREFIX}/sbin/freesense-fleet-poll ${STAGEDIR}${PREFIX}/sbin/
 	${INSTALL_SCRIPT} ${FILESDIR}${PREFIX}/sbin/freesense-fleet-rules ${STAGEDIR}${PREFIX}/sbin/
