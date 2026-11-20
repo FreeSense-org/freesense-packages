@@ -299,16 +299,35 @@ function fleet_enroll_listen(array $binds): string {
 	return $out;
 }
 
+define('FLEET_ENROLL_SOCKET', '/var/run/fleet-enroll.socket');
+define('FLEET_ENROLL_FPM_CONF', '/var/etc/fleet-enroll-fpm.conf');
+define('FLEET_ENROLL_FPM_PID', '/var/run/fleet-enroll-fpm.pid');
+
+/*
+ * pure: the enrollment endpoint's own php-fpm: a few workers of its own with a time limit, so a flood of
+ * join requests from the internet can never use up the WebUI's workers.
+ */
+function fleet_enroll_fpm_conf(): string {
+	return "; FreeSense Fleet enrollment endpoint: its own php-fpm (fleet.inc)\n[global]\npid = " . FLEET_ENROLL_FPM_PID . "\nerror_log = syslog\nsyslog.facility = daemon\n" .
+	    "syslog.ident = fleet-enroll\nlog_level = error\ndaemonize = yes\nprocess.max = 6\n\n" .
+	    "[fleet-enroll]\nuser = root\ngroup = wheel\nlisten = " . FLEET_ENROLL_SOCKET . "\nlisten.owner = root\nlisten.group = wheel\nlisten.mode = 0600\n" .
+	    "security.limit_extensions =\nenv[PATH] = /bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin\nenv[LOGNAME] = root\n" .
+	    "request_terminate_timeout = 60\npm = static\npm.max_children = 4\npm.max_requests = 500\n";
+}
+
 /* pure: the enrollment nginx configuration. */
 /* $binds: array(address, port) the endpoint listens on (one per connection point address). */
-function fleet_enroll_nginx_conf(array $binds, string $tls, string $socket = '/var/run/php-fpm.socket'): string {
+function fleet_enroll_nginx_conf(array $binds, string $tls, string $socket = FLEET_ENROLL_SOCKET): string {
 	return "# FreeSense Fleet enrollment endpoint (fleet.inc); serves only /fleet/join/ and /fleet/standby/\n" .
 	    "pid " . FLEET_ENROLL_PID . ";\nuser root wheel;\nworker_processes 1;\n" .
 	    "error_log syslog:server=unix:/var/run/log,facility=local5;\n\n" .
 	    "events {\n\tworker_connections 256;\n}\n\n" .
 	    "http {\n\tdefault_type application/json;\n\tserver_tokens off;\n\taccess_log off;\n" .
 	    "\tclient_max_body_size 64k;\n\tclient_header_timeout 10;\n\tclient_body_timeout 10;\n\tkeepalive_timeout 5;\n" .
-	    "\tlimit_req_status 429;\n\tlimit_req_zone \$binary_remote_addr zone=fleetjoin:2m rate=2r/s;\n\n" .
+	    "\tlimit_req_status 429;\n" .
+	    /* IPv6: a client owns a whole /64, so the limit counts the /64, not each address in it. */
+	    "\tmap \$remote_addr \$fleet_client {\n\t\t\"~^(?<net>[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}):\" \$net;\n\t\tdefault \$remote_addr;\n\t}\n" .
+	    "\tlimit_req_zone \$fleet_client zone=fleetjoin:2m rate=2r/s;\n\n" .
 	    "\tserver {\n" . fleet_enroll_listen($binds) .
 	    "\t\tssl_certificate {$tls};\n\t\tssl_certificate_key {$tls};\n\t\tssl_protocols TLSv1.2 TLSv1.3;\n" .
 	    "\t\tssl_session_tickets off;\n\t\tadd_header X-Content-Type-Options nosniff always;\n" .
@@ -525,6 +544,10 @@ function fleet_ctl_enroll_stop(): void {
 		killbypid(FLEET_ENROLL_PID, 5);
 		@unlink(FLEET_ENROLL_PID);
 	}
+	if (is_file(FLEET_ENROLL_FPM_PID)) {
+		killbypid(FLEET_ENROLL_FPM_PID, 5);
+		@unlink(FLEET_ENROLL_FPM_PID);
+	}
 }
 
 /*
@@ -645,7 +668,12 @@ function fleet_ctl_enroll_start(array $s): ?string {
 	if (empty($binds)) {
 		return 'no connection point has an address yet: firewalls cannot join';
 	}
-	file_put_contents(FLEET_ENROLL_CONF, fleet_enroll_nginx_conf($binds, $tls, '/var/run/php-fpm.socket'));
+	file_put_contents(FLEET_ENROLL_FPM_CONF, fleet_enroll_fpm_conf());
+	list($rc, $out) = fleet_ctl_exec(array('/usr/local/sbin/php-fpm', '-y', FLEET_ENROLL_FPM_CONF, '-R'));
+	if ($rc !== 0) {
+		return 'php-fpm for enrollment: ' . $out;
+	}
+	file_put_contents(FLEET_ENROLL_CONF, fleet_enroll_nginx_conf($binds, $tls, FLEET_ENROLL_SOCKET));
 	list($rc, $out) = fleet_ctl_exec(array('/usr/local/sbin/nginx', '-c', FLEET_ENROLL_CONF));
 	return ($rc === 0) ? null : 'nginx: ' . $out;
 }
