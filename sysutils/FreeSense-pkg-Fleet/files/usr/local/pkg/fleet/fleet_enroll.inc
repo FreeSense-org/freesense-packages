@@ -267,6 +267,9 @@ function fleet_enroll_handle(string $method, string $path, string $bearer, array
 		if (($method === 'POST') && ($path === '/fleet/join/complete')) {
 			return fleet_enroll_complete($body, $bearer, $now, $ctx);
 		}
+		if (($method === 'POST') && ($path === '/fleet/join/abort')) {
+			return fleet_enroll_abort($body, $bearer);
+		}
 		return fleet_enroll_error(404, 'not_found', 'No such enrollment request.');
 	} catch (FleetEnrollReply $r) {
 		return $r->reply;
@@ -328,6 +331,16 @@ function fleet_enroll_get(string $id, string $bearer, int $now): array {
 		throw new FleetEnrollReply(fleet_enroll_error(401, 'unauthorized', 'Unknown enrollment.'));
 	}
 	return $e;
+}
+
+/* The firewall gave up (its join failed part-way and was undone): the request stops waiting; the invitation stays open for another try. */
+function fleet_enroll_abort(array $body, string $bearer): array {
+	$e = fleet_enroll_get((string)($body['enrollment_id'] ?? ''), $bearer, time());
+	if (in_array($e['state'], array('pending', 'approved'), true)) {
+		fleet_db()->prepare("UPDATE enrollments SET state = 'aborted', decided_by = 'firewall', decided = ? WHERE id = ? AND state IN ('pending', 'approved')")->execute(array(time(), $e['id']));
+		fleet_audit('enrollment', 'aborted', "{$e['id']}: the firewall gave up and undid its join");
+	}
+	return array(200, array('state' => ($e['state'] === 'joined') ? 'joined' : 'aborted'));
 }
 
 /* An admin approves or rejects a pending box (after comparing the code). */

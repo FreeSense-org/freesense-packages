@@ -70,6 +70,12 @@ check(in_array('role:managed', $ev, true) && count(preg_grep('/^approval:wait:\d
 $enr = fleet_db()->query('SELECT * FROM enrollments WHERE state = \'joined\'')->fetch();
 $again = fleet_enroll_complete(array('enrollment_id' => $enr['id'], 'api_key' => 'fsk_0123456789ab_' . str_repeat('B', 43)), $parsed['token_secret'], $clock, $ctx);
 $wrong = fleet_enroll_complete(array('enrollment_id' => $enr['id'], 'api_key' => 'fsk_0123456789ab_' . str_repeat('C', 43)), $parsed['token_secret'], $clock, $ctx);
+$ab_joined = fleet_enroll_handle('POST', '/fleet/join/abort', $parsed['token_secret'], array('enrollment_id' => $enr['id']), '198.51.100.7', $clock, $ctx);
+fleet_db()->prepare("INSERT INTO enrollments (id, token_id, node_wg_pub, inventory, code, created) VALUES ('e-aaaaaaaaaaaaaaaaaaaa', ?, 'x', '{}', '000000', ?)")->execute(array($enr['token_id'], $clock));
+$ab_pending = fleet_enroll_handle('POST', '/fleet/join/abort', $parsed['token_secret'], array('enrollment_id' => 'e-aaaaaaaaaaaaaaaaaaaa'), '198.51.100.7', $clock, $ctx);
+$ab_bad = fleet_enroll_handle('POST', '/fleet/join/abort', str_repeat('Z', 43), array('enrollment_id' => 'e-aaaaaaaaaaaaaaaaaaaa'), '198.51.100.7', $clock, $ctx);
+check($ab_joined[1]['state'] === 'joined' && $ab_pending[1]['state'] === 'aborted' && $ab_bad[0] === 401 &&
+    fleet_db()->query("SELECT state FROM enrollments WHERE id = 'e-aaaaaaaaaaaaaaaaaaaa'")->fetchColumn() === 'aborted', 'a firewall that gives up aborts its pending request; a joined one stays joined; a wrong secret is refused');
 check($again[0] === 200 && $again[1]['node_id'] === $box['node_id'] && $wrong[0] === 403 && count($joined) === 1, 'a retried completion gets the same answer, once; a wrong key gets nothing');
 check(in_array("approval:wait:{$enr['code']}", $ev, true), 'the box and the controller show the same code');
 check(fleet_db()->query("SELECT state FROM invitations WHERE token_id = '{$tid}'")->fetchColumn() === 'used' &&
