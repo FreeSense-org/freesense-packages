@@ -57,7 +57,9 @@ if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 			fleet_conn_set_box($target, $_POST, $who);
 			$savemsg = gettext('Firewall saved. Apply the change below.');
 		} elseif (isset($_POST['save_ts_token'])) {
+			$tags = fleet_ts_tags_parse((string)($_POST['ts_tags'] ?? ''));
 			fleet_ts_token_set((string)($_POST['ts_token'] ?? ''), $who);
+			fleet_setting_set('tailscale_key_tags', implode(' ', $tags));
 			$savemsg = gettext('Tailscale API token saved. Fleet now checks each firewall\'s tailnet device.');
 		} elseif (isset($_POST['remove_ts_token'])) {
 			fleet_ts_token_set('', $who);
@@ -333,6 +335,9 @@ $fallbacks = count(array_filter($overview, function ($r) { return ($r['state'] !
 	<div class="mb-3"><label class="form-label" for="ts-token"><?=gettext('API access token')?></label>
 		<input class="form-control fs-mono" id="ts-token" name="ts_token" type="password" autocomplete="off" maxlength="220" placeholder="tskey-api-…" required/>
 		<div class="form-text"><?=gettext('Create it in the Tailscale admin console under Settings > Keys. Fleet reads the devices and can turn key expiry off; it stores the token encrypted and never shows it again.')?></div></div>
+	<div class="mb-3"><label class="form-label" for="ts-tags"><?=gettext('Tags for new firewalls (optional)')?></label>
+		<input class="form-control fs-mono" id="ts-tags" name="ts_tags" maxlength="200" value="<?=htmlspecialchars((string)fleet_setting('tailscale_key_tags', ''))?>" placeholder="tag:fleet"/>
+		<div class="form-text"><?=gettext('One-time keys then create tagged devices, which belong to the tag and never expire. Your tailnet policy must list this API token\'s owner as an owner of each tag, or Tailscale refuses the key.')?></div></div>
 	<p class="fs-fleet-hint mb-0"><?=gettext('Fleet tests the token before saving it. Tokens expire (90 days at most); add a new one before that.')?></p>
 <?php
 	fs_modal_form_end(gettext('Save'), 'save_ts_token', '1', 'fa-floppy-disk');
