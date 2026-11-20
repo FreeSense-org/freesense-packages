@@ -100,25 +100,72 @@ function fleet_group_save(?int $id, string $name, string $description, string $c
 }
 
 /*
- * What still uses a group (policies, backup sets, rings, templates as they
- * arrive), as words. A group in use cannot be deleted.
+ * What still uses a group, as words ("policy Baseline", "2 schedules"): the
+ * policies, schedules, backup sets, templates and user groups that target it
+ * ("g:<id>"), a rollout that is not finished and has it as a ring, a NOC screen
+ * that shows it, and open invitations that put new firewalls in it. A group in
+ * use cannot be deleted: its Lock policy, backups or rings would silently stop
+ * covering the firewalls.
  */
 function fleet_group_users(int $id): array {
-	return array();
+	$db = fleet_db();
+	$found = array();
+	foreach (array('policies' => 'policy', 'schedules' => 'schedule', 'backup_sets' => 'backup set', 'templates' => 'template', 'ugroups' => 'user group') as $table => $what) {
+		$q = $db->prepare("SELECT name FROM {$table} WHERE EXISTS (SELECT 1 FROM json_each({$table}.targets) WHERE value = ?) ORDER BY name COLLATE NOCASE");
+		$q->execute(array('g:' . $id));
+		$found[$what] = $q->fetchAll(PDO::FETCH_COLUMN);
+	}
+	$q = $db->prepare("SELECT target FROM rollouts WHERE state IN ('running', 'paused')
+	    AND EXISTS (SELECT 1 FROM json_each(rollouts.rings) WHERE json_extract(value, '$.group') = CAST(? AS INTEGER)) ORDER BY id");
+	$q->execute(array($id));
+	$found['rollout'] = $q->fetchAll(PDO::FETCH_COLUMN);
+	$found['NOC screen'] = array();
+	foreach ($db->query('SELECT name, config FROM kiosk_keys WHERE revoked IS NULL OR revoked = 0 ORDER BY name COLLATE NOCASE')->fetchAll() as $k) {
+		$config = json_decode((string)$k['config'], true);
+		if (is_array($config) && in_array($id, array_map('intval', (array)($config['groups'] ?? array())), true)) {
+			$found['NOC screen'][] = $k['name'];
+		}
+	}
+	$q = $db->prepare("SELECT label FROM invitations WHERE state = 'open' AND group_id = ? ORDER BY created");
+	$q->execute(array($id));
+	$found['open invitation'] = $q->fetchAll(PDO::FETCH_COLUMN);
+	return fleet_group_users_words($found);
+}
+
+/* pure: the users as words from what was found (kind => names): "policy Baseline, 3 schedules". */
+function fleet_group_users_words(array $found): array {
+	$words = array();
+	foreach ($found as $what => $names) {
+		if (count($names) === 1) {
+			$words[] = "{$what} \"{$names[0]}\"";
+		} elseif (count($names) > 1) {
+			$words[] = count($names) . " {$what}s (" . implode(', ', array_slice($names, 0, 3)) . ((count($names) > 3) ? ', ...' : '') . ')';
+		}
+	}
+	return $words;
 }
 
 /* Delete a group (its firewalls stay). Throws RuntimeException when something still uses it. */
 function fleet_group_delete(int $id, string $who): void {
-	$group = fleet_group_get($id);
-	if ($group === null) {
-		return;
+	$db = fleet_db();
+	$db->exec('BEGIN IMMEDIATE');
+	try {
+		$group = fleet_group_get($id);
+		if ($group === null) {
+			$db->exec('ROLLBACK');
+			return;
+		}
+		$users = fleet_group_users($id);
+		if (!empty($users)) {
+			throw new RuntimeException("\"{$group['name']}\" is still used by " . implode(', ', $users) . '. Remove it there first.');
+		}
+		$db->prepare('DELETE FROM box_groups WHERE group_id = ?')->execute(array($id));
+		$db->prepare('DELETE FROM fleet_groups WHERE id = ?')->execute(array($id));
+		$db->exec('COMMIT');
+	} catch (Throwable $e) {
+		$db->exec('ROLLBACK');
+		throw $e;
 	}
-	$users = fleet_group_users($id);
-	if (!empty($users)) {
-		throw new RuntimeException("\"{$group['name']}\" is still used by " . implode(', ', $users) . '.');
-	}
-	fleet_db()->prepare('DELETE FROM box_groups WHERE group_id = ?')->execute(array($id));
-	fleet_db()->prepare('DELETE FROM fleet_groups WHERE id = ?')->execute(array($id));
 	fleet_audit($who, 'group_delete', "group {$id}: {$group['name']}");
 }
 
