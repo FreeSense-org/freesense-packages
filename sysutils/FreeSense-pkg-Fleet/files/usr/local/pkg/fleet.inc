@@ -145,6 +145,8 @@ define('FLEET_TUNABLES', array(
 	'backup_keep_monthly' => array('backups', 'months', 12, 0, 120, 'Monthly backups for', 'The newest backup of each month; 0 keeps none by the month.'),
 	'backup_safety_days' => array('backups', 'd', 30, 7, 365, 'Keep safety backups for',
 	    'Backups taken before a restore. Pinned backups and each firewall\'s newest backup are never removed.'),
+	'keep_removed' => array('backups', 'd', 180, 14, 3650, 'Keep backups of removed firewalls for',
+	    'A firewall that left the fleet has no keep rule; its backups (pinned ones stay) are removed this long after they were taken.'),
 	'backup_parallel' => array('backups', 'firewalls', 10, 1, 50, 'Back up at once at most',
 	    'More is faster for big fleets and puts more load on the controller.'),
 	'restore_confirm' => array('backups', 'min', 5, 2, 15, 'Undo a restore after',

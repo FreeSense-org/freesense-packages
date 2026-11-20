@@ -62,6 +62,8 @@ if ($manage && isset($_POST['restore_id'])) {
 	$row = fleet_backup_get((int)$_POST['restore_id']);
 	if (($row === null) || ($row['node_id'] !== $box['node_id'])) {
 		$input_errors[] = gettext('That backup does not belong to this firewall.');
+	} elseif (!fleet_manage_allowed($box)) {
+		$input_errors[] = gettext('This firewall joined as Monitor only, so the controller may not restore it. Let it leave and join again as Managed.');
 	} else {
 		/* In the background (it waits up to a minute for the firewall to answer); Activity shows each step. */
 		try {

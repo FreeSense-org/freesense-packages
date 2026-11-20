@@ -268,6 +268,7 @@ function fleet_box_error(int $code, array $json): string {
  * it was left unconfirmed).
  */
 function fleet_backup_restore(array $box, array $row, string $who, ?callable $sleep = null, ?callable $step = null): string {
+	fleet_manage_require($box);
 	$sleep = $sleep ?? 'sleep';
 	/* $step(text, percent): where the restore is, for its operation's progress bar. */
 	$step = $step ?? function (string $text, int $percent): void {
@@ -288,8 +289,19 @@ function fleet_backup_restore(array $box, array $row, string $who, ?callable $sl
 		throw new RuntimeException('The box could not take a snapshot first: ' . fleet_box_error($code, $json));
 	}
 	$step('Sending the configuration', 45);
-	list($code, $json) = fleet_box_call($box, 'POST', '/api/v1/management/restore',
-	    array('config' => $xml, 'commit_confirm' => $id, 'description' => "Restored from the Fleet backup of {$when} by {$who}"));
+	try {
+		list($code, $json) = fleet_box_call($box, 'POST', '/api/v1/management/restore',
+		    array('config' => $xml, 'commit_confirm' => $id, 'description' => "Restored from the Fleet backup of {$when} by {$who}"));
+	} catch (Throwable $e) {
+		/*
+		 * The answer was lost: the restore may have been applied. It is not confirmed (nothing says it is healthy), so
+		 * the firewall puts its snapshot back by itself when the window ends: say that, and where to look.
+		 */
+		$text = sprintf('FLEET-E310: No answer to the restore (%s). It may have been applied; the firewall goes back to its previous configuration by itself within %d minutes unless you confirm it there.',
+		    $e->getMessage(), fleet_opt('restore_confirm'));
+		fleet_audit($who, 'restore_failed', "{$box['node_id']} ({$box['label']}): {$text}");
+		throw new RuntimeException($text);
+	}
 	if ($code !== 200) {
 		/* Nothing was restored; close the window (the snapshot is the running configuration). */
 		try {
