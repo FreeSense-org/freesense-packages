@@ -154,7 +154,36 @@ function fleet_alert_from_audit(string $action, string $detail, string $node = '
 
 /* pure: an https (or, for a lab, http) address. */
 function fleet_alert_url_ok(string $url): bool {
-	return (bool)preg_match('~^https?://[A-Za-z0-9.\[\]:_-]+(:\d+)?(/[^\s]*)?$~D', $url) && (strlen($url) <= 500);
+	if (!preg_match('~^https?://([A-Za-z0-9.\[\]:_-]+?)(:\d+)?(/[^\s]*)?$~D', $url, $m) || (strlen($url) > 500)) {
+		return false;
+	}
+	/* Tests run a sink on 127.0.0.1 and define this; nothing else does. */
+	return defined('FLEET_ALERT_ALLOW_LOOPBACK') || !fleet_alert_host_blocked($m[1]);
+}
+
+/*
+ * pure: a host a webhook must never call: this controller itself (loopback, "localhost"), the unspecified address and
+ * link-local addresses (cloud metadata at 169.254.169.254, fe80::). Addresses on the LAN are allowed: a webhook server
+ * is often one.
+ */
+function fleet_alert_host_blocked(string $host): bool {
+	$host = strtolower(trim($host, '[]'));
+	if (($host === 'localhost') || (substr($host, -10) === '.localhost') || ($host === '0') || ($host === '')) {
+		return true;
+	}
+	if (filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+		$long = ip2long($host);
+		return ($long === false) || (($long >> 24) === 127) || (($long >> 24) === 0) || ((($long >> 16) & 0xffff) === 0xa9fe);
+	}
+	if (filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+		$bin = inet_pton($host);
+		$mapped = (strlen($bin) === 16) && (substr($bin, 0, 12) === "\0\0\0\0\0\0\0\0\0\0\xff\xff");
+		if ($mapped) {
+			return fleet_alert_host_blocked(inet_ntop(substr($bin, 12)));
+		}
+		return ($bin === inet_pton('::1')) || ($bin === inet_pton('::')) || ((ord($bin[0]) === 0xfe) && ((ord($bin[1]) & 0xc0) === 0x80));
+	}
+	return false;
 }
 
 /*
