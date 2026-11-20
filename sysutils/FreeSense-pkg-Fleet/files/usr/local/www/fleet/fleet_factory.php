@@ -70,8 +70,8 @@ if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 					throw new InvalidArgumentException(gettext('The two passphrases are not the same.'));
 				}
 				$s = fleet_ctl_settings();
-				list($bid) = fleet_factory_generate($settings, (string)$_POST['rows'], (string)$_POST['passphrase'], $who, fleet_hostport($s['public_host'], $s['enroll_port']));
-				header('Location: /fleet/fleet_factory.php?view=batch&made=1&id=' . (int)$bid);
+				$op = fleet_factory_launch($settings, (string)$_POST['rows'], (string)$_POST['passphrase'], $who, fleet_hostport($s['public_host'], $s['enroll_port']));
+				header('Location: /fleet/fleet_activity.php?op=' . (int)$op);
 				exit;
 			}
 		} elseif (isset($_POST['revoke'])) {
