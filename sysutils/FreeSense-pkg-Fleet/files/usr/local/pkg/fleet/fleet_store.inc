@@ -114,14 +114,20 @@ function fleet_secret_file(string $name, callable $make): string {
 	$path = FLEET_DATA . "/{$name}";
 	if (!is_file($path)) {
 		/* Private from the first byte, and the first process to finish wins: link() fails when the file is already there, so two first runs never leave one with a key the other replaced. */
-		$tmp = "{$path}.tmp" . getmypid();
+		$tmp = "{$path}.tmp" . getmypid() . bin2hex(random_bytes(3));
 		$h = @fopen($tmp, 'xb');
 		if (($h === false) || !@chmod($tmp, 0600)) {
 			@unlink($tmp);
 			throw new RuntimeException("{$path} could not be written.");
 		}
-		$content = $make();
-		$ok = (fwrite($h, $content) === strlen($content)) && fflush($h);
+		try {
+			$content = $make();
+			$ok = (fwrite($h, $content) === strlen($content)) && fflush($h);
+		} catch (Throwable $e) {
+			fclose($h);
+			@unlink($tmp);
+			throw $e;
+		}
 		fclose($h);
 		$ok = $ok && (@link($tmp, $path) || is_file($path));
 		@unlink($tmp);

@@ -541,7 +541,7 @@ function fleet_users_drift_ignore(string $node, string $who): void {
 	$all = json_decode((string)fleet_setting('users_drift_ignored', '{}'), true) ?: array();
 	$all[$node] = hash('sha256', json_encode($d['changes']));
 	fleet_setting_set('users_drift_ignored', json_encode($all));
-	fleet_audit($who, 'users', "{$node}: drift ignored until it changes");
+	fleet_audit($who, 'users', "{$node}: drift ignored until it changes", $node);
 }
 
 /*
