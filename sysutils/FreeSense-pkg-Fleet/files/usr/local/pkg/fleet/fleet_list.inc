@@ -353,6 +353,25 @@ function fleet_boottime_seconds(): int {
 }
 
 /*
+ * What an admin looked at before pressing a button that changes many firewalls: the targets and whatever decides what
+ * the action does, as one token that goes with the form (keyed, so it cannot be made up). When the targets or the settings
+ * changed meanwhile (another admin, a firewall that came or went), the token no longer matches and nothing is started.
+ */
+function fleet_review_token(array $parts): string {
+	return substr(hash_hmac('sha256', json_encode($parts), fleet_master_key()), 0, 32);
+}
+
+/* The hidden form field for fleet_review_token(). */
+function fleet_review_field(array $parts): string {
+	return '<input type="hidden" name="review" value="' . fleet_review_token($parts) . '"/>';
+}
+
+/* Is the posted token the one for what is about to run? */
+function fleet_review_ok(array $parts, string $posted): bool {
+	return ($posted !== '') && hash_equals(fleet_review_token($parts), $posted);
+}
+
+/*
  * A button that asks first (assets/fleet-confirm.js): the attributes that make a submit button or link open a confirmation
  * dialog. $tone: 'danger' (deletes, cannot be undone), 'warning' (changes firewalls, stops a service, ends access) or 'info'.
  * $icon: a Font Awesome name without "fa-". $items: what will happen, one line each. $type: text the admin has to type first,

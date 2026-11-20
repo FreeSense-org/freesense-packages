@@ -76,6 +76,10 @@ if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 				throw new RuntimeException(gettext('That template no longer exists.'));
 			}
 			$only = isset($_POST['node']) ? array((string)$_POST['node']) : null;
+			/* What was applied is what was on the page: the template and its firewalls must not have changed meanwhile. */
+			if (!fleet_review_ok(($only === null) ? array('template', fleet_template_hash($t), 'all', fleet_template_nodes($t['targets'])) : array('template', fleet_template_hash($t), $only[0]), (string)($_POST['review'] ?? ''))) {
+				throw new RuntimeException(gettext('The template or its firewalls changed while you were looking at it. Check the preview again.'));
+			}
 			$op = fleet_template_launch($t, $who, $only);
 			header('Location: /fleet/fleet_activity.php?op=' . (int)$op);
 			exit;
@@ -426,7 +430,7 @@ $is_list = function (array $t): bool {
 				<form method="post" class="d-inline"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><button class="btn btn-sm btn-link" name="template_unignore" value="<?=(int)$t['id']?>"><?=gettext('Stop ignoring')?></button></form>
 <?php elseif ($manage): ?>
 <?php if ($online): ?>
-				<form method="post" class="d-inline"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><button class="btn btn-sm btn-link" name="template_apply" value="<?=(int)$t['id']?>"<?=fleet_confirm(sprintf(gettext('Put "%s" on this firewall?'), $t['name']), gettext('The firewall gets a safety backup first, then the template\'s values in one change. Values it has changed itself are overwritten.'), gettext('Apply'), 'warning', 'paper-plane')?>
+				<form method="post" class="d-inline"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><?=fleet_review_field(array('template', fleet_template_hash($t), (string)$node))?><button class="btn btn-sm btn-link" name="template_apply" value="<?=(int)$t['id']?>"<?=fleet_confirm(sprintf(gettext('Put "%s" on this firewall?'), $t['name']), gettext('The firewall gets a safety backup first, then the template\'s values in one change. Values it has changed itself are overwritten.'), gettext('Apply'), 'warning', 'paper-plane')?>
 				    title="<?=$drift ? gettext('Put the template\'s values back on this firewall') : ''?>"><?=$drift ? gettext('Revert') : gettext('Apply here')?></button></form>
 <?php if ($drift): ?>
 				<form method="post" class="d-inline"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><button class="btn btn-sm btn-link" name="template_adopt" value="<?=(int)$t['id']?>"<?=fleet_confirm(sprintf(gettext('Take this firewall\'s values into "%s"?'), $t['name']), gettext('The template changes to what this firewall has. Every other firewall that follows the template will differ from it afterwards.'), gettext('Adopt'), 'warning', 'file-import')?>
@@ -444,7 +448,7 @@ $is_list = function (array $t): bool {
 <?php if ($manage && !empty($rows)): ?>
 	<div class="panel-footer fs-fleet-review-actions fs-fleet-policy-actions">
 <?php $n_apply = count($rows) - count(array_intersect_key($ignored, array_flip($nodes))); ?>
-		<form method="post"><button class="btn btn-primary" name="template_apply" value="<?=(int)$t['id']?>"<?=fleet_confirm(sprintf(gettext('Apply "%s" to all its firewalls?'), $t['name']), gettext('Each firewall gets a safety backup first, then the template\'s settings in one change, applied at once. A firewall that already matches is left alone.'), gettext('Apply to all'), 'warning', 'paper-plane')?><?=($n_apply === 0) ? ' disabled' : ''?>><i class="fa-solid fa-paper-plane icon-embed-btn" aria-hidden="true"></i><?=sprintf(ngettext('Apply to %d firewall', 'Apply to %d firewalls', $n_apply), $n_apply)?></button></form>
+		<form method="post"><?=fleet_review_field(array('template', fleet_template_hash($t), 'all', fleet_template_nodes($t['targets'])))?><button class="btn btn-primary" name="template_apply" value="<?=(int)$t['id']?>"<?=fleet_confirm(sprintf(gettext('Apply "%s" to all its firewalls?'), $t['name']), gettext('Each firewall gets a safety backup first, then the template\'s settings in one change, applied at once. A firewall that already matches is left alone.'), gettext('Apply to all'), 'warning', 'paper-plane')?><?=($n_apply === 0) ? ' disabled' : ''?>><i class="fa-solid fa-paper-plane icon-embed-btn" aria-hidden="true"></i><?=sprintf(ngettext('Apply to %d firewall', 'Apply to %d firewalls', $n_apply), $n_apply)?></button></form>
 		<p class="fs-fleet-policy-note"><?=isset(FLEET_TLIST_KINDS[$t['kind']]) ? gettext('Each firewall gets a safety backup and a commit-confirm window first, then the changes and one filter reload. Fleet then checks it still reaches the firewall and only then confirms; if it cannot, the firewall puts its previous rules back by itself within 5 minutes (FLEET-E310). Fleet never changes an entry it did not push, and a template\'s rules come first on their interface.') : (($t['kind'] === 'aliases') ? gettext('Each firewall gets a safety backup first, then the changes and one filter reload. Conflicts are skipped: Fleet never changes an alias it did not push. The firewalls are read again when the apply starts, so a change made since the backup is not lost.') :
 		    gettext('Each firewall gets a safety backup first, then the template\'s settings in one change, applied at once. The firewalls are read again when the apply starts; one that already matches is left alone.'))?></p>
 	</div>
