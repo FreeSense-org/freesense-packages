@@ -66,6 +66,8 @@ jobs:
             ! -path './freesense-src/*' -print0 | xargs -0 -r -n1 php -l
           find . -type f \( -name 'pkg-install.in' -o -name 'pkg-deinstall.in' -o -path '*/files/usr/local/etc/rc.d/*' \) \
             ! -path './freesense-src/*' -print0 | xargs -0 -r -n1 sh -n
+      - name: PHP 8.5 syntax (every PHP file, including the extensionless sbin scripts)
+        run: docker run --rm -v "$PWD:/work" -w /work php:8.5-cli sh tools/tests/php-lint.sh
       - name: syslog-ng validation regression tests
         run: |
           php tools/tests/syslog-ng.php
@@ -76,5 +78,4 @@ jobs:
         run: php tools/tests/threatshield/run.php
       - name: FreeSense Fleet controller tests (joins with the System's client from freesense-src)
         run: |
-          sudo apt-get install -yq php-sqlite3
-          php -d error_reporting=E_ALL tools/tests/fleet/run.php freesense-src
+          docker run --rm -v "$PWD:/work" -w /work php:8.5-cli php -d error_reporting=E_ALL tools/tests/fleet/run.php freesense-src
