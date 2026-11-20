@@ -501,6 +501,11 @@ function fleet_kiosk_view(array $data, array $running, bool $hide, string $title
 	}
 	$panels['groups'] = array('rows' => $grows);
 	$ops = array();
+	/* A screen limited to some groups shows those groups only: not the fleet's running actions and not the controller panel. */
+	if (!empty($cfg['groups'])) {
+		$running = array();
+		unset($panels['controller']);
+	}
 	foreach ($running as $o) {
 		$ops[] = array('title' => $hide ? 'Fleet operation' : (string)$o['title'], 'done' => (int)($o['done'] ?? 0), 'total' => (int)($o['total'] ?? 0),
 		    'percent' => (int)($o['percent'] ?? 0));

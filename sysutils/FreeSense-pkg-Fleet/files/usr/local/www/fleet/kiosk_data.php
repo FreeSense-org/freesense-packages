@@ -36,7 +36,6 @@ header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: no-referrer');
 
 $deny = function (int $status) {
-	usleep(400000);
 	http_response_code($status);
 	echo json_encode(array('error' => 'This screen is not allowed. Ask an administrator for a new kiosk link.'));
 	exit;
