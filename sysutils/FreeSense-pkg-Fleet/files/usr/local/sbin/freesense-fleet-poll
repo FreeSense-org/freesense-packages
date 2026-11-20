@@ -40,6 +40,11 @@ if (($argv[1] ?? '') === 'one') {
 	echo json_encode(($box === null) ? array('state' => '', 'due' => false) : fleet_poll_one($box, (int)($argv[3] ?? 60), ($argv[4] ?? '0') === '1'));
 	exit(0);
 }
+/* The standby controller's copy, built apart from the poll round (started by fleet_standby_outbox_tick). */
+if (($argv[1] ?? '') === 'snapshot') {
+	fleet_standby_snapshot_build();
+	exit(0);
+}
 $lock = fopen('/var/run/fleet-poll.lock', 'c');
 if (!flock($lock, LOCK_EX | LOCK_NB)) {
 	exit(0);

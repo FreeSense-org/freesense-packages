@@ -16,3 +16,9 @@ check((fleet_standby_partner_newer(function () { return array(200, array('role' 
     (fleet_standby_partner_newer(function () { return array(404, array()); }) === null), 'only the partner saying it is the primary with a newer epoch means this controller was replaced');
 @unlink(FLEET_STANDBY_PAIRING);
 check(fleet_standby_partner_newer(function () { return array(200, array('role' => 'primary', 'epoch' => 99)); }) === null, 'with no partner paired, nothing can say this controller was replaced');
+
+/* The standby's copy carries the newest backups of every firewall, within a size cap. */
+$pick = fleet_standby_backup_pick(array('n1/20261101-000000-aaaaaaaaaaaa.xml.enc' => 10, 'n1/20261102-000000-bbbbbbbbbbbb.xml.enc' => 10, 'n1/20261103-000000-cccccccccccc.xml.enc' => 10,
+    'n2/20261101-000000-dddddddddddd.xml.enc' => 10, 'n3/20261105-000000-eeeeeeeeeeee.xml.enc' => 1000), 2, 100);
+check($pick === array('n2/20261101-000000-dddddddddddd.xml.enc', 'n1/20261103-000000-cccccccccccc.xml.enc', 'n1/20261102-000000-bbbbbbbbbbbb.xml.enc'),
+    'standby copy: two newest backups per firewall, oversized ones left out');

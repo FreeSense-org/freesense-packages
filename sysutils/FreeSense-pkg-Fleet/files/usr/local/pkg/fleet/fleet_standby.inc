@@ -276,16 +276,69 @@ function fleet_standby_outbox_tick(int $now): void {
 	if (is_file(FLEET_STANDBY_OUTBOX) && ($age < 60 * fleet_standby_settings()['interval'])) {
 		return;
 	}
-	$bundle = fleet_self_bundle();
-	$bundle['master'] = base64_encode(fleet_master_key());
-	$bundle['epoch'] = fleet_ctl_epoch();
-	$sealed = fleet_standby_seal(gzencode(json_encode($bundle), 6), $p['key']);
+	/* Built by a child process: the database copy and the encryption must not hold up the poll round. */
+	if (is_executable('/usr/local/bin/php') && is_file('/usr/local/sbin/freesense-fleet-poll') && function_exists('mwexec_bg')) {
+		mwexec_bg('/usr/local/bin/php /usr/local/sbin/freesense-fleet-poll snapshot');
+		return;
+	}
+	fleet_standby_snapshot_build();
+}
+
+/*
+ * pure: which backup files go into the standby's copy: the newest $per_node of each firewall, newest first
+ * overall, until $cap bytes. $files: relative path => size. A path is node/YYYYMMDD-HHMMSS-sha.xml.enc.
+ */
+function fleet_standby_backup_pick(array $files, int $per_node, int $cap): array {
+	krsort($files, SORT_STRING);
+	$taken = array();
+	$count = array();
+	$total = 0;
+	foreach ($files as $path => $size) {
+		$node = (string)strstr($path, '/', true);
+		if (($node === '') || (($count[$node] ?? 0) >= $per_node) || (($total + (int)$size) > $cap)) {
+			continue;
+		}
+		$count[$node] = ($count[$node] ?? 0) + 1;
+		$total += (int)$size;
+		$taken[] = $path;
+	}
+	return $taken;
+}
+
+/* Build the sealed copy for the standby (run by freesense-fleet-poll snapshot; one at a time). */
+function fleet_standby_snapshot_build(): void {
+	$p = fleet_standby_pairing();
+	if (($p['role'] ?? '') !== 'primary') {
+		return;
+	}
 	if (!is_dir(FLEET_STANDBY_DIR)) {
 		@mkdir(FLEET_STANDBY_DIR, 0700, true);
 	}
+	$lock = @fopen(FLEET_STANDBY_DIR . '/build.lock', 'c');
+	if (($lock === false) || !flock($lock, LOCK_EX | LOCK_NB)) {
+		return;
+	}
+	$bundle = fleet_self_bundle();
+	$bundle['master'] = base64_encode(fleet_master_key());
+	$bundle['epoch'] = fleet_ctl_epoch();
+	/* The newest backups of every firewall travel too, so a takeover can restore them (older ones are on the primary and in the recovery archive). */
+	$sizes = array();
+	foreach (glob(FLEET_BACKUP_DIR . '/*/*.xml.enc') ?: array() as $f) {
+		$sizes[basename(dirname($f)) . '/' . basename($f)] = (int)@filesize($f);
+	}
+	$bundle['backup_files'] = array();
+	foreach (fleet_standby_backup_pick($sizes, 2, 24 * 1024 * 1024) as $rel) {
+		$bytes = @file_get_contents(FLEET_BACKUP_DIR . '/' . $rel);
+		if ($bytes !== false) {
+			$bundle['backup_files'][$rel] = base64_encode($bytes);
+		}
+	}
+	$sealed = fleet_standby_seal(gzencode(json_encode($bundle), 6), $p['key']);
 	if ((@file_put_contents(FLEET_STANDBY_OUTBOX . '.tmp', $sealed) !== false) && @chmod(FLEET_STANDBY_OUTBOX . '.tmp', 0600)) {
 		@rename(FLEET_STANDBY_OUTBOX . '.tmp', FLEET_STANDBY_OUTBOX);
 	}
+	flock($lock, LOCK_UN);
+	fclose($lock);
 }
 
 /*
@@ -593,7 +646,14 @@ function fleet_standby_promote(string $who, string $why): void {
 	}
 	list($bundle) = $opened;
 	$epoch = max((int)($bundle['epoch'] ?? 0), (int)($st['primary_epoch'] ?? 0)) + 1;
-	$settings = fleet_recover_apply(array((string)base64_decode($bundle['master']), $bundle, array()), true, $who);
+	$files = array();
+	foreach ((array)($bundle['backup_files'] ?? array()) as $rel => $b64) {
+		if (preg_match('#^[A-Za-z0-9_-]+/[0-9]{8}-[0-9]{6}-[0-9a-f]{12}\.xml\.enc$#D', (string)$rel) && (($bytes = base64_decode((string)$b64, true)) !== false)) {
+			$files[(string)$rel] = $bytes;
+		}
+	}
+	unset($bundle['backup_files']);
+	$settings = fleet_recover_apply(array((string)base64_decode($bundle['master']), $bundle, $files), true, $who);
 	$settings['points'] = fleet_ctl_points_main_address((string)($settings['points'] ?? ''), (string)$p['own_addr']);
 	$settings['enable'] = 'on';
 	config_set_path('installedpackages/fleet/config/0', $settings);
