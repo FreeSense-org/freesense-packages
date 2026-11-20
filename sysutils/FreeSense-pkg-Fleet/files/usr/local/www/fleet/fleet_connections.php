@@ -82,6 +82,11 @@ if ($ready && $manage && ($_SERVER['REQUEST_METHOD'] === 'POST')) {
 	}
 }
 
+/* The review token of the apply buttons, worked out once per page (it reads the whole fleet), after any change above. */
+$review_state_once = null;
+$review_state = function () use (&$review_state_once) {
+	return $review_state_once ??= fleet_conn_review_state();
+};
 include('head.inc');
 if (!empty($input_errors)) {
 	print_input_errors($input_errors);
@@ -168,7 +173,7 @@ $fallbacks = count(array_filter($overview, function ($r) { return ($r['state'] !
 	<div class="flex-grow-1"><strong><?=htmlspecialchars(sprintf(ngettext('%d connection change is waiting', '%d connection changes are waiting', count($pending)), count($pending)))?></strong>
 		<div class="small fs-muted"><?=gettext('Applying sets up each path and keeps it only when the controller reaches the firewall over it; otherwise the firewall stays on the tunnel.')?></div></div>
 <?php if ($manage): ?>
-	<form method="post"><?=fleet_review_field(array('conn', fleet_conn_review_state(), 'all'))?><button class="btn btn-sm btn-primary text-nowrap" name="apply" value="1"<?=fleet_confirm(gettext('Apply the connection changes?'), gettext('Fleet makes each path over the tunnel and proves it by calling the firewall over it before it keeps it. The tunnel stays as the fallback.'), gettext('Apply'), 'warning', 'route')?>><i class="fa-solid fa-paper-plane icon-embed-btn" aria-hidden="true"></i><?=sprintf(ngettext('Apply %d change', 'Apply %d changes', count($pending)), count($pending))?></button></form>
+	<form method="post"><?=fleet_review_field(array('conn', $review_state(), 'all'))?><button class="btn btn-sm btn-primary text-nowrap" name="apply" value="1"<?=fleet_confirm(gettext('Apply the connection changes?'), gettext('Fleet makes each path over the tunnel and proves it by calling the firewall over it before it keeps it. The tunnel stays as the fallback.'), gettext('Apply'), 'warning', 'route')?>><i class="fa-solid fa-paper-plane icon-embed-btn" aria-hidden="true"></i><?=sprintf(ngettext('Apply %d change', 'Apply %d changes', count($pending)), count($pending))?></button></form>
 <?php endif; ?>
 </div>
 <?php endif; ?>
@@ -214,7 +219,7 @@ $fallbacks = count(array_filter($overview, function ($r) { return ($r['state'] !
 				<button type="button" class="btn btn-sm btn-link" data-fs-modal="#conn-modal" data-fs-modal-title="<?=htmlspecialchars(sprintf(gettext('Connection for %s'), $r['box']['label']))?>"
 				    data-fs-fill="<?=htmlspecialchars(json_encode(array('kind' => 'box', 'target' => $node, 'conn_method' => (string)$r['box']['conn_method'], 'conn_iface' => (string)$r['box']['conn_iface'])))?>"><?=gettext('Change')?></button>
 <?php if ($todo && ($r['box']['state'] === 'online')): ?>
-				<form method="post" class="d-inline"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><?=fleet_review_field(array('conn', fleet_conn_review_state(), (string)$node))?><button class="btn btn-sm btn-link" name="apply" value="1"><?=gettext('Apply')?></button></form>
+				<form method="post" class="d-inline"><input type="hidden" name="node" value="<?=htmlspecialchars($node)?>"/><?=fleet_review_field(array('conn', $review_state(), (string)$node))?><button class="btn btn-sm btn-link" name="apply" value="1"><?=gettext('Apply')?></button></form>
 <?php endif; ?>
 <?php endif; ?></td></tr>
 <?php endforeach; ?>
