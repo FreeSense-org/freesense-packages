@@ -39,9 +39,15 @@
 			return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c];
 		});
 	};
+	/* A number from the firewall, or 0: nothing a firewall sends reaches innerHTML as it came. */
+	var num = function (v) {
+		v = Number(v);
+		return isFinite(v) ? v : 0;
+	};
 	var bytes = function (b) {
 		var u = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
 		var i = 0;
+		b = num(b);
 		while (b >= 1024 && i < u.length - 1) {
 			b /= 1024;
 			i++;
@@ -49,6 +55,7 @@
 		return (i ? b.toFixed(1) : b) + ' ' + u[i];
 	};
 	var uptime = function (s) {
+		s = num(s);
 		var d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
 		return d > 0 ? d + ' ' + (d === 1 ? T.day : T.days) + (h ? ' ' + h + ' h' : '') : (h > 0 ? h + ' h ' + m + ' min' : m + ' min');
 	};
@@ -74,9 +81,9 @@
 			var mem = pct(s.memory.used_bytes, s.memory.total_bytes);
 			var st = pct(s.states.current, s.states.max);
 			var load = s.cpu.load ? s.cpu.load.join(' / ') : '-';
-			var temp = (s.temperatures || []).length ? Math.max.apply(null, s.temperatures.map(function (t) { return t.celsius; })) + ' °C' : null;
+			var temp = (s.temperatures || []).length ? Math.max.apply(null, s.temperatures.map(function (t) { return num(t.celsius); })) + ' °C' : null;
 			$('[data-m="hw"]').innerHTML =
-			    '<dt>' + esc(T.cpu) + '</dt><dd>' + esc(s.cpu.model) + ' <span class="fs-muted">(' + s.cpu.count + ' ' + esc(T.cores) + ')</span></dd>' +
+			    '<dt>' + esc(T.cpu) + '</dt><dd>' + esc(s.cpu.model) + ' <span class="fs-muted">(' + esc(num(s.cpu.count)) + ' ' + esc(T.cores) + ')</span></dd>' +
 			    '<dt>' + esc(T.memory) + '</dt><dd>' + bytes(s.memory.total_bytes) + '</dd>' +
 			    (s.swap && s.swap.total_bytes ? '<dt>' + esc(T.swap) + '</dt><dd>' + bytes(s.swap.used_bytes) + ' / ' + bytes(s.swap.total_bytes) + '</dd>' : '') +
 			    '<dt>' + esc(T.uptime) + '</dt><dd>' + uptime(s.uptime_seconds) + '</dd>' +
@@ -106,7 +113,7 @@
 				var up = i.status === 'up' || i.status === 'associated';
 				return '<tr><td><strong>' + esc(i.name) + '</strong> <span class="fs-muted fs-mono small">' + esc(i.if) + '</span></td><td>' +
 				    '<span class="fs-badge fs-badge--' + (up ? 'pass' : 'block') + '">' + esc(up ? T.up : (i.status || T.down)) + '</span></td><td class="fs-mono">' +
-				    esc(i.ip || '-') + '</td><td class="fs-mono small">' + esc(i.mac) + '</td><td class="text-end' + (i.errors ? ' fs-fleet-problem' : '') + '">' + i.errors + '</td></tr>';
+				    esc(i.ip || '-') + '</td><td class="fs-mono small">' + esc(i.mac) + '</td><td class="text-end' + (i.errors ? ' fs-fleet-problem' : '') + '">' + esc(num(i.errors)) + '</td></tr>';
 			}).join('') || '<tr><td colspan="5" class="fs-muted">-</td></tr>';
 			$('[data-m="checked"]').textContent = T.checked + ' ' + new Date(d.time * 1000).toLocaleTimeString();
 		})
