@@ -87,10 +87,39 @@ function fleet_ts_expiry_should_disable(array $d, bool $auto): bool {
  * advance, not ephemeral (the firewall stays in the tailnet). Tailscale
  * allows letters, digits, spaces and dashes in a description of 50.
  */
-function fleet_ts_authkey_body(string $label, int $ttl): array {
+function fleet_ts_authkey_body(string $label, int $ttl, array $tags = array()): array {
 	$desc = trim(substr(preg_replace('/[^A-Za-z0-9 -]+/', '', 'FreeSense Fleet ' . $label), 0, 50));
-	return array('capabilities' => array('devices' => array('create' => array('reusable' => false, 'ephemeral' => false, 'preauthorized' => true))),
+	$create = array('reusable' => false, 'ephemeral' => false, 'preauthorized' => true);
+	if (!empty($tags)) {
+		$create['tags'] = array_values($tags);
+	}
+	return array('capabilities' => array('devices' => array('create' => $create)),
 	    'expirySeconds' => max(3600, min(90 * 86400, $ttl)), 'description' => $desc);
+}
+
+/* pure: "tag:fleet, tag:edge" (or "fleet edge") as a list of valid Tailscale tags; InvalidArgumentException for a bad one. */
+function fleet_ts_tags_parse(string $text): array {
+	$out = array();
+	foreach (preg_split('/[\s,]+/', trim($text), -1, PREG_SPLIT_NO_EMPTY) as $t) {
+		$t = (strncmp($t, 'tag:', 4) === 0) ? $t : 'tag:' . $t;
+		if (!preg_match('/^tag:[a-z][a-z0-9-]{0,31}$/D', $t)) {
+			throw new InvalidArgumentException("{$t}: a Tailscale tag is lowercase letters, digits and dashes");
+		}
+		$out[$t] = $t;
+	}
+	if (count($out) > 8) {
+		throw new InvalidArgumentException('At most 8 tags');
+	}
+	return array_values($out);
+}
+
+/* The tags new one-time keys carry (tagged devices are owned by the tag, not by a person, and need no expiry). */
+function fleet_ts_tags(): array {
+	try {
+		return fleet_ts_tags_parse((string)fleet_setting('tailscale_key_tags', ''));
+	} catch (InvalidArgumentException $e) {
+		return array();
+	}
 }
 
 /* pure: why joining over Tailscale cannot be offered now (a list of sentences; empty = ready). */
@@ -241,7 +270,7 @@ function fleet_ts_join_ready(): array {
 
 /* A one-time, pre-approved auth key for one new firewall, kept with its invitation by id. Throws RuntimeException. */
 function fleet_ts_authkey_mint(string $label, int $ttl, string $who, string $token_id = ''): string {
-	list($code, $json) = fleet_ts_api('POST', '/tailnet/-/keys', fleet_ts_authkey_body($label, $ttl));
+	list($code, $json) = fleet_ts_api('POST', '/tailnet/-/keys', fleet_ts_authkey_body($label, $ttl, fleet_ts_tags()));
 	$key = (string)($json['key'] ?? '');
 	if (($code !== 200) || (strncmp($key, 'tskey-auth-', 11) !== 0)) {
 		throw new RuntimeException("Tailscale did not create an auth key (HTTP {$code}): the API token may need the auth keys permission.");

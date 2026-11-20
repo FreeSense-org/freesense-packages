@@ -1,6 +1,11 @@
 <?php
 /* Fleet controller tests: joining over Tailscale. Loaded by ../run.php (shares its variables). */
 
+check(fleet_ts_tags_parse('fleet, tag:edge fleet') === array('tag:fleet', 'tag:edge') && fleet_ts_authkey_body('x', 3600, array('tag:fleet'))['capabilities']['devices']['create']['tags'] === array('tag:fleet') &&
+    !isset(fleet_ts_authkey_body('x', 3600)['capabilities']['devices']['create']['tags']), 'one-time Tailscale keys can carry tags');
+$bad_tag = false;
+try { fleet_ts_tags_parse('Bad Tag!'); } catch (InvalidArgumentException $e) { $bad_tag = true; }
+check($bad_tag, 'a bad tag is refused');
 $tsb = fleet_ts_authkey_body('Aarhus <office> & co', 30 * 86400);
 check(($tsb['capabilities']['devices']['create'] === array('reusable' => false, 'ephemeral' => false, 'preauthorized' => true)) &&
     ($tsb['description'] === 'FreeSense Fleet Aarhus office  co') && ($tsb['expirySeconds'] === 30 * 86400) &&

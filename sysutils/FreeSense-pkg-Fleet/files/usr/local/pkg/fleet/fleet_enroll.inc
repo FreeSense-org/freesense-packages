@@ -295,6 +295,10 @@ function fleet_enroll_enroll(array $body, string $bearer, string $ip, int $now, 
 		fleet_db()->prepare('UPDATE invitations SET failures = ?, state = ? WHERE token_id = ?')
 		    ->execute(array($failures, $burned ? 'burned' : 'open', $inv['token_id']));
 		fleet_audit('enrollment', $burned ? 'burned' : 'bad_proof', "{$inv['token_id']} from {$ip} ({$failures})");
+		/* A burned invitation's one-time Tailscale key is deleted too. */
+		if ($burned && ((string)($inv['ts_key_id'] ?? '') !== '') && function_exists('fleet_ts_authkey_delete')) {
+			fleet_ts_authkey_delete((string)$inv['ts_key_id'], 'enrollment');
+		}
 		return $burned ? fleet_enroll_error(410, 'invitation_burned', 'Too many wrong keys: this invitation is no longer valid.') :
 		    fleet_enroll_error(403, 'bad_proof', 'The join key is wrong.');
 	}
