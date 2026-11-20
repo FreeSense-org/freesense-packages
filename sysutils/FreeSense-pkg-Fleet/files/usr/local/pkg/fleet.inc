@@ -375,7 +375,6 @@ function fleet_dashboard_data(array $rows, int $pending, int $now, array $groups
 			'role' => (string)$r['role'],
 			'rollback' => $protected,
 			'carp' => (string)($st['carp'] ?? 'none'),
-			'policy' => isset($st['policy_bundle']['version']) ? (int)$st['policy_bundle']['version'] : null,
 			'breakglass' => !empty($st['breakglass']),
 			'seen' => $r['last_seen'] ? (int)$r['last_seen'] : null,
 			'backup' => !empty($r['last_backup']) ? (int)$r['last_backup'] : null,
