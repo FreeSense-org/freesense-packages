@@ -42,5 +42,10 @@ $conf = fleet_enroll_nginx_conf(array(array('10.0.0.1', 8443)), '/fleet/tls.pem'
 check(strpos($conf, 'location ^~ /fleet/join/') !== false && strpos($conf, "return 404") !== false && strpos($conf, 'limit_req zone=fleetjoin') !== false &&
     strpos($conf, 'pid /var/run/fleet-enroll.pid;') !== false && !preg_match('#pid /var/run/nginx[^;]*\.pid#', $conf),
     'the enrollment nginx serves only /fleet/join/, rate-limited, with a pid file rc.restart_webgui does not kill');
+check(strpos($conf, 'unix:/var/run/fleet-enroll.socket') !== false && strpos($conf, 'unix:/var/run/php-fpm.socket') === false && strpos($conf, 'map $remote_addr $fleet_client') !== false &&
+    strpos($conf, 'limit_req_zone $fleet_client') !== false, 'the enrollment endpoint has its own php-fpm socket and counts an IPv6 client by its /64');
+$fpm = fleet_enroll_fpm_conf();
+check(strpos($fpm, 'pm = static') !== false && strpos($fpm, 'pm.max_children = 4') !== false && strpos($fpm, 'listen = /var/run/fleet-enroll.socket') !== false && strpos($fpm, 'request_terminate_timeout') !== false &&
+    strpos($fpm, 'php-fpm.pid') === false, 'the enrollment php-fpm is a few workers of its own with a time limit and its own pid');
 check(fleet_box_state(0) === 'online' && fleet_box_state(3) === 'degraded' && fleet_box_state(10) === 'offline', 'missed polls');
 check(fleet_valid_label('Copenhagen office') && !fleet_valid_label('') && !fleet_valid_label('<b>') && !fleet_valid_label(str_repeat('x', 81)), 'labels');
