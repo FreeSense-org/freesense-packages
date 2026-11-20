@@ -123,7 +123,7 @@ function fleet_widget_data(array $cfg): array {
 	if (in_array('controller', $cfg['parts'], true)) {
 		$out['controller'] = fleet_controller_row();
 		$out['standby'] = fleet_standby_overview();
-		$out['blocked'] = count(array_filter(fleet_access_json('access_blocked'), function ($u) use ($now) { return (int)$u > $now; }));
+		$out['blocked'] = count(array_filter(fleet_access_blocked(), function ($u) use ($now) { return $u > $now; }));
 		$out['alerts'] = (int)(fleet_alert_report_counts($now)['alerts'] ?? 0);
 	}
 	return $out;

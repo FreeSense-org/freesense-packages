@@ -698,9 +698,36 @@ function fleet_policy_update_blocks(array $boxes, array $infos, ?string $target 
 /* Lock bundles                                                        */
 /* ------------------------------------------------------------------ */
 
-/* node_id => {hash, version, sent, error, rules} of the last bundle Fleet tried to send. */
+/* A bundle_state row as the pages and the push read it. */
+function fleet_bundle_state_row(array $r): array {
+	return array('hash' => (string)$r['hash'], 'version' => (int)$r['version'], 'sent' => ($r['sent'] === null) ? null : (int)$r['sent'],
+	    'error' => ($r['error'] === null) ? null : (string)$r['error'], 'rules' => (int)$r['rules'], 'lock_accounts' => !empty($r['lock_accounts']));
+}
+
+/* node_id => {hash, version, sent, error, rules, lock_accounts} of the last bundle Fleet tried to send (one row per firewall). */
 function fleet_bundle_state(): array {
-	return json_decode((string)fleet_setting('bundles', '{}'), true) ?: array();
+	$out = array();
+	foreach (fleet_db()->query('SELECT * FROM bundle_state')->fetchAll() as $r) {
+		$out[$r['node_id']] = fleet_bundle_state_row($r);
+	}
+	return $out;
+}
+
+/* One firewall's bundle state, or null when none was ever tried. */
+function fleet_bundle_state_get(string $node): ?array {
+	$q = fleet_db()->prepare('SELECT * FROM bundle_state WHERE node_id = ?');
+	$q->execute(array($node));
+	$r = $q->fetch();
+	return is_array($r) ? fleet_bundle_state_row($r) : null;
+}
+
+/* Record one firewall's bundle state (a single statement: parallel pushes and the poll never overwrite each other's firewalls). */
+function fleet_bundle_state_set(string $node, array $s): void {
+	fleet_db()->prepare('INSERT INTO bundle_state (node_id, hash, version, sent, error, rules, lock_accounts) VALUES (?, ?, ?, ?, ?, ?, ?)
+	    ON CONFLICT(node_id) DO UPDATE SET hash = excluded.hash, version = excluded.version, sent = excluded.sent, error = excluded.error,
+	    rules = excluded.rules, lock_accounts = excluded.lock_accounts')
+	    ->execute(array($node, (string)$s['hash'], (int)($s['version'] ?? 0), isset($s['sent']) ? (int)$s['sent'] : null, $s['error'] ?? null,
+	    (int)($s['rules'] ?? 0), empty($s['lock_accounts']) ? 0 : 1));
 }
 
 /* The signed bundle text for a firewall: array(text, signature base64). Versions only grow (time-based). */
@@ -719,7 +746,6 @@ function fleet_bundle_make(string $node, array $rules, int $version, bool $lock_
  * the last try failed). A firewall that never had lock rules gets nothing.
  */
 function fleet_bundles_push(?array $only = null): void {
-	$state = fleet_bundle_state();
 	$policies = fleet_policies_all();
 	$groups = fleet_box_group_ids();
 	$lock_users = fleet_users_locked() ? array_flip(fleet_users_nodes()) : array();
@@ -730,13 +756,13 @@ function fleet_bundles_push(?array $only = null): void {
 		$rules = fleet_policy_lock_rules(fleet_box_effective($box['node_id'], $policies, $groups));
 		$lock_acc = isset($lock_users[$box['node_id']]);
 		$hash = hash('sha256', json_encode($rules) . ($lock_acc ? '+accounts' : ''));
-		$prev = $state[$box['node_id']] ?? null;
+		$prev = fleet_bundle_state_get($box['node_id']);
 		if ((($prev === null) && empty($rules) && !$lock_acc) || (($prev !== null) && ($prev['hash'] === $hash) && empty($prev['error']))) {
 			continue;
 		}
 		if ($box['state'] !== 'online') {
-			$state[$box['node_id']] = array('hash' => $hash, 'version' => $prev['version'] ?? 0, 'sent' => $prev['sent'] ?? null,
-			    'error' => 'Waiting for the firewall to come online', 'rules' => count($rules));
+			fleet_bundle_state_set($box['node_id'], array('hash' => $hash, 'version' => $prev['version'] ?? 0, 'sent' => $prev['sent'] ?? null,
+			    'error' => 'Waiting for the firewall to come online', 'rules' => count($rules)));
 			continue;
 		}
 		$version = max(time(), (int)($prev['version'] ?? 0) + 1);
@@ -746,14 +772,13 @@ function fleet_bundles_push(?array $only = null): void {
 			if ($code !== 200) {
 				throw new RuntimeException('FLEET-E320: The firewall refused the lock rules: ' . fleet_box_error($code, $json));
 			}
-			$state[$box['node_id']] = array('hash' => $hash, 'version' => $version, 'sent' => time(), 'error' => null, 'rules' => count($rules), 'lock_accounts' => $lock_acc);
+			fleet_bundle_state_set($box['node_id'], array('hash' => $hash, 'version' => $version, 'sent' => time(), 'error' => null, 'rules' => count($rules), 'lock_accounts' => $lock_acc));
 			fleet_audit('fleet', 'policy', sprintf('%s: %d lock and fix rules sent%s (bundle %d)', $box['label'], count($rules), $lock_acc ? ', Fleet users locked' : '', $version), $box['node_id']);
 		} catch (RuntimeException $e) {
-			$state[$box['node_id']] = array('hash' => $hash, 'version' => $prev['version'] ?? 0, 'sent' => $prev['sent'] ?? null,
-			    'error' => $e->getMessage(), 'rules' => count($rules));
+			fleet_bundle_state_set($box['node_id'], array('hash' => $hash, 'version' => $prev['version'] ?? 0, 'sent' => $prev['sent'] ?? null,
+			    'error' => $e->getMessage(), 'rules' => count($rules)));
 		}
 	}
-	fleet_setting_set('bundles', json_encode($state));
 }
 
 /*
@@ -774,12 +799,10 @@ function fleet_lock_follow(array $box, array $status): void {
 	} elseif (($bg === null) && is_array($old['breakglass'] ?? null)) {
 		fleet_audit('poll', 'policy', sprintf('%s: Lock is in force again (break-glass ended)', $box['label']), $box['node_id']);
 	}
-	$state = fleet_bundle_state();
-	$sent = $state[$box['node_id']] ?? null;
+	$sent = fleet_bundle_state_get($box['node_id']);
 	$held = (int)($status['policy_bundle']['version'] ?? 0);
 	if (($sent !== null) && empty($sent['error']) && ($held < (int)$sent['version'])) {
-		$state[$box['node_id']]['error'] = 'The firewall holds an older bundle; sending again';
-		fleet_setting_set('bundles', json_encode($state));
+		fleet_db()->prepare('UPDATE bundle_state SET error = ? WHERE node_id = ?')->execute(array('The firewall holds an older bundle; sending again', $box['node_id']));
 	}
 }
 
@@ -787,9 +810,22 @@ function fleet_lock_follow(array $box, array $status): void {
 /* Remediate                                                           */
 /* ------------------------------------------------------------------ */
 
-/* node_id => rule id => {time, hash, result, detail} of the last fix Fleet tried. */
-function fleet_remediations(): array {
-	return json_decode((string)fleet_setting('remediations', '{}'), true) ?: array();
+/* rule id => {time, hash, result, detail} of the last fix Fleet tried on a firewall (one row per firewall and rule). */
+function fleet_remediations_for(string $node): array {
+	$q = fleet_db()->prepare('SELECT rule_id, time, hash, result, detail FROM remediation_state WHERE node_id = ?');
+	$q->execute(array($node));
+	$out = array();
+	foreach ($q->fetchAll() as $r) {
+		$out[$r['rule_id']] = array('time' => (int)$r['time'], 'hash' => $r['hash'], 'result' => $r['result'], 'detail' => $r['detail']);
+	}
+	return $out;
+}
+
+/* Record the last fix tried for one rule on one firewall. */
+function fleet_remediation_record(string $node, string $rid, string $hash, string $result, string $detail): void {
+	fleet_db()->prepare('INSERT INTO remediation_state (node_id, rule_id, time, hash, result, detail) VALUES (?, ?, ?, ?, ?, ?)
+	    ON CONFLICT(node_id, rule_id) DO UPDATE SET time = excluded.time, hash = excluded.hash, result = excluded.result, detail = excluded.detail')
+	    ->execute(array($node, $rid, time(), $hash, $result, $detail));
 }
 
 /* Is a firewall inside a maintenance window now? (No window on any of its groups: always.) */
@@ -846,18 +882,17 @@ function fleet_remediate_box(array $box, string $who, bool $manual = false): str
 			$failing[$rid] = $eff[$rid][0];
 		}
 	}
-	$all = fleet_remediations();
-	$due = fleet_remediate_due($failing, $all[$box['node_id']] ?? array(), time(), $manual);
+	$due = fleet_remediate_due($failing, fleet_remediations_for($box['node_id']), time(), $manual);
 	if (empty($due)) {
 		return 'Nothing to fix.';
 	}
 	if (!$manual && !fleet_box_window_open($box['node_id'], time())) {
 		return 'Waiting for the maintenance window.';
 	}
-	$bundle = fleet_bundle_state()[$box['node_id']] ?? null;
+	$bundle = fleet_bundle_state_get($box['node_id']);
 	if (($bundle === null) || !empty($bundle['error'])) {
 		fleet_bundles_push(array($box['node_id']));
-		$bundle = fleet_bundle_state()[$box['node_id']] ?? null;
+		$bundle = fleet_bundle_state_get($box['node_id']);
 		if (($bundle === null) || !empty($bundle['error'])) {
 			return 'The firewall does not have the policy rules yet.';
 		}
@@ -866,8 +901,8 @@ function fleet_remediate_box(array $box, string $who, bool $manual = false): str
 	foreach (array_keys($due) as $rid) {
 		$node_ids[fleet_policy_node_rule($rid, $failing[$rid], 'remediate')['id']] = $rid;
 	}
-	$record = function (string $rid, string $result, string $detail) use (&$all, $box, $due) {
-		$all[$box['node_id']][$rid] = array('time' => time(), 'hash' => $due[$rid], 'result' => $result, 'detail' => $detail);
+	$record = function (string $rid, string $result, string $detail) use ($box, $due) {
+		fleet_remediation_record($box['node_id'], $rid, $due[$rid], $result, $detail);
 	};
 	try {
 		fleet_backup_box($box, 'remediation', $who);
@@ -879,7 +914,6 @@ function fleet_remediate_box(array $box, string $who, bool $manual = false): str
 		foreach ($due as $rid => $h) {
 			$record($rid, 'failed', $e->getMessage());
 		}
-		fleet_setting_set('remediations', json_encode($all));
 		fleet_audit($who, 'policy', "FLEET-E320: {$box['label']}: the fix failed: " . $e->getMessage(), $box['node_id']);
 		return 'FLEET-E320: The fix failed: ' . $e->getMessage();
 	}
@@ -899,7 +933,6 @@ function fleet_remediate_box(array $box, string $who, bool $manual = false): str
 			fleet_audit($who, 'policy', "FLEET-E320: {$box['label']}: " . fleet_policy_rule_title($rid, $failing[$rid]) . ': ' . (string)($r['detail'] ?? ''), $box['node_id']);
 		}
 	}
-	fleet_setting_set('remediations', json_encode($all));
 	fleet_audit($who, 'policy', "{$box['label']}: remediation: " . implode('; ', $words), $box['node_id']);
 	if (!empty($fixed)) {
 		/* A fresh backup shows the fix in compliance at once. */

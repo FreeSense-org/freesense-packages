@@ -137,9 +137,17 @@ check(fleet_access_merge(array(array('descr' => 'a'), array('descr' => 'old flee
     fleet_access_merge(array(array('descr' => 'a'), array('descr' => 'old', 'fleet_auto' => '1')), array(), false) === array(array('descr' => 'a')) &&
     (fleet_access_tracker('x') === fleet_access_tracker('x')) && (fleet_access_tracker('x') !== fleet_access_tracker('y')),
     'Fleet replaces only its own rules (removed when it has none), and keeps their trackers');
-list($afl, $afn) = fleet_access_fail_add(array('198.18.0.1' => array(100, 990), '198.18.0.2' => array(10)), '198.18.0.1', 1000);
-check(($afn === 2) && !isset($afl['198.18.0.2']) && (fleet_access_fail_add($afl, '198.18.0.1', 1000 + FLEET_ACCESS_WINDOW + 1)[1] === 1),
+fleet_access_fail_hit('198.18.0.1', 500, 99, 10);
+fleet_access_fail_hit('198.18.0.2', 10, 99, 10);
+$afh = fleet_access_fail_hit('198.18.0.1', 990, 99, 10);
+check(($afh === array(2, false)) && (fleet_db()->query("SELECT COUNT(*) FROM access_fails WHERE ip = '198.18.0.2'")->fetchColumn() == 0) &&
+    (fleet_access_fail_hit('198.18.0.1', 1000 + FLEET_ACCESS_WINDOW + 1, 99, 10) === array(1, false)),
     'wrong keys count within ten minutes; old ones are forgotten');
+check((fleet_access_fail_hit('198.18.0.9', 2000, 2, 10) === array(1, false)) && (fleet_access_fail_hit('198.18.0.9', 2001, 2, 10) === array(2, true)) &&
+    (fleet_access_blocked()['198.18.0.9'] === 2001 + 600) && (fleet_access_fail_hit('198.18.0.9', 2002, 2, 10) === array(1, false)) &&
+    (fleet_access_fail_hit('198.18.0.9', 2003, 2, 10) === array(2, false)) && (fleet_access_blocked()['198.18.0.9'] === 2001 + 600),
+    'enough wrong keys block the address once (its count restarts; a block in force is not extended)');
+fleet_db()->exec("DELETE FROM access_blocked; DELETE FROM access_fails");
 check((fleet_access_endpoints_parse(array("k1=\t203.0.113.9:51820", "k2=\t[2001:db8::7]:4000", "k3=\t(none)")) === array('k1=' => '203.0.113.9', 'k2=' => '2001:db8::7')),
     'the addresses firewalls connect from, read from the tunnel');
 check((fleet_access_reach_kind(array('203.0.113.1'), array('203.0.113.1', '10.0.0.1'))[0] === 'local') && (fleet_access_reach_kind(array('198.51.100.1'), array('10.0.0.1'))[0] === 'forward') &&

@@ -754,7 +754,7 @@ if ($savemsg) {
 	$pq->execute(array($box['node_id']));
 	$pres = array_column($pq->fetchAll(), null, 'rule_id');
 	$pnames = array_column(fleet_policies_all(), 'name', 'id');
-	$prem = fleet_remediations()[$box['node_id']] ?? array();
+	$prem = fleet_remediations_for($box['node_id']);
 	$pfixable = 0;
 	foreach ($peff as $prid => $pe) {
 		$pfixable += (($pe[1] === 'remediate') && (($pres[$prid]['state'] ?? '') === 'fail')) ? 1 : 0;
@@ -788,7 +788,7 @@ if ($savemsg) {
 		</tbody></table></div>
 <?php endif; ?>
 	<div class="panel-footer small fs-muted"><?=gettext('Checked every 15 minutes against what the firewall reports and its newest configuration backup.')?>
-<?php $bs = fleet_bundle_state()[$box['node_id']] ?? null; $bst = json_decode((string)($box['status'] ?? ''), true) ?: array(); $bg = $bst['breakglass'] ?? null; ?>
+<?php $bs = fleet_bundle_state_get($box['node_id']); $bst = json_decode((string)($box['status'] ?? ''), true) ?: array(); $bg = $bst['breakglass'] ?? null; ?>
 <?php if ($bs !== null): ?>
 		<div class="mt-1"><?=!empty($bs['error']) ? '<span class="fs-fleet-problem">' . htmlspecialchars(sprintf(gettext('Policy rules not on the firewall yet: %s'), $bs['error'])) . '</span>' :
 		    htmlspecialchars(sprintf(gettext('%1$d lock and fix rules held on the firewall since %2$s.'), (int)$bs['rules'], date('Y-m-d H:i', (int)$bs['sent'])))?></div>

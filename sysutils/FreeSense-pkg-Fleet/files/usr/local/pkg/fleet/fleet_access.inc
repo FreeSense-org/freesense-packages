@@ -212,17 +212,45 @@ function fleet_access_merge(array $items, array $mine, bool $first): array {
 	return $first ? array_merge(array_values($mine), $keep) : array_merge($keep, array_values($mine));
 }
 
-/* pure: wrong keys from $ip within the window, with this one; array(updated failures, count). */
-function fleet_access_fail_add(array $fails, string $ip, int $now): array {
-	$keep = array();
-	foreach ($fails as $a => $times) {
-		$t = array_values(array_filter((array)$times, function ($x) use ($now) { return ($now - (int)$x) < FLEET_ACCESS_WINDOW; }));
-		if (!empty($t)) {
-			$keep[$a] = $t;
+/*
+ * A wrong key from $ip at $now: counted with the others from it within the window, and when that
+ * reaches $after the address is blocked for $minutes (its count restarts). One transaction, so
+ * parallel requests neither lose counts nor block twice. Returns array(count, newly blocked).
+ */
+function fleet_access_fail_hit(string $ip, int $now, int $after, int $minutes): array {
+	$db = fleet_db();
+	$db->exec('BEGIN IMMEDIATE');
+	try {
+		$db->prepare('DELETE FROM access_fails WHERE time <= ?')->execute(array($now - FLEET_ACCESS_WINDOW));
+		$db->prepare('INSERT INTO access_fails (ip, time) VALUES (?, ?)')->execute(array($ip, $now));
+		$q = $db->prepare('SELECT COUNT(*) FROM access_fails WHERE ip = ?');
+		$q->execute(array($ip));
+		$n = (int)$q->fetchColumn();
+		$q = $db->prepare('SELECT until FROM access_blocked WHERE ip = ?');
+		$q->execute(array($ip));
+		$newly = false;
+		if (($n >= $after) && ((int)$q->fetchColumn() <= $now)) {
+			$db->prepare('INSERT INTO access_blocked (ip, until) VALUES (?, ?) ON CONFLICT(ip) DO UPDATE SET until = excluded.until')->execute(array($ip, $now + 60 * $minutes));
+			$db->prepare('DELETE FROM access_fails WHERE ip = ?')->execute(array($ip));
+			$newly = true;
 		}
+		$db->exec('COMMIT');
+	} catch (Throwable $e) {
+		if ($db->inTransaction()) {
+			$db->exec('ROLLBACK');
+		}
+		throw $e;
 	}
-	$keep[$ip][] = $now;
-	return array($keep, count($keep[$ip]));
+	return array($n, $newly);
+}
+
+/* ip => until of the addresses blocked on the Fleet ports (expired ones are removed by fleet_access_tick()). */
+function fleet_access_blocked(): array {
+	$out = array();
+	foreach (fleet_db()->query('SELECT ip, until FROM access_blocked')->fetchAll() as $r) {
+		$out[$r['ip']] = (int)$r['until'];
+	}
+	return $out;
 }
 
 /* pure: peer public key => source address from "wg show <if> endpoints" lines. */
@@ -318,7 +346,7 @@ function fleet_access_rule_set_now(): array {
 	if (!$s['enable'] || !is_file(FLEET_DATA . '/fleet.db')) {
 		return array('aliases' => array(), 'rules' => array());
 	}
-	return fleet_access_rule_set($s, fleet_access_ifaces($s), fleet_access(), fleet_access_allowed_now(time()), fleet_access_json('access_blocked'), time());
+	return fleet_access_rule_set($s, fleet_access_ifaces($s), fleet_access(), fleet_access_allowed_now(time()), fleet_access_blocked(), time());
 }
 
 /* Put a rule set into the configuration (not written). Returns true when something changed. */
@@ -383,19 +411,13 @@ function fleet_access_failed(string $ip, int $now): bool {
 	if (!$acc['block'] || (fleet_access_cidr($ip) === null) || fleet_access_is_allowed($ip, fleet_access_allowed_now($now))) {
 		return false;
 	}
-	list($fails, $n) = fleet_access_fail_add(fleet_access_json('access_fails'), $ip, $now);
-	fleet_setting_set('access_fails', json_encode($fails));
+	list($n, $newly) = fleet_access_fail_hit($ip, $now, $acc['block_after'], $acc['block_minutes']);
 	if ($n < $acc['block_after']) {
 		return false;
 	}
-	$blocked = fleet_access_json('access_blocked');
-	if ((int)($blocked[$ip] ?? 0) > $now) {
+	if (!$newly) {
 		return true;
 	}
-	$blocked[$ip] = $now + 60 * $acc['block_minutes'];
-	fleet_setting_set('access_blocked', json_encode($blocked));
-	unset($fails[$ip]);
-	fleet_setting_set('access_fails', json_encode($fails));
 	fleet_audit('system', 'access', sprintf('%s blocked for %d minutes after %d wrong keys', $ip, $acc['block_minutes'], $n));
 	if (function_exists('fleet_alert')) {
 		fleet_alert('access_blocked', '', sprintf('%s was blocked on the Fleet ports for %d minutes after %d wrong join keys.', $ip, $acc['block_minutes'], $n));
@@ -406,9 +428,7 @@ function fleet_access_failed(string $ip, int $now): bool {
 }
 
 function fleet_access_unblock(string $ip, string $who): void {
-	$blocked = fleet_access_json('access_blocked');
-	unset($blocked[$ip]);
-	fleet_setting_set('access_blocked', json_encode($blocked, JSON_FORCE_OBJECT));
+	fleet_db()->prepare('DELETE FROM access_blocked WHERE ip = ?')->execute(array($ip));
 	fleet_audit($who, 'access', "{$ip} unblocked");
 	fleet_access_reload();
 }
@@ -433,8 +453,6 @@ function fleet_access_tick(int $now): void {
 	$seen = array_intersect_key($seen, array_flip($by_key));
 	$inv = $was_inv = fleet_access_json('access_invites');
 	$inv = array_filter($inv, function ($i) use ($now) { return (int)$i['expires'] > $now; });
-	$blocked = $was_blocked = fleet_access_json('access_blocked');
-	$blocked = array_filter($blocked, function ($until) use ($now) { return (int)$until > $now; });
 	$acc = fleet_access();
 	$changed = false;
 	if ($seen != $was_seen) {
@@ -445,8 +463,9 @@ function fleet_access_tick(int $now): void {
 		fleet_setting_set('access_invites', json_encode($inv, JSON_FORCE_OBJECT));
 		$changed = true;
 	}
-	if ($blocked != $was_blocked) {
-		fleet_setting_set('access_blocked', json_encode($blocked, JSON_FORCE_OBJECT));
+	$expired = fleet_db()->prepare('DELETE FROM access_blocked WHERE until <= ?');
+	$expired->execute(array($now));
+	if ($expired->rowCount() > 0) {
 		$changed = true;
 	}
 	/* "Open for joining" ran out. */

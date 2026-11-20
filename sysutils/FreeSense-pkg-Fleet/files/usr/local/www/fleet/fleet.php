@@ -848,7 +848,7 @@ endif;
 	$acc = fleet_access();
 	$chk = json_decode((string)fleet_setting('access_check', '{}'), true) ?: array();
 	$allowed = fleet_access_allowed_now(time());
-	$blocked = array_filter(fleet_access_json('access_blocked'), function ($u) { return (int)$u > time(); });
+	$blocked = array_filter(fleet_access_blocked(), function ($u) { return $u > time(); });
 	$manual = array_column($acc['entries'], 'cidr');
 	$aq = trim((string)($_GET['aq'] ?? ''));
 	$shown_allowed = array_filter($allowed, function ($why, $c) use ($aq) { return ($aq === '') || (stripos($c . ' ' . $why, $aq) !== false); }, ARRAY_FILTER_USE_BOTH);
