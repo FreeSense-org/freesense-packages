@@ -290,9 +290,9 @@ function fleet_rollout_plan(array $ring_groups, string $target): array {
 	$busy = array();
 	$infos = array();
 	foreach ($boxes as $b) {
-		$running = fleet_op_running($b['node_id']);
-		if ($running !== null) {
-			$busy[$b['node_id']] = (string)$running['text'];
+		$why = fleet_op_update_busy($b['node_id']);
+		if ($why !== null) {
+			$busy[$b['node_id']] = $why;
 		}
 		$infos[$b['node_id']] = fleet_update_info($b);
 		if (($infos[$b['node_id']] !== null) && $infos[$b['node_id']]['available'] && !fleet_version_same($infos[$b['node_id']]['latest'], $target)) {
@@ -333,7 +333,11 @@ function fleet_rollout_start(array $plan, string $target, int $gap, string $who)
 	foreach ($plan['rings'] as $r => list($gid, $name, $window, $boxes)) {
 		$rings[] = array('group' => $gid, 'name' => $name, 'window' => ($window === null) ? null : $window['id']);
 		foreach ($boxes as $b) {
-			$t = fleet_op_start($b['node_id'], 'update', 'Waiting for its ring', $who, $op, 'queued');
+			$t = fleet_op_queue_update($b['node_id'], 'Waiting for its ring', $who, $op, $busy);
+			if ($t === null) {
+				$plan['skip'][] = array($b, 'Busy: ' . lcfirst($busy));
+				continue;
+			}
 			fleet_db()->prepare('UPDATE ops SET data = ? WHERE id = ?')->execute(array(json_encode(array('ring' => $r)), $t));
 		}
 	}
