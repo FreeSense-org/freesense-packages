@@ -304,6 +304,40 @@ function fleet_op_running(string $node_id, ?int $except = null): ?array {
 }
 
 /*
+ * What stands in the way of PLANNING an update of a firewall, in words, or null: what runs on it now, or an
+ * update of its own that is only waiting (a rollout ring for its window, a group behind another firewall).
+ * A waiting task does not stop a backup or a reboot, but a second plan must not queue a second update.
+ */
+function fleet_op_update_busy(string $node_id): ?string {
+	$running = fleet_op_running($node_id);
+	if ($running !== null) {
+		return (string)$running['text'];
+	}
+	$q = fleet_db()->prepare("SELECT o.id, p.title FROM ops o LEFT JOIN ops p ON p.id = o.parent WHERE o.node_id = ? AND o.kind = 'update' AND o.state = 'queued' ORDER BY o.id DESC LIMIT 1");
+	$q->execute(array($node_id));
+	$row = $q->fetch();
+	if (!is_array($row)) {
+		return null;
+	}
+	return 'An update is already waiting' . (((string)($row['title'] ?? '') !== '') ? ' (' . $row['title'] . ')' : '');
+}
+
+/*
+ * Queue an update task of a group or rollout on a firewall, unless one is running or waiting there: the plan
+ * the user reviewed may be minutes old, and another plan can have queued this firewall meanwhile. The check
+ * and the queueing are one step under the firewall's lock. Returns the task id, or null with $why set.
+ */
+function fleet_op_queue_update(string $node_id, string $text, string $who, int $parent, ?string &$why): ?int {
+	$lock = fleet_node_lock($node_id);
+	try {
+		$why = fleet_op_update_busy($node_id);
+		return ($why !== null) ? null : fleet_op_start($node_id, 'update', $text, $who, $parent, 'queued');
+	} finally {
+		fclose($lock);
+	}
+}
+
+/*
  * The runner of an operation died with an error nothing caught: what it had waiting is skipped, what it was
  * doing fails, and the group is recounted, so the firewalls are free again and the page says why.
  */
@@ -727,9 +761,10 @@ function fleet_boxes_plan(array $boxes, string $action): array {
 	$busy = array();
 	$infos = array();
 	foreach ($boxes as $b) {
-		$running = fleet_op_running($b['node_id']);
-		if ($running !== null) {
-			$busy[$b['node_id']] = (string)$running['text'];
+		/* An update also counts an update that is waiting its turn; a reboot does not. */
+		$why = ($action === 'update') ? fleet_op_update_busy($b['node_id']) : (($r = fleet_op_running($b['node_id'])) !== null ? (string)$r['text'] : null);
+		if ($why !== null) {
+			$busy[$b['node_id']] = $why;
 		}
 		$infos[$b['node_id']] = fleet_update_info($b);
 	}
@@ -745,6 +780,12 @@ function fleet_group_op_launch($group, string $action, array $plan, string $who)
 	$name = is_array($group) ? $group['name'] : (is_string($group) ? $group : 'all firewalls');
 	$op = fleet_op_group_start($action . '_group', sprintf(($action === 'update') ? 'Update %s' : 'Reboot %s', $name), $who);
 	foreach ($plan['go'] as $b) {
+		if ($action === 'update') {
+			if (fleet_op_queue_update($b['node_id'], 'Waiting', $who, $op, $busy) === null) {
+				$plan['skip'][] = array($b, 'Busy: ' . lcfirst($busy));
+			}
+			continue;
+		}
 		fleet_op_start($b['node_id'], $action, 'Waiting', $who, $op, 'queued');
 	}
 	foreach ($plan['skip'] as list($b, $why)) {
